@@ -1350,6 +1350,7 @@ def _cad_scene_data(session, payload: Dict[str, Any]):
     visible_map = display.get("labelVisible") or display.get("elementVisible") or {}
     color_map = display.get("labelColors") or display.get("elementColors") or {}
     radius_map = display.get("labelRadii") or display.get("elementRadii") or {}
+    opacity_map = display.get("labelOpacities") or {}
     label_materials = display.get("labelMaterials") or {}
     atom_materials = display.get("atomMaterials") or {}
     scale_colors = (
@@ -1371,6 +1372,15 @@ def _cad_scene_data(session, payload: Dict[str, Any]):
         if index < len(scale_colors):
             return _valid_hex_color(scale_colors[index], established)
         return established
+
+    def atom_opacity(label):
+        try:
+            value = float(opacity_map.get(label, 1.0))
+        except (TypeError, ValueError):
+            value = 1.0
+        if not np.isfinite(value):
+            value = 1.0
+        return max(0.0, min(1.0, value))
 
     atom_specs = []
     visible_indices = set()
@@ -1399,6 +1409,7 @@ def _cad_scene_data(session, payload: Dict[str, Any]):
                 "position": shifted.tolist(),
                 "radius": float(radius),
                 "color": color,
+                "opacity": atom_opacity(label),
                 "material": material_preset,
                 "cell_offset": list(offset),
             })
@@ -1677,15 +1688,21 @@ def export_3dm_response(session, payload: Dict[str, Any]):
 
     material_indices = {}
 
-    def material_index(color, preset="standard"):
+    def material_index(color, preset="standard", opacity=1.0):
         color = _valid_hex_color(color)
         preset = _atom_material_preset(preset)
-        key = (color, preset)
+        try:
+            opacity = max(0.0, min(1.0, float(opacity)))
+        except (TypeError, ValueError):
+            opacity = 1.0
+        key = (color, preset, round(opacity, 6))
         if key in material_indices:
             return material_indices[key]
         material = rhino3dm.Material()
-        material.Name = f"v_ase_{preset}_{color[1:]}"
+        material.Name = f"v_ase_{preset}_{color[1:]}_a{round(opacity * 10000):04d}"
         material.DiffuseColor = (*_hex_rgb(color), 255)
+        if hasattr(material, "Transparency"):
+            material.Transparency = 1.0 - opacity
         if preset == "metal":
             material.Shine = 246.0
             material.Reflectivity = 0.92
@@ -1769,7 +1786,7 @@ def export_3dm_response(session, payload: Dict[str, Any]):
             rhino3dm,
             f"atom_{atom['index']}_{atom['label']}_cell_{offset}",
             layer_indices["Atoms"],
-            material_index(atom["color"], atom["material"]),
+            material_index(atom["color"], atom["material"], atom["opacity"]),
             atom["color"],
             {
                 "v_ase.kind": "atom",
@@ -1777,6 +1794,7 @@ def export_3dm_response(session, payload: Dict[str, Any]):
                 "v_ase.label": atom["label"],
                 "v_ase.element": atom["symbol"],
                 "v_ase.material": atom["material"],
+                "v_ase.opacity": atom["opacity"],
                 "v_ase.cell_offset": offset,
                 "v_ase.units": "angstrom",
             },
@@ -2047,16 +2065,23 @@ def export_obj_response(session, payload: Dict[str, Any]):
     scene = _cad_scene_data(session, payload)
     display = payload.get("display") or {}
     material_specs = {
-        (atom["color"], _atom_material_preset(atom.get("material")))
+        (
+            atom["color"],
+            _atom_material_preset(atom.get("material")),
+            round(float(atom.get("opacity", 1.0)), 6),
+        )
         for atom in scene["atoms"]
     }
-    material_specs.update((bond["color"], "standard") for bond in scene["bonds"])
+    material_specs.update((bond["color"], "standard", 1.0) for bond in scene["bonds"])
     if scene["cell_edges"]:
         cell_preset = "metal" if scene["cell_material"] == "metal" else "standard"
-        material_specs.add((scene["cell_color"], cell_preset))
+        material_specs.add((scene["cell_color"], cell_preset, 1.0))
     material_specs = sorted(material_specs)
     materials = {
-        spec: f"v_ase_{spec[1]}_{spec[0][1:]}"
+        spec: (
+            f"v_ase_{spec[1]}_{spec[0][1:]}"
+            + ("" if spec[2] >= 0.999999 else f"_a{round(spec[2] * 10000):04d}")
+        )
         for spec in material_specs
     }
     segments, stacks = _obj_sphere_resolution(scene, display)
@@ -2067,7 +2092,7 @@ def export_obj_response(session, payload: Dict[str, Any]):
     metadata_path = os.path.join(workdir, "v_ase_scene.json")
     with open(mtl_path, "w", encoding="ascii", newline="\n") as handle:
         handle.write("# v_ase material library\n")
-        for color, preset in material_specs:
+        for color, preset, opacity in material_specs:
             red, green, blue = (channel / 255.0 for channel in _hex_rgb(color))
             if preset == "metal":
                 specular, shine, illumination = 0.98, 246.0, 3
@@ -2076,11 +2101,11 @@ def export_obj_response(session, payload: Dict[str, Any]):
             else:
                 specular, shine, illumination = 0.52, 144.0, 2
             handle.write(
-                f"newmtl {materials[(color, preset)]}\n"
+                f"newmtl {materials[(color, preset, opacity)]}\n"
                 f"Ka {red * 0.18:.6f} {green * 0.18:.6f} {blue * 0.18:.6f}\n"
                 f"Kd {red:.6f} {green:.6f} {blue:.6f}\n"
                 f"Ks {specular:.6f} {specular:.6f} {specular:.6f}\n"
-                f"Ns {shine:.6f}\nillum {illumination}\n\n"
+                f"Ns {shine:.6f}\nd {opacity:.6f}\nillum {illumination}\n\n"
             )
 
     with open(obj_path, "w", encoding="ascii", newline="\n") as handle:
@@ -2098,7 +2123,11 @@ def export_obj_response(session, payload: Dict[str, Any]):
                 f"atom_{atom['index']}_{atom['label']}_cell_{offset}",
                 atom["position"],
                 atom["radius"],
-                materials[(atom["color"], atom["material"])],
+                materials[(
+                    atom["color"],
+                    atom["material"],
+                    round(float(atom.get("opacity", 1.0)), 6),
+                )],
                 segments,
                 stacks,
             )
@@ -2106,12 +2135,12 @@ def export_obj_response(session, payload: Dict[str, Any]):
             if bond["style"] == "flat":
                 writer.ribbon(
                     bond["name"], bond["start"], bond["end"], bond["radius"],
-                    materials[(bond["color"], "standard")]
+                    materials[(bond["color"], "standard", 1.0)]
                 )
             else:
                 writer.cylinder(
                     bond["name"], bond["start"], bond["end"], bond["radius"],
-                    materials[(bond["color"], "standard")]
+                    materials[(bond["color"], "standard", 1.0)]
                 )
         for index, edge in enumerate(scene["cell_edges"]):
             cell_preset = "metal" if scene["cell_material"] == "metal" else "standard"
@@ -2120,7 +2149,7 @@ def export_obj_response(session, payload: Dict[str, Any]):
                 edge["start"],
                 edge["end"],
                 float(scene["cell_thickness"]) * 0.5,
-                materials[(scene["cell_color"], cell_preset)],
+                materials[(scene["cell_color"], cell_preset, 1.0)],
             )
 
     with open(metadata_path, "w", encoding="utf-8", newline="\n") as handle:
@@ -2196,6 +2225,7 @@ ATOM_RADII = VISUAL.get("radii", VISUAL.get("covalent_radii", []))
 ATOM_LABELS = DATA.get("symbols", [])
 DISPLAY_LABEL_COLORS = DISPLAY.get("labelColors", DISPLAY.get("elementColors", {{}}))
 DISPLAY_LABEL_RADII = DISPLAY.get("labelRadii", DISPLAY.get("elementRadii", {{}}))
+DISPLAY_LABEL_OPACITIES = DISPLAY.get("labelOpacities", {{}})
 DISPLAY_LABEL_VISIBLE = DISPLAY.get("labelVisible", DISPLAY.get("elementVisible", {{}}))
 DISPLAY_LABEL_MATERIALS = DISPLAY.get("labelMaterials", {{}})
 DISPLAY_ATOM_MATERIALS = DISPLAY.get("atomMaterials", {{}})
@@ -2262,6 +2292,14 @@ def get_atom_radius(index, fallback=FALLBACK_RADIUS):
         except (TypeError, ValueError):
             pass
     return fallback * ATOM_RADIUS_SCALE
+
+def get_atom_opacity(index):
+    if 0 <= index < len(ATOM_LABELS):
+        try:
+            return clamp01(DISPLAY_LABEL_OPACITIES.get(ATOM_LABELS[index], 1.0))
+        except (TypeError, ValueError):
+            pass
+    return 1.0
 
 def get_atom_material_preset(index):
     value = DISPLAY_ATOM_MATERIALS.get(str(index), DISPLAY_ATOM_MATERIALS.get(index))
@@ -2345,16 +2383,23 @@ def get_bond_mat(index):
 def get_atom_mat(index, symbol):
     color = get_atom_color(index)
     preset = get_atom_material_preset(index)
-    key = f"{{symbol}}_{{preset}}_{{color[0]:.4f}}_{{color[1]:.4f}}_{{color[2]:.4f}}"
+    opacity = get_atom_opacity(index)
+    key = f"{{symbol}}_{{preset}}_{{color[0]:.4f}}_{{color[1]:.4f}}_{{color[2]:.4f}}_a{{opacity:.4f}}"
     if key not in ATOM_MATS:
-        ATOM_MATS[key] = material(f"atom {{symbol}} {{preset}}", color, 1.0, preset)
+        ATOM_MATS[key] = material(
+            f"atom {{symbol}} {{preset}} alpha {{opacity:.4f}}",
+            color,
+            opacity,
+            preset,
+        )
     return ATOM_MATS[key]
 
 def get_atom_mesh(index, symbol):
     color = get_atom_color(index)
     radius = get_atom_radius(index)
     preset = get_atom_material_preset(index)
-    material_key = f"{{symbol}}_{{preset}}_{{color[0]:.4f}}_{{color[1]:.4f}}_{{color[2]:.4f}}"
+    opacity = get_atom_opacity(index)
+    material_key = f"{{symbol}}_{{preset}}_{{color[0]:.4f}}_{{color[1]:.4f}}_{{color[2]:.4f}}_a{{opacity:.4f}}"
     mesh_key = f"r{{radius:.4f}}_{{material_key}}"
     if mesh_key not in ATOM_MESHES:
         bpy.ops.mesh.primitive_uv_sphere_add(segments=32, ring_count=16, radius=radius, location=(0, 0, 0))

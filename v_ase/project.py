@@ -116,6 +116,18 @@ def normalize_visual_settings(settings: Any) -> dict[str, Any]:
         if current_key not in display and legacy_key in display:
             display[current_key] = display[legacy_key]
         display.pop(legacy_key, None)
+    if isinstance(display.get("labelOpacities"), dict):
+        normalized_opacities = {}
+        for label, value in display["labelOpacities"].items():
+            try:
+                opacity = float(value)
+            except (TypeError, ValueError):
+                continue
+            if np.isfinite(opacity):
+                normalized_opacities[str(label)] = max(0.0, min(1.0, opacity))
+        display["labelOpacities"] = normalized_opacities
+    else:
+        display.pop("labelOpacities", None)
     if display.get("bondMode") == "element":
         display["bondMode"] = "pairwise"
     clean["schema"] = SETTINGS_SCHEMA

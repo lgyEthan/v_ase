@@ -879,6 +879,7 @@ Atom settings:
 | `atomRadiusScale` | positive global radius multiplier |
 | `labelRadii` | `{label: radius}` |
 | `labelColors` | `{label: "#rrggbb"}` |
+| `labelOpacities` | `{label: opacity}` with each value clamped to `0..1` |
 | `labelVisible` | `{label: boolean}` |
 | `labelMaterials` | `{label: "standard"|"metal"|"rubber"}` |
 | `atomMaterials` | `{atomIndex: material}` in Edit |
@@ -889,7 +890,9 @@ lighting and material response are disabled. Background-aware outlines are
 applied to atoms/bonds, FixAtoms receives an X, and vectors, cell edges, and
 insertion-region edges use flat camera-facing geometry. Switching back to
 `"3d"` restores the stored material and lighting settings without a backend
-structure mutation.
+structure mutation. Per-label opacity is a visual setting only. It persists in
+visual presets, `.vase`/project HTML, standalone HTML, Blender, OBJ, and 3DM
+exports without changing ASE atoms or per-atom arrays.
 
 Bond settings:
 

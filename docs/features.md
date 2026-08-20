@@ -331,7 +331,7 @@ Chemical TYPE and visual LABEL are independent:
 
 - TYPE is an ASE chemical symbol and controls element defaults and calculators.
 - LABEL identifies a visual/chemical group and keys selection, visibility,
-  explicit color/radius overrides, and pairwise bond cutoffs.
+  explicit color/radius/opacity overrides, and pairwise bond cutoffs.
 
 Changing a TYPE updates element color/radius defaults but keeps the label.
 Changing a label to a valid element name or `Element_suffix` updates TYPE to the
@@ -344,10 +344,12 @@ group instead of creating a suffix. If that target group has one chemical TYPE,
 it is authoritative for the merged atoms.
 
 Standard, Metal, and Rubber material presets are supported. View stores
-materials by label. Edit can override material per selected atom. Materials are
-part of `.vase` projects and static export payloads; reusable settings omit
-per-atom overrides so they remain portable to structures with different atom
-counts. Metal uses a shared on-demand PMREM studio environment with high
+materials and opacity by label. Edit can override material per selected atom.
+Label opacity is clamped to `0..1`, participates in visual history, and remains
+separate from visibility. Materials and label opacity are part of visual
+presets, `.vase` projects, HTML, and geometry export payloads; reusable settings
+omit per-atom overrides so they remain portable to structures with different
+atom counts. Metal uses a shared on-demand PMREM studio environment with high
 metalness and low roughness; no reflection environment is allocated until a
 metal preset is present.
 

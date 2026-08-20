@@ -231,6 +231,16 @@ def test_skill_version_install_and_environment_contract_are_current():
         assert required in skill_text + cli_text
 
 
+def test_skill_and_live_schema_document_per_label_opacity():
+    documented = _documented_skill_text()
+    live_schema = asyncio.run(ai_control_schema())["control_schema"]
+    display_description = live_schema["properties"]["display"]["description"]
+
+    assert "`labelOpacities`" in documented
+    assert "0..1" in documented
+    assert "labelOpacities" in display_description
+
+
 def test_skill_distinguishes_temporary_add_atoms_overlay_from_ase_constraints():
     documented = _documented_skill_text()
 

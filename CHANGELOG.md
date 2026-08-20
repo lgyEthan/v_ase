@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.25
+
+- Added per-label atom opacity (`0..1`) beside color, radius, and material in
+  **Structure > Appearance**. Opacity remains consistent across ordinary and
+  instanced atoms, displayed supercells, commensurate previews, flat 2D,
+  visual history, reusable settings, `.vase`/HTML projects, and Blender, OBJ,
+  and 3DM exports.
+
 ## 0.2.24
 
 - Moved **Build with ASE** into the **+ Add atoms** workspace so single-atom

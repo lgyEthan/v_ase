@@ -1,13 +1,13 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.2.24&rev=1';
-import { ASERenderer } from './renderer.js?v=0.2.24&rev=1';
-import { ASESelection } from './selection.js?v=0.2.24&rev=1';
-import { ASETransform } from './transform.js?v=0.2.24&rev=1';
+import { ASEApi } from './api.js?v=0.2.25&rev=1';
+import { ASERenderer } from './renderer.js?v=0.2.25&rev=1';
+import { ASESelection } from './selection.js?v=0.2.25&rev=1';
+import { ASETransform } from './transform.js?v=0.2.25&rev=1';
 import {
     interpolateTrajectoryFrames,
     interpolatedFrameCount,
     normalizeInterpolationMultiplier
-} from './trajectory.js?v=0.2.24&rev=1';
+} from './trajectory.js?v=0.2.25&rev=1';
 
 const CHEMICAL_ELEMENT_SYMBOLS = Object.freeze([
     'H','He','Li','Be','B','C','N','O','F','Ne',
@@ -148,6 +148,7 @@ class VAseApp {
                 atomRadiusScale: 0.6,
                 labelRadii: {},
                 labelColors: {},
+                labelOpacities: {},
                 labelVisible: {},
                 labelMaterials: {},
                 atomMaterials: {},
@@ -1570,7 +1571,7 @@ class VAseApp {
                     : this.uniqueTransitionLabel(sourceLabel, usedLabels);
                 atomIndices.forEach(index => { nextLabels[index] = targetLabel; });
                 nextDisplay.labelMaterials[targetLabel] = preset;
-                ['labelRadii', 'labelColors', 'labelVisible'].forEach(key => {
+                ['labelRadii', 'labelColors', 'labelOpacities', 'labelVisible'].forEach(key => {
                     nextDisplay[key] = { ...(nextDisplay[key] || {}) };
                     if (
                         targetLabel !== sourceLabel
@@ -3117,7 +3118,8 @@ class VAseApp {
             '#commensurate-snap-range',
             '.pairwise-bond-max',
             '.label-radius-input',
-            '.label-color-input'
+            '.label-color-input',
+            '.label-opacity-input'
         ].join(','));
     }
 
@@ -9586,6 +9588,7 @@ class VAseApp {
             : this.state.display.atomRadiusScale;
         this.state.display.labelRadii = config.element_radii || {};
         this.state.display.labelColors = config.element_colors || {};
+        this.state.display.labelOpacities = config.label_opacities || {};
         this.state.display.labelVisible = config.element_visible || {};
         this.state.display.labelMaterials = config.label_materials || {};
         this.state.display.atomMaterials = config.atom_materials || {};
@@ -13001,7 +13004,11 @@ class VAseApp {
     ) {
         if (!oldSymbol || !newSymbol || oldSymbol === newSymbol) return;
         const maps = [
-            ...(appearance ? [this.state.display.labelRadii, this.state.display.labelColors] : []),
+            ...(appearance ? [
+                this.state.display.labelRadii,
+                this.state.display.labelColors,
+                this.state.display.labelOpacities
+            ] : []),
             this.state.display.labelMaterials,
             this.state.display.labelVisible
         ];
@@ -13190,9 +13197,15 @@ class VAseApp {
             field: active?.dataset?.appearanceField
         };
         root.innerHTML = '';
+        this.state.display.labelOpacities = {
+            ...(this.state.display.labelOpacities || {})
+        };
         this.uniqueAtomLabels().forEach(symbol => {
             if (!(symbol in this.state.display.labelRadii)) {
                 this.state.display.labelRadii[symbol] = Number(this.labelVisualRadius(symbol).toFixed(4));
+            }
+            if (!(symbol in this.state.display.labelOpacities)) {
+                this.state.display.labelOpacities[symbol] = 1;
             }
             if (!(symbol in this.state.display.labelVisible)) {
                 this.state.display.labelVisible[symbol] = true;
@@ -13337,6 +13350,20 @@ class VAseApp {
             input.addEventListener('change', () => this.safeApplyDisplayOptions());
             input.addEventListener('input', () => this.safeApplyDisplayOptions());
 
+            const opacity = document.createElement('input');
+            opacity.type = 'number';
+            opacity.id = this.safeControlId('label-opacity', symbol);
+            opacity.className = 'label-opacity-input';
+            opacity.dataset.atomLabel = symbol;
+            opacity.dataset.appearanceField = 'opacity';
+            opacity.min = '0';
+            opacity.max = '1';
+            opacity.step = '0.05';
+            opacity.value = Number(this.state.display.labelOpacities[symbol]).toFixed(2);
+            opacity.title = `Opacity for ${symbol} (0 transparent, 1 opaque)`;
+            opacity.addEventListener('change', () => this.safeApplyDisplayOptions());
+            opacity.addEventListener('input', () => this.safeApplyDisplayOptions());
+
             const material = document.createElement('select');
             material.className = 'appearance-material-select';
             material.dataset.atomLabel = symbol;
@@ -13373,7 +13400,7 @@ class VAseApp {
                 this.updateSelectedAppearanceControls();
             });
 
-            row.append(typeSelect, visibleBox, selectBox, nameInput, color, input, material);
+            row.append(typeSelect, visibleBox, selectBox, nameInput, color, input, opacity, material);
             root.appendChild(row);
         });
         const focusMatch = [...root.querySelectorAll('[data-atom-label][data-appearance-field]')]
@@ -13406,6 +13433,18 @@ class VAseApp {
             if (this.validHexColor(color) && !(symbol in colors)) colors[symbol] = color;
         });
         return colors;
+    }
+
+    parseLabelOpacities() {
+        const opacities = {};
+        document.querySelectorAll('.label-opacity-input').forEach(input => {
+            const value = Number(input.value);
+            if (!Number.isFinite(value)) return;
+            const opacity = Math.max(0, Math.min(1, value));
+            input.value = opacity.toFixed(2);
+            opacities[input.dataset.atomLabel] = opacity;
+        });
+        return opacities;
     }
 
     parseLabelVisibility() {
@@ -14086,6 +14125,7 @@ class VAseApp {
             : 0.6;
         this.state.display.labelRadii = this.parseLabelRadii();
         this.state.display.labelColors = this.parseLabelColors();
+        this.state.display.labelOpacities = this.parseLabelOpacities();
         this.state.display.labelVisible = this.parseLabelVisibility();
         this.state.display.supercell = this.normalizeSupercellInputs();
         this.state.display.antiAliasing = this.state.antiAliasing;
@@ -17123,6 +17163,10 @@ class VAseApp {
         Object.keys(labelColors).forEach(label => {
             if (!this.validHexColor(labelColors[label])) delete labelColors[label];
         });
+        const labelOpacities = pickLabelMap(nextDisplay.labelOpacities);
+        labels.forEach(label => {
+            labelOpacities[label] = finiteClamped(labelOpacities[label], 1, 0, 1);
+        });
         const labelVisible = pickLabelMap(nextDisplay.labelVisible);
         labels.forEach(label => {
             labelVisible[label] = labelVisible[label] !== false;
@@ -17252,6 +17296,7 @@ class VAseApp {
             pairwiseBondRanges,
             labelRadii,
             labelColors,
+            labelOpacities,
             labelVisible,
             labelMaterials,
             atomMaterials,
@@ -17435,6 +17480,7 @@ class VAseApp {
             pairwiseBondRanges: this.clonePlain(nextDisplay.pairwiseBondRanges),
             labelRadii: this.clonePlain(nextDisplay.labelRadii),
             labelColors: this.clonePlain(nextDisplay.labelColors),
+            labelOpacities: this.clonePlain(nextDisplay.labelOpacities),
             labelVisible: this.clonePlain(nextDisplay.labelVisible),
             labelMaterials: this.clonePlain(nextDisplay.labelMaterials),
             atomMaterials: this.clonePlain(nextDisplay.atomMaterials),

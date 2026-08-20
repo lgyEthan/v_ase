@@ -445,6 +445,7 @@ Canonical display keys:
 - `pairwiseBondRanges`
 - `labelRadii`
 - `labelColors`
+- `labelOpacities`
 - `labelVisible`
 - `labelMaterials`
 - `atomMaterials`

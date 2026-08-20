@@ -39,6 +39,7 @@ def cad_payload():
             "atomRadiusScale": 1.1,
             "labelColors": {"O_surface": "#12ab34"},
             "labelRadii": {"O_surface": 0.72},
+            "labelOpacities": {"O_surface": 0.35},
             "labelMaterials": {"O_surface": "metal", "H_water": "standard"},
             "atomMaterials": {"1": "rubber"},
         },
@@ -71,6 +72,7 @@ def test_cad_scene_preserves_display_overrides_supercell_and_bridge_bonds():
     assert oxygen[0]["color"] == "#12ab34"
     assert oxygen[0]["radius"] == pytest.approx(0.792)
     assert oxygen[0]["material"] == "metal"
+    assert oxygen[0]["opacity"] == pytest.approx(0.35)
     hydrogen = [item for item in scene["atoms"] if item["index"] == 1]
     assert {item["material"] for item in hydrogen} == {"rubber"}
     assert any("bridge" in item["name"] for item in scene["bonds"])
@@ -148,6 +150,8 @@ def test_obj_export_is_dependency_free_and_bundles_materials():
         assert "v_ase_metal_12ab34" in mtl
         assert "Kd 0.070588 0.670588 0.203922" in mtl
         assert "usemtl v_ase_metal_12ab34" in obj
+        assert "newmtl v_ase_metal_12ab34_a3500" in mtl
+        assert "d 0.350000" in mtl
         assert "newmtl v_ase_rubber_" in mtl
         assert "newmtl v_ase_standard_d6bd67" in mtl
         assert "o cell_edge_0\nusemtl v_ase_standard_d6bd67\n" in obj
@@ -157,6 +161,11 @@ def test_obj_export_is_dependency_free_and_bundles_materials():
         assert {item["material"] for item in metadata["atoms"]} == {
             "standard", "metal", "rubber"
         }
+        oxygen_opacities = [
+            item["opacity"] for item in metadata["atoms"]
+            if item["label"] == "O_surface"
+        ]
+        assert oxygen_opacities == pytest.approx([0.35, 0.35])
         assert all(item["diameter"] == pytest.approx(0.12) for item in metadata["bonds"])
         assert all(item["radius"] == pytest.approx(0.06) for item in metadata["bonds"])
     finally:
@@ -229,6 +238,20 @@ def test_3dm_export_round_trips_as_editable_angstrom_scene():
             item.Attributes.GetUserString("v_ase.material")
             for item in atom_objects
         } == {"standard", "metal", "rubber"}
+        oxygen_atoms = [
+            item for item in atom_objects
+            if item.Attributes.GetUserString("v_ase.label") == "O_surface"
+        ]
+        assert len(oxygen_atoms) == 2
+        assert {
+            item.Attributes.GetUserString("v_ase.opacity")
+            for item in oxygen_atoms
+        } == {"0.35"}
+        assert all(
+            model.Materials[item.Attributes.MaterialIndex].Transparency
+            == pytest.approx(0.65)
+            for item in oxygen_atoms
+        )
         atom_xform = atom_objects[0].Geometry.Xform
         atom_scale = (atom_xform.M00 ** 2 + atom_xform.M10 ** 2 + atom_xform.M20 ** 2) ** 0.5
         assert atom_scale == pytest.approx(0.792)

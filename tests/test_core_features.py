@@ -1345,6 +1345,7 @@ def test_visual_settings_save_and_load_json_roundtrip_and_legacy_pickle():
             "bondCustomColor": "#18a7d8",
             "atomRadiusScale": 1.4,
             "labelRadii": {"O": 0.72},
+            "labelOpacities": {"O": 0.35, "H": 1.4, "invalid": "opaque"},
             "supercell": [2, 1, 1],
             "translation": [0.25, -0.5, 0.75],
             "translationMode": "fractional",
@@ -1366,6 +1367,10 @@ def test_visual_settings_save_and_load_json_roundtrip_and_legacy_pickle():
     assert payload["settings"]["display"]["translationMode"] == "fractional"
     assert payload["settings"]["display"]["pairwiseLabelColumnWidth"] == 318
     assert payload["settings"]["display"]["pairwiseBondRanges"]["H-O"]["min"] == 0.0
+    assert payload["settings"]["display"]["labelOpacities"] == {
+        "O": 0.35,
+        "H": 1.0,
+    }
 
     loaded = asyncio.run(load_visual_settings(session.session_id, BytesRequest(response.body)))
     assert loaded["settings"]["display"]["atomRadiusScale"] == 1.4
@@ -1474,6 +1479,7 @@ def test_vase_project_roundtrip_restores_trajectory_edits_constraints_and_settin
                 "H_a": "standard",
                 "H_b": "standard",
             },
+            "labelOpacities": {"O_surface": 0.42},
             "atomMaterials": {"2": "rubber"},
         },
     }
@@ -1502,6 +1508,7 @@ def test_vase_project_roundtrip_restores_trajectory_edits_constraints_and_settin
     assert loaded["project"]["settings"]["display"]["translation"] == [0.4, -0.25, 0.75]
     assert loaded["project"]["settings"]["display"]["translationMode"] == "cartesian"
     assert loaded["project"]["settings"]["display"]["labelMaterials"]["O_surface"] == "metal"
+    assert loaded["project"]["settings"]["display"]["labelOpacities"]["O_surface"] == pytest.approx(0.42)
     assert loaded["project"]["settings"]["display"]["atomMaterials"] == {"2": "rubber"}
     asyncio.run(response.background())
 

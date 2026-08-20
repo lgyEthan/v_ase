@@ -2972,6 +2972,8 @@ body.inspector-collapsed .analysis-drawer {
 }
 
 #inspector #appearance-table {
+    container-name: appearance-table;
+    container-type: inline-size;
     overflow-x: auto;
     overflow-y: hidden;
     scrollbar-width: thin;
@@ -2979,17 +2981,13 @@ body.inspector-collapsed .analysis-drawer {
 
 #inspector #appearance-table .mini-table-head,
 #inspector .appearance-row {
-    min-width: 690px;
+    min-width: 0;
     display: grid;
-    grid-template-columns: 44px 58px 58px minmax(118px, 1fr) 52px 96px 108px;
-    gap: 10px;
+    grid-template-columns: 44px 54px 54px minmax(112px, 1fr);
+    grid-template-rows: auto auto;
+    column-gap: 8px;
+    row-gap: 6px;
     align-items: center;
-}
-
-body.inspector-wide #inspector .appearance-row,
-body.inspector-wide #inspector #appearance-table .mini-table-head {
-    min-width: 760px;
-    grid-template-columns: 48px 62px 62px minmax(132px, 1fr) 56px 108px 118px;
 }
 
 #inspector #appearance-table .mini-table-head {
@@ -3006,11 +3004,7 @@ body.inspector-wide #inspector #appearance-table .mini-table-head {
 }
 
 #inspector #appearance-table-body {
-    min-width: 690px;
-}
-
-body.inspector-wide #inspector #appearance-table-body {
-    min-width: 760px;
+    min-width: 0;
 }
 
 #inspector .appearance-row {
@@ -3030,7 +3024,8 @@ body.inspector-wide #inspector #appearance-table-body {
 
 #inspector .chemical-type-select,
 #inspector .atom-label-input,
-#inspector .label-radius-input {
+#inspector .label-radius-input,
+#inspector .label-opacity-input {
     width: 100%;
 }
 
@@ -3045,8 +3040,17 @@ body.inspector-wide #inspector #appearance-table-body {
     text-align: left;
 }
 
-#inspector .label-radius-input {
+#inspector .label-radius-input,
+#inspector .label-opacity-input {
     text-align: right;
+}
+
+@container appearance-table (min-width: 680px) {
+    #inspector #appearance-table .mini-table-head,
+    #inspector .appearance-row {
+        grid-template-columns: 44px 54px 54px minmax(112px, 1fr) 48px 88px 72px 108px;
+        grid-template-rows: auto;
+    }
 }
 
 .selected-appearance {

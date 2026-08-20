@@ -672,10 +672,12 @@ def test_frontend_has_radius_controls_loading_overlay_and_modern_panel_styles():
     assert "setupRuntimeModeControls" in main_js
     assert "viewModeIdentityPlan" in main_js
     assert "labelMaterials" in main_js
+    assert "labelOpacities" in main_js
     assert "atomMaterials" in main_js
     assert 'data-runtime-mode="view"' in index_html
     assert 'id="selected-atom-material"' in index_html
     assert "appearance-material-select" in main_js
+    assert "label-opacity-input" in main_js
     assert "selectLabel(symbol)" in main_js
     assert "toggleLabelSelection" in main_js
     assert "labelVisible" in renderer_js
@@ -761,7 +763,8 @@ def test_frontend_has_radius_controls_loading_overlay_and_modern_panel_styles():
     assert ".label-check:indeterminate" in style_css
     assert ".appearance-row" in style_css
     assert "--inspector-width" in style_css
-    assert "body.inspector-wide #inspector .appearance-row" in style_css
+    assert "container-name: appearance-table" in style_css
+    assert "@container appearance-table (min-width: 680px)" in style_css
     assert 'body[data-viz-only="true"] [data-edit-only]' in style_css
     assert ".busy-spinner" in style_css
     assert ".orientation-widget" in style_css
@@ -1255,6 +1258,7 @@ def test_blender_export_includes_bonds_unit_cell_smooth_atoms_and_camera_project
             "translation": [1.0, -0.5, 0.25],
             "translationMode": "cartesian",
             "labelMaterials": {"H": "metal"},
+            "labelOpacities": {"H": 0.4},
             "atomMaterials": {"1": "rubber"},
         },
         "bond_pairs": [[0, 1]],
@@ -1310,10 +1314,12 @@ def test_blender_export_includes_bonds_unit_cell_smooth_atoms_and_camera_project
     assert 'bsdf.inputs.get("Base Color")' in script
     assert 'base_color.default_value = rgba' in script
     assert 'DISPLAY_LABEL_MATERIALS = DISPLAY.get("labelMaterials", {})' in script
+    assert 'DISPLAY_LABEL_OPACITIES = DISPLAY.get("labelOpacities", {})' in script
     assert 'DISPLAY_ATOM_MATERIALS = DISPLAY.get("atomMaterials", {})' in script
     assert '"rubber": {"roughness": 0.88' in script
     assert 'metallic.default_value = surface["metalness"]' in script
     assert "'labelMaterials': {'H': 'metal'}" in script
+    assert "'labelOpacities': {'H': 0.4}" in script
     assert "'atomMaterials': {'1': 'rubber'}" in script
     assert exported_data["visual_translation"] == pytest.approx([1.0, -0.5, 0.25])
     np.testing.assert_allclose(

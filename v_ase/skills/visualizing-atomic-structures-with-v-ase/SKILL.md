@@ -14,7 +14,7 @@ All lengths are Angstrom and all angles are degrees unless stated otherwise.
 Install the tested release:
 
 ```bash
-python -m pip install "v_ase-gui==0.2.24"
+python -m pip install "v_ase-gui==0.2.25"
 ```
 
 Start the terminal-oriented API session yourself:
@@ -376,7 +376,8 @@ For any nontrivial task, verify all applicable items:
 - radial or finite pair distribution: displayed frame, `analysisKind`, PBC, cutoff, bins, curves, normalization, CSV, and selected-active-bond filtering with full-structure normalization;
   for 3D periodic RDF verify the unique-MIC reference, image span, `g(r) = 1` bulk limit, long-range behavior, and warnings; for no PBC verify the unordered-pair probability-density integral;
   require open plots to follow `G`/`R`/`S`, committed edits, and relaxation frames without closing;
-- appearance: visibility, radii, colors, materials, bonds, cell, background;
+- appearance: visibility, radii, colors, per-label opacity, materials, bonds,
+  cell, and background;
 - per-atom colorscale: exact catalog field ID, scope, map, reverse state,
   gamma, resolved `vmin`/`vmax`, current/trajectory/manual range source, and
   identical locked range across every trajectory frame and export; for large

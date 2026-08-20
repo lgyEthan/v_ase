@@ -101,6 +101,7 @@ def _html_export_fixture(*, embed_project=True, atom_colorscale=False, view_iden
             },
             "atomRadiusScale": 0.6,
             "labelColors": {"Cu_surface": "#c98a43", "O_ads": "#e1262f"},
+            "labelOpacities": {"Cu_surface": 0.45, "O_ads": 1.0},
             "labelMaterials": {"Cu_surface": "metal", "O_ads": "standard"},
             "supercell": [2, 1, 1],
             "translation": [0.2, 0.0, 0.0],
@@ -229,6 +230,7 @@ def test_html_export_is_self_contained_and_embeds_lossless_vase(tmp_path):
     assert scene["selection"] == [1]
     assert len(scene["frames"]) == 2
     assert scene["settings"]["display"]["labelMaterials"]["Cu_surface"] == "metal"
+    assert scene["settings"]["display"]["labelOpacities"]["Cu_surface"] == pytest.approx(0.45)
     assert scene["settings"]["camera"]["position"] == settings["camera"]["position"]
     assert scene["hasPoster"] is True
     assert scene["exportProfile"]["width"] == 1920
@@ -399,6 +401,9 @@ def test_exported_html_opens_offline_as_view_only_interactive_trajectory(tmp_pat
         assert page.evaluate(
             "window.v_aseStandalone.scene.settings.display.labelMaterials.Cu_surface"
         ) == "metal"
+        assert page.evaluate(
+            "window.v_aseStandalone.scene.settings.display.labelOpacities.Cu_surface"
+        ) == pytest.approx(0.45)
         assert page.evaluate(
             "window.v_aseStandalone.renderer.displacementData?.status"
         ) == "ok"

@@ -304,7 +304,8 @@ Run all scenarios, not only static document checks:
      integer lattice vectors satisfying `h*u+k*v+l*w=0`; reject a plane whose
      primitive basis uses a disabled PBC vector;
 6. **Appearance**
-   - change radius, color, visibility, and material;
+   - change radius, color, opacity, visibility, and material; verify opacity
+     `0..1` in ordinary, instanced, repeated-supercell, and flat-2D rendering;
    - discover and render coordinate, stored force-norm, scalar-array,
      vector-component, vector-norm, charge, magnetic-moment, and MLIP-specific
      per-atom colorscales; test all-atoms and selected-only scope;
@@ -324,7 +325,7 @@ Run all scenarios, not only static document checks:
      frame, verify 2D/3D styling and supercell repetition, and ensure a missing
      force frame does not evaluate its calculator;
    - verify standard, metal, rubber, 2D, and 3D;
-   - undo and redo a label color, radius, and material change; verify both
+   - undo and redo a label color, radius, opacity, and material change; verify both
      semantic display state and rendered pixels, with one history step per
      completed field edit;
    - verify bonds, pairwise cutoffs, MIC toggle, cell styling, and lighting.

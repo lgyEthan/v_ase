@@ -999,7 +999,7 @@ physical results.
 
 - ASE chemical TYPE and independent visual label;
 - visibility and selection availability;
-- color and radius;
+- color, radius, and opacity (`0` transparent through `1` opaque);
 - Standard, Metal, or Rubber material;
 - all/partial/none selection checkbox.
 
@@ -1009,9 +1009,10 @@ stable atom count and element order, the same atom indices keep that label in
 every frame. If topology differs, v_ase opens a modal and applies the label to
 the current frame only. The chemical TYPE field remains disabled until Edit.
 These visual identities are included in complete `.vase` and HTML project
-saves, but are excluded from reusable cross-structure visual presets. Edit mode
-can also keep per-atom material overrides. Relabeling does not reorder the
-table or merge otherwise distinct atom types accidentally.
+saves. Label color, radius, opacity, visibility, and material are also retained
+by reusable visual presets and supported geometry exports. Edit mode can keep
+additional per-atom material overrides. Relabeling does not reorder the table
+or merge otherwise distinct atom types accidentally.
 
 ![View-mode label and appearance editing on Cu5O4](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_cu5o4_view_appearance.gif)
 

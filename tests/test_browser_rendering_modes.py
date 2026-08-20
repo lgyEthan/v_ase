@@ -7650,6 +7650,129 @@ def test_15000_atom_view_keeps_material_presets_instanced_and_renders_under_five
         editor.close()
 
 
+def test_label_opacity_updates_instanced_atoms_supercell_2d_and_visual_history():
+    positions = [
+        [float(index % 20), float((index // 20) % 13), 0.0]
+        for index in range(260)
+    ]
+    atoms = Atoms("C260", positions=positions, cell=[24.0, 17.0, 8.0], pbc=True)
+    set_atom_labels(atoms, ["C_faded"] * 130 + ["C_opaque"] * 130)
+    port = find_free_port()
+    editor = view(
+        atoms,
+        notebook=True,
+        block=False,
+        port=port,
+        viz_only=True,
+        close_on_disconnect=False,
+    )
+
+    try:
+        with sync_playwright() as playwright:
+            try:
+                browser = playwright.chromium.launch(headless=True)
+            except PlaywrightError as exc:
+                pytest.skip(f"Playwright Chromium is not installed: {exc}")
+            page = browser.new_page(viewport={"width": 1280, "height": 800})
+            page.goto(f"http://127.0.0.1:{port}/?session_id={editor.session_id}")
+            page.wait_for_function(
+                "window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 260"
+            )
+            _expand_inspector(page)
+            _select_structure_section(page, "appearance")
+            page.evaluate("window.__ASE_APP__.resetHistoryTimeline()")
+            table_metrics = page.locator("#appearance-table").evaluate(
+                "element => ({ clientWidth: element.clientWidth, scrollWidth: element.scrollWidth })"
+            )
+            assert table_metrics["scrollWidth"] <= table_metrics["clientWidth"] + 1
+            page.evaluate("window.__ASE_APP__.setInspectorWidth(520)")
+            medium_metrics = page.locator("#appearance-table").evaluate(
+                "element => ({ clientWidth: element.clientWidth, scrollWidth: element.scrollWidth })"
+            )
+            assert medium_metrics["scrollWidth"] <= medium_metrics["clientWidth"] + 1
+            page.evaluate("window.__ASE_APP__.setInspectorWidth(760)")
+            wide_metrics = page.locator("#appearance-table").evaluate(
+                "element => ({ clientWidth: element.clientWidth, scrollWidth: element.scrollWidth })"
+            )
+            assert wide_metrics["scrollWidth"] <= wide_metrics["clientWidth"] + 1
+
+            opacity = page.locator(
+                '.label-opacity-input[data-atom-label="C_faded"]'
+            )
+            opacity.fill("0.35")
+            opacity.press("Tab")
+            page.wait_for_function("""() => {
+                const app = window.__ASE_APP__;
+                return app.state.display.labelOpacities.C_faded === 0.35
+                    && app.renderer.atomMeshes.children.length === 2
+                    && app.undoTimeline.length === 1;
+            }""")
+
+            state = page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                const groups = app.renderer.atomMeshes.children.map(mesh => ({
+                    opacity: mesh.material.opacity,
+                    transparent: mesh.material.transparent,
+                    depthWrite: mesh.material.depthWrite
+                }));
+                return {
+                    groups,
+                    snapshot: app.designSettingsSnapshot().display.labelOpacities
+                };
+            }""")
+            by_opacity = {
+                round(group["opacity"], 2): group for group in state["groups"]
+            }
+            assert by_opacity[0.35]["transparent"] is True
+            assert by_opacity[0.35]["depthWrite"] is False
+            assert by_opacity[1.0]["transparent"] is False
+            assert state["snapshot"]["C_faded"] == pytest.approx(0.35)
+            assert state["snapshot"]["C_opaque"] == pytest.approx(1.0)
+
+            page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                app.state.display.supercell = [2, 1, 1];
+                app.renderer.setDisplayOptions(app.state.display);
+            }""")
+            page.wait_for_function("""() => (
+                window.__ASE_APP__.renderer.supercellGroup.children
+                    .filter(mesh => mesh.userData.supercellInstanced).length === 2
+            )""")
+            replica_opacities = page.evaluate("""() => (
+                window.__ASE_APP__.renderer.supercellGroup.children
+                    .filter(mesh => mesh.userData.supercellInstanced)
+                    .map(mesh => mesh.material.opacity)
+                    .sort((a, b) => a - b)
+            )""")
+            assert replica_opacities == pytest.approx([0.35, 1.0])
+
+            page.evaluate("""() => {
+                const select = document.querySelector('#atom-display-mode');
+                select.value = '2d';
+                select.dispatchEvent(new Event('change', { bubbles: true }));
+            }""")
+            page.wait_for_function("""() => {
+                const app = window.__ASE_APP__;
+                return app.renderer.atomDisplayMode() === '2d'
+                    && app.renderer.atomMeshes.children.some(
+                        mesh => Math.abs(mesh.material.opacity - 0.35) < 1e-6
+                    );
+            }""")
+
+            page.locator("#app-viewport canvas").focus()
+            page.keyboard.press("Control+z")
+            page.wait_for_function("""() => (
+                window.__ASE_APP__.state.display.atomDisplayMode === '3d'
+            )""")
+            page.keyboard.press("Control+z")
+            page.wait_for_function("""() => (
+                window.__ASE_APP__.state.display.labelOpacities.C_faded === 1
+            )""")
+            browser.close()
+    finally:
+        editor.close()
+
+
 def test_metal_material_has_visible_studio_reflections(tmp_path):
     atoms = Atoms("Cu", positions=[[0.0, 0.0, 0.0]])
     port = find_free_port()
