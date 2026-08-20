@@ -444,25 +444,26 @@ if (
 }
 
 await applyCurrent({operation: {
-  name: "relax-added-atoms",
-  pairCutoffs: scattered.addAtoms.pair_cutoffs,
-  freezeExisting: true,
-  strength: 2.0,
-  boundaryStrength: 5.0,
+  name: "start-relaxation",
   fmax: 0.05,
   steps: 300,
-  device: "cpu",
-  cpuThreads: 4,
-  mic: true,
-  allowEscape: true
+  calculator: {
+    device: "cpu",
+    cpu_threads: 4,
+    cutoff_mode: "bonding",
+    cutoff_scale: 0.70,
+    pair_cutoffs: scattered.addAtoms.pair_cutoffs,
+    k_repulsion: 2.0,
+    k_boundary: 5.0
+  }
 }});
 ```
 
 Consume events or poll compact `describe` state until
-`addAtoms.is_relaxing === false`. Do not issue another structural operation
-while it is active. If the optimizer must be interrupted, use
-`stop-added-atoms`, wait for the stopped state, inspect the latest positions,
-and either continue or cancel.
+`addAtoms.is_relaxing === false`. Do not issue another placement or structural
+operation while it is active. If the optimizer must be interrupted, use common
+`stop-relaxation` (or compatibility `stop-added-atoms`), wait for the stopped
+state, inspect the latest positions, and either continue or cancel.
 
 For a deterministic lattice instead of random scattering, set
 `placementMode:"regular"` and optional `regularSpacing` in Angstrom. For a
@@ -483,10 +484,62 @@ if (placed.addAtoms.status === "error") {
   await applyCurrent({operation: "cancel-add-atoms"});
   throw new Error("Repulsive placement failed; the exact baseline was restored.");
 }
+
+// Region edits and another atom or molecule placement stay in the same
+// reversible staging session. The original host is still the only fixed base.
+const revisedRegions = [
+  {id: "left-channel", name: "Left channel", role: "allow",
+   bounds: [1.0, 5.0, 1.0, 8.0, 0.0, 14.0]},
+  {id: "right-channel", name: "Right channel", role: "allow",
+   bounds: [5.5, 9.0, 1.0, 8.0, 0.0, 14.0]},
+  {id: "protected-site", name: "Protected site", role: "reject",
+   bounds: [3.5, 6.5, 3.0, 6.0, 3.0, 11.0]}
+];
+await applyCurrent({operation: {
+  name: "update-add-atoms-region",
+  regions: revisedRegions,
+  regionMic: true,
+  allowEscape: true
+}});
+await applyCurrent({operation: {
+  name: "scatter-molecules",
+  molecules: [{name: "H2O", label: "water", count: 2}],
+  regions: revisedRegions,
+  placementMode: "homogeneous",
+  coordinateBasis: "cartesian",
+  randomOrientation: true,
+  rigidMolecules: true,
+  freezeExisting: true,
+  seed: 2022
+}});
+const expanded = await ai.describe({includePositions: false});
+if (
+  expanded.addAtoms?.placement_count !== 2
+  || expanded.addAtoms.last_batch_new_count !== 6
+  || expanded.addAtoms.new_count !== 46
+  || expanded.atomCount !== baseline.atomCount + 46
+) {
+  throw new Error("Repeated placement did not remain in one staging session.");
+}
+await applyCurrent({operation: {
+  name: "start-relaxation",
+  fmax: 0.05,
+  steps: 300,
+  calculator: {
+    device: "cpu", cpu_threads: 4, cutoff_mode: "bonding",
+    cutoff_scale: 0.70, pair_cutoffs: expanded.addAtoms.pair_cutoffs,
+    k_repulsion: 2.0, k_boundary: 5.0
+  }
+}});
+for (;;) {
+  placed = await ai.describe({includePositions: false});
+  if (!placed.addAtoms?.is_relaxing) break;
+  await new Promise(resolve => setTimeout(resolve, 500));
+}
 await applyCurrent({operation: "finish-add-atoms"});
 
 const committed = await ai.describe({includePositions: true});
-if (committed.addAtoms !== null || committed.atomCount !== baseline.atomCount + 40) {
+if (committed.addAtoms !== null || committed.atomCount !== baseline.atomCount + 46) {
   throw new Error("Add Atoms was not committed cleanly.");
 }
 for (let index = 0; index < baseline.atomCount; index += 1) {

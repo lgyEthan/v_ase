@@ -14,7 +14,7 @@ All lengths are Angstrom and all angles are degrees unless stated otherwise.
 Install the tested release:
 
 ```bash
-python -m pip install "v_ase-gui==0.2.23"
+python -m pip install "v_ase-gui==0.2.24"
 ```
 
 Start the terminal-oriented API session yourself:
@@ -204,74 +204,45 @@ reload both scalar colors and Cartesian vectors from the same active frame;
 never reuse a force-vector buffer from another frame.
 For a rotation around one atom, pass that atom last in the explicit `indices`
 array and set `pivot: "active"`; verify that its coordinate is unchanged.
-For an ASE bulk crystal, read `capabilities().bulkBuilder.catalogUrl`, preview through its `previewUrl`, then use `build-bulk`; never invent lattice data, and require human-approved `confirmReplace:true` before replacing content. Verify formula, atom count, cell, PBC, and one-frame trajectory, or Undo.
-For batch insertion, use `scatter-atoms` or `scatter-molecules` only on a
-single Edit-mode document. The document may start empty: define a periodic
-cell with `set-unit-cell`, or define at least one finite Allow region for a
-nonperiodic scratch model. Both scatter operations start one reversible Add
-Atoms session.
-`placementMode:"random"` is volume-uniform in the full triclinic cell;
-`placementMode:"homogeneous"` spreads centers with either physical Cartesian
-distance in angstrom, the default, or normalized fractional spacing. Set
-`pbcAware:false` only when periodic images must not affect homogeneous spacing.
-`placementMode:"regular"` selects one global Cartesian lattice; set
-`regularSpacing` for exact Angstrom spacing or omit it for deterministic
-automatic spacing. It differs from random and maximin homogeneous placement.
-Prefer `regionMode:"regions"` with stable `regions` objects containing `id`,
-`name`, `role:"allow"|"reject"`, and Cartesian
-`bounds:[xmin,xmax,ymin,ymax,zmin,zmax]`. The exact domain is the finite cell
-intersected with the Allow union, or the complete cell when no Allow exists,
-minus the Reject union. Without a finite cell, at least one Allow region is
-mandatory. `regionMic:true` maps region images through complete triclinic
-lattice vectors. In the GUI, keep the intact Cartesian source cuboid visible;
-draw only its cell-clipped nonzero periodic images at the opposite faces and
-deduplicate shared fragment edges. Never replace the source box with a pile of
-wrapped fragments. Legacy `regionMode:"box"` remains accepted for one region.
-Regions define initial placement: `allowEscape` defaults to `true`, so
-repulsive placement may leave the combined domain.
-
-Before `scatter-molecules`, read `capabilities().addAtoms.moleculeCatalog`
-instead of guessing an ASE molecule name. Molecules are placed and rotated
-about the native ASE template origin. `randomOrientation:true` samples
-unbiased 3D rotations. `rigidMolecules:true` is the default and preserves each
-molecule's internal geometry during repulsion; whole-molecule `G`/`R` edits
-remain valid, while partial edits that distort a rigid molecule are rejected.
-Use `rigidMolecules:false` only when atomwise internal motion is intended.
-For density-driven placement, set `quantityMode:"density"` and
-`targetDensityGcm3`; molecule Count values become integer composition ratios.
-v_ase reduces their greatest common divisor before selecting complete batches.
-Read `describe().addAtoms.density` and verify target, actual, exact accessible
-volume, primitive ratio, and integer molecule count. Never infer density from
-a Cartesian bounding box or round each molecular species independently.
-For staged inserted content, GUI `G` maps to semantic `move-selection` and GUI
-`R` maps to `rotate-selection`; include every atom of each rigid molecule in
-the active selection before either operation.
-`update-add-atoms-region` accepts a complete `regions` array or one `regionId`
-with `regionName`, `regionRole`, `regionMic`, and/or `bounds`; it never moves
-staged atoms. Periodic confinement must use the same `regionMic` state and the
-shortest triclinic minimum-image displacement.
-The GUI multi-selects region rows or edge overlays, applies `G` to move the
-selected group, applies `S` with optional global Cartesian `X`/`Y`/`Z` lock to
-scale the selected bounds about their shared center, and deliberately rejects
-`R`. Use `scale-add-atoms-regions` for the same semantic operation. Region
-fills provide depth but are never selection targets, so a nested box remains
-selectable by its edges. Verify stable IDs and the exact domain in
-`describe().addAtoms`, then optionally run `relax-added-atoms` with explicit
-pair cutoffs, MIC, and the requested `device`/`cpuThreads`. The operation
-attaches one complete `AdditionRepulsionCalculator` to the staged structure
-and advances it with FIRE; do not implement pairwise coordinate pushes or
-call MIC per atom pair. Its temporary `Add Atoms placement` timeline retains
-every optimizer step and must exist only while the staging mode remains active.
-Wait until `is_relaxing` is false before `finish-add-atoms`. Use
-`stop-added-atoms` only
-to interrupt the optimizer, and `cancel-add-atoms` to restore the exact host,
-constraints, per-atom arrays, and pre-session history. Never use batch
-insertion on a trajectory because it would create inconsistent frame topology.
-While staging, `describe().constraints.fixed_indices` may include the host as
-a semantic constraint summary for its temporary fixed overlay. The committed
-ASE constraints remain unchanged; the overlay does not change atom radii or
-saved appearance and applies only the fixed-material surface. Verify this
-again after finish or cancel.
+For an ASE bulk crystal, the human UI path is **+ Add atoms > Build with ASE**.
+Read `capabilities().bulkBuilder.catalogUrl`, use its `previewUrl`, then call
+`build-bulk`; never invent lattice data or replace content without human-approved
+`confirmReplace:true`. Verify formula, atom count, cell, PBC, and Undo.
+For batch insertion, use `scatter-atoms` or `scatter-molecules` only on one
+Edit-mode structure. Define a periodic cell or at least one finite Allow region
+for an empty nonperiodic document. The first scatter starts one reversible Add
+Atoms session; later `scatter-atoms` or `scatter-molecules` calls append after
+region edits or completed relaxation. The immutable host always means the
+structure before the first scatter; every inserted batch remains staged/mobile.
+Use `placementMode:"random"` for volume-uniform sampling,
+`"homogeneous"` for maximin Cartesian or fractional spacing, and `"regular"`
+for one global Cartesian lattice. Use `pbcAware` and `regularSpacing` explicitly
+when they matter.
+Prefer stable multi-region objects with `id`, `name`, `role:"allow"|"reject"`,
+and Cartesian `bounds`. The exact domain is cell intersect Allow union minus
+Reject union; without a finite cell an Allow region is mandatory. `regionMic`
+uses complete triclinic lattice vectors and `allowEscape` defaults true. Use
+`update-add-atoms-region` and `scale-add-atoms-regions`; GUI region `G` moves,
+`S` scales with optional Cartesian axis lock, and `R` is deliberately rejected.
+Before `scatter-molecules`, read `capabilities().addAtoms.moleculeCatalog`.
+Native ASE origins and Haar-uniform orientation are retained.
+`rigidMolecules:true` preserves geometry; select complete molecules for `G`/`R`.
+For density mode, set `quantityMode:"density"` and `targetDensityGcm3`, then
+verify exact accessible volume, integer composition, and actual density.
+After every placement, verify stable region IDs, `placement_count`,
+`last_batch_new_count`, total `new_count`, and immutable-host preservation in
+`describe().addAtoms`.
+Use the common `start-relaxation` operation for placement relaxation with the
+same `calculator` object as **Structure > Relaxation**. The active Add session
+routes it through one complete `AdditionRepulsionCalculator`;
+`relax-added-atoms` is a compatibility alias. Never push coordinate pairs or
+call MIC per pair. Wait for `is_relaxing:false` before appending or finishing.
+Appending resets the topology-specific Add timeline; later relaxation records
+the expanded structure. Use common `stop-relaxation` or compatibility
+`stop-added-atoms` to interrupt, and `cancel-add-atoms` to restore the exact
+pre-session host/history. Never batch-insert into a trajectory.
+The temporary host fixed overlay may appear in semantic constraint summaries,
+but never changes committed ASE constraints, atom radius, or saved appearance.
 Use `scale-selection` for physical atom-coordinate scaling about a requested
 pivot. It changes spacing in global Cartesian `X`, `Y`, `Z`, or all axes and
 never changes atom radii, bond diameter, or the unit cell.
@@ -359,9 +330,11 @@ handling, use the references below rather than improvising field names.
   corresponding base indices; deduplicate repeated images first.
 - Never reuse indices after topology or frame changes without `describe()`.
 - Treat `scatter-atoms` and `scatter-molecules` as reversible staging
-  operations, not committed topology changes. Do not finish until inserted
-  identities, region, pairwise cutoffs, MIC, rigid geometry when requested,
-  and exact host preservation have been verified.
+  operations, not committed topology changes. Repeated calls append to the
+  same staging session; verify total and last-batch counts and never mistake an
+  earlier inserted batch for the immutable host. Do not finish until inserted
+  identities, region, shared Relaxation calculator/cutoff state, MIC, rigid
+  geometry when requested, and exact host preservation have been verified.
 - Keep `applyConstraints: true` unless the user explicitly requests free
   editing.
 - Treat ASE backend positions returned after an edit as authoritative.

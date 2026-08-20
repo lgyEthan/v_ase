@@ -1524,7 +1524,9 @@ AI_OPERATION_PARAMETERS = {
             "seed", "freezeExisting", "cutoffBasis", "cutoffScale", "pairCutoffs",
         ],
         "notes": (
-            "Starts an Add Atoms session and places one or more element/label populations. "
+            "Starts an Add Atoms session or appends one or more element/label populations "
+            "to the active session after placement relaxation is inactive. The first "
+            "pre-session structure remains the immutable host across every placement. "
             "placementMode is random, homogeneous, or regular. regular uses optional regularSpacing in A. "
             "coordinateBasis=cartesian optimizes "
             "physical nearest-neighbor spacing in angstrom and is the default; fractional "
@@ -1536,8 +1538,9 @@ AI_OPERATION_PARAMETERS = {
             "without voxel approximation. A structure without a finite cell requires an Allow region. "
             "Legacy regionMode=box remains accepted. allowEscape defaults "
             "to true, so the region controls initial sampling without confining relaxation. The default "
-            "temporarily fixes every pre-existing atom. Follow with relax-added-atoms and "
-            "finish-add-atoms, or cancel-add-atoms to restore the exact baseline."
+            "temporarily fixes every pre-session atom. Follow with common start-relaxation "
+            "and finish-add-atoms, append another batch, or use cancel-add-atoms to restore "
+            "the exact baseline."
         ),
     },
     "scatter-molecules": {
@@ -1550,7 +1553,8 @@ AI_OPERATION_PARAMETERS = {
             "quantityMode", "targetDensityGcm3", "cutoffBasis", "cutoffScale", "pairCutoffs",
         ],
         "notes": (
-            "Starts an Add Molecules session from the installed ASE G2 molecule catalog. "
+            "Starts an Add Molecules session or appends molecules to the active Add session "
+            "from the installed ASE G2 molecule catalog. "
             "Query /api/add-session/molecules/{session_id} before choosing a name. Molecule "
             "coordinates are placed and rotated about ASE's native coordinate origin without recentering. "
             "randomOrientation uses Haar-uniform SO(3) rotations. rigidMolecules defaults to "
@@ -1581,8 +1585,10 @@ AI_OPERATION_PARAMETERS = {
             "fmax", "steps", "device", "cpuThreads", "mic", "allowEscape",
         ],
         "notes": (
-            "Starts asynchronous FIRE relaxation with one AdditionRepulsionCalculator "
-            "attached to the complete staged structure. device selects CPU or CUDA and "
+            "Compatibility alias for the same shared placement-relaxation path used by "
+            "start-relaxation. It starts asynchronous FIRE with one "
+            "AdditionRepulsionCalculator attached to the complete staged structure. "
+            "device selects CPU or CUDA and "
             "cpuThreads controls CPU parallelism; CUDA falls back to CPU when unavailable. "
             "Every optimizer step is retained in the Add-mode trajectory. Poll "
             "describe.addAtoms or consume collaboration events until is_relaxing is false."
@@ -1793,9 +1799,13 @@ AI_OPERATION_PARAMETERS = {
     },
     "start-relaxation": {
         "mode": "edit",
-        "required": ["attached-calculator"],
+        "required": ["attached-calculator-or-active-add-atoms-session"],
         "optional": ["fmax", "steps", "calculator", "applyConstraints"],
         "notes": (
+            "When Add Atoms is active, this common operation routes the same calculator, "
+            "cutoff, device, fmax, and step contract through placement relaxation while "
+            "preserving the immutable pre-session host. Otherwise an ASE calculator must "
+            "be attached to the structure. "
             "For the built-in repulsion calculator, calculator accepts device, "
             "cpu_threads, k_repulsion, and either cutoff_mode=bonding with active "
             "label-pair pair_cutoffs plus cutoff_scale, or cutoff_mode=absolute "
@@ -1808,6 +1818,7 @@ AI_OPERATION_PARAMETERS = {
         "mode": "edit",
         "required": [],
         "optional": [],
+        "notes": "Stops the active ordinary or Add Atoms placement optimizer.",
     },
     "exit-relaxation-mode": {
         "mode": "edit",
@@ -5698,7 +5709,7 @@ async def atom_addition_domain(session_id: str, payload: Dict[str, Any]):
 @app.post("/api/add-session/start/{session_id}")
 async def start_random_atom_addition(session_id: str, payload: Dict[str, Any]):
     session = get_session(session_id)
-    require_editable(session, "Random atom insertion")
+    require_editable(session, "Random atom insertion", allow_atom_addition=True)
     sync_session_frame_from_payload(session, payload)
     try:
         addition = await asyncio.to_thread(start_atom_addition, session, payload)

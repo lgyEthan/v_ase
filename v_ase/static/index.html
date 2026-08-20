@@ -52,12 +52,12 @@
             });
         })();
     </script>
-    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.2.23&amp;rev=1">
+    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.2.24&amp;rev=1">
     <script>
         window.__V_ASE_MOCK__ = new URLSearchParams(window.location.search).has('v_ase_mock');
         const threeModulePath = window.location.protocol === 'file:'
             ? './vendor/three.module.js'
-            : '/static/vendor/three.module.js?v=0.2.23';
+            : '/static/vendor/three.module.js?v=0.2.24';
         const importMap = document.createElement('script');
         importMap.type = 'importmap';
         importMap.textContent = JSON.stringify({
@@ -123,7 +123,7 @@
     <header id="top-bar" class="glass-panel">
         <div class="logo">
             <img class="brand-logo-asset" src="static/v_ase-logo.png" alt="v_ase">
-            <span class="version">0.2.23</span>
+            <span class="version">0.2.24</span>
         </div>
         <div id="runtime-mode-switch" class="runtime-mode-switch" role="group" aria-label="Workspace mode">
             <button type="button" data-runtime-mode="view" aria-pressed="true"
@@ -366,6 +366,7 @@
             <div class="create-atom-tabs" role="tablist" aria-label="Atom insertion mode">
                 <button id="add-atoms-tab-single" class="active" type="button" role="tab" aria-selected="true">Single</button>
                 <button id="add-atoms-tab-batch" type="button" role="tab" aria-selected="false">Batch</button>
+                <button id="add-atoms-tab-build" type="button" role="tab" aria-selected="false">Build with ASE</button>
             </div>
 
             <div id="add-atoms-pane-single" class="create-atom-body" role="tabpanel">
@@ -509,7 +510,7 @@
                 </section>
 
                 <section class="add-atoms-section">
-                    <div class="add-atoms-section-head"><span>Repulsive placement</span></div>
+                    <div class="add-atoms-section-head"><span>Placement relaxation</span></div>
                     <label class="add-atoms-check-row" for="add-atoms-freeze-existing">
                         <input id="add-atoms-freeze-existing" type="checkbox" checked>
                         <span>Temporarily fix existing atoms</span>
@@ -525,42 +526,17 @@
                         </label>
                         <button id="btn-add-atoms-select-added" type="button" disabled>Select added</button>
                     </div>
-                    <div class="add-atoms-cutoff-row">
-                        <label>Cutoffs
-                            <select id="add-atoms-cutoff-basis">
-                                <option value="covalent">Covalent radii</option>
-                                <option value="vdw">van der Waals radii</option>
-                                <option value="pairwise">Pairwise</option>
-                            </select>
-                        </label>
-                        <label>Scale
-                            <input id="add-atoms-cutoff-scale" type="number" min="0.01" max="3" step="0.05" value="0.70">
-                        </label>
-                    </div>
-                    <div id="add-atoms-pair-table" class="add-atoms-pair-table"></div>
-                    <div class="add-atoms-compute-grid" aria-label="Repulsive placement compute resources">
-                        <label>Device
-                            <select id="add-atoms-device">
-                                <option value="cpu">CPU</option>
-                                <option value="cuda">CUDA</option>
-                            </select>
-                        </label>
-                        <label>CPU threads
-                            <select id="add-atoms-cpus"></select>
-                        </label>
-                    </div>
-                    <p id="add-atoms-compute-note" class="add-atoms-field-note">
-                        Compute resources apply to this full repulsion relaxation.
-                    </p>
-                    <div class="add-atoms-relax-grid">
-                        <label>Strength<input id="add-atoms-strength" type="number" min="0" step="0.1" value="2.0"></label>
-                        <label>fmax<input id="add-atoms-fmax" type="number" min="0.001" step="0.01" value="0.05"></label>
-                        <label>Steps<input id="add-atoms-steps" type="number" min="1" step="10" value="250"></label>
-                    </div>
                     <label class="add-atoms-check-row" for="add-atoms-mic">
                         <input id="add-atoms-mic" type="checkbox" checked>
                         <span>Minimum image convention for regions and repulsion</span>
                     </label>
+                    <div class="add-atoms-relax-link">
+                        <div>
+                            <strong>Shared Relaxation settings</strong>
+                            <span>Calculator, cutoff, device, fmax, and steps are controlled in Structure &gt; Relaxation.</span>
+                        </div>
+                        <button id="btn-add-atoms-open-relaxation" type="button">Open Relaxation</button>
+                    </div>
                 </section>
 
                 <div id="add-atoms-status" class="add-atoms-status" data-state="idle">
@@ -569,10 +545,92 @@
                 </div>
                 <div class="add-atoms-session-actions">
                     <button id="btn-add-atoms-scatter" class="primary" type="button">Place atoms</button>
-                    <button id="btn-add-atoms-relax" type="button" disabled>Repel</button>
-                    <button id="btn-add-atoms-stop" type="button" disabled>Stop</button>
                     <button id="btn-add-atoms-cancel" type="button" disabled>Cancel</button>
                     <button id="btn-add-atoms-finish" class="primary" type="button" disabled>Finish</button>
+                </div>
+            </div>
+
+            <div id="add-atoms-pane-build" class="add-atoms-build hidden" role="tabpanel">
+                <div class="ase-builder-heading">
+                    <div>
+                        <strong>Bulk crystal</strong>
+                        <span>ase.build.bulk</span>
+                    </div>
+                    <span id="ase-bulk-version" class="ase-builder-version">ASE</span>
+                </div>
+                <p class="panel-note">
+                    Generate a periodic crystal from ASE reference data or an explicit prototype.
+                    Building replaces the active structure and trajectory; Undo restores them.
+                </p>
+                <div class="ase-builder-primary-grid">
+                    <label for="ase-bulk-formula">
+                        <span>Formula</span>
+                        <input id="ase-bulk-formula" type="text" value="Cu" list="ase-bulk-formulas"
+                               autocomplete="off" spellcheck="false" aria-describedby="ase-bulk-formula-hint">
+                        <datalist id="ase-bulk-formulas"></datalist>
+                    </label>
+                    <label for="ase-bulk-structure">
+                        <span>Crystal structure</span>
+                        <select id="ase-bulk-structure">
+                            <option value="">Automatic from ASE</option>
+                        </select>
+                    </label>
+                    <label for="ase-bulk-cell-mode">
+                        <span>Cell shape</span>
+                        <select id="ase-bulk-cell-mode">
+                            <option value="primitive">Native / primitive</option>
+                            <option value="orthorhombic">Orthorhombic</option>
+                            <option value="cubic" selected>Cubic</option>
+                        </select>
+                    </label>
+                </div>
+                <p id="ase-bulk-formula-hint" class="ase-builder-field-hint">
+                    Choose a compatible ASE reference element or type a custom formula.
+                </p>
+                <div id="ase-bulk-parameters" class="ase-builder-parameter-grid">
+                    <label data-bulk-parameter="a" for="ase-bulk-a">
+                        <span>a / Å</span>
+                        <input id="ase-bulk-a" type="number" min="0" step="any" placeholder="ASE default">
+                    </label>
+                    <label data-bulk-parameter="b" for="ase-bulk-b" class="hidden">
+                        <span>b / Å</span>
+                        <input id="ase-bulk-b" type="number" min="0" step="any" placeholder="Required">
+                    </label>
+                    <label data-bulk-parameter="c" for="ase-bulk-c" class="hidden">
+                        <span>c / Å</span>
+                        <input id="ase-bulk-c" type="number" min="0" step="any" placeholder="Required">
+                    </label>
+                    <label data-bulk-parameter="covera" for="ase-bulk-covera" class="hidden">
+                        <span>c/a</span>
+                        <input id="ase-bulk-covera" type="number" min="0" step="any" placeholder="ASE / ideal">
+                    </label>
+                    <label data-bulk-parameter="alpha" for="ase-bulk-alpha" class="hidden">
+                        <span>α / degree</span>
+                        <input id="ase-bulk-alpha" type="number" min="0" max="180" step="any" placeholder="Required">
+                    </label>
+                    <label data-bulk-parameter="u" for="ase-bulk-u" class="hidden">
+                        <span>Internal u</span>
+                        <input id="ase-bulk-u" type="number" min="0" max="1" step="any" placeholder="ASE default">
+                    </label>
+                </div>
+                <details id="ase-bulk-advanced" class="ase-builder-advanced hidden">
+                    <summary>Fractional basis</summary>
+                    <label for="ase-bulk-basis">
+                        <span>N × 3 JSON coordinates</span>
+                        <textarea id="ase-bulk-basis" rows="3" spellcheck="false"
+                                  placeholder="[[0, 0, 0]]"></textarea>
+                    </label>
+                </details>
+                <div id="ase-bulk-preview" class="ase-builder-preview" data-state="loading" aria-live="polite">
+                    <span class="ase-builder-preview-mark" aria-hidden="true"></span>
+                    <div>
+                        <strong id="ase-bulk-preview-title">Loading ASE catalog</strong>
+                        <span id="ase-bulk-preview-detail">Checking compatible materials and cell shapes...</span>
+                    </div>
+                </div>
+                <div class="btn-stack-row two ase-builder-actions">
+                    <button id="btn-ase-bulk-preview" type="button">Validate</button>
+                    <button id="btn-ase-bulk-build" class="primary" type="button" disabled>Build Structure</button>
                 </div>
             </div>
         </div>
@@ -596,7 +654,6 @@
                         <span>Section</span>
                         <select id="structure-section-select" aria-label="Jump to control-panel section">
                     <option value="appearance">Atoms &amp; Appearance</option>
-                    <option value="ase-builder" data-edit-only>Build with ASE</option>
                     <option value="cell-replication">Cell &amp; Replication</option>
                     <option value="cell-transform" data-edit-only>Cell Transform</option>
                     <option value="transform">Transform &amp; Cell Match</option>
@@ -1217,91 +1274,6 @@
                     <span>Material</span>
                 </div>
                 <div id="appearance-table-body"></div>
-            </div>
-        </details>
-
-        <details class="panel-section" open data-panel="ase-builder" data-panel-group="structure" data-edit-only>
-            <summary class="section-header">Build with ASE</summary>
-            <div class="ase-builder-heading">
-                <div>
-                    <strong>Bulk crystal</strong>
-                    <span>ase.build.bulk</span>
-                </div>
-                <span id="ase-bulk-version" class="ase-builder-version">ASE</span>
-            </div>
-            <p class="panel-note">
-                Generate a periodic crystal from ASE reference data or an explicit prototype.
-                Building replaces the active structure and trajectory; Undo restores them.
-            </p>
-            <div class="ase-builder-primary-grid">
-                <label for="ase-bulk-formula">
-                    <span>Formula</span>
-                    <input id="ase-bulk-formula" type="text" value="Cu" list="ase-bulk-formulas"
-                           autocomplete="off" spellcheck="false" aria-describedby="ase-bulk-formula-hint">
-                    <datalist id="ase-bulk-formulas"></datalist>
-                </label>
-                <label for="ase-bulk-structure">
-                    <span>Crystal structure</span>
-                    <select id="ase-bulk-structure">
-                        <option value="">Automatic from ASE</option>
-                    </select>
-                </label>
-                <label for="ase-bulk-cell-mode">
-                    <span>Cell shape</span>
-                    <select id="ase-bulk-cell-mode">
-                        <option value="primitive">Native / primitive</option>
-                        <option value="orthorhombic">Orthorhombic</option>
-                        <option value="cubic" selected>Cubic</option>
-                    </select>
-                </label>
-            </div>
-            <p id="ase-bulk-formula-hint" class="ase-builder-field-hint">
-                Choose a compatible ASE reference element or type a custom formula.
-            </p>
-            <div id="ase-bulk-parameters" class="ase-builder-parameter-grid">
-                <label data-bulk-parameter="a" for="ase-bulk-a">
-                    <span>a / Å</span>
-                    <input id="ase-bulk-a" type="number" min="0" step="any" placeholder="ASE default">
-                </label>
-                <label data-bulk-parameter="b" for="ase-bulk-b" class="hidden">
-                    <span>b / Å</span>
-                    <input id="ase-bulk-b" type="number" min="0" step="any" placeholder="Required">
-                </label>
-                <label data-bulk-parameter="c" for="ase-bulk-c" class="hidden">
-                    <span>c / Å</span>
-                    <input id="ase-bulk-c" type="number" min="0" step="any" placeholder="Required">
-                </label>
-                <label data-bulk-parameter="covera" for="ase-bulk-covera" class="hidden">
-                    <span>c/a</span>
-                    <input id="ase-bulk-covera" type="number" min="0" step="any" placeholder="ASE / ideal">
-                </label>
-                <label data-bulk-parameter="alpha" for="ase-bulk-alpha" class="hidden">
-                    <span>α / degree</span>
-                    <input id="ase-bulk-alpha" type="number" min="0" max="180" step="any" placeholder="Required">
-                </label>
-                <label data-bulk-parameter="u" for="ase-bulk-u" class="hidden">
-                    <span>Internal u</span>
-                    <input id="ase-bulk-u" type="number" min="0" max="1" step="any" placeholder="ASE default">
-                </label>
-            </div>
-            <details id="ase-bulk-advanced" class="ase-builder-advanced hidden">
-                <summary>Fractional basis</summary>
-                <label for="ase-bulk-basis">
-                    <span>N × 3 JSON coordinates</span>
-                    <textarea id="ase-bulk-basis" rows="3" spellcheck="false"
-                              placeholder="[[0, 0, 0]]"></textarea>
-                </label>
-            </details>
-            <div id="ase-bulk-preview" class="ase-builder-preview" data-state="loading" aria-live="polite">
-                <span class="ase-builder-preview-mark" aria-hidden="true"></span>
-                <div>
-                    <strong id="ase-bulk-preview-title">Loading ASE catalog</strong>
-                    <span id="ase-bulk-preview-detail">Checking compatible materials and cell shapes...</span>
-                </div>
-            </div>
-            <div class="btn-stack-row two ase-builder-actions">
-                <button id="btn-ase-bulk-preview" type="button">Validate</button>
-                <button id="btn-ase-bulk-build" class="primary" type="button" disabled>Build Structure</button>
             </div>
         </details>
 
@@ -1941,7 +1913,7 @@
         }
         const modulePath = (window.location.protocol === 'file:' || window.location.pathname.endsWith('/static/index.html'))
             ? './main.js'
-            : './static/main.js?v=0.2.23&rev=1';
+            : './static/main.js?v=0.2.24&rev=1';
         import(modulePath).catch(error => {
             console.error('v_ase failed to initialize:', error?.stack || error);
         });

@@ -145,9 +145,9 @@ Edit additionally enables:
 - add, delete, copy, paste, undo, and redo;
 - constraints editing and calculator-backed relaxation.
 
-### ASE Bulk Builder
+### Add Atoms Workspace: ASE Bulk Builder
 
-**Structure > Build with ASE** exposes the usable construction paths of the
+**+ Add atoms > Build with ASE** exposes the usable construction paths of the
 installed `ase.build.bulk` implementation without probing ASE on every control
 change. A process-local catalog caches reference elements, supported crystal
 prototypes, compatible native/orthorhombic/cubic cell shapes, and conditional
@@ -167,7 +167,7 @@ requires explicit confirmation, and complete original/trajectory state is
 stored as one Undo entry. Loaded volumetric data, an active commensurate guest,
 or an active relaxation must be resolved before replacement.
 
-### Add Atoms Workspace
+### Add Atoms Workspace: Direct Placement
 
 Edit mode exposes one persistent Add Atoms workspace rather than treating
 creation as an isolated button click. **Single** retains cursor/view-center or
@@ -213,17 +213,24 @@ fields. All overlays disappear on Finish or Cancel. Changing region MIC in an
 active, stopped session rebuilds both the backend domain and rendered images;
 the control is locked while its optimizer is running.
 
-Placement may initially contain short contacts. Its dedicated repulsive step uses
-explicit unordered chemical-element pair cutoffs, the ASE minimum-image
-convention, and a harmonic overlap penalty. Covalent and van der Waals radii
-are only deterministic starting suggestions; every pair distance remains
-editable. By default the pre-existing host is temporarily fixed while inserted
-atoms move. This temporary mask exists only on a detached optimizer copy: it is
-never appended to the document's ASE constraints. Cancel restores the exact
-pre-session structure; Finish rebuilds the host from that immutable baseline
-and appends only the final new atoms. Host coordinates, arrays, labels,
-calculator, and constraints therefore remain byte-for-byte or object-state
-equivalent as appropriate.
+Placement may initially contain short contacts. The placement card links to
+the same **Structure > Relaxation** controls used by ordinary optimization:
+calculator, bonding-relative or absolute cutoff, strength, device, CPU threads,
+`fmax`, and steps have one source of truth. When an Add session is active, the
+common Start action routes those values through the Add placement adapter. It
+uses the ASE minimum-image convention and harmonic overlap penalty on one
+complete detached optimizer copy. By default the structure present when the
+session first opened is temporarily fixed while every inserted batch moves.
+That mask is never appended to the document's ASE constraints.
+
+Placement can be repeated without Finish. After a completed relaxation, the
+species rows and regions remain editable; another atom or molecule batch is
+appended to the existing staged topology and may be relaxed together with all
+earlier inserted content. One immutable pre-session baseline and one Undo entry
+cover the complete sequence. Cancel restores that exact baseline. Finish
+rebuilds the host from it and appends only the final accumulated content, so
+host coordinates, arrays, labels, calculator, and constraints remain
+byte-for-byte or object-state equivalent as appropriate.
 
 Molecule centers use the same region and placement rules. Count mode uses the
 requested integer counts. Density mode interprets those counts as a composition
@@ -244,9 +251,10 @@ projected back onto the immutable template geometry. Atomwise placement is an
 explicit alternative. While rigid placement is active, interactive edits must
 move or rotate a complete molecule and cannot distort one atom independently.
 
-Accepted repulsive steps are exposed through a temporary Add Atoms timeline.
-The timeline can be scrubbed or played while the workspace is active and is
-removed when Finish or Cancel closes the mode.
+Accepted placement-relaxation steps are exposed through a temporary Add Atoms
+timeline. It can be scrubbed or played while the workspace is active. Appending
+a batch resets this temporary timeline because the staged atom count changed;
+the next relaxation records the expanded topology. Finish or Cancel removes it.
 
 Batch insertion is current-frame scoped. A loaded trajectory must be reduced
 to the intended structure in a new document before the workspace starts, which
@@ -443,12 +451,12 @@ so the value is not a hard minimum-separation constraint. Bonding settings
 remain visualization state, but their active cutoff table is synchronized into
 the fallback calculator before relaxation.
 
-The Add Atoms repulsion is separate from that whole-structure fallback. It
-evaluates only explicit element-pair minimum distances, can keep every host
-atom fixed, and emits bounded optimization progress over the document
-WebSocket. The pair table and optimizer allocate only while Add Atoms is
-active. Its timeline is separate from the source trajectory and generic
-structure relaxation.
+Add Atoms uses the same visible calculator, cutoff, strength, device, `fmax`,
+and step controls as whole-structure relaxation, but a staging adapter changes
+which degrees of freedom are optimized. It can keep the immutable pre-session
+host fixed, moves all accumulated inserted content, and emits bounded progress
+over the document WebSocket. Its optimizer allocates only while active, and its
+timeline remains distinct from the source trajectory and generic relaxation.
 
 Base-atom selections survive frame changes and are removed only when the new
 frame does not contain the selected index or its label is hidden. Measurements

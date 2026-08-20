@@ -582,7 +582,9 @@ def test_readme_presents_real_manipulation_and_analysis_workflows():
     assert "MoS2 `2 × 2` guest" in readme
     assert "192-atom Cu(111) slab" in readme
     assert "second, and third lateral neighbor shells" in readme
-    assert "one complete\n  `AdditionRepulsionCalculator`" in readme
+    assert "one `AdditionRepulsionCalculator` attached to the complete staged" in readme
+    assert "same controls used for ordinary structure relaxation" in readme
+    assert "place another batch, and relax again without pressing **finish**" in normalized_readme
     assert "every FIRE optimizer step" in readme
 
     for filename in (
@@ -746,9 +748,11 @@ def test_add_atoms_capture_uses_the_real_batch_workspace_and_optimizer():
     assert 'page.click("#btn-create-atom-toggle")' in capture
     assert 'page.click("#add-atoms-tab-batch")' in capture
     assert 'page.click("#btn-add-atoms-scatter")' in capture
-    assert 'page.click("#btn-add-atoms-relax")' in capture
-    assert 'page.select_option("#add-atoms-device", "cpu")' in capture
-    assert 'page.select_option("#add-atoms-cpus"' in capture
+    assert "_configure_shared_add_atoms_relaxation(" in capture
+    assert "_start_shared_add_atoms_relaxation(page)" in capture
+    assert "assign('calc-device', 'cpu')" in source
+    assert "assign('calc-cpus', settings.cpuThreads)" in source
+    assert "document.getElementById('btn-relax').click()" in source
     assert 'page.click("#btn-add-atoms-finish")' in capture
     assert "renderer.addAtomsRegionGroup.visible === true" in capture
     assert "renderer.addAtomsRegionGroup.visible === false" in capture

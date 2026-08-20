@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.2.24
+
+- Moved **Build with ASE** into the **+ Add atoms** workspace so single-atom
+  insertion, staged batches, molecules, and ASE crystal building share one
+  discoverable tool surface.
+- Unified staged-content optimization with **Structure > Relaxation**. Add
+  sessions now use the same calculator, device, cutoff, strength, `fmax`,
+  steps, Start, and Stop controls as ordinary structure relaxation.
+- Allowed repeated atom and molecule placements in one Add session, including
+  after placement relaxation and region edits. Every batch accumulates against
+  one immutable pre-session host and one undo entry until Finish or Cancel.
+- In Edit mode, selecting any displayed supercell replica now keeps the primary
+  unit-cell atom fully highlighted and marks all equivalent replicas with a
+  distinct muted selection indicator.
+
 ## 0.2.23
 
 - Added byte-offset, on-demand View-mode readers for VASP XDATCAR and native

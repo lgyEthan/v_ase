@@ -760,6 +760,13 @@ export class ASERenderer {
             opacity: 1.0,
             depthWrite: false
         });
+        this.replicaSelectionMutedMaterial = new THREE.MeshBasicMaterial({
+            color: 0xffc400,
+            side: THREE.BackSide,
+            transparent: true,
+            opacity: 0.36,
+            depthWrite: false
+        });
         this.constraintMaterials = {
             line: new THREE.MeshBasicMaterial({
                 color: 0x239fb8,
@@ -7366,6 +7373,16 @@ export class ASERenderer {
         return references;
     }
 
+    equivalentReplicaSelectionReferences(indices = []) {
+        const selected = new Set(
+            [...indices]
+                .map(value => Number(value))
+                .filter(Number.isInteger)
+        );
+        if (!selected.size) return [];
+        return this.supercellSelectionReferences().filter(reference => selected.has(reference.index));
+    }
+
     replicaSelectionPosition(reference) {
         if (!reference || reference.kind !== 'replica' || !Array.isArray(reference.cellOffset)) return null;
         const atom = this.atomMeshByIndex.get(reference.index);
@@ -8506,7 +8523,7 @@ export class ASERenderer {
         this.clearGroup(this.replicaSelectionOutlines);
     }
 
-    setReplicaSelection(references = []) {
+    setReplicaSelection(references = [], { muted = false } = {}) {
         this.clearReplicaSelectionOutlines();
         const visible = [...references].filter(reference =>
             reference?.kind === 'replica' &&
@@ -8520,7 +8537,7 @@ export class ASERenderer {
         }
         const outline = new THREE.InstancedMesh(
             this.selectionOutlineGeometry,
-            this.selectionOutlineMaterial,
+            muted ? this.replicaSelectionMutedMaterial : this.selectionOutlineMaterial,
             visible.length
         );
         outline.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
@@ -8532,6 +8549,7 @@ export class ASERenderer {
                 ...reference,
                 cellOffset: [...reference.cellOffset]
             })),
+            muted: Boolean(muted),
             sharedGeometry: true,
             sharedMaterial: true
         };
@@ -8623,7 +8641,8 @@ export class ASERenderer {
     setReplicaSelectionInstanceMatrix(mesh, instanceId, reference) {
         const position = this.replicaSelectionPosition(reference);
         const visible = position && this.atomReferenceVisible(reference.index, reference.cellOffset);
-        const scale = visible ? this.atomVisualRadius(reference.index) * 1.18 : 0;
+        const outlineScale = mesh.userData?.muted ? 1.11 : 1.18;
+        const scale = visible ? this.atomVisualRadius(reference.index) * outlineScale : 0;
         const matrix = mesh.instanceMatrix.array;
         const offset = instanceId * 16;
         matrix[offset] = scale;

@@ -163,10 +163,16 @@ Run all scenarios, not only static document checks:
      remap its three neighbor indices after deletion, change them to ASE N with
      label `N_pyridinic`, and verify 71 atoms, three N elements, and three
      matching labels before rendering.
-   - on a complex single periodic structure, start Add Atoms with two
-     element/label populations and a fixed seed; verify the highlighted cell
-     or Cartesian region, requested counts, label order, and new selection;
-   - verify the staged host appears in the semantic constraint summary while
+	   - on a complex single periodic structure, start Add Atoms with two
+	     element/label populations and a fixed seed; verify the highlighted cell
+	     or Cartesian region, requested counts, label order, and new selection;
+	   - start placement through common `start-relaxation` with the exact
+	     Structure > Relaxation calculator/cutoff/device/fmax/steps payload; after
+	     completion, edit a region, append a molecule batch without Finish, and
+	     verify `placement_count`, `last_batch_new_count`, total staged count, one
+	     history entry, one immutable pre-session host, and a newly reset Add
+	     timeline before the next relaxation;
+	   - verify the staged host appears in the semantic constraint summary while
      the ASE constraints remain unchanged, then verify the temporary summary
      disappears after finish and cancel;
    - verify 100,000 fractional samples in a skewed triclinic cell have the

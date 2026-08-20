@@ -103,7 +103,7 @@ URL or copy it into any local browser.
 | --- | --- |
 | Inspect a structure | Middle-drag to orbit, wheel to zoom, left-click to select |
 | Build from an empty document | Run `v_ase gui`, define **Structure > Cell & Replication** if needed, then open **+ Add atoms** |
-| Build a periodic crystal with ASE | In **Edit**, open **Structure > Build with ASE**, choose a compatible formula/prototype/cell shape, validate, then build |
+| Build a periodic crystal with ASE | In **Edit**, open **+ Add atoms > Build with ASE**, choose a compatible formula/prototype/cell shape, validate, then build |
 | Edit coordinates | Enter **Edit**, select atoms, press `Esc` to focus the viewport, then use `G`, `R`, or physical `S` |
 | Insert atoms or molecules | In **Edit**, open **+ Add atoms**, choose **Single** or **Batch**, then place atoms or ASE molecules |
 | Measure geometry | Select 2, 3, or 4 atoms in the required order |
@@ -159,8 +159,11 @@ remain available in the default **View** mode.
 - Ordered single-atom selections are retained for geometry measurement.
 - In View, repeated supercell atoms are independent visual references for
   measurement, appearance, and hiding. In Edit, clicking or box-selecting a
-  replica selects its unique base atom in the editable unit cell; replicas
-  remain fully opaque so the mapping is visible.
+  replica selects its unique base atom in the editable unit cell. The primary
+  atom keeps the normal full selection halo, while every displayed periodic
+  equivalent receives a smaller, lower-opacity yellow ring. Atom opacity and
+  appearance remain unchanged, so the editable primary is clear without
+  disguising the surrounding periodic structure.
 
 ### Move
 
@@ -187,9 +190,10 @@ built without loading an input file:
 2. Open **+ Add atoms > Batch**, choose atom types, labels, counts, and an
    initial distribution, then place the batch in the cell or in explicit Allow
    regions.
-3. Use **Repel** to remove close contacts. The fallback calculator also works
-   for finite structures with no unit cell, provided a finite Allow region
-   defines the insertion domain.
+3. Open **Structure > Relaxation** from the placement card, choose the shared
+   calculator, cutoff, device, `fmax`, and step settings, then start placement
+   relaxation. The fallback calculator also works for finite structures with
+   no unit cell, provided a finite Allow region defines the insertion domain.
 4. Review the placement timeline and click **Finish** when the staged structure
    is ready.
 
@@ -198,7 +202,7 @@ the scratch document meaningful.
 
 #### Build A Bulk Crystal With ASE
 
-Open **Structure > Build with ASE** in Edit mode to generate a periodic crystal
+Open **+ Add atoms > Build with ASE** in Edit mode to generate a periodic crystal
 through the installed `ase.build.bulk` implementation. The controls are
 conditional rather than a static list:
 
@@ -276,8 +280,9 @@ the viewport below the app header, leaving bottom-left notifications visible:
 - Regions describe initial placement. **Allow inserted content to leave the
   region domain** is on by default, so repulsive placement can find nearby
   free volume. Turn it off to confine inserted content to the complete Boolean
-  domain during **Repel**. **Finish** commits the staged coordinates; it does
-  not project an unrelaxed batch into the domain by itself.
+  domain during placement relaxation. **Finish** commits the staged
+  coordinates; it does not project an unrelaxed batch into the domain by
+  itself.
 - **Temporarily fix existing atoms** keeps the loaded structure stationary
   while only inserted content follows pairwise repulsion. It is enabled by
   default. This staging overlay does not change atom radii, label colors, or
@@ -286,14 +291,23 @@ the viewport below the app header, leaving bottom-left notifications visible:
 - **Keep inserted atoms selected** is enabled by default. Use `G` or `R` to
   move or rotate only the staged content before repulsive placement; **Select
   added** restores that selection at any time.
-- Choose covalent, van der Waals, or explicit pair cutoffs. Device and CPU
-  thread controls remain in the floating Add panel, even when the main
-  inspector is closed. Click **Repel** to attach one complete
-  `AdditionRepulsionCalculator` to the staged structure and run ASE FIRE.
-  CPU and CUDA use the same pair model; unavailable CUDA requests fall back to
-  CPU and the effective backend is shown in the panel. Minimum-image vectors
-  are evaluated by the calculator for the complete structure rather than by
-  moving atom pairs independently.
+- The placement card opens **Structure > Relaxation**. Its calculator,
+  label-pair or absolute cutoff, strength, device, CPU threads, `fmax`, and
+  step count are the same controls used for ordinary structure relaxation.
+  Starting relaxation while Add Atoms is active routes that shared setup
+  through one `AdditionRepulsionCalculator` attached to the complete staged
+  structure. CPU and CUDA use the same pair model; unavailable CUDA requests
+  fall back to CPU. Minimum-image vectors are evaluated by the calculator for
+  the complete structure rather than by moving atom pairs independently.
+
+**Place atoms** and **Place molecules** remain available after each completed
+placement relaxation. Edit the species rows or Allow/Reject regions, place
+another batch, and relax again without pressing **Finish**. Every batch is
+accumulated in one reversible staging session. The structure that existed when
+the session first opened remains the immutable host baseline; all content
+inserted by any later placement belongs to the staged mobile set. **Select
+added** selects that complete accumulated set. **Finish** commits all batches,
+while **Cancel** restores the exact pre-session structure and discards them.
 
 The insertion regions exist only while Add Atoms is active. **Finish** commits the
 inserted content but reconstructs every pre-existing coordinate, array, label,
@@ -301,10 +315,12 @@ calculator, and constraint from the original structure. **Cancel** restores
 that original structure completely. For trajectories, open the target frame
 in a new tab before starting a batch.
 
-Repulsive placement creates an **Add Atoms placement** timeline containing
+Placement relaxation creates an **Add Atoms placement** timeline containing
 every FIRE optimizer step. It can be scrubbed or played while the mode remains
-active. Finishing or cancelling the mode closes the panel and removes the
-temporary regions and timeline.
+active. Placing another batch changes the staged topology, so the temporary
+timeline starts again from that expanded structure; the next relaxation fills
+it with the new optimizer steps. Finishing or cancelling the mode closes the
+panel and removes the temporary regions and timeline.
 
 The animations use the included
 [Cu(111)/O placement example](examples/readme_scene_assets/cu111_oxygen_add_atoms.traj).
@@ -428,9 +444,11 @@ and every compatible trajectory frame.
 In **View**, displayed replicas use the same color, material, and opacity as
 the primary atoms and remain selectable for measurements. In **Edit**, the
 editable primary cell is centered for odd repetitions such as `3 x 3 x 1`, its
-cell boundary receives a stronger contrast halo, and noneditable replicas use
-16% opacity. This keeps both sides of a periodic boundary visible without
-making a displayed replica look like a real editable atom.
+cell boundary receives a stronger contrast halo, and every atom remains fully
+opaque. Selecting any replica maps to one unique editable base atom: the base
+gets the normal full halo and all equivalent replicas receive smaller,
+lower-opacity rings. This exposes the periodic mapping without making a
+displayed copy look independently editable.
 
 ### Commensurate Atoms: Match Periodic 2D Cells
 
@@ -1688,10 +1706,12 @@ instance and its bonds; the ASE structure is unchanged. Structural analysis
 warns that hidden atoms remain in the backend and offers **Switch to Edit &
 Delete** when physical removal is intended.
 
-In **Edit**, every opaque replica maps to its corresponding base atom in the
-editable unit cell. Click or box selection is deduplicated across periodic
-images. Use **Set Supercell as Cell** only when every displayed copy must
-become a real ASE atom in a larger physical cell.
+In **Edit**, every replica maps to its corresponding base atom in the editable
+unit cell. Click or box selection is deduplicated across periodic images. The
+base atom keeps the normal full selection halo and all equivalent displayed
+replicas receive smaller, lower-opacity rings; their atom opacity is unchanged.
+Use **Set Supercell as Cell** only when every displayed copy must become a real
+ASE atom in a larger physical cell.
 
 </details>
 

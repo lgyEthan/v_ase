@@ -1785,6 +1785,10 @@ class AtomAdditionSession:
     cutoff_scale: float
     seed: int | None
     content_kind: str = "atoms"
+    last_content_kind: str = "atoms"
+    placement_count: int = 1
+    last_batch_new_indices: list[int] = field(default_factory=list)
+    last_batch_molecule_count: int = 0
     placement_mode: str = "random"
     regular_spacing: float | None = None
     coordinate_basis: str = "cartesian"
@@ -1807,6 +1811,9 @@ class AtomAdditionSession:
     effective_device: str = "cpu"
     cpu_threads: int = field(default_factory=default_cpu_threads)
     calculator_backend: str = "numpy"
+    cutoff_mode: str = "bonding"
+    cutoff_distance: float = 2.0
+    k_repulsion: float = 1.0
     lock: threading.RLock = field(default_factory=threading.RLock, repr=False)
 
     @property
@@ -1855,6 +1862,11 @@ class AtomAdditionSession:
             "cutoff_scale": self.cutoff_scale,
             "seed": self.seed,
             "content_kind": self.content_kind,
+            "last_content_kind": self.last_content_kind,
+            "placement_count": self.placement_count,
+            "last_batch_new_indices": list(self.last_batch_new_indices),
+            "last_batch_new_count": len(self.last_batch_new_indices),
+            "last_batch_molecule_count": self.last_batch_molecule_count,
             "placement_mode": self.placement_mode,
             "regular_spacing": self.regular_spacing,
             "coordinate_basis": self.coordinate_basis,
@@ -1876,6 +1888,9 @@ class AtomAdditionSession:
             "effective_device": self.effective_device,
             "cpu_threads": self.cpu_threads,
             "calculator_backend": self.calculator_backend,
+            "cutoff_mode": self.cutoff_mode,
+            "cutoff_distance": self.cutoff_distance,
+            "k_repulsion": self.k_repulsion,
             "cpu_thread_options": cpu_thread_options(),
             "cuda_available": cuda_available(),
         }
@@ -1948,20 +1963,28 @@ def atom_addition_domain_preview(atoms: Atoms, payload: dict[str, Any]) -> dict[
 
 
 def start_atom_addition(session: Any, payload: dict[str, Any]) -> dict[str, Any]:
-    if getattr(session, "atom_addition", None) is not None:
-        raise ValueError("Finish or cancel the active Add Atoms session first.")
-    if getattr(session, "is_relaxing", False):
+    active = getattr(session, "atom_addition", None)
+    if active is not None and not isinstance(active, AtomAdditionSession):
+        raise ValueError("The active Add Atoms session has an unsupported state.")
+    if isinstance(active, AtomAdditionSession) and active.is_relaxing:
+        raise ValueError("Stop or wait for placement relaxation before adding more content.")
+    if active is None and getattr(session, "is_relaxing", False):
         raise ValueError("Stop the active structure relaxation before adding atoms.")
-    if getattr(session, "trajectory_source", None) is not None or int(
+    if active is None and (getattr(session, "trajectory_source", None) is not None or int(
         getattr(session, "frame_count", 1)
-    ) > 1:
+    ) > 1):
         raise ValueError(
             "Batch atom and molecule insertion requires a single structure. Open the target "
             "trajectory frame in a new tab before starting Add Atoms."
         )
 
-    baseline = _copy_atoms_with_calculator(session.working_atoms)
-    domain = insertion_domain_from_payload(baseline, payload)
+    current = _copy_atoms_with_calculator(session.working_atoms)
+    baseline = (
+        _copy_atoms_with_calculator(active.baseline_atoms)
+        if isinstance(active, AtomAdditionSession)
+        else _copy_atoms_with_calculator(current)
+    )
+    domain = insertion_domain_from_payload(current, payload)
     content_kind = str(payload.get("content_kind") or "atoms").strip().lower()
     if content_kind not in {"atoms", "molecules"}:
         raise ValueError("content_kind must be atoms or molecules.")
@@ -1996,8 +2019,8 @@ def start_atom_addition(session: Any, payload: dict[str, Any]) -> dict[str, Any]
             )
         entity_count = sum(int(entry["count"]) for entry in entries)
         anchors, sampling = sample_insertion_positions(
-            baseline.cell.array,
-            baseline.pbc,
+            current.cell.array,
+            current.pbc,
             entity_count,
             placement_mode=placement_mode,
             coordinate_basis=coordinate_basis,
@@ -2020,15 +2043,15 @@ def start_atom_addition(session: Any, payload: dict[str, Any]) -> dict[str, Any]
         molecule_references = expanded["references"]
         molecule_names = expanded["names"]
         for group_index, group in enumerate(expanded["groups"]):
-            molecule_groups.append([len(baseline) + index for index in group])
+            molecule_groups.append([len(current) + index for index in group])
             molecule_group_ids.extend([group_index] * len(group))
     else:
         entries = normalize_add_entries(payload)
         elements, labels = expanded_entry_values(entries)
         entity_count = len(elements)
         positions, sampling = sample_insertion_positions(
-            baseline.cell.array,
-            baseline.pbc,
+            current.cell.array,
+            current.pbc,
             entity_count,
             placement_mode=placement_mode,
             coordinate_basis=coordinate_basis,
@@ -2044,7 +2067,7 @@ def start_atom_addition(session: Any, payload: dict[str, Any]) -> dict[str, Any]
 
     basis = str(payload.get("cutoff_basis") or "covalent").strip().lower()
     cutoff_scale = float(payload.get("cutoff_scale", 0.7))
-    all_elements = [*baseline.get_chemical_symbols(), *elements]
+    all_elements = [*current.get_chemical_symbols(), *elements]
     pair_cutoffs = normalize_pair_cutoffs(
         payload.get("pair_cutoffs"),
         all_elements,
@@ -2052,48 +2075,135 @@ def start_atom_addition(session: Any, payload: dict[str, Any]) -> dict[str, Any]
         scale=cutoff_scale,
     )
 
-    redo_before = list(session.redo_stack)
-    session.push_history(include_trajectory=True)
-    history_index = len(session.history) - 1
+    append_group_ids: list[int] | None
+    if content_kind == "molecules":
+        append_group_ids = molecule_group_ids
+    elif MOLECULE_GROUP_ARRAY in current.arrays:
+        append_group_ids = [-1] * len(elements)
+    else:
+        append_group_ids = None
     working = append_atoms(
-        baseline,
+        current,
         elements,
         labels,
         positions,
-        molecule_group_ids=molecule_group_ids if content_kind == "molecules" else None,
+        molecule_group_ids=append_group_ids,
     )
-    new_indices = list(range(len(baseline), len(working)))
-    addition = AtomAdditionSession(
-        session_id=str(uuid.uuid4()),
-        baseline_atoms=baseline,
-        frame_index=int(session.current_frame),
-        history_index=history_index,
-        redo_before=redo_before,
-        domain=domain,
-        regions=list(domain.regions),
-        allow_escape=allow_escape,
-        entries=entries,
-        elements=elements,
-        labels=labels,
-        new_indices=new_indices,
-        pair_cutoffs=pair_cutoffs,
-        cutoff_basis=basis,
-        cutoff_scale=cutoff_scale,
-        seed=seed,
-        content_kind=content_kind,
-        placement_mode=placement_mode,
-        regular_spacing=regular_spacing,
-        coordinate_basis=coordinate_basis,
-        pbc_aware=pbc_aware,
-        random_orientation=random_orientation,
-        rigid_molecules=rigid_molecules,
-        molecule_groups=molecule_groups,
-        molecule_references=molecule_references,
-        molecule_names=molecule_names,
-        molecule_group_ids=molecule_group_ids,
-        density=density,
-        freeze_existing=bool(payload.get("freeze_existing", True)),
+    batch_indices = list(range(len(current), len(working)))
+    baseline_groups = baseline.arrays.get(MOLECULE_GROUP_ARRAY)
+    baseline_group_values = (
+        np.asarray(baseline_groups, dtype=int)
+        if baseline_groups is not None
+        else np.empty(0, dtype=int)
     )
+    baseline_group_offset = (
+        int(np.max(baseline_group_values[baseline_group_values >= 0])) + 1
+        if np.any(baseline_group_values >= 0)
+        else 0
+    )
+
+    def stored_batch_group_ids() -> list[int]:
+        if MOLECULE_GROUP_ARRAY not in working.arrays:
+            return [-1] * len(batch_indices)
+        values = np.asarray(
+            working.arrays[MOLECULE_GROUP_ARRAY][batch_indices],
+            dtype=int,
+        )
+        return [
+            int(value - baseline_group_offset) if value >= 0 else -1
+            for value in values
+        ]
+
+    if active is None:
+        redo_before = list(session.redo_stack)
+        session.push_history(include_trajectory=True)
+        history_index = len(session.history) - 1
+        stored_group_ids = (
+            stored_batch_group_ids()
+            if molecule_groups
+            else []
+        )
+        addition = AtomAdditionSession(
+            session_id=str(uuid.uuid4()),
+            baseline_atoms=baseline,
+            frame_index=int(session.current_frame),
+            history_index=history_index,
+            redo_before=redo_before,
+            domain=domain,
+            regions=list(domain.regions),
+            allow_escape=allow_escape,
+            entries=entries,
+            elements=list(elements),
+            labels=list(labels),
+            new_indices=batch_indices,
+            pair_cutoffs=pair_cutoffs,
+            cutoff_basis=basis,
+            cutoff_scale=cutoff_scale,
+            seed=seed,
+            content_kind=content_kind,
+            last_content_kind=content_kind,
+            placement_count=1,
+            last_batch_new_indices=batch_indices,
+            last_batch_molecule_count=len(molecule_groups),
+            placement_mode=placement_mode,
+            regular_spacing=regular_spacing,
+            coordinate_basis=coordinate_basis,
+            pbc_aware=pbc_aware,
+            random_orientation=random_orientation,
+            rigid_molecules=rigid_molecules,
+            molecule_groups=molecule_groups,
+            molecule_references=molecule_references,
+            molecule_names=molecule_names,
+            molecule_group_ids=stored_group_ids,
+            density=density,
+            freeze_existing=bool(payload.get("freeze_existing", True)),
+        )
+    else:
+        addition = active
+        with addition.lock:
+            if getattr(session, "atom_addition", None) is not addition:
+                raise ValueError("The active Add Atoms session changed unexpectedly.")
+            previous_added_count = len(addition.elements)
+            addition.entries = entries
+            addition.elements.extend(elements)
+            addition.labels.extend(labels)
+            addition.new_indices.extend(batch_indices)
+            if molecule_groups or addition.molecule_groups:
+                if len(addition.molecule_group_ids) < previous_added_count:
+                    addition.molecule_group_ids.extend(
+                        [-1] * (previous_added_count - len(addition.molecule_group_ids))
+                    )
+                batch_group_ids = stored_batch_group_ids()
+                addition.molecule_group_ids.extend(batch_group_ids)
+            addition.molecule_groups.extend(molecule_groups)
+            addition.molecule_references.extend(molecule_references)
+            addition.molecule_names.extend(molecule_names)
+            if addition.content_kind != content_kind:
+                addition.content_kind = "mixed"
+            addition.last_content_kind = content_kind
+            addition.placement_count += 1
+            addition.last_batch_new_indices = batch_indices
+            addition.last_batch_molecule_count = len(molecule_groups)
+            addition.domain = domain
+            addition.regions = list(domain.regions)
+            addition.allow_escape = allow_escape
+            addition.pair_cutoffs = pair_cutoffs
+            addition.cutoff_basis = basis
+            addition.cutoff_scale = cutoff_scale
+            addition.seed = seed
+            addition.placement_mode = placement_mode
+            addition.regular_spacing = regular_spacing
+            addition.coordinate_basis = coordinate_basis
+            addition.pbc_aware = pbc_aware
+            addition.random_orientation = random_orientation
+            addition.rigid_molecules = rigid_molecules
+            addition.density = density
+            addition.freeze_existing = bool(
+                payload.get("freeze_existing", addition.freeze_existing)
+            )
+            addition.status = "scattered"
+            addition.step = 0
+            addition.max_steps = 0
     session.atom_addition = addition
     session.working_atoms = working
     session.invalidate_trajectory_layout()
@@ -2232,7 +2342,7 @@ def finish_atom_addition(session: Any) -> dict[str, Any]:
             added_positions,
             molecule_group_ids=(
                 addition.molecule_group_ids
-                if addition.content_kind == "molecules"
+                if addition.molecule_groups
                 else None
             ),
         )
@@ -2278,7 +2388,7 @@ def apply_atom_addition_positions(
             atol=1e-8,
         ):
             raise ValueError("Only atoms inserted by the active Add Atoms session can be moved.")
-        if addition.content_kind == "molecules" and addition.rigid_molecules:
+        if addition.molecule_groups and addition.rigid_molecules:
             for group, reference in zip(
                 addition.molecule_groups,
                 addition.molecule_references,
@@ -2317,6 +2427,9 @@ def _temporary_optimizer_atoms(
     addition: AtomAdditionSession,
     *,
     pair_cutoffs: dict[str, float],
+    cutoff_mode: str,
+    cutoff_distance: float,
+    cutoff_scale: float,
     k_repulsion: float,
     k_boundary: float,
     mic: bool,
@@ -2333,7 +2446,7 @@ def _temporary_optimizer_atoms(
         constraints.append(FixAtoms(indices=np.arange(addition.host_count)))
     rigid_groups: list[list[int]] = []
     rigid_references: list[np.ndarray] = []
-    if addition.content_kind == "molecules" and addition.rigid_molecules:
+    if addition.molecule_groups and addition.rigid_molecules:
         for group, reference in zip(addition.molecule_groups, addition.molecule_references):
             rigid_groups.append(list(group))
             rigid_references.append(np.asarray(reference, dtype=float))
@@ -2346,7 +2459,9 @@ def _temporary_optimizer_atoms(
         set_region_as_prohibited=False,
         k_boundary=k_boundary,
         k_repulsion=k_repulsion,
-        cutoff_scale=1.0,
+        cutoff_mode=cutoff_mode,
+        cutoff_distance=cutoff_distance,
+        cutoff_scale=cutoff_scale,
         max_force_norm=10.0,
         mic=bool(mic and addition.domain.cell is not None),
         work_on_relax_atoms_too=not addition.freeze_existing,
@@ -2383,7 +2498,7 @@ def _publish_addition_positions(
         else:
             committed_positions = np.asarray(temporary.positions, dtype=float).copy()
             grouped: set[int] = set()
-            if addition.content_kind == "molecules" and addition.rigid_molecules:
+            if addition.molecule_groups and addition.rigid_molecules:
                 origins = np.asarray([
                     rigid_transform_origin(reference, committed_positions[np.asarray(group, dtype=int)])
                     for group, reference in zip(
@@ -2434,6 +2549,9 @@ def _run_addition_relaxation(
     fmax: float,
     steps: int,
     pair_cutoffs: dict[str, float],
+    cutoff_mode: str,
+    cutoff_distance: float,
+    cutoff_scale: float,
     k_repulsion: float,
     k_boundary: float,
     mic: bool,
@@ -2449,6 +2567,9 @@ def _run_addition_relaxation(
             session,
             addition,
             pair_cutoffs=pair_cutoffs,
+            cutoff_mode=cutoff_mode,
+            cutoff_distance=cutoff_distance,
+            cutoff_scale=cutoff_scale,
             k_repulsion=k_repulsion,
             k_boundary=k_boundary,
             mic=mic,
@@ -2541,6 +2662,11 @@ def start_atom_addition_relaxation(
         steps = int(payload.get("steps", 250))
         k_repulsion = float(payload.get("k_repulsion", 2.0))
         k_boundary = float(payload.get("k_boundary", 5.0))
+        cutoff_mode = str(payload.get("cutoff_mode") or "bonding").strip().lower()
+        cutoff_distance = float(payload.get("cutoff_distance", 2.0))
+        cutoff_scale = float(
+            payload.get("cutoff_scale", 1.0 if "cutoff_mode" not in payload else 0.7)
+        )
         device = str(payload.get("device", addition.requested_device or "cpu")).strip().lower()
         cpu_threads = int(payload.get("cpu_threads", addition.cpu_threads))
     except (TypeError, ValueError) as exc:
@@ -2553,6 +2679,12 @@ def start_atom_addition_relaxation(
         raise ValueError("Repulsion strength must be from 0 through 1000.")
     if not np.isfinite(k_boundary) or k_boundary <= 0 or k_boundary > 1000:
         raise ValueError("Boundary strength must be greater than 0 and at most 1000.")
+    if cutoff_mode not in {"bonding", "absolute"}:
+        raise ValueError("Cutoff definition must be bonding or absolute.")
+    if not np.isfinite(cutoff_distance) or cutoff_distance < 0.01 or cutoff_distance > 100:
+        raise ValueError("Absolute cutoff distance must be from 0.01 through 100 angstrom.")
+    if not np.isfinite(cutoff_scale) or cutoff_scale < 0.05 or cutoff_scale > 3:
+        raise ValueError("Bond cutoff multiplier must be from 0.05 through 3.")
     if device not in {"cpu", "cuda"}:
         raise ValueError("Repulsive placement device must be CPU or CUDA.")
     available_threads = cpu_thread_options()
@@ -2561,13 +2693,18 @@ def start_atom_addition_relaxation(
             f"CPU threads must be from {available_threads[0]} through {available_threads[-1]}."
         )
 
-    all_elements = [*addition.baseline_atoms.get_chemical_symbols(), *addition.elements]
-    pair_cutoffs = normalize_pair_cutoffs(
-        payload.get("pair_cutoffs", addition.pair_cutoffs),
-        all_elements,
-        basis="pairwise",
-        scale=1.0,
-    )
+    raw_pair_cutoffs = payload.get("pair_cutoffs", addition.pair_cutoffs)
+    if not isinstance(raw_pair_cutoffs, dict):
+        raise ValueError("Pair cutoffs must be a label-pair to distance object.")
+    pair_cutoffs = {}
+    for raw_key, raw_value in raw_pair_cutoffs.items():
+        key = str(raw_key).strip()
+        if not key or ("|" not in key and "-" not in key):
+            raise ValueError(f"Invalid pair cutoff key '{raw_key}'.")
+        value = float(raw_value)
+        if not np.isfinite(value) or value < 0 or value > 100:
+            raise ValueError("Pair cutoff distances must be finite values from 0 through 100 angstrom.")
+        pair_cutoffs[key] = value
     addition.pair_cutoffs = pair_cutoffs
     addition.freeze_existing = bool(payload.get("freeze_existing", addition.freeze_existing))
     addition.allow_escape = bool(payload.get("allow_escape", addition.allow_escape))
@@ -2579,6 +2716,10 @@ def start_atom_addition_relaxation(
     addition.requested_device = device
     addition.effective_device = "cuda" if device == "cuda" and cuda_available() else "cpu"
     addition.cpu_threads = cpu_threads
+    addition.cutoff_mode = cutoff_mode
+    addition.cutoff_distance = cutoff_distance
+    addition.cutoff_scale = cutoff_scale
+    addition.k_repulsion = k_repulsion
     addition.run_id += 1
     run_id = addition.run_id
     thread = threading.Thread(
@@ -2590,6 +2731,9 @@ def start_atom_addition_relaxation(
             "fmax": fmax,
             "steps": steps,
             "pair_cutoffs": pair_cutoffs,
+            "cutoff_mode": cutoff_mode,
+            "cutoff_distance": cutoff_distance,
+            "cutoff_scale": cutoff_scale,
             "k_repulsion": k_repulsion,
             "k_boundary": k_boundary,
             "mic": bool(payload.get("mic", True)),

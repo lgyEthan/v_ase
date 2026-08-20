@@ -290,15 +290,9 @@ def test_browser_ase_bulk_builder_validates_builds_replaces_and_undoes():
                 page.wait_for_function(
                     "window.__ASE_APP__?.state?.atoms?.metadata?.natoms === 0"
                 )
-                if page.locator("body").evaluate(
-                    "element => element.classList.contains('inspector-collapsed')"
-                ):
-                    page.click("#btn-inspector-collapse")
-                    page.wait_for_function(
-                        "!document.body.classList.contains('inspector-collapsed')"
-                    )
-                page.click('[data-inspector-group="structure"]')
-                page.select_option("#structure-section-select", "ase-builder")
+                page.click("#btn-create-atom-toggle")
+                page.click("#add-atoms-tab-build")
+                page.wait_for_selector("#add-atoms-pane-build:not(.hidden)")
                 page.wait_for_function(
                     "document.getElementById('ase-bulk-preview')?.dataset.state === 'valid'"
                 )

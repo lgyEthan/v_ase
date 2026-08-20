@@ -71,7 +71,7 @@ def _stable_description(url: str, *, timeout: float = 5.0):
     return latest
 
 
-def test_external_cli_agent_scatter_repels_and_commits_random_atoms():
+def test_external_cli_agent_repeats_shared_relaxation_and_commits_staged_content():
     host = Atoms(
         "Cu4O2",
         positions=[
@@ -128,6 +128,7 @@ def test_external_cli_agent_scatter_repels_and_commits_random_atoms():
             assert {
                 "scatter-atoms", "scatter-molecules",
                 "relax-added-atoms", "stop-added-atoms",
+                "start-relaxation", "stop-relaxation",
                 "finish-add-atoms", "cancel-add-atoms",
             } <= set(capabilities["operations"])
 
@@ -187,13 +188,17 @@ def test_external_cli_agent_scatter_repels_and_commits_random_atoms():
             running = _run_cli_command(command_url, "apply", {
                 "expectedRevision": scaled_regions["collaboration"]["revision"],
                 "operation": {
-                    "name": "relax-added-atoms",
-                    "pairCutoffs": scattered["addAtoms"]["pair_cutoffs"],
-                    "freezeExisting": True,
-                    "strength": 2.0,
+                    "name": "start-relaxation",
                     "fmax": 0.1,
                     "steps": 20,
-                    "mic": True,
+                    "calculator": {
+                        "device": "cpu",
+                        "cpu_threads": 1,
+                        "cutoff_mode": "bonding",
+                        "cutoff_scale": 0.7,
+                        "pair_cutoffs": scattered["addAtoms"]["pair_cutoffs"],
+                        "k_repulsion": 2.0,
+                    },
                 },
             })
             # A short optimizer run can finish through the WebSocket before
@@ -215,13 +220,47 @@ def test_external_cli_agent_scatter_repels_and_commits_random_atoms():
             assert placed["addAtoms"]["status"] != "error"
 
             placed = _stable_description(command_url)
-            committed = _run_cli_command(command_url, "apply", {
+            appended = _run_cli_command(command_url, "apply", {
                 "expectedRevision": placed["collaboration"]["revision"],
+                "operation": {
+                    "name": "scatter-molecules",
+                    "molecules": [{"name": "H2O", "label": "water", "count": 1}],
+                    "regions": [{
+                        "id": "allow-main",
+                        "name": "Allow main revised",
+                        "role": "allow",
+                        "bounds": [1.9, 6.2, 0.0, 6.5, 0.0, 6.2],
+                    }],
+                    "placementMode": "homogeneous",
+                    "coordinateBasis": "cartesian",
+                    "randomOrientation": True,
+                    "rigidMolecules": True,
+                    "seed": 2022,
+                    "freezeExisting": True,
+                },
+            })
+            assert appended["addAtoms"]["placement_count"] == 2
+            assert appended["addAtoms"]["last_batch_new_count"] == 3
+            assert appended["addAtoms"]["new_count"] == 13
+            assert appended["atomCount"] == len(host) + 13
+            assert len(sessions[editor.session_id].history) == 1
+            np.testing.assert_array_equal(
+                sessions[editor.session_id].atom_addition.baseline_atoms.positions,
+                baseline_positions,
+            )
+
+            appended = _stable_description(command_url)
+            committed = _run_cli_command(command_url, "apply", {
+                "expectedRevision": appended["collaboration"]["revision"],
                 "operation": "finish-add-atoms",
             })
             assert committed["addAtoms"] is None
-            assert committed["atomCount"] == len(host) + 10
-            assert committed["labels"][-10:] == ["Li_mobile"] * 7 + ["H_probe"] * 3
+            assert committed["atomCount"] == len(host) + 13
+            assert committed["labels"][-13:] == (
+                ["Li_mobile"] * 7
+                + ["H_probe"] * 3
+                + ["O_water", "H_water", "H_water"]
+            )
             child.wait_for_function(
                 "window.__ASE_APP__?.renderer?.addAtomsRegionGroup?.visible === false"
             )
@@ -231,7 +270,11 @@ def test_external_cli_agent_scatter_repels_and_commits_random_atoms():
             for name, values in baseline_arrays.items():
                 np.testing.assert_array_equal(backend.arrays[name][: len(host)], values)
             assert [repr(item) for item in backend.constraints] == baseline_constraints
-            assert atom_labels(backend)[-10:] == ["Li_mobile"] * 7 + ["H_probe"] * 3
+            assert atom_labels(backend)[-13:] == (
+                ["Li_mobile"] * 7
+                + ["H_probe"] * 3
+                + ["O_water", "H_water", "H_water"]
+            )
             browser.close()
     finally:
         editor.close()
@@ -565,6 +608,12 @@ def test_http_bridge_controls_the_same_live_workspace_without_page_evaluation(
                 "factor",
                 "active-add-atoms-session",
             ]
+            assert schema["operation_parameters"]["start-relaxation"]["required"] == [
+                "attached-calculator-or-active-add-atoms-session"
+            ]
+            assert "same calculator" in (
+                schema["operation_parameters"]["start-relaxation"]["notes"]
+            )
             assert "includeCell" in schema["export_parameters"]["blender"]["optional"]
             assert schema["operation_parameters"]["load-commensurate-guest"]["required"] == [
                 "path"

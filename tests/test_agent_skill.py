@@ -445,6 +445,8 @@ def test_agent_endpoints_serve_the_canonical_skill_and_schema():
     scatter_atoms = schema["operation_parameters"]["scatter-atoms"]
     assert {"regions", "regionMic"}.issubset(scatter_atoms["optional"])
     assert "Allow union" in scatter_atoms["notes"]
+    assert "appends" in scatter_atoms["notes"]
+    assert "immutable host" in scatter_atoms["notes"]
     scatter_molecules = schema["operation_parameters"]["scatter-molecules"]
     assert {"quantityMode", "targetDensityGcm3"}.issubset(
         scatter_molecules["optional"]
@@ -462,6 +464,17 @@ def test_agent_endpoints_serve_the_canonical_skill_and_schema():
     assert schema["operation_parameters"]["exit-relaxation-mode"]["optional"] == [
         "keep"
     ]
+    assert schema["operation_parameters"]["start-relaxation"]["required"] == [
+        "attached-calculator-or-active-add-atoms-session"
+    ]
+    assert "same calculator" in (
+        schema["operation_parameters"]["start-relaxation"]["notes"]
+    )
+    documented = _documented_skill_text()
+    assert "**+ Add atoms > Build with ASE**" in documented
+    assert "placement_count" in documented
+    assert "later `scatter-atoms` or `scatter-molecules` calls append" in documented
+    assert "Use the common `start-relaxation` operation" in documented
     assert schema["operation_parameters"]["delete-selection"]["mode"] == "view-or-edit"
     render_area = schema["control_schema"]["properties"]["renderArea"]
     assert render_area["additionalProperties"] is False

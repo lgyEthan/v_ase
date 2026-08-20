@@ -4247,7 +4247,7 @@ body.resizing-pairwise-column * {
 
 .create-atom-tabs {
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: 0.72fr 0.82fr 1.46fr;
     gap: 2px;
     padding: 4px;
     border-bottom: 1px solid var(--line);
@@ -4293,7 +4293,15 @@ body.resizing-pairwise-column * {
     overscroll-behavior: contain;
 }
 
-.create-atom-card.batch-active .add-atoms-batch {
+.add-atoms-build {
+    max-height: calc(100vh - 160px);
+    padding: 12px;
+    overflow: auto;
+    overscroll-behavior: contain;
+}
+
+.create-atom-card.batch-active .add-atoms-batch,
+.create-atom-card.batch-active .add-atoms-build {
     flex: 1 1 auto;
     min-height: 0;
     max-height: none;
@@ -4794,6 +4802,46 @@ body.resizing-pairwise-column * {
     margin-top: 8px;
 }
 
+.add-atoms-relax-link {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 10px;
+    align-items: center;
+    margin-top: 9px;
+    padding: 9px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--surface-subtle);
+}
+
+.add-atoms-relax-link > div {
+    min-width: 0;
+}
+
+.add-atoms-relax-link strong,
+.add-atoms-relax-link span {
+    display: block;
+}
+
+.add-atoms-relax-link strong {
+    margin-bottom: 3px;
+    color: var(--text);
+    font-size: 0.66rem;
+}
+
+.add-atoms-relax-link span {
+    color: var(--muted);
+    font-size: 0.58rem;
+    line-height: 1.4;
+}
+
+.add-atoms-relax-link button {
+    border-color: var(--teal-border);
+    background: var(--teal-soft);
+    color: var(--teal);
+    white-space: nowrap;
+}
+
 .add-atoms-status {
     min-height: 34px;
     display: flex;
@@ -4832,7 +4880,7 @@ body.resizing-pairwise-column * {
 
 .add-atoms-session-actions {
     display: grid;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
+    grid-template-columns: minmax(0, 1.45fr) repeat(2, minmax(0, 1fr));
     gap: 5px;
     position: sticky;
     z-index: 3;
@@ -6072,16 +6120,11 @@ body.resizing-pairwise-column * {
 
 @media (max-width: 520px) {
     .add-atoms-session-actions {
-        grid-template-columns: repeat(6, minmax(0, 1fr));
+        grid-template-columns: minmax(0, 1.4fr) repeat(2, minmax(0, 1fr));
     }
 
-    .add-atoms-session-actions button:nth-child(1),
-    .add-atoms-session-actions button:nth-child(2) {
-        grid-column: span 3;
-    }
-
-    .add-atoms-session-actions button:nth-child(n + 3) {
-        grid-column: span 2;
+    .add-atoms-relax-link {
+        grid-template-columns: 1fr;
     }
 
     .view-toolbar {

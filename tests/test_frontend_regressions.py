@@ -1605,6 +1605,9 @@ def test_studio_sun_and_periodic_bond_controls_are_opt_in_and_exportable():
     assert "THREE.PCFSoftShadowMap" in renderer_js
     assert "this.renderer.shadowMap.enabled = false" in renderer_js
     assert "replicaSelectionOutlines" in renderer_js
+    assert "replicaSelectionMutedMaterial" in renderer_js
+    assert "equivalentReplicaSelectionReferences" in renderer_js
+    assert "{ muted: true }" in main_js
     assert "supercellAtomReference" in renderer_js
     assert "selectionCount()" in main_js
     assert '<span>Tab / Esc</span><label>Open the control panel while it is collapsed</label>' in index_html
@@ -1789,14 +1792,16 @@ def test_live_commensurate_candidate_selection_avoids_array_sorting():
     assert "for (const candidate of this.state.commensurateCandidates || [])" in smallest_selector
 
 
-def test_async_add_atoms_cutoff_refresh_preserves_newer_visible_edits():
+def test_add_atoms_uses_the_shared_relaxation_controls_only():
     main_js = (ROOT / "v_ase" / "static" / "main.js").read_text(encoding="utf-8")
-    refresh = main_js.split(
-        "async refreshAddAtomsPairCutoffs({ preserveManual = true } = {})", 1
-    )[1].split("addAtomsNumber(id, fallback)", 1)[0]
+    index_html = (ROOT / "v_ase" / "static" / "index.html").read_text(encoding="utf-8")
 
-    assert "const previous = preserveManual ? this.captureAddAtomsPairCutoffs() : {};" in refresh
-    assert "const live = preserveManual" in refresh
-    assert "? this.captureAddAtomsPairCutoffs()" in refresh
-    assert "hasOwnProperty.call(live, pair)" in refresh
-    assert "next[pair] = live[pair]" in refresh
+    assert 'id="btn-add-atoms-open-relaxation"' in index_html
+    assert 'id="btn-relax"' in index_html
+    assert 'id="calc-device"' in index_html
+    assert 'id="add-atoms-device"' not in index_html
+    assert 'id="add-atoms-pair-table"' not in index_html
+    assert "this.calculatorPayloadWithOverrides(calculatorOverrides)" in main_js
+    assert "document.getElementById('relax-fmax')?.value" in main_js
+    assert "document.getElementById('relax-steps')?.value" in main_js
+    assert "refreshAddAtomsPairCutoffs" not in main_js

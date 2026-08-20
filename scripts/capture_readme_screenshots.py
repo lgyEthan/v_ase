@@ -3513,6 +3513,46 @@ def _assert_temporary_fix_is_material_only(
         )
 
 
+def _configure_shared_add_atoms_relaxation(
+    page,
+    *,
+    cutoff_distance: float,
+    strength: float,
+    fmax: float,
+    steps: int,
+) -> None:
+    """Set the same Structure > Relaxation controls used outside Add Atoms."""
+    page.evaluate(
+        """settings => {
+            const assign = (id, value) => {
+                const control = document.getElementById(id);
+                if (!control) throw new Error(`Missing shared relaxation control: ${id}`);
+                control.value = String(value);
+                control.dispatchEvent(new Event('input', {bubbles: true}));
+                control.dispatchEvent(new Event('change', {bubbles: true}));
+            };
+            assign('calc-device', 'cpu');
+            assign('calc-cpus', settings.cpuThreads);
+            assign('calc-cutoff-mode', 'absolute');
+            assign('calc-cutoff-distance', settings.cutoffDistance);
+            assign('calc-strength', settings.strength);
+            assign('relax-fmax', settings.fmax);
+            assign('relax-steps', settings.steps);
+        }""",
+        {
+            "cpuThreads": min(4, os.cpu_count() or 1),
+            "cutoffDistance": cutoff_distance,
+            "strength": strength,
+            "fmax": fmax,
+            "steps": steps,
+        },
+    )
+
+
+def _start_shared_add_atoms_relaxation(page) -> None:
+    page.evaluate("document.getElementById('btn-relax').click()")
+
+
 def _capture_add_atoms_variant(
     browser,
     *,
@@ -3603,30 +3643,6 @@ def _capture_add_atoms_variant(
             row.locator(".add-atoms-entry-label").fill(entry["label"])
             row.locator(".add-atoms-entry-count").fill(str(entry["count"]))
         page.fill("#add-atoms-seed", str(metadata["seed"]))
-        page.select_option("#add-atoms-cutoff-basis", "pairwise")
-        page.fill("#add-atoms-cutoff-scale", "1.00")
-        page.fill("#add-atoms-strength", "3.0")
-        page.fill("#add-atoms-fmax", "0.010")
-        page.fill("#add-atoms-steps", "220")
-        page.select_option("#add-atoms-device", "cpu")
-        page.select_option("#add-atoms-cpus", str(min(4, os.cpu_count() or 1)))
-        unique_elements = {
-            *host.get_chemical_symbols(),
-            *(entry["element"] for entry in metadata["entries"]),
-        }
-        expected_pair_rows = len(unique_elements) * (len(unique_elements) + 1) // 2
-        page.wait_for_function(
-            "count => document.querySelectorAll('#add-atoms-pair-table .add-atoms-pair-row').length >= count",
-            arg=expected_pair_rows,
-        )
-        page.evaluate("""cutoffs => {
-            document.querySelectorAll('#add-atoms-pair-table .add-atoms-pair-row').forEach(row => {
-                if (!(row.dataset.pair in cutoffs)) return;
-                const input = row.querySelector('input');
-                input.value = String(cutoffs[row.dataset.pair]);
-                input.dispatchEvent(new Event('change', {bubbles: true}));
-            });
-        }""", {"Cu-Cu": 0.0, "Cu-O": 2.05, "O-O": 2.40})
 
         frames: list[Image.Image] = []
         append_hold(frames, page, 7)
@@ -3687,7 +3703,14 @@ def _capture_add_atoms_variant(
                 return original(positions);
             };
         }""")
-        page.click("#btn-add-atoms-relax")
+        _configure_shared_add_atoms_relaxation(
+            page,
+            cutoff_distance=2.40,
+            strength=3.0,
+            fmax=0.010,
+            steps=220,
+        )
+        _start_shared_add_atoms_relaxation(page)
         page.wait_for_function(
             "window.__V_ASE_APP__.addAtomsUI?.active?.is_relaxing === true"
         )
@@ -3857,22 +3880,6 @@ def _capture_scratch_amorphous_media(browser) -> None:
         row.locator(".add-atoms-entry-count").fill("54")
         page.click("#add-atoms-placement-random")
         page.fill("#add-atoms-seed", "20260813")
-        page.select_option("#add-atoms-cutoff-basis", "pairwise")
-        page.fill("#add-atoms-cutoff-scale", "1.00")
-        page.fill("#add-atoms-strength", "2.8")
-        page.fill("#add-atoms-fmax", "0.025")
-        page.fill("#add-atoms-steps", "180")
-        page.wait_for_function(
-            "document.querySelectorAll('#add-atoms-pair-table .add-atoms-pair-row').length >= 1"
-        )
-        page.evaluate("""() => {
-            document.querySelectorAll('#add-atoms-pair-table .add-atoms-pair-row').forEach(row => {
-                if (row.dataset.pair !== 'Ga-Ga') return;
-                const input = row.querySelector('input');
-                input.value = '2.55';
-                input.dispatchEvent(new Event('change', {bubbles: true}));
-            });
-        }""")
         page.locator(".add-atoms-session-actions").scroll_into_view_if_needed()
         append_hold(frames, page, 7)
 
@@ -3913,7 +3920,14 @@ def _capture_scratch_amorphous_media(browser) -> None:
                 return original(positions);
             };
         }""")
-        page.click("#btn-add-atoms-relax")
+        _configure_shared_add_atoms_relaxation(
+            page,
+            cutoff_distance=2.55,
+            strength=2.8,
+            fmax=0.025,
+            steps=180,
+        )
+        _start_shared_add_atoms_relaxation(page)
         page.wait_for_function("window.__V_ASE_APP__.addAtomsUI?.active?.is_relaxing === true")
         page.wait_for_function(
             "window.__V_ASE_APP__.addAtomsUI?.active?.is_relaxing === false",
@@ -4210,41 +4224,9 @@ def _capture_add_molecules_media(browser) -> None:
         page.locator("#add-molecules-rigid").set_checked(True)
         page.locator("#add-atoms-select-added").set_checked(True)
         page.locator("#add-atoms-allow-escape").set_checked(False)
-        page.select_option("#add-atoms-cutoff-basis", "pairwise")
-        page.evaluate(
-            "async () => await window.__V_ASE_APP__.refreshAddAtomsPairCutoffs({preserveManual: false})"
-        )
-        page.wait_for_function(
-            "document.querySelectorAll('#add-atoms-pair-table .add-atoms-pair-row').length >= 6"
-        )
-        expected_pair_cutoffs = {
-            "C-C": 0.0,
-            "C-H": 1.90,
-            "C-O": 2.60,
-            "H-H": 1.35,
-            "H-O": 0.0,
-            "O-O": 2.90,
-        }
-        captured_pair_cutoffs = page.evaluate("""cutoffs => {
-            document.querySelectorAll('#add-atoms-pair-table .add-atoms-pair-row').forEach(row => {
-                if (!(row.dataset.pair in cutoffs)) return;
-                const input = row.querySelector('input');
-                input.value = String(cutoffs[row.dataset.pair]);
-                input.dispatchEvent(new Event('change', {bubbles: true}));
-            });
-            return window.__V_ASE_APP__.captureAddAtomsPairCutoffs();
-        }""", expected_pair_cutoffs)
-        for pair, cutoff in expected_pair_cutoffs.items():
-            if not np.isclose(float(captured_pair_cutoffs[pair]), cutoff, atol=1e-12):
-                raise AssertionError(f"README molecule cutoff {pair} was overwritten asynchronously.")
-        page.fill("#add-atoms-strength", "3.2")
-        page.fill("#add-atoms-fmax", "0.5")
-        page.fill("#add-atoms-steps", "220")
-        page.select_option("#add-atoms-device", "cpu")
-        page.select_option("#add-atoms-cpus", str(min(4, os.cpu_count() or 1)))
         page.evaluate(
             "count => window.__setReadmeMoleculeStage('2 · READY TO PLACE', "
-            "`${count} H₂O · rigid · random orientation · pairwise C/H/O cutoffs`)",
+            "`${count} H₂O · rigid · random orientation · shared repulsion settings`)",
             metadata["expected_molecule_count"],
         )
 
@@ -4299,7 +4281,14 @@ def _capture_add_molecules_media(browser) -> None:
                 return original(positions);
             };
         }""")
-        page.click("#btn-add-atoms-relax")
+        _configure_shared_add_atoms_relaxation(
+            page,
+            cutoff_distance=2.60,
+            strength=3.2,
+            fmax=0.5,
+            steps=220,
+        )
+        _start_shared_add_atoms_relaxation(page)
         page.wait_for_function("window.__V_ASE_APP__.addAtomsUI?.active?.is_relaxing === true")
         page.wait_for_function(
             "window.__V_ASE_APP__.addAtomsUI?.active?.is_relaxing === false",

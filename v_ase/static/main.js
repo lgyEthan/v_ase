@@ -1,13 +1,13 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.2.23&rev=1';
-import { ASERenderer } from './renderer.js?v=0.2.23&rev=1';
-import { ASESelection } from './selection.js?v=0.2.23&rev=1';
-import { ASETransform } from './transform.js?v=0.2.23&rev=1';
+import { ASEApi } from './api.js?v=0.2.24&rev=1';
+import { ASERenderer } from './renderer.js?v=0.2.24&rev=1';
+import { ASESelection } from './selection.js?v=0.2.24&rev=1';
+import { ASETransform } from './transform.js?v=0.2.24&rev=1';
 import {
     interpolateTrajectoryFrames,
     interpolatedFrameCount,
     normalizeInterpolationMultiplier
-} from './trajectory.js?v=0.2.23&rev=1';
+} from './trajectory.js?v=0.2.24&rev=1';
 
 const CHEMICAL_ELEMENT_SYMBOLS = Object.freeze([
     'H','He','Li','Be','B','C','N','O','F','Ne',
@@ -1719,8 +1719,6 @@ class VAseApp {
             domainPreview: null,
             domainRequestToken: 0,
             domainRequestTimer: null,
-            pairCutoffs: {},
-            pairRequestToken: 0,
             active: null,
             entrySequence: 0,
             moleculeSequence: 0,
@@ -1760,7 +1758,6 @@ class VAseApp {
             if (this.addAtomsUI?.pane === 'batch') {
                 this.syncAddAtomsBounds();
                 this.updateAddAtomsRegionPreview();
-                void this.refreshAddAtomsPairCutoffs({ preserveManual: true });
             }
         });
         close?.addEventListener('click', event => {
@@ -1803,13 +1800,14 @@ class VAseApp {
         document.getElementById('add-atoms-tab-batch')?.addEventListener('click', () => {
             this.setAddAtomsPane('batch');
         });
+        document.getElementById('add-atoms-tab-build')?.addEventListener('click', () => {
+            this.setAddAtomsPane('build');
+        });
         document.getElementById('btn-add-atoms-entry')?.addEventListener('click', () => {
             this.addAddAtomsEntry({ element: 'H', label: 'H', count: 1 });
-            void this.refreshAddAtomsPairCutoffs({ preserveManual: true });
         });
         document.getElementById('btn-add-molecule-entry')?.addEventListener('click', () => {
             this.addAddMoleculeEntry({ name: 'H2O', label: 'water', count: 1 });
-            void this.refreshAddAtomsPairCutoffs({ preserveManual: true });
         });
         document.getElementById('add-atoms-content-atoms')?.addEventListener('click', () => {
             this.setAddAtomsContentKind('atoms');
@@ -1869,23 +1867,6 @@ class VAseApp {
             if (this.addAtomsSessionActive()) void this.commitAddAtomsRegionControls();
             else this.scheduleAddAtomsDomainPreview({ immediate: true });
         });
-        document.getElementById('add-atoms-cutoff-basis')?.addEventListener('change', () => {
-            void this.refreshAddAtomsPairCutoffs({ preserveManual: false });
-        });
-        document.getElementById('add-atoms-cutoff-scale')?.addEventListener('change', () => {
-            void this.refreshAddAtomsPairCutoffs({ preserveManual: false });
-        });
-        document.getElementById('add-atoms-device')?.addEventListener('change', event => {
-            const cpus = document.getElementById('add-atoms-cpus');
-            event.currentTarget.dataset.userSelected = 'true';
-            if (cpus) cpus.disabled = event.currentTarget.value !== 'cpu';
-            this.syncAddAtomsComputeControls(this.state.atoms?.metadata, {
-                preserveSelection: true
-            });
-        });
-        document.getElementById('add-atoms-cpus')?.addEventListener('change', event => {
-            event.currentTarget.dataset.userSelected = 'true';
-        });
         document.getElementById('btn-add-atoms-select-added')?.addEventListener('click', () => {
             this.selectAddedAtoms();
         });
@@ -1895,11 +1876,8 @@ class VAseApp {
         document.getElementById('btn-add-atoms-scatter')?.addEventListener('click', () => {
             void this.scatterAtomsFromWidget();
         });
-        document.getElementById('btn-add-atoms-relax')?.addEventListener('click', () => {
-            void this.relaxAddedAtomsFromWidget();
-        });
-        document.getElementById('btn-add-atoms-stop')?.addEventListener('click', () => {
-            void this.stopAddedAtomsRelaxation();
+        document.getElementById('btn-add-atoms-open-relaxation')?.addEventListener('click', () => {
+            this.openInspectorSection('structure', 'scientific-tools');
         });
         document.getElementById('btn-add-atoms-cancel')?.addEventListener('click', () => {
             void this.cancelAddedAtomsSession();
@@ -1917,35 +1895,46 @@ class VAseApp {
         return Boolean(this.addAtomsUI?.active?.active || this.state.atoms?.metadata?.atom_addition?.active);
     }
 
+    addAtomsRelaxationRunning() {
+        return Boolean(
+            this.addAtomsUI?.active?.is_relaxing
+            || this.state.atoms?.metadata?.atom_addition?.is_relaxing
+        );
+    }
+
     setAddAtomsPane(pane) {
-        const target = pane === 'batch' ? 'batch' : 'single';
-        if (target === 'single' && this.addAtomsSessionActive()) {
+        const target = ['single', 'batch', 'build'].includes(pane) ? pane : 'single';
+        if (target !== 'batch' && this.addAtomsSessionActive()) {
             this.toast('Finish or cancel the active Add Atoms session first.', 'warning');
             return;
         }
         if (!this.addAtomsUI) return;
         this.addAtomsUI.pane = target;
         const single = target === 'single';
+        const batch = target === 'batch';
+        const build = target === 'build';
         document.getElementById('add-atoms-tab-single')?.classList.toggle('active', single);
-        document.getElementById('add-atoms-tab-batch')?.classList.toggle('active', !single);
+        document.getElementById('add-atoms-tab-batch')?.classList.toggle('active', batch);
+        document.getElementById('add-atoms-tab-build')?.classList.toggle('active', build);
         document.getElementById('add-atoms-tab-single')?.setAttribute('aria-selected', single ? 'true' : 'false');
-        document.getElementById('add-atoms-tab-batch')?.setAttribute('aria-selected', single ? 'false' : 'true');
+        document.getElementById('add-atoms-tab-batch')?.setAttribute('aria-selected', batch ? 'true' : 'false');
+        document.getElementById('add-atoms-tab-build')?.setAttribute('aria-selected', build ? 'true' : 'false');
         document.getElementById('add-atoms-pane-single')?.classList.toggle('hidden', !single);
-        document.getElementById('add-atoms-pane-batch')?.classList.toggle('hidden', single);
+        document.getElementById('add-atoms-pane-batch')?.classList.toggle('hidden', !batch);
+        document.getElementById('add-atoms-pane-build')?.classList.toggle('hidden', !build);
         document.querySelector('#create-atom-widget .create-atom-card')?.classList.toggle('batch-active', !single);
-        if (single) {
+        if (!batch) {
             this.setAddAtomsRegionSelected(false, { update: false });
             this.renderer.clearAddAtomsRegion();
         } else {
             this.renderAddAtomsRegions();
             this.updateAddAtomsRegionPreview();
             this.scheduleAddAtomsDomainPreview({ immediate: true });
-            void this.refreshAddAtomsPairCutoffs({ preserveManual: true });
         }
     }
 
     setAddAtomsContentKind(kind, { force = false } = {}) {
-        if (!this.addAtomsUI || (!force && this.addAtomsSessionActive())) return;
+        if (!this.addAtomsUI || (!force && this.addAtomsRelaxationRunning())) return;
         const molecules = kind === 'molecules';
         this.addAtomsUI.contentKind = molecules ? 'molecules' : 'atoms';
         document.getElementById('add-atoms-content-atoms')?.classList.toggle('active', !molecules);
@@ -1961,12 +1950,11 @@ class VAseApp {
                 molecules ? 'Ready to place molecules' : 'Ready to place atoms'
             );
         }
-        if (!force) void this.refreshAddAtomsPairCutoffs({ preserveManual: true });
         this.scheduleAddAtomsDomainPreview();
     }
 
     setAddMoleculeQuantityMode(mode, { force = false } = {}) {
-        if (!this.addAtomsUI || (!force && this.addAtomsSessionActive())) return;
+        if (!this.addAtomsUI || (!force && this.addAtomsRelaxationRunning())) return;
         const density = mode === 'density';
         this.addAtomsUI.quantityMode = density ? 'density' : 'count';
         document.getElementById('add-molecules-quantity-count')?.classList.toggle('active', !density);
@@ -1988,7 +1976,7 @@ class VAseApp {
     }
 
     setAddAtomsPlacementMode(mode, { force = false } = {}) {
-        if (!this.addAtomsUI || (!force && this.addAtomsSessionActive())) return;
+        if (!this.addAtomsUI || (!force && this.addAtomsRelaxationRunning())) return;
         const homogeneous = mode === 'homogeneous';
         const regular = mode === 'regular';
         this.addAtomsUI.placementMode = regular ? 'regular' : (homogeneous ? 'homogeneous' : 'random');
@@ -2081,7 +2069,6 @@ class VAseApp {
         remove.setAttribute('aria-label', 'Remove molecule type');
         name.addEventListener('change', () => {
             row.dataset.moleculeName = name.value;
-            void this.refreshAddAtomsPairCutoffs({ preserveManual: true });
             this.scheduleAddAtomsDomainPreview();
         });
         count.addEventListener('input', () => this.scheduleAddAtomsDomainPreview());
@@ -2091,7 +2078,6 @@ class VAseApp {
                 return;
             }
             row.remove();
-            void this.refreshAddAtomsPairCutoffs({ preserveManual: true });
             this.scheduleAddAtomsDomainPreview();
         });
         row.append(name, label, count, remove);
@@ -2167,12 +2153,10 @@ class VAseApp {
                 label.value = type.value;
             }
             type.dataset.previous = type.value;
-            void this.refreshAddAtomsPairCutoffs({ preserveManual: true });
         });
         const syncBatchTypeFromLabel = () => {
             if (!this.syncElementSelectFromLabel(label, type)) return;
             type.dataset.previous = type.value;
-            void this.refreshAddAtomsPairCutoffs({ preserveManual: true });
         };
         label.addEventListener('input', syncBatchTypeFromLabel);
         label.addEventListener('change', syncBatchTypeFromLabel);
@@ -2182,7 +2166,6 @@ class VAseApp {
                 return;
             }
             row.remove();
-            void this.refreshAddAtomsPairCutoffs({ preserveManual: true });
         });
         row.append(type, label, count, remove);
         container.appendChild(row);
@@ -2585,84 +2568,6 @@ class VAseApp {
         }
     }
 
-    captureAddAtomsPairCutoffs() {
-        const result = { ...(this.addAtomsUI?.pairCutoffs || {}) };
-        document.querySelectorAll('#add-atoms-pair-table .add-atoms-pair-row').forEach(row => {
-            const value = Number(row.querySelector('input')?.value);
-            if (row.dataset.pair && Number.isFinite(value) && value >= 0) result[row.dataset.pair] = value;
-        });
-        return result;
-    }
-
-    renderAddAtomsPairCutoffs(cutoffs) {
-        const table = document.getElementById('add-atoms-pair-table');
-        if (!table || !this.addAtomsUI) return;
-        this.addAtomsUI.pairCutoffs = { ...cutoffs };
-        table.replaceChildren();
-        Object.entries(cutoffs).sort(([a], [b]) => a.localeCompare(b)).forEach(([pair, cutoff]) => {
-            const row = document.createElement('label');
-            row.className = 'add-atoms-pair-row';
-            row.dataset.pair = pair;
-            const name = document.createElement('span');
-            name.textContent = pair;
-            const input = document.createElement('input');
-            input.type = 'number';
-            input.min = '0';
-            input.max = '20';
-            input.step = '0.01';
-            input.value = Number(cutoff).toFixed(3);
-            input.setAttribute('aria-label', `${pair} repulsion cutoff in angstrom`);
-            input.addEventListener('change', () => {
-                const value = Number(input.value);
-                if (Number.isFinite(value) && value >= 0) this.addAtomsUI.pairCutoffs[pair] = value;
-            });
-            row.append(name, input);
-            table.appendChild(row);
-        });
-        this.enhanceNumberInputHoldGuards(table);
-    }
-
-    async refreshAddAtomsPairCutoffs({ preserveManual = true } = {}) {
-        if (!this.addAtomsUI || this.addAtomsSessionActive()) return;
-        let elements = [];
-        let molecules = [];
-        try {
-            if (this.addAtomsUI.contentKind === 'molecules') {
-                molecules = this.readAddMoleculeEntries();
-            } else {
-                elements = this.readAddAtomsEntries().map(entry => entry.element);
-            }
-        } catch {
-            return;
-        }
-        const previous = preserveManual ? this.captureAddAtomsPairCutoffs() : {};
-        const basis = document.getElementById('add-atoms-cutoff-basis')?.value || 'covalent';
-        const scale = Number(document.getElementById('add-atoms-cutoff-scale')?.value || 0.7);
-        const token = ++this.addAtomsUI.pairRequestToken;
-        try {
-            const response = await this.api.atomAdditionPairCutoffs(
-                elements,
-                basis,
-                scale,
-                molecules
-            );
-            if (token !== this.addAtomsUI.pairRequestToken) return;
-            const next = { ...(response.pair_cutoffs || {}) };
-            // The request can finish after the user has already edited a
-            // visible cutoff. Re-read the live table before rendering so a
-            // slow response cannot replace that newer value.
-            const live = preserveManual
-                ? this.captureAddAtomsPairCutoffs()
-                : previous;
-            Object.keys(next).forEach(pair => {
-                if (Object.prototype.hasOwnProperty.call(live, pair)) next[pair] = live[pair];
-            });
-            this.renderAddAtomsPairCutoffs(next);
-        } catch (error) {
-            this.setAddAtomsStatus('error', error.message);
-        }
-    }
-
     addAtomsNumber(id, fallback) {
         const value = Number(document.getElementById(id)?.value);
         return Number.isFinite(value) ? value : fallback;
@@ -2681,21 +2586,13 @@ class VAseApp {
         const running = Boolean(summary?.is_relaxing);
         document.getElementById('add-atoms-mode-badge')?.classList.toggle('hidden', !active);
         const scatter = document.getElementById('btn-add-atoms-scatter');
-        const relax = document.getElementById('btn-add-atoms-relax');
-        const stop = document.getElementById('btn-add-atoms-stop');
         const cancel = document.getElementById('btn-add-atoms-cancel');
         const finish = document.getElementById('btn-add-atoms-finish');
         const selectAdded = document.getElementById('btn-add-atoms-select-added');
-        if (scatter) scatter.disabled = active;
-        if (relax) relax.disabled = !active || running;
-        if (stop) stop.disabled = !active || !running;
+        if (scatter) scatter.disabled = running;
         if (cancel) cancel.disabled = !active || running;
         if (finish) finish.disabled = !active || running;
         if (selectAdded) selectAdded.disabled = !active;
-        const device = document.getElementById('add-atoms-device');
-        const cpus = document.getElementById('add-atoms-cpus');
-        if (device) device.disabled = running;
-        if (cpus) cpus.disabled = running || device?.value !== 'cpu';
         document.querySelectorAll(
             '#add-atoms-entries input, #add-atoms-entries select, #btn-add-atoms-entry, '
             + '#add-atoms-entries .remove-add-atoms-entry, '
@@ -2707,8 +2604,8 @@ class VAseApp {
             + '#add-molecules-random-orientation, #add-molecules-rigid, '
             + '#add-molecules-quantity-count, #add-molecules-quantity-density, '
             + '#add-molecules-target-density, '
-            + '#add-atoms-seed, #add-atoms-cutoff-basis, #add-atoms-cutoff-scale'
-        ).forEach(control => { control.disabled = active; });
+            + '#add-atoms-seed, #add-atoms-freeze-existing'
+        ).forEach(control => { control.disabled = running; });
         document.querySelectorAll(
             '#add-atoms-box-fields input, #add-atoms-region-allowed, '
             + '#add-atoms-region-prohibited, #add-atoms-allow-escape, #add-atoms-mic, '
@@ -2720,13 +2617,22 @@ class VAseApp {
     syncAddAtomsSessionFromData(data) {
         if (!this.addAtomsUI) return;
         const summary = data?.metadata?.atom_addition || null;
+        const sameSession = Boolean(
+            summary?.active
+            && this.addAtomsUI.active?.id
+            && this.addAtomsUI.active.id === summary.id
+        );
         this.addAtomsUI.active = summary?.active ? { ...summary } : null;
         if (summary?.active) {
             this.addAtomsUI.pane = 'batch';
-            this.addAtomsUI.contentKind = summary.content_kind === 'molecules' ? 'molecules' : 'atoms';
-            this.addAtomsUI.placementMode = ['homogeneous', 'regular'].includes(summary.placement_mode)
-                ? summary.placement_mode
-                : 'random';
+            if (!sameSession) {
+                this.addAtomsUI.contentKind = summary.last_content_kind === 'molecules'
+                    ? 'molecules'
+                    : 'atoms';
+                this.addAtomsUI.placementMode = ['homogeneous', 'regular'].includes(summary.placement_mode)
+                    ? summary.placement_mode
+                    : 'random';
+            }
             this.addAtomsUI.regions = Array.isArray(summary.regions)
                 ? summary.regions.map(region => ({
                     id: String(region.id),
@@ -2739,23 +2645,25 @@ class VAseApp {
                 domain: summary.domain,
                 density: summary.density
             };
-            this.setAddAtomsContentKind(this.addAtomsUI.contentKind, { force: true });
-            this.setAddAtomsPlacementMode(this.addAtomsUI.placementMode, { force: true });
-            this.setAddMoleculeQuantityMode(summary.density ? 'density' : 'count', { force: true });
-            if (this.addAtomsUI.contentKind === 'molecules') {
-                const entries = document.getElementById('add-molecule-entries');
-                if (entries) {
-                    entries.replaceChildren();
-                    (summary.entries || []).forEach(entry => this.addAddMoleculeEntry({
-                        ...entry,
-                        count: entry.ratio ?? entry.count
-                    }));
-                }
-            } else {
-                const entries = document.getElementById('add-atoms-entries');
-                if (entries) {
-                    entries.replaceChildren();
-                    (summary.entries || []).forEach(entry => this.addAddAtomsEntry(entry));
+            if (!sameSession) {
+                this.setAddAtomsContentKind(this.addAtomsUI.contentKind, { force: true });
+                this.setAddAtomsPlacementMode(this.addAtomsUI.placementMode, { force: true });
+                this.setAddMoleculeQuantityMode(summary.density ? 'density' : 'count', { force: true });
+                if (this.addAtomsUI.contentKind === 'molecules') {
+                    const entries = document.getElementById('add-molecule-entries');
+                    if (entries) {
+                        entries.replaceChildren();
+                        (summary.entries || []).forEach(entry => this.addAddMoleculeEntry({
+                            ...entry,
+                            count: entry.ratio ?? entry.count
+                        }));
+                    }
+                } else {
+                    const entries = document.getElementById('add-atoms-entries');
+                    if (entries) {
+                        entries.replaceChildren();
+                        (summary.entries || []).forEach(entry => this.addAddAtomsEntry(entry));
+                    }
                 }
             }
             const selected = this.selectedAddAtomsRegionIds();
@@ -2764,38 +2672,33 @@ class VAseApp {
             );
             this.renderAddAtomsRegions();
             this.renderAddAtomsDomainStatus(this.addAtomsUI.domainPreview);
-            this.renderAddAtomsPairCutoffs(summary.pair_cutoffs || {});
-            const basis = document.getElementById('add-atoms-cutoff-basis');
-            if (basis) basis.value = summary.cutoff_basis || 'covalent';
-            const scale = document.getElementById('add-atoms-cutoff-scale');
-            if (scale) scale.value = Number(summary.cutoff_scale ?? 0.7).toFixed(2);
             const seed = document.getElementById('add-atoms-seed');
-            if (seed) seed.value = summary.seed ?? '';
+            if (seed && !sameSession) seed.value = summary.seed ?? '';
             const coordinateBasis = document.getElementById('add-atoms-coordinate-basis');
-            if (coordinateBasis) coordinateBasis.value = summary.coordinate_basis || 'cartesian';
+            if (coordinateBasis && !sameSession) coordinateBasis.value = summary.coordinate_basis || 'cartesian';
             const regularSpacing = document.getElementById('add-atoms-regular-spacing');
-            if (regularSpacing) regularSpacing.value = summary.regular_spacing ?? '';
-            document.getElementById('add-atoms-placement-pbc').checked = summary.pbc_aware !== false;
+            if (regularSpacing && !sameSession) regularSpacing.value = summary.regular_spacing ?? '';
+            if (!sameSession) {
+                document.getElementById('add-atoms-placement-pbc').checked = summary.pbc_aware !== false;
+                document.getElementById('add-molecules-random-orientation').checked = summary.random_orientation !== false;
+                document.getElementById('add-molecules-rigid').checked = summary.rigid_molecules !== false;
+            }
             document.getElementById('add-atoms-mic').checked = summary.domain?.pbc_aware !== false;
-            document.getElementById('add-molecules-random-orientation').checked = summary.random_orientation !== false;
-            document.getElementById('add-molecules-rigid').checked = summary.rigid_molecules !== false;
             const targetDensity = document.getElementById('add-molecules-target-density');
-            if (targetDensity && summary.density?.target_g_cm3 != null) {
+            if (!sameSession && targetDensity && summary.density?.target_g_cm3 != null) {
                 targetDensity.value = Number(summary.density.target_g_cm3).toFixed(6);
             }
             document.getElementById('add-atoms-freeze-existing').checked = summary.freeze_existing !== false;
             document.getElementById('add-atoms-allow-escape').checked = summary.allow_escape !== false;
-            this.syncAddAtomsComputeControls(data?.metadata);
             this.setAddAtomsPane('batch');
-            const entity = summary.content_kind === 'molecules'
-                ? `${summary.molecule_count || 0} molecules · ${summary.new_count || 0} atoms`
-                : `${summary.new_count || 0} new atoms`;
+            const entity = `${summary.new_count || 0} staged atoms`
+                + (summary.molecule_count ? ` · ${summary.molecule_count} molecules` : '')
+                + (summary.placement_count > 1 ? ` · ${summary.placement_count} placements` : '');
             const detail = summary.is_relaxing
-                ? `Placing ${summary.content_kind === 'molecules' ? 'molecules' : 'atoms'} · ${summary.step || 0}/${summary.max_steps || 0}`
+                ? `Relaxing staged content · ${summary.step || 0}/${summary.max_steps || 0}`
                 : `${entity} ready`;
             this.setAddAtomsStatus(summary.is_relaxing ? 'running' : 'active', detail);
         }
-        if (!summary?.active) this.syncAddAtomsComputeControls(data?.metadata);
         this.syncAddAtomsActionState();
         this.updateEditingAvailability();
     }
@@ -2828,10 +2731,7 @@ class VAseApp {
                 region_mic: document.getElementById('add-atoms-mic')?.checked !== false,
                 allow_escape: document.getElementById('add-atoms-allow-escape')?.checked !== false,
                 seed: rawSeed === '' ? null : Number(rawSeed),
-                freeze_existing: document.getElementById('add-atoms-freeze-existing')?.checked !== false,
-                cutoff_basis: document.getElementById('add-atoms-cutoff-basis')?.value || 'covalent',
-                cutoff_scale: this.addAtomsNumber('add-atoms-cutoff-scale', 0.7),
-                pair_cutoffs: this.captureAddAtomsPairCutoffs()
+                freeze_existing: document.getElementById('add-atoms-freeze-existing')?.checked !== false
             };
             const busyLabel = contentKind === 'molecules'
                 ? 'Placing molecules...'
@@ -2849,17 +2749,25 @@ class VAseApp {
             const detail = sampling.acceptance_fraction < 0.999
                 ? ` (${(100 * sampling.acceptance_fraction).toFixed(1)}% box acceptance)`
                 : '';
-            const inserted = summary?.content_kind === 'molecules'
-                ? `${summary?.molecule_count || 0} molecules (${summary?.new_count || 0} atoms)`
-                : `${summary?.new_count || 0} atoms`;
-            this.toast(`Placed ${inserted}${detail}.`, 'success');
+            const batchAtoms = Number(summary?.last_batch_new_count || 0);
+            const batchMolecules = Number(summary?.last_batch_molecule_count || 0);
+            const inserted = contentKind === 'molecules'
+                ? `${batchMolecules} molecules (${batchAtoms} atoms)`
+                : `${batchAtoms} atoms`;
+            const total = Number(summary?.new_count || 0);
+            this.toast(`Placed ${inserted}${detail}. ${total} atoms are staged in total.`, 'success');
         } catch (error) {
             this.setAddAtomsStatus('error', error.message);
             this.toast(`Add Atoms failed: ${error.message}`, 'error');
         }
     }
 
-    async relaxAddedAtomsFromWidget() {
+    async relaxAddedAtomsFromWidget({
+        calculator: calculatorOverrides = null,
+        fmax = null,
+        steps = null,
+        throwOnError = false
+    } = {}) {
         if (!this.addAtomsSessionActive()) return;
         try {
             if (
@@ -2868,27 +2776,40 @@ class VAseApp {
             ) {
                 this.startModeTrajectory('add-atoms', 'Add Atoms placement');
             }
-            const requestedSteps = Math.round(this.addAtomsNumber('add-atoms-steps', 250));
+            const requestedSteps = Math.max(
+                1,
+                Math.round(Number(steps ?? document.getElementById('relax-steps')?.value) || 200)
+            );
+            const calculator = this.calculatorPayloadWithOverrides(calculatorOverrides) || {
+                device: 'cpu',
+                cpu_threads: 4,
+                cutoff_mode: 'bonding',
+                cutoff_distance: 2.0,
+                cutoff_scale: 0.7,
+                pair_cutoffs: this.repulsionPairCutoffs(),
+                k_repulsion: 1.0
+            };
             this.addAtomsUI.active = {
                 ...this.addAtomsUI.active,
                 is_relaxing: true,
                 status: 'relaxing',
                 step: 0,
-                max_steps: requestedSteps
+                max_steps: requestedSteps,
+                requested_device: calculator.device,
+                cpu_threads: calculator.cpu_threads,
+                cutoff_mode: calculator.cutoff_mode,
+                cutoff_distance: calculator.cutoff_distance,
+                cutoff_scale: calculator.cutoff_scale,
+                k_repulsion: calculator.k_repulsion
             };
-            const pendingNoun = this.addAtomsUI.active.content_kind === 'molecules'
-                ? 'molecules'
-                : 'atoms';
-            this.setAddAtomsStatus('running', `Placing ${pendingNoun} · 0/${requestedSteps}`);
+            this.setAddAtomsStatus('running', `Relaxing staged content · 0/${requestedSteps}`);
             this.syncAddAtomsActionState();
+            this.updateCalculatorControls(this.state.atoms?.metadata);
             const summary = await this.api.relaxAtomAddition({
-                pair_cutoffs: this.captureAddAtomsPairCutoffs(),
+                ...calculator,
                 freeze_existing: document.getElementById('add-atoms-freeze-existing')?.checked !== false,
-                k_repulsion: this.addAtomsNumber('add-atoms-strength', 2.0),
-                fmax: this.addAtomsNumber('add-atoms-fmax', 0.05),
+                fmax: Number(fmax ?? document.getElementById('relax-fmax')?.value) || 0.05,
                 steps: requestedSteps,
-                device: document.getElementById('add-atoms-device')?.value || 'cpu',
-                cpu_threads: Math.round(this.addAtomsNumber('add-atoms-cpus', 4)),
                 mic: document.getElementById('add-atoms-mic')?.checked !== false,
                 allow_escape: document.getElementById('add-atoms-allow-escape')?.checked !== false
             });
@@ -2901,8 +2822,7 @@ class VAseApp {
             );
             if (!completionArrivedFirst) {
                 this.addAtomsUI.active = { ...summary };
-                const noun = summary.content_kind === 'molecules' ? 'molecules' : 'atoms';
-                this.setAddAtomsStatus('running', `Placing ${noun} · 0/${summary.max_steps || 0}`);
+                this.setAddAtomsStatus('running', `Relaxing staged content · 0/${summary.max_steps || 0}`);
             }
             this.syncAddAtomsActionState();
         } catch (error) {
@@ -2912,7 +2832,9 @@ class VAseApp {
             }
             this.setAddAtomsStatus('error', error.message);
             this.syncAddAtomsActionState();
+            this.updateCalculatorControls(this.state.atoms?.metadata);
             this.toast(`Repulsive placement failed: ${error.message}`, 'error');
+            if (throwOnError) throw error;
         }
     }
 
@@ -3369,7 +3291,6 @@ class VAseApp {
         const catalogs = {
             structure: [
                 ['appearance', 'Atoms & Appearance'],
-                ['ase-builder', 'Build with ASE', true],
                 ['cell-replication', 'Cell & Replication'],
                 ['cell-transform', 'Cell Transform', true],
                 ['transform', 'Transform & Cell Match'],
@@ -3434,6 +3355,15 @@ class VAseApp {
                 )
             }))
             .filter(item => item.panel);
+    }
+
+    openInspectorSection(group, section) {
+        this.setInspectorCollapsed(false);
+        this.setInspectorGroup(group);
+        const select = document.getElementById('structure-section-select');
+        if (!select || ![...select.options].some(option => option.value === section)) return;
+        select.value = section;
+        select.dispatchEvent(new Event('change', { bubbles: true }));
     }
 
     syncStructureSectionNavigation() {
@@ -8450,10 +8380,22 @@ class VAseApp {
 
         this.updateCalculatorControls(meta);
 
+        const addition = this.addAtomsUI?.active || meta.atom_addition || null;
+        const relaxationRunning = Boolean(this.state.isRelaxing || addition?.is_relaxing);
         const relaxBtn = document.getElementById('btn-relax');
-        if (relaxBtn) relaxBtn.disabled = !meta.has_calculator || this.state.isRelaxing;
+        if (relaxBtn) {
+            relaxBtn.disabled = (!addition?.active && !meta.has_calculator) || relaxationRunning;
+            relaxBtn.textContent = addition?.active
+                ? 'Start Placement Relaxation'
+                : 'Start Relaxation';
+        }
         const stopRelaxBtn = document.getElementById('btn-stop-relax');
-        if (stopRelaxBtn) stopRelaxBtn.disabled = !this.state.isRelaxing;
+        if (stopRelaxBtn) {
+            stopRelaxBtn.disabled = !relaxationRunning;
+            stopRelaxBtn.textContent = addition?.active
+                ? 'Stop Placement Relaxation'
+                : 'Stop Relaxation';
+        }
         this.syncRegistryRelaxationControls({ updateStatus: false });
 
         this.updateCommandReadout();
@@ -8634,7 +8576,7 @@ class VAseApp {
 
     currentCalculatorPayload() {
         const details = this.repulsionCalculatorDetails();
-        if (!details.is_default_repulsion) return null;
+        if (!details.is_default_repulsion && !this.addAtomsSessionActive()) return null;
         const device = document.getElementById('calc-device')?.value || details.requested_device || 'cpu';
         const cpuThreads = parseInt(document.getElementById('calc-cpus')?.value || details.cpu_threads || '4', 10);
         const cutoffMode = document.getElementById('calc-cutoff-mode')?.value === 'absolute'
@@ -8678,7 +8620,8 @@ class VAseApp {
             cutoff_distance: overrides.cutoff_distance ?? overrides.cutoffDistance,
             cutoff_scale: overrides.cutoff_scale ?? overrides.cutoffScale,
             pair_cutoffs: overrides.pair_cutoffs ?? overrides.pairCutoffs,
-            k_repulsion: overrides.k_repulsion ?? overrides.kRepulsion ?? overrides.strength
+            k_repulsion: overrides.k_repulsion ?? overrides.kRepulsion ?? overrides.strength,
+            k_boundary: overrides.k_boundary ?? overrides.boundaryStrength
         };
         const supplied = Object.fromEntries(
             Object.entries(requested).filter(([, value]) => value !== undefined)
@@ -8715,70 +8658,6 @@ class VAseApp {
         return Array.from({ length: count }, (_, idx) => idx + 1);
     }
 
-    syncAddAtomsComputeControls(
-        meta = this.state.atoms?.metadata,
-        { preserveSelection = false } = {}
-    ) {
-        const device = document.getElementById('add-atoms-device');
-        const cpus = document.getElementById('add-atoms-cpus');
-        if (!device || !cpus) return;
-        const details = meta?.calculator_details || {};
-        const addition = this.addAtomsUI?.active || null;
-        const choices = this.cpuThreadChoices({
-            ...details,
-            cpu_thread_options: addition?.cpu_thread_options || details.cpu_thread_options,
-        });
-        const previousCpu = cpus.value;
-        if (cpus.dataset.options !== choices.join(',')) {
-            cpus.replaceChildren();
-            choices.forEach(value => {
-                const option = document.createElement('option');
-                option.value = String(value);
-                option.innerText = String(value);
-                cpus.appendChild(option);
-            });
-            cpus.dataset.options = choices.join(',');
-        }
-        const initialized = device.dataset.initialized === 'true';
-        const keepDevice = preserveSelection || device.dataset.userSelected === 'true';
-        const keepThreads = preserveSelection || cpus.dataset.userSelected === 'true';
-        const requestedDevice = (keepDevice ? device.value : null)
-            || addition?.requested_device
-            || (initialized ? device.value : null)
-            || document.getElementById('calc-device')?.value
-            || details.requested_device
-            || 'cpu';
-        const requestedThreads = Number(
-            (keepThreads ? previousCpu : null)
-            ?? addition?.cpu_threads
-            ?? (initialized ? previousCpu : null)
-            ?? document.getElementById('calc-cpus')?.value
-            ?? details.cpu_threads
-            ?? 4
-        );
-        device.value = requestedDevice === 'cuda' ? 'cuda' : 'cpu';
-        device.dataset.initialized = 'true';
-        const cudaOption = [...device.options].find(option => option.value === 'cuda');
-        const hasCuda = Boolean(addition?.cuda_available ?? details.cuda_available);
-        if (cudaOption) cudaOption.disabled = !hasCuda;
-        if (device.value === 'cuda' && !hasCuda) device.value = 'cpu';
-        const fallback = Math.min(4, choices[choices.length - 1] || 1);
-        cpus.value = choices.includes(requestedThreads)
-            ? String(requestedThreads)
-            : String(fallback);
-        const running = Boolean(addition?.is_relaxing);
-        device.disabled = running;
-        cpus.disabled = running || device.value !== 'cpu';
-        const note = document.getElementById('add-atoms-compute-note');
-        if (note) {
-            const effective = addition?.effective_device || device.value;
-            const backend = addition?.calculator_backend;
-            note.textContent = running || addition?.status === 'relaxed'
-                ? `Full repulsion relaxation: ${backend ? `${backend}/` : ''}${effective}`
-                : 'Compute resources apply to this full repulsion relaxation.';
-        }
-    }
-
     updateCalculatorControls(meta) {
         const details = meta?.calculator_details || {};
         const controls = document.getElementById('calc-controls');
@@ -8793,14 +8672,21 @@ class VAseApp {
             || !cutoffDistance || !cutoffScale || !strength
         ) return;
 
-        const isRepulsion = Boolean(details.is_default_repulsion);
+        const addition = this.addAtomsUI?.active || meta?.atom_addition || null;
+        const additionTarget = Boolean(addition?.active);
+        const isRepulsion = Boolean(details.is_default_repulsion || additionTarget);
         controls.classList.toggle('disabled', !isRepulsion);
-        controls.title = isRepulsion
+        controls.title = additionTarget
+            ? 'These shared settings drive placement relaxation for all staged content.'
+            : isRepulsion
             ? 'Repulsion calculator settings only'
             : 'Device and CPU thread settings are only used by the default repulsion calculator.';
 
-        const cpuValue = String(details.cpu_threads || 4);
-        const choices = this.cpuThreadChoices(details);
+        const cpuValue = String(addition?.cpu_threads || details.cpu_threads || cpus.value || 4);
+        const choices = this.cpuThreadChoices({
+            ...details,
+            cpu_thread_options: addition?.cpu_thread_options || details.cpu_thread_options
+        });
         if (cpus.dataset.options !== choices.join(',')) {
             cpus.innerHTML = '';
             choices.forEach(value => {
@@ -8813,30 +8699,39 @@ class VAseApp {
         }
         cpus.value = choices.includes(Number(cpuValue)) ? cpuValue : String(Math.min(4, choices[choices.length - 1] || 1));
 
-        const requested = details.requested_device || 'cpu';
+        const requested = addition?.requested_device || details.requested_device || device.value || 'cpu';
         device.value = requested === 'cuda' ? 'cuda' : 'cpu';
         const cudaOption = [...device.options].find(option => option.value === 'cuda');
-        if (cudaOption) cudaOption.disabled = !details.cuda_available;
-        device.disabled = !isRepulsion || this.state.isRelaxing;
-        cpus.disabled = !isRepulsion || this.state.isRelaxing || device.value !== 'cpu';
-        if (document.activeElement !== cutoffMode) {
-            cutoffMode.value = details.cutoff_mode === 'absolute' ? 'absolute' : 'bonding';
+        if (cudaOption) cudaOption.disabled = !(addition?.cuda_available ?? details.cuda_available);
+        const running = Boolean(this.state.isRelaxing || addition?.is_relaxing);
+        device.disabled = !isRepulsion || running;
+        cpus.disabled = !isRepulsion || running || device.value !== 'cpu';
+        const preserveSharedValues = additionTarget && !details.is_default_repulsion;
+        if (document.activeElement !== cutoffMode && !preserveSharedValues) {
+            cutoffMode.value = (addition?.cutoff_mode || details.cutoff_mode) === 'absolute'
+                ? 'absolute'
+                : 'bonding';
         }
-        if (document.activeElement !== cutoffDistance) {
-            cutoffDistance.value = Number(details.cutoff_distance ?? 2.0).toFixed(2);
+        if (document.activeElement !== cutoffDistance && !preserveSharedValues) {
+            cutoffDistance.value = Number(
+                addition?.cutoff_distance ?? details.cutoff_distance ?? 2.0
+            ).toFixed(2);
         }
-        if (document.activeElement !== cutoffScale) {
-            cutoffScale.value = Number(details.cutoff_scale ?? 0.7).toFixed(2);
+        if (document.activeElement !== cutoffScale && !preserveSharedValues) {
+            cutoffScale.value = Number(
+                addition?.cutoff_scale ?? details.cutoff_scale ?? 0.7
+            ).toFixed(2);
         }
-        if (document.activeElement !== strength) {
-            strength.value = Number(details.k_repulsion ?? 1.0).toFixed(2);
+        if (document.activeElement !== strength && !preserveSharedValues) {
+            strength.value = Number(
+                addition?.k_repulsion ?? details.k_repulsion ?? 1.0
+            ).toFixed(2);
         }
-        cutoffMode.disabled = !isRepulsion || this.state.isRelaxing;
-        cutoffDistance.disabled = !isRepulsion || this.state.isRelaxing;
-        cutoffScale.disabled = !isRepulsion || this.state.isRelaxing;
-        strength.disabled = !isRepulsion || this.state.isRelaxing;
+        cutoffMode.disabled = !isRepulsion || running;
+        cutoffDistance.disabled = !isRepulsion || running;
+        cutoffScale.disabled = !isRepulsion || running;
+        strength.disabled = !isRepulsion || running;
         this.syncRepulsionCutoffControls();
-        this.syncAddAtomsComputeControls(meta);
     }
 
     applyCalculatorResponse(data) {
@@ -8869,6 +8764,13 @@ class VAseApp {
     applyCalculatorControls({ quiet = false } = {}) {
         const payload = this.currentCalculatorPayload();
         if (!payload) return Promise.resolve();
+        if (
+            this.addAtomsSessionActive()
+            && !this.repulsionCalculatorDetails().is_default_repulsion
+        ) {
+            this.syncRepulsionCutoffControls();
+            return Promise.resolve(payload);
+        }
         const revision = ++this.calculatorConfigRevision;
         const task = this.calculatorConfigQueue
             .catch(() => {})
@@ -9467,16 +9369,33 @@ class VAseApp {
 
     syncRelaxationModeUI() {
         const backendMode = Boolean(this.state.atoms?.metadata?.relaxation?.active);
+        const addition = this.addAtomsUI?.active || this.state.atoms?.metadata?.atom_addition || null;
+        const additionMode = Boolean(
+            addition?.is_relaxing
+            || (
+                addition?.active
+                && this.state.relaxTrajectory?.active
+                && this.state.relaxTrajectory?.kind === 'add-atoms'
+            )
+        );
         const generalMode = backendMode || (
             this.state.relaxTrajectory?.active
             && this.state.relaxTrajectory?.kind === 'relaxation'
         );
+        const activeMode = generalMode || additionMode;
+        const running = Boolean(this.state.isRelaxing || addition?.is_relaxing);
         const badge = document.getElementById('relax-mode-badge');
         const detail = document.getElementById('relax-mode-detail');
-        badge?.classList.toggle('hidden', !generalMode);
-        if (badge) badge.textContent = this.state.isRelaxing ? 'RUNNING' : 'REVIEW';
+        badge?.classList.toggle('hidden', !activeMode);
+        if (badge) badge.textContent = running ? 'RUNNING' : 'REVIEW';
         if (detail) {
-            detail.textContent = generalMode
+            detail.textContent = addition?.active
+                ? (additionMode
+                    ? (addition.is_relaxing
+                        ? 'Only staged content is moving; the structure present before Add Atoms remains fixed.'
+                        : 'Review the placement timeline. Place more content, relax again, or Finish/Cancel Add Atoms.')
+                    : 'Start here to relax all staged atoms and molecules with the shared calculator, cutoff, device, fmax, and step settings.')
+                : generalMode
                 ? (this.state.isRelaxing
                     ? 'Optimization steps are being added to the Relaxation timeline.'
                     : 'Review or play the Relaxation timeline, then exit the mode when finished.')
@@ -9879,7 +9798,14 @@ class VAseApp {
 
     updateSelectionVisuals() {
         this.renderer.setSelection(this.state.selected);
-        this.renderer.setReplicaSelection(this.state.vizOnly ? this.state.replicaSelected.values() : []);
+        if (this.state.vizOnly) {
+            this.renderer.setReplicaSelection(this.state.replicaSelected.values());
+        } else {
+            this.renderer.setReplicaSelection(
+                this.renderer.equivalentReplicaSelectionReferences(this.state.selected),
+                { muted: true }
+            );
+        }
         if (
             this.state.display.atomColorScaleEnabled
             && this.state.display.atomColorScaleScope === 'selected'
@@ -15178,7 +15104,9 @@ class VAseApp {
         }
         const name = String(operation.name || '').trim().toLowerCase();
         const addAtomsControls = new Set([
+            'scatter-atoms', 'scatter-molecules',
             'relax-added-atoms', 'stop-added-atoms',
+            'start-relaxation', 'stop-relaxation',
             'finish-add-atoms', 'cancel-add-atoms', 'update-add-atoms-region',
             'scale-add-atoms-regions',
             'move-selection', 'rotate-selection', 'scale-selection'
@@ -15406,9 +15334,6 @@ class VAseApp {
         }
         if (name === 'scatter-atoms' || name === 'scatter-molecules') {
             this.aiRequireEdit(name);
-            if (this.addAtomsSessionActive()) {
-                throw new Error('Finish or cancel the active Add Atoms session first.');
-            }
             const molecules = name === 'scatter-molecules';
             const hasEntries = Array.isArray(molecules ? operation.molecules : operation.entries);
             const singleName = String(
@@ -15595,42 +15520,32 @@ class VAseApp {
             if (!this.addAtomsSessionActive()) {
                 throw new Error('Start an Add Atoms or Add Molecules session before repulsive placement.');
             }
-            if (
-                !this.state.relaxTrajectory?.active
-                || this.state.relaxTrajectory?.kind !== 'add-atoms'
-            ) {
-                this.startModeTrajectory('add-atoms', 'Add Atoms placement');
+            const freezeExisting = document.getElementById('add-atoms-freeze-existing');
+            const mic = document.getElementById('add-atoms-mic');
+            const allowEscape = document.getElementById('add-atoms-allow-escape');
+            if (freezeExisting && operation.freezeExisting !== undefined) {
+                freezeExisting.checked = operation.freezeExisting !== false;
             }
-            const summary = await this.api.relaxAtomAddition({
-                pair_cutoffs: operation.pairCutoffs || this.addAtomsUI?.active?.pair_cutoffs,
-                freeze_existing: (
-                    operation.freezeExisting
-                    ?? this.addAtomsUI?.active?.freeze_existing
-                    ?? true
-                ),
-                k_repulsion: Number(operation.strength ?? 2.0),
-                k_boundary: Number(operation.boundaryStrength ?? 5.0),
-                fmax: Number(operation.fmax ?? 0.05),
-                steps: Number(operation.steps ?? 250),
-                device: operation.device
-                    ?? document.getElementById('add-atoms-device')?.value
-                    ?? this.addAtomsUI?.active?.requested_device
-                    ?? 'cpu',
-                cpu_threads: Number(
-                    operation.cpuThreads
-                    ?? document.getElementById('add-atoms-cpus')?.value
-                    ?? this.addAtomsUI?.active?.cpu_threads
-                    ?? 4
-                ),
-                mic: operation.mic !== false,
-                allow_escape: operation.allowEscape
-                    ?? this.addAtomsUI?.active?.allow_escape
-                    ?? true
+            if (mic && operation.mic !== undefined) mic.checked = operation.mic !== false;
+            if (allowEscape && operation.allowEscape !== undefined) {
+                allowEscape.checked = operation.allowEscape !== false;
+            }
+            await this.relaxAddedAtomsFromWidget({
+                calculator: {
+                    ...(operation.calculator || {}),
+                    device: operation.device,
+                    cpu_threads: operation.cpuThreads,
+                    pair_cutoffs: operation.pairCutoffs,
+                    cutoff_mode: operation.cutoffMode,
+                    cutoff_distance: operation.cutoffDistance,
+                    cutoff_scale: operation.cutoffScale,
+                    k_repulsion: operation.strength,
+                    k_boundary: operation.boundaryStrength
+                },
+                fmax: operation.fmax,
+                steps: operation.steps,
+                throwOnError: true
             });
-            this.addAtomsUI.active = { ...summary };
-            const noun = summary.content_kind === 'molecules' ? 'molecules' : 'atoms';
-            this.setAddAtomsStatus('running', `Placing ${noun} · 0/${summary.max_steps || 0}`);
-            this.syncAddAtomsActionState();
             return;
         }
         if (name === 'stop-added-atoms') {
@@ -16023,6 +15938,15 @@ class VAseApp {
         }
         if (name === 'start-relaxation') {
             this.aiRequireEdit('start-relaxation');
+            if (this.addAtomsSessionActive()) {
+                await this.relaxAddedAtomsFromWidget({
+                    calculator: operation.calculator,
+                    fmax: operation.fmax,
+                    steps: operation.steps,
+                    throwOnError: true
+                });
+                return;
+            }
             if (!this.state.atoms?.metadata?.has_calculator) {
                 throw new Error('Relaxation requires an attached ASE calculator.');
             }
@@ -16045,7 +15969,8 @@ class VAseApp {
             return;
         }
         if (name === 'stop-relaxation') {
-            await this.api.relaxStop();
+            if (this.addAtomsSessionActive()) await this.stopAddedAtomsRelaxation();
+            else await this.api.relaxStop();
             return;
         }
         if (name === 'exit-relaxation-mode') {
@@ -19392,7 +19317,7 @@ class VAseApp {
                 const suffix = Number.isFinite(fmax) ? ` · fmax ${fmax.toFixed(3)}` : '';
                 this.setAddAtomsStatus(
                     'running',
-                    `Placing ${addition.content_kind === 'molecules' ? 'molecules' : 'atoms'} · ${addition.step}/${addition.max_steps}${suffix}`
+                    `Relaxing staged content · ${addition.step}/${addition.max_steps}${suffix}`
                 );
                 this.syncAddAtomsActionState();
             }
@@ -19430,11 +19355,14 @@ class VAseApp {
                         : `Placement ${msg.status} · ${addition.step} steps`
                 );
                 this.syncAddAtomsActionState();
+                // The shared Relaxation controls also depend on the Add-session
+                // running state, so refresh them in the same completion tick.
+                this.updateUI();
                 this.scheduleCollaborationEvent({
                     source: 'system',
                     categories: ['structure'],
                     changedPaths: ['structure.positions', 'addAtoms.status'],
-                    summary: `${addition.content_kind === 'molecules' ? 'Molecule' : 'Atom'} placement ${msg.status}.`
+                    summary: `Staged-content relaxation ${msg.status}.`
                 });
                 this.toast(
                     failed ? `Repulsive placement failed: ${msg.message || 'unknown error'}` : `Placement ${msg.status}.`,
@@ -21933,6 +21861,11 @@ class VAseApp {
             }
         };
         document.getElementById('btn-relax').onclick = async () => {
+            if (this.addAtomsSessionActive()) {
+                await this.relaxAddedAtomsFromWidget();
+                this.updateUI();
+                return;
+            }
             if (!this.state.atoms.metadata.has_calculator) {
                 this.toast('Relax requires an attached ASE calculator.', 'warning');
                 return;
@@ -21970,7 +21903,11 @@ class VAseApp {
         };
         document.getElementById('btn-stop-relax').onclick = async () => {
             try {
-                await this.api.relaxStop();
+                if (this.addAtomsSessionActive()) {
+                    await this.stopAddedAtomsRelaxation();
+                } else {
+                    await this.api.relaxStop();
+                }
                 this.toast('Stopping relaxation...', 'warning');
             } catch (err) {
                 this.toast(`Stop relax failed: ${err.message}`, 'error');

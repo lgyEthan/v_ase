@@ -949,6 +949,96 @@ def test_random_addition_finish_reconstructs_host_from_immutable_baseline():
     assert session.atom_addition is None
 
 
+def test_addition_session_accumulates_atoms_and_molecules_after_relaxation(monkeypatch):
+    host = make_host()
+    host.set_array(
+        MOLECULE_GROUP_ARRAY,
+        np.asarray([5, -1, -1], dtype=np.int64),
+    )
+    session = EditorSession("add-repeat", host.copy(), host.copy())
+    monkeypatch.setattr(
+        "v_ase.add_atoms.ws_manager.broadcast_sync",
+        lambda *_args, **_kwargs: None,
+    )
+
+    first = start_atom_addition(session, {
+        "element": "Li",
+        "label": "Li_mobile",
+        "count": 2,
+        "region_mode": "cell",
+        "seed": 41,
+        "freeze_existing": True,
+    })
+    assert first["placement_count"] == 1
+    assert len(session.history) == 1
+
+    start_atom_addition_relaxation(session, {
+        "steps": 2,
+        "fmax": 1e-12,
+        "cutoff_mode": "absolute",
+        "cutoff_distance": 1.5,
+        "k_repulsion": 0.0,
+    })
+    deadline = time.monotonic() + 10.0
+    while session.atom_addition.is_relaxing and time.monotonic() < deadline:
+        time.sleep(0.02)
+    assert session.atom_addition.is_relaxing is False
+
+    moved_regions = [
+        region.translated([0.2, -0.1, 0.3]).to_json()
+        for region in session.atom_addition.regions
+    ]
+    update_atom_addition_region(session, {"regions": moved_regions})
+    second = start_atom_addition(session, {
+        "content_kind": "molecules",
+        "molecules": [{"name": "H2O", "label": "water", "count": 2}],
+        "region_mode": "regions",
+        "regions": moved_regions,
+        "seed": 42,
+        "random_orientation": True,
+        "rigid_molecules": True,
+    })
+    assert second["placement_count"] == 2
+    assert second["content_kind"] == "mixed"
+    assert second["last_content_kind"] == "molecules"
+    assert second["last_batch_new_count"] == 6
+    assert second["last_batch_molecule_count"] == 2
+    assert len(session.history) == 1
+    assert_host_unchanged(host, session.atom_addition.baseline_atoms)
+
+    third = start_atom_addition(session, {
+        "element": "O",
+        "label": "O_probe",
+        "count": 1,
+        "region_mode": "regions",
+        "regions": moved_regions,
+        "seed": 43,
+    })
+    assert third["placement_count"] == 3
+    assert third["last_content_kind"] == "atoms"
+    assert third["new_count"] == 9
+    assert session.atom_addition.molecule_group_ids == [
+        -1, -1,
+        0, 0, 0,
+        1, 1, 1,
+        -1,
+    ]
+
+    finish_atom_addition(session)
+    assert_host_unchanged(host, session.working_atoms)
+    assert len(session.working_atoms) == len(host) + 9
+    np.testing.assert_array_equal(
+        session.working_atoms.arrays[MOLECULE_GROUP_ARRAY],
+        [5, -1, -1, -1, -1, 6, 6, 6, 7, 7, 7, -1],
+    )
+    assert atom_labels(session.working_atoms)[len(host):] == [
+        "Li_mobile", "Li_mobile",
+        "O_water", "H_water", "H_water",
+        "O_water", "H_water", "H_water",
+        "O_probe",
+    ]
+
+
 def test_finish_rejects_untracked_topology_or_identity_changes():
     host = make_host()
     session = EditorSession("add-topology-guard", host.copy(), host.copy())
@@ -1698,9 +1788,6 @@ def test_browser_random_add_atoms_mode_scatter_relax_and_finish():
             second.locator(".add-atoms-entry-label").fill("H_probe")
             second.locator(".add-atoms-entry-count").fill("1.5")
             page.fill("#add-atoms-seed", "2021")
-            page.wait_for_function(
-                "document.querySelectorAll('#add-atoms-pair-table .add-atoms-pair-row').length > 0"
-            )
             page.click("#btn-add-atoms-scatter")
             page.wait_for_function(
                 "document.getElementById('add-atoms-status-text')?.textContent?.includes('positive integers')"
@@ -1816,24 +1903,28 @@ def test_browser_random_add_atoms_mode_scatter_relax_and_finish():
             ]
             assert_host_unchanged(host, backend.atom_addition.baseline_atoms)
 
-            assert page.locator("#add-atoms-device").is_visible()
-            assert page.locator("#add-atoms-cpus option").count() >= 1
-            thread_value = "2" if page.locator('#add-atoms-cpus option[value="2"]').count() else "1"
-            page.select_option("#add-atoms-device", "cpu")
-            page.select_option("#add-atoms-cpus", thread_value)
-            page.fill("#add-atoms-steps", "20")
-            page.click("#btn-add-atoms-relax")
+            page.click("#btn-add-atoms-open-relaxation")
+            page.wait_for_selector('#inspector details[data-panel="scientific-tools"]:not(.group-hidden)[open]')
+            assert page.locator("#calc-device").is_visible()
+            assert page.locator("#calc-cpus option").count() >= 1
+            thread_value = "2" if page.locator('#calc-cpus option[value="2"]').count() else "1"
+            page.select_option("#calc-device", "cpu")
+            page.select_option("#calc-cpus", thread_value)
+            page.fill("#relax-steps", "20")
+            page.click("#btn-relax")
             page.wait_for_function(
                 "window.__ASE_APP__.addAtomsUI?.active?.is_relaxing === true"
             )
             assert page.locator("#add-atoms-mic").is_disabled()
-            assert page.locator("#add-atoms-device").is_disabled()
+            assert page.locator("#calc-device").is_disabled()
             assert backend.atom_addition.requested_device == "cpu"
             assert backend.atom_addition.cpu_threads == int(thread_value)
             page.wait_for_function(
                 "window.__ASE_APP__.addAtomsUI?.active?.is_relaxing === false",
                 timeout=20_000,
             )
+            assert page.locator("#btn-relax").is_enabled()
+            assert page.locator("#btn-stop-relax").is_disabled()
             mode_timeline = page.evaluate("""() => ({
                 active: window.__ASE_APP__.state.relaxTrajectory.active,
                 kind: window.__ASE_APP__.state.relaxTrajectory.kind,
@@ -1843,6 +1934,33 @@ def test_browser_random_add_atoms_mode_scatter_relax_and_finish():
             assert mode_timeline["kind"] == "add-atoms"
             assert mode_timeline["frames"] >= 2
             assert_host_unchanged(host, backend.atom_addition.baseline_atoms)
+
+            first_region_id = backend.atom_addition.regions[0].id
+            previous_xmin = backend.atom_addition.regions[0].bounds[0]
+            page.evaluate(
+                "regionId => window.__ASE_APP__.setAddAtomsRegionSelection([regionId])",
+                first_region_id,
+            )
+            page.fill("#add-atoms-xmin", str(previous_xmin + 0.05))
+            page.locator("#add-atoms-xmin").press("Tab")
+            page.wait_for_function(
+                "expected => Math.abs(window.__ASE_APP__.addAtomsUI.active.regions[0].bounds[0] - expected) < 1e-8",
+                arg=previous_xmin + 0.05,
+            )
+            first.locator(".add-atoms-entry-count").fill("2")
+            second.locator(".add-atoms-entry-count").fill("1")
+            page.click("#btn-add-atoms-scatter")
+            page.wait_for_function(
+                "window.__ASE_APP__.addAtomsUI?.active?.placement_count === 2"
+            )
+            assert page.evaluate("window.__ASE_APP__.addAtomsUI.active.new_count") == 16
+            assert page.evaluate("window.__ASE_APP__.addAtomsUI.active.last_batch_new_count") == 3
+            assert page.evaluate("window.__ASE_APP__.state.selected.size") == 16
+            assert len(backend.history) == 1
+            assert_host_unchanged(host, backend.atom_addition.baseline_atoms)
+            assert page.evaluate(
+                "window.__ASE_APP__.state.relaxTrajectory.frames.length"
+            ) == 1
 
             page.click("#btn-add-atoms-finish")
             page.wait_for_function(
@@ -1863,8 +1981,13 @@ def test_browser_random_add_atoms_mode_scatter_relax_and_finish():
                 kind: window.__ASE_APP__.state.relaxTrajectory.kind
             })""") == {"active": False, "kind": None}
             assert_host_unchanged(host, backend.working_atoms)
-            assert len(backend.working_atoms) == len(host) + 13
-            assert atom_labels(backend.working_atoms)[-13:] == ["Li_mobile"] * 8 + ["H_probe"] * 5
+            assert len(backend.working_atoms) == len(host) + 16
+            assert atom_labels(backend.working_atoms)[-16:] == (
+                ["Li_mobile"] * 8
+                + ["H_probe"] * 5
+                + ["Li_mobile"] * 2
+                + ["H_probe"]
+            )
             browser.close()
     finally:
         editor.close()
@@ -2123,8 +2246,10 @@ def test_browser_add_molecules_homogeneous_transform_rigid_relax_and_finish():
             page.wait_for_timeout(150)
             np.testing.assert_array_equal(backend.working_atoms.positions[:len(host)], host.positions)
 
-            page.fill("#add-atoms-steps", "12")
-            page.click("#btn-add-atoms-relax")
+            page.click("#btn-add-atoms-open-relaxation")
+            page.wait_for_selector('#inspector details[data-panel="scientific-tools"]:not(.group-hidden)[open]')
+            page.fill("#relax-steps", "12")
+            page.click("#btn-relax")
             page.wait_for_function(
                 "window.__ASE_APP__.addAtomsUI?.active?.is_relaxing === true"
             )

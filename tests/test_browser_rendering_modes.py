@@ -3456,17 +3456,36 @@ def test_view_supercell_instances_style_hide_warn_and_delete_base_once():
                 );
                 app.clearAtomSelection();
                 references.forEach(reference => app.addSelectionReference(reference));
+                app.updateSelectionVisuals();
+                const replicaOutline = app.renderer.replicaSelectionOutlines.children[0];
                 return {
                     references: references.size,
                     base: [...app.state.selected].sort((a, b) => a - b),
                     replicas: [...app.state.replicaSelected.keys()],
                     order: [...app.state.selectionOrder],
+                    primaryOutlines: app.renderer.selectionOutlines.children.length,
+                    equivalentOutlines: replicaOutline?.count || 0,
+                    equivalentMuted: replicaOutline?.userData?.muted === true,
+                    equivalentOpacity: replicaOutline?.material?.opacity ?? null,
+                    equivalentReferences: (replicaOutline?.userData?.references || [])
+                        .map(reference => reference.key)
+                        .sort(),
                 };
             }""")
             assert edit_box_selection["references"] > 2
             assert edit_box_selection["base"] == [0, 1]
             assert edit_box_selection["replicas"] == []
             assert edit_box_selection["order"] == ["atom:0", "atom:1"]
+            assert edit_box_selection["primaryOutlines"] == 2
+            assert edit_box_selection["equivalentOutlines"] == 4
+            assert edit_box_selection["equivalentMuted"] is True
+            assert edit_box_selection["equivalentOpacity"] == pytest.approx(0.36)
+            assert edit_box_selection["equivalentReferences"] == [
+                "replica:0:-1,0,0",
+                "replica:0:1,0,0",
+                "replica:1:-1,0,0",
+                "replica:1:1,0,0",
+            ]
 
             page.evaluate("window.__ASE_APP__.switchRuntimeMode(true)")
             page.wait_for_function("window.__ASE_APP__.state.vizOnly === true")

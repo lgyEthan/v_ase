@@ -192,8 +192,10 @@ In View, `delete-selection` stores the exact selected reference keys in
 `display.hiddenAtomReferences`; matching visual atoms and bonds become hidden
 and non-interactive, but ASE topology and structural analysis remain complete.
 In Edit, periodic replica selection is mapped and deduplicated to base atom
-indices, and `delete-selection` physically removes those atoms. Obtain human
-intent before crossing from visual hiding to physical deletion.
+indices. The primary base atom receives the full selection halo and every
+displayed equivalent replica receives a smaller, lower-opacity ring without
+changing atom opacity. `delete-selection` physically removes the base atoms.
+Obtain human intent before crossing from visual hiding to physical deletion.
 
 Measurements are ordered:
 
@@ -228,12 +230,12 @@ Pass `operation` as a name string or object:
 | `set-supercell` | `reps` | Materialize repeated cell in every frame |
 | `make-supercell` | integer `matrix` | Apply ASE `make_supercell` |
 | `add-atom` | `label`/`element`, `position` | Add one atom |
-| `scatter-atoms` | `entries` or `element`/`label`/`count`; optional `placementMode`, `regularSpacing`, `coordinateBasis`, `pbcAware`, `regions`, `regionMic`, `allowEscape`, `seed`, `freezeExisting`, `cutoffBasis`, `cutoffScale`, `pairCutoffs` | Stage atom populations by random, homogeneous, or regular Cartesian placement in an exact multi-region Boolean domain |
-| `scatter-molecules` | `molecules` or `molecule`/`label`/`count`; optional atom-placement fields plus `randomOrientation`, `rigidMolecules`, `quantityMode`, `targetDensityGcm3` | Stage installed ASE G2 molecules by integer count or exact-volume density with optional unbiased orientation and rigid geometry |
+| `scatter-atoms` | `entries` or `element`/`label`/`count`; optional `placementMode`, `regularSpacing`, `coordinateBasis`, `pbcAware`, `regions`, `regionMic`, `allowEscape`, `seed`, `freezeExisting`, `cutoffBasis`, `cutoffScale`, `pairCutoffs` | Start or append atom populations to one reversible staging session by random, homogeneous, or regular Cartesian placement in an exact multi-region Boolean domain |
+| `scatter-molecules` | `molecules` or `molecule`/`label`/`count`; optional atom-placement fields plus `randomOrientation`, `rigidMolecules`, `quantityMode`, `targetDensityGcm3` | Start or append installed ASE G2 molecules to the same staging session by integer count or exact-volume density with optional unbiased orientation and rigid geometry |
 | `update-add-atoms-region` | Complete `regions`, or `regionId` plus optional `regionName`, `regionRole`, `bounds`; optional `regionMic`, `allowEscape` | Atomically move or reconfigure one or more active Cartesian insertion regions without moving staged atoms |
 | `scale-add-atoms-regions` | `regionIds`, positive `factor`; optional `axis`, `pivot`, `regionMic`, `allowEscape` | Scale selected Cartesian insertion bounds about their shared center or explicit pivot; never moves staged atoms |
-| `relax-added-atoms` | optional `pairCutoffs`, `freezeExisting`, `strength`, `boundaryStrength`, `fmax`, `steps`, `device`, `cpuThreads`, `mic`, `allowEscape` | Start whole-structure asynchronous FIRE relaxation with the Add repulsion calculator; every optimizer step is retained and the default lets inserted content leave its initial region |
-| `stop-added-atoms` | none | Request optimizer stop while retaining current staged positions |
+| `relax-added-atoms` | optional shared calculator fields plus `freezeExisting`, `fmax`, `steps`, `mic`, `allowEscape` | Compatibility alias for placement relaxation using the same calculator/cutoff/device/fmax/steps contract as `start-relaxation` |
+| `stop-added-atoms` | none | Compatibility alias that requests placement-optimizer stop while retaining current staged positions |
 | `finish-add-atoms` | none | Commit staged atoms after optimization is inactive |
 | `cancel-add-atoms` | none | Restore the exact structure and history from before scattering |
 | `delete-selection` | selection or `indices` | View: hide exact visual references only. Edit: delete unique base atoms and remap constraints |
@@ -257,8 +259,8 @@ Pass `operation` as a name string or object:
 | `cancel-registry-relaxation` | none | Restore the exact pre-mode coordinates and close its timeline without adding history |
 | `undo` / `redo` | none | Traverse structure or visualization-setting history |
 | `reset-coordinates` | none | Restore loaded coordinates and original cell |
-| `start-relaxation` | `fmax`, `steps`, optional `calculator` | Start optimization |
-| `stop-relaxation` | none | Request optimizer stop |
+| `start-relaxation` | `fmax`, `steps`, optional `calculator` | Start ordinary optimization, or route the same shared settings to placement relaxation when an Add session is active |
+| `stop-relaxation` | none | Request the active ordinary or Add placement optimizer to stop |
 | `exit-relaxation-mode` | optional `keep` | Stop if needed, then close the optimization timeline; `keep:true` retains current coordinates and `keep:false` restores the exact pre-relaxation baseline |
 | `refresh-displacements` | optional `display` | Recompute displacement vectors |
 | `load-volumetric` | `path`, optional `format`, `precision` | Load one VASP, Cube, or XSF grid as FP32 or FP64 |
@@ -501,13 +503,18 @@ continuing. If the target is below the first realizable batch, the preview
 keeps reporting exact volume and returns a specific density error.
 
 After scattering, read `describe().addAtoms`. It reports `content_kind`,
-`entries`, `new_indices`, placement and coordinate modes, region geometry,
-seed, pair cutoffs, temporary fixed host indices, optimizer status, step, and
-maximum steps. Molecule sessions additionally report `molecule_groups`,
-`molecule_names`, orientation mode, and rigid mode. The highlighted region is
-an Add Atoms overlay and disappears after finish or cancel. Existing atoms are
-temporarily fixed by default only inside the optimizer copy; this constraint
-is never added to the committed ASE object. During staging,
+`entries`, accumulated `new_indices`, `new_count`, `placement_count`,
+`last_batch_new_indices`, `last_batch_new_count`, placement and coordinate
+modes, region geometry, seed, shared calculator state, temporary fixed host
+indices, optimizer status, step, and maximum steps. Molecule-containing
+sessions additionally report `molecule_groups`, `molecule_names`, orientation
+mode, and rigid mode. Further `scatter-atoms` or `scatter-molecules` calls may
+append after region edits or completed relaxation. They retain the first
+pre-session structure as the immutable host, and all inserted batches remain
+staged/mobile. The highlighted region is an Add Atoms overlay and disappears
+after finish or cancel. Existing atoms are temporarily fixed by default only
+inside the optimizer copy; this constraint is never added to the committed ASE
+object. During staging,
 `describe().constraints.fixed_indices` intentionally includes these host
 indices as a semantic constraint summary so the GUI and agent can identify the
 temporary fixed overlay. It does not mean `session.working_atoms.constraints`
@@ -518,35 +525,39 @@ other saved appearance values.
 
 ```javascript
 await ai.apply({operation: {
-  name: "relax-added-atoms",
-  pairCutoffs: {"Cu-Li": 2.10, "Li-Li": 1.80, "H-Li": 1.20},
-  freezeExisting: true,
-  strength: 2.0,
-  boundaryStrength: 5.0,
+  name: "start-relaxation",
   fmax: 0.05,
   steps: 250,
-  device: "cpu",
-  cpuThreads: 4,
-  mic: true,
-  allowEscape: true
+  calculator: {
+    device: "cpu",
+    cpu_threads: 4,
+    cutoff_mode: "bonding",
+    cutoff_scale: 0.70,
+    pair_cutoffs: {"Cu-Li": 2.10, "Li-Li": 1.80, "H-Li": 1.20},
+    k_repulsion: 2.0,
+    k_boundary: 5.0
+  }
 }});
 ```
 
-The optimizer uses explicit element-pair minimum distances. A pair inside its
-cutoff receives a soft harmonic repulsion. With `mic:true`, periodic neighbor
-vectors are evaluated for the complete structure by the calculator. The GUI
-keeps Device and CPU-thread controls inside the floating Add panel so they
-remain accessible while the inspector is closed. `device:"cuda"` uses CUDA
-when available and reports its effective fallback in `describe().addAtoms`.
+The optimizer uses the shared Relaxation cutoff definition: active label-pair
+bonding cutoffs and a multiplier, or one absolute Angstrom onset. A pair inside
+its onset receives a soft harmonic repulsion. With `mic:true`, periodic
+neighbor vectors are evaluated for the complete structure by the calculator.
+The GUI keeps calculator, cutoff, Device, CPU-thread, `fmax`, and step controls
+in **Structure > Relaxation**; the Add placement card opens that section.
+`device:"cuda"` uses CUDA when available and reports its effective fallback in
+`describe().addAtoms`.
 Staged atoms are tag 3 in the temporary optimizer;
 the baseline host is reconstructed exactly when committing. Poll compact
 `describe` state or consume collaboration events until
-`addAtoms.is_relaxing` is false. Then use `finish-add-atoms`. Use
-`stop-added-atoms` to interrupt and retain the latest staged positions, or
-`cancel-add-atoms` to restore the complete pre-session state.
-The optimizer frames appear on a temporary `add-atoms` mode timeline. Finish
-or cancel removes that timeline; neither action converts it into the loaded
-source trajectory.
+`addAtoms.is_relaxing` is false. At that point, append another batch with a
+scatter operation, or use `finish-add-atoms`. Common `stop-relaxation` and
+compatibility `stop-added-atoms` interrupt and retain the latest staged
+positions; `cancel-add-atoms` restores the complete pre-session state. The
+optimizer frames appear on a temporary `add-atoms` mode timeline. Appending
+content resets that timeline for the new topology. Finish or cancel removes
+it; neither action converts it into the loaded source trajectory.
 
 Batch atom and molecule insertion deliberately rejects trajectories. Open the
 intended frame as a standalone structure in a new document before scattering;
