@@ -218,11 +218,11 @@ v_ase api "$COMMAND_URL" apply --params '{
       {"id": "right", "role": "allow", "bounds": [5, 8, 0.5, 7.5, 0, 12]},
       {"id": "core", "role": "reject", "bounds": [3.5, 5.5, 3, 5, 2, 10]}
     ],
-    "allowEscape": true,
+    "constrainToDomain": false,
     "seed": 2021,
     "freezeExisting": true,
     "cutoffBasis": "covalent",
-    "cutoffScale": 0.70
+    "cutoffScale": 1.0
   }
 }'
 v_ase api "$COMMAND_URL" apply --params '{
@@ -231,7 +231,7 @@ v_ase api "$COMMAND_URL" apply --params '{
     "strength": 2.5,
     "fmax": 0.01,
     "steps": 180,
-    "allowEscape": true
+    "constrainToDomain": false
   }
 }'
 v_ase api "$COMMAND_URL" apply --params '{
@@ -247,9 +247,12 @@ Allow/Reject roles, and Cartesian `xmin/xmax/ymin/ymax/zmin/zmax` bounds. The
 exact domain is the finite cell intersected with the Allow union, or the full
 cell when no Allow exists, minus the Reject union. `regionMic` maps wrapped
 images through the complete triclinic lattice. Without a finite cell, at least
-one Allow region is required. `allowEscape` defaults to true because regions
-define initial scattering; false confines later repulsive placement to the
-combined domain. `update-add-atoms-region` accepts a complete region array or
+one Allow region is required. `constrainToDomain` defaults to false because
+regions define initial scattering; true keeps every staged atom inside the
+Allow union and outside every Reject region during repulsive placement. Rigid
+molecules use their ASE template origin for this efficient domain constraint.
+Legacy `allowEscape` is the inverse compatibility field.
+`update-add-atoms-region` accepts a complete region array or
 one stable ID without moving staged atoms. The GUI maps multi-selected region
 translation to `G` and rejects `R`. Molecule requests additionally support
 `quantityMode:"density"` plus `targetDensityGcm3`; Count values then define an
@@ -306,9 +309,9 @@ set_atom_labels(atoms, labels)
 atoms.calc = RepulsionCalculator(
     device="cpu",
     cpu_threads=4,
-    cutoff_mode="bonding",
+    cutoff_mode="absolute",
+    cutoff_basis="covalent",
     pair_cutoffs={"|".join(sorted((labels[0], labels[1]))): 2.00},
-    cutoff_scale=0.70,
     k_repulsion=1.0,
 )
 energy = atoms.get_potential_energy()
@@ -317,12 +320,13 @@ forces = atoms.get_forces()
 
 Torch is optional. The calculator uses NumPy when torch is absent and can use
 torch CPU or CUDA when available. Browser DEVICE/CPU controls apply only to
-this built-in calculator. In `cutoff_mode="bonding"`, the onset for pair `i,j`
-is `cutoff_scale * pair_cutoffs[label_i|label_j]`. A zero value disables that
-label pair. The browser supplies this table from the active Bonding settings;
-direct Python use should supply it explicitly. Omitting the table retains the
-ASE covalent-radius fallback for compatibility. Use one direct physical onset
-instead with:
+this built-in calculator. Repulsion distances are independent from visual
+bonds. In the default `cutoff_mode="absolute"`, each `pair_cutoffs` value is
+the physical onset for that unordered label pair in angstrom; zero disables
+the pair. Omitting the table generates values from ASE covalent-radius sums,
+or van der Waals sums with `cutoff_basis="vdw"`. To scale all supplied
+reference distances together, use `cutoff_mode="scaled"` and set the
+dimensionless `cutoff_scale`. A single global onset is also accepted:
 
 ```python
 atoms.calc = RepulsionCalculator(

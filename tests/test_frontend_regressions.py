@@ -902,7 +902,7 @@ def test_new_scientific_defaults_and_ai_control_contract_are_wired():
     assert 'id="commensurate-max-area" value="16" min="1" max="128"' in index_html
     assert 'id="commensurate-supercell-proposal"' in index_html
     assert 'id="chk-commensurate-snap">' in index_html
-    assert 'id="calc-cutoff-scale" value="0.70"' in index_html
+    assert 'id="calc-cutoff-scale" value="1.00"' in index_html
     assert 'id="calc-cutoff-mode"' in index_html
     assert 'id="calc-cutoff-distance" value="2.00"' in index_html
     assert 'id="calc-strength" value="1.0"' in index_html
@@ -938,6 +938,7 @@ def test_new_scientific_defaults_and_ai_control_contract_are_wired():
         "reset-coordinates",
         "start-relaxation",
         "stop-relaxation",
+        "clear-relaxation-trajectory",
         "refresh-displacements",
     ):
         assert f"'{operation}'" in main_js
@@ -1001,8 +1002,9 @@ def test_api_browser_close_and_python_view_autoclose_contract_are_wired():
     assert "close_on_disconnect: bool = True" in viewer_py
     assert '"auto_close_on_disconnect": bool(close_on_disconnect and not notebook)' in viewer_py
     assert "this.ws = ws" in main_js
-    assert "window.addEventListener('pagehide', closeSocket" in main_js
-    assert "window.addEventListener('beforeunload', closeSocket" in main_js
+    assert "window.addEventListener('pagehide', this.handlePageTeardown" in main_js
+    assert "this.closeSocket?.();" in main_js
+    assert "window.addEventListener('beforeunload', this.handlePageTeardown" in main_js
     assert "this.ws.close(1000, 'page closing')" in main_js
     assert "schedule_session_autoclose(session_id)" in server_py
     assert "finalize_session_from_browser_close(session_id)" in server_py

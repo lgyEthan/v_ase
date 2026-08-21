@@ -65,7 +65,8 @@ v_ase api "$COMMAND_URL" describe \
 `describe()` returns document name, View/Edit mode, frame and frame count, atom
 count, labels, ASE elements, atomic numbers, positions, cell, PBC, constraints,
 forces, calculator attachment/name/details, charges, tags, magnetic moments,
-selection references, measurements, display settings, camera, image export
+selection references, measurements, `relaxation` mode/running/kind/frame
+summary, display settings, camera, image export
 profile, persistent `renderArea`, `preferences.interfaceTheme`,
 `preferences.personalVisualDefaults`, `analysis.volumetricDatasets`, the
 current RDF summary, and `collaboration.revision`.
@@ -230,11 +231,11 @@ Pass `operation` as a name string or object:
 | `set-supercell` | `reps` | Materialize repeated cell in every frame |
 | `make-supercell` | integer `matrix` | Apply ASE `make_supercell` |
 | `add-atom` | `label`/`element`, `position` | Add one atom |
-| `scatter-atoms` | `entries` or `element`/`label`/`count`; optional `placementMode`, `regularSpacing`, `coordinateBasis`, `pbcAware`, `regions`, `regionMic`, `allowEscape`, `seed`, `freezeExisting`, `cutoffBasis`, `cutoffScale`, `pairCutoffs` | Start or append atom populations to one reversible staging session by random, homogeneous, or regular Cartesian placement in an exact multi-region Boolean domain |
+| `scatter-atoms` | `entries` or `element`/`label`/`count`; optional `placementMode`, `regularSpacing`, `coordinateBasis`, `pbcAware`, `regions`, `regionMic`, `constrainToDomain`, `seed`, `freezeExisting`, `cutoffBasis`, `cutoffScale`, `pairCutoffs` | Start or append atom populations to one reversible staging session by random, homogeneous, or regular Cartesian placement in an exact multi-region Boolean domain |
 | `scatter-molecules` | `molecules` or `molecule`/`label`/`count`; optional atom-placement fields plus `randomOrientation`, `rigidMolecules`, `quantityMode`, `targetDensityGcm3` | Start or append installed ASE G2 molecules to the same staging session by integer count or exact-volume density with optional unbiased orientation and rigid geometry |
-| `update-add-atoms-region` | Complete `regions`, or `regionId` plus optional `regionName`, `regionRole`, `bounds`; optional `regionMic`, `allowEscape` | Atomically move or reconfigure one or more active Cartesian insertion regions without moving staged atoms |
-| `scale-add-atoms-regions` | `regionIds`, positive `factor`; optional `axis`, `pivot`, `regionMic`, `allowEscape` | Scale selected Cartesian insertion bounds about their shared center or explicit pivot; never moves staged atoms |
-| `relax-added-atoms` | optional shared calculator fields plus `freezeExisting`, `fmax`, `steps`, `mic`, `allowEscape` | Compatibility alias for placement relaxation using the same calculator/cutoff/device/fmax/steps contract as `start-relaxation` |
+| `update-add-atoms-region` | Complete `regions`, or `regionId` plus optional `regionName`, `regionRole`, `bounds`; optional `regionMic`, `constrainToDomain` | Atomically move or reconfigure one or more active Cartesian insertion regions without moving staged atoms |
+| `scale-add-atoms-regions` | `regionIds`, positive `factor`; optional `axis`, `pivot`, `regionMic`, `constrainToDomain` | Scale selected Cartesian insertion bounds about their shared center or explicit pivot; never moves staged atoms |
+| `relax-added-atoms` | optional shared calculator fields plus `freezeExisting`, `fmax`, `steps`, `mic`, `constrainToDomain` | Compatibility alias for placement relaxation using the same calculator/cutoff/device/fmax/steps contract as `start-relaxation` |
 | `stop-added-atoms` | none | Compatibility alias that requests placement-optimizer stop while retaining current staged positions |
 | `finish-add-atoms` | none | Commit staged atoms after optimization is inactive |
 | `cancel-add-atoms` | none | Restore the exact structure and history from before scattering |
@@ -261,6 +262,7 @@ Pass `operation` as a name string or object:
 | `reset-coordinates` | none | Restore loaded coordinates and original cell |
 | `start-relaxation` | `fmax`, `steps`, optional `calculator` | Start ordinary optimization, or route the same shared settings to placement relaxation when an Add session is active |
 | `stop-relaxation` | none | Request the active ordinary or Add placement optimizer to stop |
+| `clear-relaxation-trajectory` | optional `retain:"final"|"displayed"` | Remove the optimization movie, retain the chosen geometry, and leave its mode active |
 | `exit-relaxation-mode` | optional `keep` | Stop if needed, then close the optimization timeline; `keep:true` retains current coordinates and `keep:false` restores the exact pre-relaxation baseline |
 | `refresh-displacements` | optional `display` | Recompute displacement vectors |
 | `load-volumetric` | `path`, optional `format`, `precision` | Load one VASP, Cube, or XSF grid as FP32 or FP64 |
@@ -296,20 +298,20 @@ await applyCurrent({
 });
 ```
 
-`cutoff_mode:"bonding"` uses
-`r_cut,ij = cutoff_scale * pair_cutoffs[label_i|label_j]`. Supply the live
-Bonding table with unordered label-pair keys; zero keeps a pair inactive. The
-browser does this automatically when the calculator object is omitted. In
-automatic bond mode, same-class pairs suppressed only from visual bond
-rendering receive a covalent contact cutoff so scratch overlaps can separate;
-an explicit Pairwise zero remains disabled.
-`cutoff_mode:"absolute"` uses the one
-`cutoff_distance` value in Angstrom for every enabled pair. Below either onset,
+Repulsion is independent from visual bond display. In the default
+`cutoff_mode:"absolute"`, every enabled `pair_cutoffs[label_i|label_j]` value
+is its physical onset in Angstrom; zero disables only that unordered label
+pair. Without an explicit table, `cutoff_basis:"covalent"` generates ASE
+covalent-radius sums and `cutoff_basis:"vdw"` requests van der Waals sums.
+`cutoff_mode:"scaled"` uses
+`r_cut,ij = cutoff_scale * pair_cutoffs[label_i|label_j]` for workflows that
+need one dimensionless contact multiplier. `cutoff_distance` is the global
+absolute fallback when no pair table is supplied. Below either onset,
 `E_pair = 0.5 * k_repulsion * (r_cut - r)^2`; energy and force are exactly zero
 at and beyond `r_cut`. This is not a hard minimum-separation constraint. Read
 `describe().calculator.details` after applying the command and verify
-`cutoff_mode`, `pair_cutoffs` when bonding mode is active, the active cutoff
-field, and `k_repulsion` before trusting the run.
+`cutoff_mode`, `cutoff_basis`, `pair_cutoffs`, the active cutoff field, and
+`k_repulsion` before trusting the run.
 
 ### ASE Bulk Builder Contract
 
@@ -366,14 +368,14 @@ await ai.apply({
       {id: "protected-core", name: "Protected core", role: "reject",
        bounds: [3.5, 5.5, 3.0, 5.0, 2.0, 10.0]}
     ],
-    allowEscape: true,
+    constrainToDomain: false,
     placementMode: "homogeneous",
     coordinateBasis: "cartesian",
     pbcAware: true,
     seed: 1847,
     freezeExisting: true,
     cutoffBasis: "covalent",
-    cutoffScale: 0.7
+    cutoffScale: 1.0
   }
 });
 ```
@@ -421,9 +423,12 @@ shows only nonzero clipped images on symmetry-equivalent opposite faces;
 shared fragment edges are emitted once. Legacy `regionMode:"box"`, `bounds`, and
 `regionRole:"allowed"|"prohibited"` remain accepted for one-region clients.
 
-Regions are initial-placement definitions. `allowEscape` defaults to `true`,
-which leaves repulsive placement unconstrained by the combined domain. With
-`allowEscape:false`, confinement uses the same exact membership semantics.
+Regions are initial-placement definitions. `constrainToDomain` defaults to
+`false`, which leaves repulsive placement unconstrained by the combined
+domain. With `constrainToDomain:true`, every staged atom must remain inside the
+Allow union and outside each Reject region. Rigid molecules use their native
+ASE template origin for this efficient membership constraint. `allowEscape`
+is the inverse compatibility field.
 Change one region atomically without moving staged atoms:
 
 ```javascript
@@ -434,7 +439,7 @@ await ai.apply({operation: {
   bounds: [4.0, 6.0, 3.0, 5.0, 2.0, 10.0],
   regionRole: "reject",
   regionMic: true,
-  allowEscape: false
+  constrainToDomain: true
 }});
 ```
 
@@ -531,18 +536,19 @@ await ai.apply({operation: {
   calculator: {
     device: "cpu",
     cpu_threads: 4,
-    cutoff_mode: "bonding",
-    cutoff_scale: 0.70,
-    pair_cutoffs: {"Cu-Li": 2.10, "Li-Li": 1.80, "H-Li": 1.20},
+    cutoff_mode: "absolute",
+    cutoff_basis: "covalent",
+    pair_cutoffs: {"Cu|Li": 2.10, "Li|Li": 1.80, "H|Li": 1.20},
     k_repulsion: 2.0,
     k_boundary: 5.0
   }
 }});
 ```
 
-The optimizer uses the shared Relaxation cutoff definition: active label-pair
-bonding cutoffs and a multiplier, or one absolute Angstrom onset. A pair inside
-its onset receives a soft harmonic repulsion. With `mic:true`, periodic
+The optimizer uses the shared Relaxation definition: independent absolute
+label-pair contact distances by default, or reference distances times a
+contact multiplier in scaled mode. A pair inside its onset receives a soft
+harmonic repulsion even when its visual bond is hidden. With `mic:true`, periodic
 neighbor vectors are evaluated for the complete structure by the calculator.
 The GUI keeps calculator, cutoff, Device, CPU-thread, `fmax`, and step controls
 in **Structure > Relaxation**; the Add placement card opens that section.
@@ -907,11 +913,17 @@ Bond settings:
 | `showPeriodicBonds` | include periodic/MIC boundary bonds |
 | `bondStyle` | `"cylinder"` or `"flat"` |
 | `bondThickness` | bond diameter in Angstrom |
+| `bondMaterial` | `"standard"`, `"metal"`, `"rubber"`, or `"unlit"` |
+| `bondOpacity` | global opacity clamped to `0.05..1` |
 | `bondColorMode` | `"split"` or `"custom"` |
 | `bondCustomColor` | `"#rrggbb"` |
+| `pairwiseBondStyles` | label-pair appearance records with `style`, `material`, `colorMode`, `color`, and `opacity` |
 
 Pairwise bond keys use visual labels. A pair with `enabled: false` and `max: 0`
-is disabled. Bonds update per frame and during interactive edits.
+is disabled. Appearance overrides use sorted `labelA-labelB` keys and do not
+change pair connectivity. A pair may use `style:"flat"` while the global scene
+and all other bonds remain 3D. Bonds update per frame and during interactive
+edits.
 
 ## Cell, View, Lighting, And Constraints
 
@@ -1261,9 +1273,11 @@ v_ase api "$COMMAND_URL" export --save rdf.csv --params '{
 
 ## Interface Theme And Personal Defaults
 
-The application interface theme is independent of
-`display.viewportBackground`. Use `system` to follow the browser/OS color
-scheme or choose an explicit light/dark interface:
+The System preference follows the browser/OS scheme for application chrome
+while retaining the default white scientific viewport. Explicit Light uses a
+light interface and viewport; explicit Dark uses a dark interface and dark
+viewport. A deliberately restored `display.viewportBackground` remains an
+independent visual-preset override:
 
 ```javascript
 await ai.apply({operation: {

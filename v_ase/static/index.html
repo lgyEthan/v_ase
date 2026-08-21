@@ -52,12 +52,12 @@
             });
         })();
     </script>
-    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.2.26">
+    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.2.27">
     <script>
         window.__V_ASE_MOCK__ = new URLSearchParams(window.location.search).has('v_ase_mock');
         const threeModulePath = window.location.protocol === 'file:'
             ? './vendor/three.module.js'
-            : '/static/vendor/three.module.js?v=0.2.26';
+            : '/static/vendor/three.module.js?v=0.2.27';
         const importMap = document.createElement('script');
         importMap.type = 'importmap';
         importMap.textContent = JSON.stringify({
@@ -123,7 +123,7 @@
     <header id="top-bar" class="glass-panel">
         <div class="logo">
             <img class="brand-logo-asset" src="static/v_ase-logo.png" alt="v_ase">
-            <span class="version">0.2.26</span>
+            <span class="version">0.2.27</span>
         </div>
         <div id="runtime-mode-switch" class="runtime-mode-switch" role="group" aria-label="Workspace mode">
             <button type="button" data-runtime-mode="view" aria-pressed="true"
@@ -323,8 +323,8 @@
                     </div>
                 </section>
             </div>
-            <button id="btn-reset" class="btn" data-edit-only>RESET</button>
-            <button id="btn-reset-coords" class="btn" data-edit-only>RESET COORDS</button>
+            <button id="btn-reset" class="btn" data-edit-only title="Reset structure and visual settings">RESET</button>
+            <button id="btn-reset-coords" class="btn" data-edit-only title="Reset physical coordinates only">RESET COORDS</button>
             <button id="btn-shortcuts" class="btn icon-btn" title="Shortcuts">?</button>
         </div>
     </header>
@@ -518,10 +518,11 @@
                         <input id="add-atoms-freeze-existing" type="checkbox" checked>
                         <span>Temporarily fix existing atoms</span>
                     </label>
-                    <label class="add-atoms-check-row" for="add-atoms-allow-escape">
-                        <input id="add-atoms-allow-escape" type="checkbox" checked>
-                        <span>Allow inserted content to leave the region domain</span>
+                    <label class="add-atoms-check-row" for="add-atoms-constrain-domain">
+                        <input id="add-atoms-constrain-domain" type="checkbox">
+                        <span>Enforce Allow and Reject regions during relaxation</span>
                     </label>
+                    <p class="add-atoms-field-note">Atoms remain inside the Allow union and outside every Reject region. Rigid molecules use their ASE template origin.</p>
                     <div class="add-atoms-selection-row">
                         <label class="add-atoms-check-row" for="add-atoms-select-added">
                             <input id="add-atoms-select-added" type="checkbox" checked>
@@ -1091,7 +1092,7 @@
                     <option value="dark">Dark</option>
                 </select>
             </div>
-            <p class="panel-note compact-note">System follows the browser or operating-system appearance.</p>
+            <p class="panel-note compact-note">System follows the browser chrome and keeps the structure canvas white. Dark switches both interface and canvas.</p>
             <div class="prop-row">
                 <label for="projection-mode">Projection</label>
                 <select id="projection-mode">
@@ -1562,6 +1563,15 @@
                     <option value="flat">Flat ribbon</option>
                 </select>
             </div>
+            <div class="prop-row">
+                <label for="bond-material">Material</label>
+                <select id="bond-material">
+                    <option value="standard">Standard</option>
+                    <option value="metal">Metal</option>
+                    <option value="rubber">Rubber</option>
+                    <option value="unlit">Unlit</option>
+                </select>
+            </div>
             <div class="range-row bond-thickness-control">
                 <div class="range-head">
                     <label for="bond-thickness">Thickness</label>
@@ -1580,6 +1590,65 @@
                 <label for="bond-custom-color">Bond color</label>
                 <input type="color" id="bond-custom-color" value="#c8ccd0">
             </div>
+            <div class="range-row">
+                <div class="range-head">
+                    <label for="bond-opacity">Opacity</label>
+                    <output id="bond-opacity-value">100%</output>
+                </div>
+                <input type="range" id="bond-opacity" value="1" min="0.05" max="1" step="0.01">
+            </div>
+            <details class="inline-subpanel bond-pair-appearance" open>
+                <summary>Label-pair appearance</summary>
+                <div class="prop-row">
+                    <label for="bond-pair-style-key">Label pair</label>
+                    <select id="bond-pair-style-key"></select>
+                </div>
+                <label class="check-row" for="bond-pair-style-enabled">
+                    <span>Override global appearance</span>
+                    <input id="bond-pair-style-enabled" type="checkbox">
+                </label>
+                <div id="bond-pair-style-fields" class="bond-pair-style-fields disabled">
+                    <div class="prop-row">
+                        <label for="bond-pair-style">Style</label>
+                        <select id="bond-pair-style">
+                            <option value="cylinder">Cylinder</option>
+                            <option value="flat">Flat ribbon</option>
+                        </select>
+                    </div>
+                    <div class="prop-row">
+                        <label for="bond-pair-material">Material</label>
+                        <select id="bond-pair-material">
+                            <option value="standard">Standard</option>
+                            <option value="metal">Metal</option>
+                            <option value="rubber">Rubber</option>
+                            <option value="unlit">Unlit</option>
+                        </select>
+                    </div>
+                    <div class="prop-row">
+                        <label for="bond-pair-color-mode">Color</label>
+                        <select id="bond-pair-color-mode">
+                            <option value="split">Split atom colors</option>
+                            <option value="custom">Custom color</option>
+                        </select>
+                    </div>
+                    <div id="bond-pair-custom-color-row" class="prop-row hidden">
+                        <label for="bond-pair-custom-color">Bond color</label>
+                        <input id="bond-pair-custom-color" type="color" value="#c8ccd0">
+                    </div>
+                    <div class="range-row">
+                        <div class="range-head">
+                            <label for="bond-pair-opacity">Opacity</label>
+                            <output id="bond-pair-opacity-value">100%</output>
+                        </div>
+                        <input id="bond-pair-opacity" type="range" value="1" min="0.05" max="1" step="0.01">
+                    </div>
+                </div>
+                <div class="bond-pair-style-actions">
+                    <button id="btn-bond-pair-apply" type="button">Apply Pair</button>
+                    <button id="btn-bond-pair-apply-all" type="button">Apply All</button>
+                    <button id="btn-bond-pair-reset" type="button">Use Global</button>
+                </div>
+            </details>
         </details>
 
         <details class="panel-section" open data-panel="scientific-tools" data-panel-group="structure" data-edit-only>
@@ -1600,23 +1669,46 @@
                 <div class="prop-row">
                     <label for="calc-cutoff-mode">Cutoff definition</label>
                     <select id="calc-cutoff-mode">
-                        <option value="bonding" selected>Bond cutoffs × multiplier</option>
-                        <option value="absolute">Absolute distance / Å</option>
+                        <option value="absolute" selected>Pair distances / Å</option>
+                        <option value="scaled">Reference distances × multiplier</option>
+                    </select>
+                </div>
+                <div class="prop-row">
+                    <label for="calc-cutoff-basis">Reference radii</label>
+                    <select id="calc-cutoff-basis">
+                        <option value="covalent" selected>Covalent radii</option>
+                        <option value="vdw">van der Waals radii</option>
                     </select>
                 </div>
                 <div id="calc-cutoff-scale-row" class="prop-row">
-                    <label for="calc-cutoff-scale">Bond cutoff multiplier</label>
-                    <input type="number" id="calc-cutoff-scale" value="0.70" min="0.05" max="3" step="0.05" inputmode="decimal">
+                    <label for="calc-cutoff-scale">Contact-distance multiplier</label>
+                    <input type="number" id="calc-cutoff-scale" value="1.00" min="0.05" max="3" step="0.05" inputmode="decimal">
                 </div>
-                <div id="calc-cutoff-distance-row" class="prop-row hidden">
-                    <label for="calc-cutoff-distance">Cutoff distance / Å</label>
-                    <input type="number" id="calc-cutoff-distance" value="2.00" min="0.01" max="100" step="0.05" inputmode="decimal">
+                <div id="calc-cutoff-distance-row" class="repulsion-apply-all-row">
+                    <label for="calc-cutoff-distance">Set all pairs / Å</label>
+                    <div>
+                        <input type="number" id="calc-cutoff-distance" value="2.00" min="0.01" max="100" step="0.05" inputmode="decimal">
+                        <button id="btn-repulsion-set-all" type="button">Apply</button>
+                    </div>
+                </div>
+                <div class="repulsion-pair-heading">
+                    <div>
+                        <strong>Pairwise cutoff</strong>
+                        <span>Independent from displayed bonds</span>
+                    </div>
+                    <button id="btn-repulsion-reset-pairs" type="button">Reset from radii</button>
+                </div>
+                <div id="repulsion-pair-panel" class="repulsion-pair-panel">
+                    <div class="mini-table-head">
+                        <span>On</span><span>Label pair</span><span>Distance / Å</span>
+                    </div>
+                    <div id="repulsion-pair-list"></div>
                 </div>
                 <div class="prop-row">
                     <label for="calc-strength">Strength</label>
                     <input type="number" id="calc-strength" value="1.0" min="0" max="1000" step="0.1" inputmode="decimal">
                 </div>
-                <p id="calc-cutoff-note" class="panel-note">Each label pair uses its active automatic bonding cutoff. Same-class pairs hidden only from automatic bond rendering use their covalent contact cutoff. Explicitly disabled and 0 Å Pairwise pairs remain inactive.</p>
+                <p id="calc-cutoff-note" class="panel-note">Each enabled label pair repels below its own distance, even when that pair is not drawn as a bond. Pair force is zero at and beyond the cutoff.</p>
             </div>
             <div class="relax-grid">
                 <label>fmax</label>
@@ -1633,6 +1725,7 @@
             </div>
             <button id="btn-relax" class="btn-block">Start Relaxation</button>
             <button id="btn-stop-relax" class="btn-block">Stop Relaxation</button>
+            <button id="btn-clear-relax-trajectory" class="btn-block hidden">Clear Relaxation Trajectory</button>
             <button id="btn-exit-relax-mode" class="btn-block hidden">Exit Relaxation Mode</button>
         </details>
 
@@ -1917,7 +2010,7 @@
         }
         const modulePath = (window.location.protocol === 'file:' || window.location.pathname.endsWith('/static/index.html'))
             ? './main.js'
-            : './static/main.js?v=0.2.26';
+            : './static/main.js?v=0.2.27';
         import(modulePath).catch(error => {
             console.error('v_ase failed to initialize:', error?.stack || error);
         });

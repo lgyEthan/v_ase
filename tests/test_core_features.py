@@ -19,7 +19,12 @@ from fastapi import HTTPException
 
 import v_ase.relax as relax_module
 from v_ase.export import export_pickle_response, export_poscar_response
-from v_ase.relax import exit_relaxation, start_relaxation, stop_relaxation
+from v_ase.relax import (
+    clear_relaxation_trajectory,
+    exit_relaxation,
+    start_relaxation,
+    stop_relaxation,
+)
 from v_ase import DefaultRepulsionCalculator as RootDefaultRepulsionCalculator
 from v_ase import RepulsionCalculator as RootRepulsionCalculator
 from v_ase.calculator import RepulsionCalculator as SingularRepulsionCalculator
@@ -615,14 +620,22 @@ def test_default_repulsion_calculator_device_settings_are_configurable():
         }
 
 
-def test_default_repulsion_cutoff_scale_controls_the_physical_threshold():
+def test_scaled_repulsion_multiplier_controls_the_physical_threshold():
     # H-H covalent-radius sum is 0.62 A in ASE. At 0.50 A, the default
     # 0.70 scale is inactive while the legacy 1.0 scale is repulsive.
     atoms = Atoms("HH", positions=[[0, 0, 0], [0.50, 0, 0]])
-    atoms.calc = RepulsionCalculator(cutoff_scale=0.7, k_repulsion=2.0)
+    atoms.calc = RepulsionCalculator(
+        cutoff_mode="scaled",
+        cutoff_scale=0.7,
+        k_repulsion=2.0,
+    )
     assert atoms.get_potential_energy() == pytest.approx(0.0, abs=1e-12)
 
-    atoms.calc = RepulsionCalculator(cutoff_scale=1.0, k_repulsion=2.0)
+    atoms.calc = RepulsionCalculator(
+        cutoff_mode="scaled",
+        cutoff_scale=1.0,
+        k_repulsion=2.0,
+    )
     assert atoms.get_potential_energy() > 0
 
 
@@ -742,6 +755,59 @@ def test_repulsion_separates_exactly_coincident_atoms_without_a_cell():
     np.testing.assert_allclose(forces[0], -forces[1], atol=1e-12)
 
 
+def test_repulsion_defaults_to_absolute_covalent_contact_distances():
+    atoms = Atoms("HH", positions=[[0.0, 0.0, 0.0], [0.5, 0.0, 0.0]])
+    atoms.calc = RepulsionCalculator(cutoff_scale=0.05, k_repulsion=2.0)
+
+    forces = atoms.get_forces()
+
+    assert atoms.calc.cutoff_mode == "absolute"
+    assert atoms.calc.cutoff_basis == "covalent"
+    assert np.linalg.norm(forces[0]) > 0.01
+    np.testing.assert_allclose(forces[0], -forces[1], atol=1e-12)
+
+
+def test_repulsion_absolute_label_pair_distances_override_global_compatibility_cutoff():
+    atoms = Atoms("HH", positions=[[0.0, 0.0, 0.0], [1.2, 0.0, 0.0]])
+    set_atom_labels(atoms, ["H_water", "H_water"])
+    atoms.calc = RepulsionCalculator(
+        min_bondinfo={"H_water-H_water": 1.0},
+        cutoff_mode="absolute",
+        cutoff_distance=8.0,
+        k_repulsion=2.0,
+    )
+
+    np.testing.assert_allclose(atoms.get_forces(), np.zeros((2, 3)), atol=1e-12)
+
+    atoms.positions[1, 0] = 0.8
+    atoms.calc.reset()
+    forces = atoms.get_forces()
+    assert np.linalg.norm(forces[0]) > 0.01
+    np.testing.assert_allclose(forces[0], -forces[1], atol=1e-12)
+
+
+def test_repulsion_zero_label_pair_distance_disables_pair():
+    atoms = Atoms("HH", positions=[[0.0, 0.0, 0.0], [0.1, 0.0, 0.0]])
+    set_atom_labels(atoms, ["H_water", "H_water"])
+    atoms.calc = RepulsionCalculator(
+        min_bondinfo={"H_water-H_water": 0.0},
+        cutoff_mode="absolute",
+        k_repulsion=10.0,
+    )
+
+    np.testing.assert_allclose(atoms.get_forces(), np.zeros((2, 3)), atol=1e-12)
+
+
+def test_repulsion_vdw_basis_uses_vdw_contact_distances():
+    covalent = Atoms("HH", positions=[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]])
+    covalent.calc = RepulsionCalculator(cutoff_basis="covalent", k_repulsion=2.0)
+    vdw = covalent.copy()
+    vdw.calc = RepulsionCalculator(cutoff_basis="vdw", k_repulsion=2.0)
+
+    np.testing.assert_allclose(covalent.get_forces(), np.zeros((2, 3)), atol=1e-12)
+    assert np.linalg.norm(vdw.get_forces()[0]) > 0.01
+
+
 def test_repulsion_separates_periodically_equivalent_coincident_atoms():
     atoms = Atoms(
         "HH",
@@ -813,6 +879,31 @@ def test_relaxation_mode_can_restore_or_keep_while_worker_is_active(monkeypatch)
     np.testing.assert_allclose(session.working_atoms.positions, kept_positions)
     assert session.undo() is not None
     np.testing.assert_allclose(session.working_atoms.positions, atoms.positions)
+
+
+def test_clear_relaxation_trajectory_keeps_mode_active_and_selected_frame():
+    atoms = Atoms("HH", positions=[[0.0, 0.0, 0.0], [0.8, 0.0, 0.0]])
+    session = make_session(atoms)
+    session.relaxation_mode_active = True
+    session.is_relaxing = True
+    initial_run_id = session.relax_run_id
+    retained = np.asarray([[0.2, 0.1, 0.0], [1.1, 0.1, 0.0]])
+
+    result = clear_relaxation_trajectory(session, {
+        "kind": "relaxation",
+        "positions": retained.tolist(),
+        "use_latest": False,
+    })
+
+    assert result == {
+        "status": "cleared",
+        "kind": "relaxation",
+        "retained": "displayed",
+    }
+    assert session.relaxation_mode_active is True
+    assert session.is_relaxing is False
+    assert session.relax_run_id == initial_run_id + 1
+    np.testing.assert_allclose(session.working_atoms.positions, retained)
 
 
 def test_empty_edit_session_accepts_explicit_triclinic_cell():

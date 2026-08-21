@@ -31,6 +31,7 @@ def _configure_default_calculator(session, payload):
         device=settings.get("device"),
         cpu_threads=settings.get("cpu_threads"),
         cutoff_mode=settings.get("cutoff_mode"),
+        cutoff_basis=settings.get("cutoff_basis"),
         cutoff_distance=settings.get("cutoff_distance"),
         cutoff_scale=settings.get("cutoff_scale"),
         pair_cutoffs=settings.get("pair_cutoffs"),
@@ -42,6 +43,7 @@ def _configure_default_calculator(session, payload):
                 device=settings.get("device"),
                 cpu_threads=settings.get("cpu_threads"),
                 cutoff_mode=settings.get("cutoff_mode"),
+                cutoff_basis=settings.get("cutoff_basis"),
                 cutoff_distance=settings.get("cutoff_distance"),
                 cutoff_scale=settings.get("cutoff_scale"),
                 pair_cutoffs=settings.get("pair_cutoffs"),
@@ -61,24 +63,42 @@ def _launch_relax_thread(session, fmax, steps, run_id):
 
 
 async def start_relaxation(session, payload, background_tasks=None):
-    ensure_default_calculator(session.working_atoms)
-    _set_payload_positions(session, payload)
-    _configure_default_calculator(session, payload)
+    fmax = float(payload.get("fmax", 0.05))
+    steps = int(payload.get("steps", 200))
+    if not np.isfinite(fmax) or fmax <= 0:
+        raise ValueError("fmax must be greater than 0.")
+    if steps < 0 or steps > 100_000:
+        raise ValueError("steps must be from 0 through 100000.")
+
+    entering_mode = not session.relaxation_mode_active
+    if entering_mode:
+        session.push_history()
+        session.relaxation_baseline = session.history[-1]
+        session.relaxation_mode_active = True
+
+    try:
+        ensure_default_calculator(session.working_atoms)
+        _set_payload_positions(session, payload)
+        _configure_default_calculator(session, payload)
+    except Exception:
+        if entering_mode:
+            baseline = session.relaxation_baseline
+            if session.history and session.history[-1] is baseline:
+                session.history.pop()
+            if baseline is not None:
+                session._restore_history_state(baseline)
+            session.relaxation_baseline = None
+            session.relaxation_mode_active = False
+        raise
 
     if not session.working_atoms.calc:
         return {"status": "error", "message": "No calculator attached"}
 
-    fmax = float(payload.get("fmax", 0.05))
-    steps = int(payload.get("steps", 200))
     session.relax_params = {
         "fmax": fmax,
         "steps": steps,
         "apply_constraint": bool(payload.get("apply_constraint", True)),
     }
-
-    if not session.relaxation_mode_active:
-        session.relaxation_baseline = session._history_state()
-        session.relaxation_mode_active = True
 
     if session.is_relaxing:
         request_relax_restart(session)
@@ -196,6 +216,61 @@ async def stop_relaxation(session):
     return {"status": "stopping"}
 
 
+def clear_relaxation_trajectory(session, payload):
+    """Stop the active optimizer and retain one chosen trajectory frame.
+
+    Optimization frames are streamed by the browser rather than retained as a
+    second backend trajectory. The client submits either its displayed frame or
+    the final frame; this method commits that choice without leaving the active
+    Relaxation, Add Atoms, or planar-translation mode.
+    """
+    kind = str(payload.get("kind") or "relaxation").strip().lower()
+    if kind not in {"relaxation", "add-atoms", "registry"}:
+        raise ValueError("Relaxation trajectory kind is not supported.")
+    positions = np.asarray(payload.get("positions"), dtype=float)
+    if positions.shape != session.working_atoms.positions.shape or not np.all(np.isfinite(positions)):
+        raise ValueError("The retained relaxation frame must be a finite N x 3 array.")
+
+    if kind == "add-atoms":
+        addition = session.atom_addition
+        if addition is None:
+            raise ValueError("There is no active Add Atoms mode.")
+        with addition.lock:
+            addition.stop_requested = True
+            addition.run_id += 1
+            addition.is_relaxing = False
+            addition.step = 0
+            addition.max_steps = 0
+            session.working_atoms.set_positions(positions, apply_constraint=False)
+            session.sync_current_frame()
+            addition.stop_requested = False
+    elif kind == "registry":
+        registry = session.registry_relaxation
+        if registry is None:
+            raise ValueError("There is no active planar translation mode.")
+        with registry.lock:
+            registry.stop_requested = True
+            registry.run_id += 1
+            registry.is_relaxing = False
+            session.working_atoms.set_positions(positions, apply_constraint=False)
+            session.sync_current_frame()
+            registry.stop_requested = False
+    else:
+        session.relax_restart_requested = False
+        session.stop_relax = True
+        session.relax_run_id += 1
+        session.is_relaxing = False
+        session.working_atoms.set_positions(positions, apply_constraint=False)
+        session.sync_current_frame()
+        session.stop_relax = False
+
+    return {
+        "status": "cleared",
+        "kind": kind,
+        "retained": "final" if bool(payload.get("use_latest", True)) else "displayed",
+    }
+
+
 async def exit_relaxation(session, *, keep: bool):
     """Leave general relaxation mode, keeping or restoring its baseline."""
     baseline = session.relaxation_baseline
@@ -212,12 +287,11 @@ async def exit_relaxation(session, *, keep: bool):
     session.is_relaxing = False
 
     if keep:
-        session.history.append(baseline)
-        if len(session.history) > 50:
-            session.history.pop(0)
         session.redo_stack.clear()
         session.sync_current_frame()
     else:
+        if session.history and session.history[-1] is baseline:
+            session.history.pop()
         session._restore_history_state(baseline)
 
     session.relaxation_baseline = None

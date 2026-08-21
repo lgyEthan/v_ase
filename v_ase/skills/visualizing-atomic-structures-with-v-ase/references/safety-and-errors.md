@@ -73,9 +73,10 @@ test edit and a new filename for output.
   it inside the exact cell polyhedron. Never estimate accessible volume with a
   voxel grid, sum overlapping box volumes, or apply orthogonal wrap logic to a
   triclinic cell. Reject-only input is valid only when a finite cell provides
-  the bounded base domain. `allowEscape:true` is the default and removes the
-  combined boundary during repulsive placement; do not describe the initial
-  domain as permanent confinement unless `allowEscape:false` is explicit.
+  the bounded base domain. `constrainToDomain:false` is the default and removes
+  the combined boundary during repulsive placement; do not describe the
+  initial domain as permanent confinement unless `constrainToDomain:true` is
+  explicit. `allowEscape` is its inverse compatibility field.
 - Regular placement uses one global Cartesian lattice. An explicit
   `regularSpacing` is never silently reduced; fail when it cannot provide the
   requested count. Homogeneous placement is a maximin/low-discrepancy point
@@ -122,10 +123,11 @@ test edit and a new filename for output.
   total with `c_a^2 g_aa`, `2 c_a c_b g_ab`, and `c_b^2 g_bb`; do not sum the
   unweighted curves directly.
 - The built-in repulsion cutoff is an onset, not a hard minimum distance.
-  Bonding mode multiplies each label-pair Bonding cutoff. Automatic same-class
-  visual suppression uses a covalent contact fallback, while explicit
-  Pairwise disabled and zero-Angstrom pairs remain inactive. Absolute mode uses
-  one Angstrom onset. Both have zero pair energy and force at and beyond it.
+  Repulsion is independent from visual bonds. Default absolute mode uses one
+  enabled label-pair onset in Angstrom, generated from covalent radii unless a
+  table or van der Waals basis is requested. Scaled mode multiplies reference
+  pair distances by one contact multiplier. Disabled and zero-Angstrom pairs
+  remain inactive. Both have zero pair energy and force at and beyond onset.
 - Never claim a result is physically relaxed unless an actual calculator and
   optimizer completed.
 
@@ -167,7 +169,8 @@ test edit and a new filename for output.
 | repeated atom selection changes the base atom | Edit maps every displayed replica to one unique editable unit-cell atom | This is intentional: the base gets the full halo and equivalent replicas get muted rings. Use View for independent replica measurement/appearance, or materialize with Set Supercell as Cell when every copy must become physical |
 | hidden View atoms still appear in analysis | View deletion hides exact visual references only; ASE topology is unchanged | Continue with complete-structure analysis, or obtain approval for Switch to Edit & Delete to remove deduplicated base indices physically |
 | relaxation requires calculator | No ASE calculator is attached | Attach a supported calculator or do not relax |
-| repulsion atoms cross the requested cutoff | The cutoff is a zero-force onset, not a minimum-distance constraint; optimizer tolerance or other forces can stop elsewhere | Verify `cutoff_mode`, the active Bonding pair cutoff and multiplier or absolute distance, `k_repulsion`, and final pair distances; use a true ASE constraint when a separation must be enforced |
+| repulsion atoms cross the requested cutoff | The cutoff is a zero-force onset, not a minimum-distance constraint; optimizer tolerance or other forces can stop elsewhere | Verify `cutoff_mode`, `cutoff_basis`, the independent label-pair contact table, optional contact multiplier, `k_repulsion`, and final pair distances; use a true ASE constraint when a separation must be enforced |
+| No relaxation trajectory is available to clear | The mode has no optimizer frames or they were already removed | Keep working in the active mode, or start a new relaxation before clearing again |
 | optional 3DM export fails | `rhino3dm` is absent | Install `v_ase-gui[rhino]` |
 | video capture unavailable | Browser lacks `MediaRecorder` | Use Chromium-family browser |
 | Chrome says the site can view saved-file changes | File System Access permission notice | This is expected after selecting a destination; access is limited to that file and cannot be suppressed while preselecting it |

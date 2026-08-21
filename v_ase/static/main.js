@@ -1,13 +1,13 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.2.26';
-import { ASERenderer } from './renderer.js?v=0.2.26';
-import { ASESelection } from './selection.js?v=0.2.26';
-import { ASETransform } from './transform.js?v=0.2.26';
+import { ASEApi } from './api.js?v=0.2.27';
+import { ASERenderer } from './renderer.js?v=0.2.27';
+import { ASESelection } from './selection.js?v=0.2.27';
+import { ASETransform } from './transform.js?v=0.2.27';
 import {
     interpolateTrajectoryFrames,
     interpolatedFrameCount,
     normalizeInterpolationMultiplier
-} from './trajectory.js?v=0.2.26';
+} from './trajectory.js?v=0.2.27';
 
 const CHEMICAL_ELEMENT_SYMBOLS = Object.freeze([
     'H','He','Li','Be','B','C','N','O','F','Ne',
@@ -48,8 +48,11 @@ class VAseApp {
         this.workspaceNeedsRefresh = false;
         this.workspaceOpenRequests = new Map();
         this.workspaceRequestSequence = 0;
+        this.disposed = false;
+        this.cleanupCallbacks = [];
         this.undoTimeline = [];
         this.redoTimeline = [];
+        this.addAtomsHistoryToken = null;
         this.historyReplay = false;
         this.visualHistoryBaseline = null;
         this.visualHistoryPending = null;
@@ -64,7 +67,7 @@ class VAseApp {
         this.collaborationFrame = null;
         this.api = new ASEApi(this.sessionId);
         this.api.onUndoableMutation = ({ path } = {}) => {
-            this.recordStructureHistoryAction();
+            this.recordStructureHistoryAction(path);
             const details = this.collaborationMutationDetails(path);
             this.scheduleCollaborationEvent({
                 ...details,
@@ -141,10 +144,13 @@ class VAseApp {
                 pairwiseBondCutoffs: {},
                 pairwiseBondRanges: {},
                 pairwiseLabelColumnWidth: 210,
+                pairwiseBondStyles: {},
                 bondStyle: 'cylinder',
+                bondMaterial: 'standard',
                 bondThickness: 0.25,
                 bondColorMode: 'split',
                 bondCustomColor: '#c8ccd0',
+                bondOpacity: 1,
                 atomRadiusScale: 0.6,
                 labelRadii: {},
                 labelColors: {},
@@ -242,6 +248,10 @@ class VAseApp {
             hoveredIndex: null,
             hoveredReference: null,
             displayConfigLoaded: false,
+            repulsionPairRanges: {},
+            repulsionPairBasis: 'covalent',
+            repulsionPairSourceSignature: '',
+            calculatorApplyTimer: null,
             rotationScreenPivot: new THREE.Vector2(window.innerWidth / 2, window.innerHeight / 2),
             rotationLastAngle: 0,
             rotationPointerActive: false,
@@ -407,6 +417,9 @@ class VAseApp {
         if (this.workspaceChild) {
             window.addEventListener('message', this.handleWorkspaceMessage);
         }
+        this.handlePageTeardown = () => this.dispose();
+        window.addEventListener('pagehide', this.handlePageTeardown, { once: true });
+        window.addEventListener('beforeunload', this.handlePageTeardown, { once: true });
 
         this.ready = this.init();
     }
@@ -434,6 +447,7 @@ class VAseApp {
             this.setupAtomColorScaleControls();
             this.setupAseBulkBuilder();
             this.setupLightingControls();
+            this.setupToolbarTooltips();
             this.setupCreateAtomWidget();
             this.setupEventListeners();
             this.setupInputCommitBehavior();
@@ -1861,7 +1875,7 @@ class VAseApp {
                 void this.commitAddAtomsRegionControls();
             });
         });
-        document.getElementById('add-atoms-allow-escape')?.addEventListener('change', () => {
+        document.getElementById('add-atoms-constrain-domain')?.addEventListener('change', () => {
             void this.commitAddAtomsRegionControls();
         });
         document.getElementById('add-atoms-mic')?.addEventListener('change', () => {
@@ -2544,7 +2558,7 @@ class VAseApp {
             const data = await this.api.updateAtomAdditionRegion({
                 regions: this.addAtomsRegions(),
                 region_mic: document.getElementById('add-atoms-mic')?.checked !== false,
-                allow_escape: document.getElementById('add-atoms-allow-escape')?.checked !== false
+                constrain_to_domain: document.getElementById('add-atoms-constrain-domain')?.checked === true
             });
             this.syncAddAtomsSessionFromData(data);
         } catch (error) {
@@ -2609,7 +2623,7 @@ class VAseApp {
         ).forEach(control => { control.disabled = running; });
         document.querySelectorAll(
             '#add-atoms-box-fields input, #add-atoms-region-allowed, '
-            + '#add-atoms-region-prohibited, #add-atoms-allow-escape, #add-atoms-mic, '
+            + '#add-atoms-region-prohibited, #add-atoms-constrain-domain, #add-atoms-mic, '
             + '#btn-add-atoms-allow-region, #btn-add-atoms-reject-region, '
             + '#btn-add-atoms-delete-region, #add-atoms-region-list button'
         ).forEach(control => { control.disabled = running; });
@@ -2690,7 +2704,7 @@ class VAseApp {
                 targetDensity.value = Number(summary.density.target_g_cm3).toFixed(6);
             }
             document.getElementById('add-atoms-freeze-existing').checked = summary.freeze_existing !== false;
-            document.getElementById('add-atoms-allow-escape').checked = summary.allow_escape !== false;
+            document.getElementById('add-atoms-constrain-domain').checked = summary.constrain_to_domain === true;
             this.setAddAtomsPane('batch');
             const entity = `${summary.new_count || 0} staged atoms`
                 + (summary.molecule_count ? ` · ${summary.molecule_count} molecules` : '')
@@ -2710,6 +2724,9 @@ class VAseApp {
             return;
         }
         try {
+            if (!this.addAtomsHistoryToken) {
+                this.addAtomsHistoryToken = `add-atoms:${crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`}`;
+            }
             const contentKind = this.addAtomsUI?.contentKind === 'molecules' ? 'molecules' : 'atoms';
             const entries = contentKind === 'atoms' ? this.readAddAtomsEntries() : null;
             const molecules = contentKind === 'molecules' ? this.readAddMoleculeEntries() : null;
@@ -2730,7 +2747,7 @@ class VAseApp {
                 region_mode: 'regions',
                 regions: this.addAtomsRegions(),
                 region_mic: document.getElementById('add-atoms-mic')?.checked !== false,
-                allow_escape: document.getElementById('add-atoms-allow-escape')?.checked !== false,
+                constrain_to_domain: document.getElementById('add-atoms-constrain-domain')?.checked === true,
                 seed: rawSeed === '' ? null : Number(rawSeed),
                 freeze_existing: document.getElementById('add-atoms-freeze-existing')?.checked !== false
             };
@@ -2784,9 +2801,10 @@ class VAseApp {
             const calculator = this.calculatorPayloadWithOverrides(calculatorOverrides) || {
                 device: 'cpu',
                 cpu_threads: 4,
-                cutoff_mode: 'bonding',
+                cutoff_mode: 'absolute',
+                cutoff_basis: 'covalent',
                 cutoff_distance: 2.0,
-                cutoff_scale: 0.7,
+                cutoff_scale: 1.0,
                 pair_cutoffs: this.repulsionPairCutoffs(),
                 k_repulsion: 1.0
             };
@@ -2812,7 +2830,7 @@ class VAseApp {
                 fmax: Number(fmax ?? document.getElementById('relax-fmax')?.value) || 0.05,
                 steps: requestedSteps,
                 mic: document.getElementById('add-atoms-mic')?.checked !== false,
-                allow_escape: document.getElementById('add-atoms-allow-escape')?.checked !== false
+                constrain_to_domain: document.getElementById('add-atoms-constrain-domain')?.checked === true
             });
             const current = this.addAtomsUI.active;
             const terminalStatuses = new Set(['converged', 'steps', 'stopped', 'error', 'relaxed']);
@@ -2849,8 +2867,11 @@ class VAseApp {
     }
 
     async cancelAddedAtomsSession() {
+        const historyScope = this.addAtomsHistoryToken;
         try {
             const data = await this.api.cancelAtomAddition();
+            this.removeHistoryScope(historyScope);
+            this.addAtomsHistoryToken = null;
             this.addAtomsUI.active = null;
             this.setAtomsData(data, { clearSelection: true });
             this.setAddAtomsRegionSelected(false, { update: false });
@@ -2876,6 +2897,7 @@ class VAseApp {
             const added = Number(result.added || 0);
             const molecules = result.content_kind === 'molecules';
             const moleculeCount = Number(result.molecule_count || 0);
+            this.addAtomsHistoryToken = null;
             this.addAtomsUI.active = null;
             this.setAtomsData(data, { clearSelection: true });
             this.setAddAtomsRegionSelected(false, { update: false });
@@ -2964,11 +2986,16 @@ class VAseApp {
             window.addEventListener('pointercancel', onUp, true);
             window.addEventListener('blur', onUp, true);
         });
-        window.addEventListener('resize', () => {
+        const keepWidgetInViewport = () => {
             if (widget.classList.contains('collapsed')) return;
             const rect = widget.getBoundingClientRect();
             placeWithinViewport(rect.left, rect.top);
-        }, { passive: true });
+        };
+        window.addEventListener('resize', keepWidgetInViewport, { passive: true });
+        this.cleanupCallbacks.push(() => {
+            onUp();
+            window.removeEventListener('resize', keepWidgetInViewport);
+        });
     }
 
     syncCreateAtomDefaults({ position = false } = {}) {
@@ -5263,7 +5290,11 @@ class VAseApp {
         });
         const histogramContainer = document.querySelector('.volume-distribution');
         if (histogramContainer && typeof ResizeObserver !== 'undefined') {
-            new ResizeObserver(() => this.drawVolumetricHistogram()).observe(histogramContainer);
+            this.volumetricHistogramObserver?.disconnect?.();
+            this.volumetricHistogramObserver = new ResizeObserver(
+                () => this.drawVolumetricHistogram()
+            );
+            this.volumetricHistogramObserver.observe(histogramContainer);
         }
         let levelSettleTimer = null;
         const updateLevelFromControl = (source, { settle = false } = {}) => {
@@ -7731,6 +7762,17 @@ class VAseApp {
         const preference = this.normalizedThemePreference(value);
         const result = window.v_aseTheme?.apply?.(preference, { persist })
             || { preference, resolved: preference };
+        // System is the intentionally mixed default: the chrome follows the
+        // OS while the scientific canvas stays white. Explicit Dark makes the
+        // canvas dark as well, so the interface never looks half-switched.
+        const background = preference === 'dark' ? 'dark' : 'white';
+        if (this.state.display.viewportBackground !== background) {
+            this.state.display.viewportBackground = background;
+            this.syncViewControls();
+            this.renderer?.setDisplayOptions?.(this.state.display);
+            if (this.state.exportPreviewEnabled) this.syncImageExportPreview();
+            if (persist) this.scheduleVisualHistoryCommit('theme-viewport');
+        }
         this.syncThemeControl();
         this.refreshActiveAnalysisTheme();
         if (notifyWorkspace && this.workspaceChild && window.parent !== window) {
@@ -7755,9 +7797,88 @@ class VAseApp {
         document.getElementById('ui-theme')?.addEventListener('change', event => {
             this.applyThemePreference(event.target.value);
         });
-        window.addEventListener('v_ase-theme-change', () => {
+        this.handleThemeChange = () => {
             this.syncThemeControl();
             this.refreshActiveAnalysisTheme();
+        };
+        window.addEventListener('v_ase-theme-change', this.handleThemeChange);
+    }
+
+    setupToolbarTooltips() {
+        const targets = document.querySelectorAll(
+            '#top-bar button[aria-label], #top-bar button[title], #top-bar label[title]'
+        );
+        let tooltip = document.getElementById('toolbar-tooltip');
+        if (!tooltip) {
+            tooltip = document.createElement('div');
+            tooltip.id = 'toolbar-tooltip';
+            tooltip.className = 'toolbar-tooltip hidden';
+            tooltip.setAttribute('role', 'tooltip');
+            document.body.appendChild(tooltip);
+        }
+        let timer = null;
+        const hide = () => {
+            if (timer !== null) window.clearTimeout(timer);
+            timer = null;
+            tooltip.classList.add('hidden');
+            tooltip.removeAttribute('data-side');
+        };
+        const show = target => {
+            const description = target.dataset.tooltip
+                || target.getAttribute('aria-label')
+                || target.getAttribute('title');
+            if (!description) return;
+            if (timer !== null) window.clearTimeout(timer);
+            timer = window.setTimeout(() => {
+                timer = null;
+                tooltip.textContent = description;
+                tooltip.classList.remove('hidden');
+                const targetRect = target.getBoundingClientRect();
+                const tooltipRect = tooltip.getBoundingClientRect();
+                const margin = 10;
+                const left = Math.max(
+                    margin,
+                    Math.min(
+                        window.innerWidth - tooltipRect.width - margin,
+                        targetRect.left + targetRect.width / 2 - tooltipRect.width / 2
+                    )
+                );
+                let top = targetRect.bottom + 9;
+                if (top + tooltipRect.height > window.innerHeight - margin) {
+                    top = targetRect.top - tooltipRect.height - 9;
+                    tooltip.dataset.side = 'top';
+                }
+                tooltip.style.left = `${left}px`;
+                tooltip.style.top = `${Math.max(margin, top)}px`;
+            }, 560);
+        };
+        const bindings = [];
+        targets.forEach(target => {
+            if (target.dataset.tooltipBound === 'true') return;
+            target.dataset.tooltipBound = 'true';
+            const description = target.getAttribute('title') || target.getAttribute('aria-label');
+            if (description) target.dataset.tooltip = description;
+            target.removeAttribute('title');
+            const enter = () => show(target);
+            target.addEventListener('pointerenter', enter);
+            target.addEventListener('pointerleave', hide);
+            target.addEventListener('focus', enter);
+            target.addEventListener('blur', hide);
+            target.addEventListener('click', hide);
+            bindings.push({ target, enter });
+        });
+        this.hideToolbarTooltip = hide;
+        this.cleanupCallbacks.push(() => {
+            hide();
+            bindings.forEach(({ target, enter }) => {
+                target.removeEventListener('pointerenter', enter);
+                target.removeEventListener('pointerleave', hide);
+                target.removeEventListener('focus', enter);
+                target.removeEventListener('blur', hide);
+                target.removeEventListener('click', hide);
+                delete target.dataset.tooltipBound;
+            });
+            tooltip.remove();
         });
     }
 
@@ -7777,7 +7898,8 @@ class VAseApp {
             const action = showGrid ? 'Hide' : 'Show';
             gridButton.setAttribute('aria-pressed', showGrid ? 'true' : 'false');
             gridButton.setAttribute('aria-label', `${action} viewport grid`);
-            gridButton.title = `${action} viewport grid`;
+            gridButton.dataset.tooltip = `${action} viewport grid`;
+            gridButton.removeAttribute('title');
         }
         document.body.dataset.viewportBackground = background;
         document.body.dataset.atomDisplayMode = displayMode;
@@ -7847,19 +7969,41 @@ class VAseApp {
         this.redoTimeline = [];
     }
 
-    recordStructureHistoryAction() {
+    activeStructureHistoryScope(sourcePath = '') {
+        const path = String(sourcePath || '');
+        const additionMutation = (
+            path.includes('/api/add-session/')
+            || (this.addAtomsSessionActive?.() && path.includes('/api/apply/'))
+        );
+        if (!additionMutation) return null;
+        if (!this.addAtomsHistoryToken) {
+            this.addAtomsHistoryToken = `add-atoms:${crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`}`;
+        }
+        return this.addAtomsHistoryToken;
+    }
+
+    recordStructureHistoryAction(sourcePath = '') {
         this.flushVisualHistoryCommit();
         this.recordHistoryAction({
             kind: 'structure',
+            sourcePath: String(sourcePath || ''),
+            scope: this.activeStructureHistoryScope(sourcePath),
             visualBefore: this.visualHistoryReady
                 ? this.visualHistorySnapshot()
                 : null
         });
     }
 
+    removeHistoryScope(scope) {
+        if (!scope) return;
+        this.undoTimeline = this.undoTimeline.filter(action => action?.scope !== scope);
+        this.redoTimeline = this.redoTimeline.filter(action => action?.scope !== scope);
+    }
+
     resetHistoryTimeline() {
         this.undoTimeline = [];
         this.redoTimeline = [];
+        this.addAtomsHistoryToken = null;
         this.resetVisualHistoryBaseline();
     }
 
@@ -8537,40 +8681,175 @@ class VAseApp {
         return this.state.atoms?.metadata?.calculator_details || {};
     }
 
-    automaticRepulsionPairCutoff(left, right) {
-        const bondingCutoff = this.defaultPairwiseCutoff(left, right);
-        if (bondingCutoff > 0) return bondingCutoff;
-        const first = this.elementCovalentRadius(this.chemicalSymbolForLabel(left));
-        const second = this.elementCovalentRadius(this.chemicalSymbolForLabel(right));
-        const contactCutoff = Number(first) + Number(second);
-        return Number.isFinite(contactCutoff) && contactCutoff > 0
-            ? contactCutoff
-            : 0;
+    repulsionPairKey(left, right) {
+        return [String(left), String(right)].sort().join('|');
+    }
+
+    repulsionReferencePairCutoff(left, right, basis = this.state.repulsionPairBasis) {
+        const radius = label => {
+            const element = this.chemicalSymbolForLabel(label);
+            if (basis === 'vdw') {
+                const value = Number(this.elementVdwRadius(element));
+                if (Number.isFinite(value) && value > 0) return value;
+            }
+            return Number(this.elementCovalentRadius(element));
+        };
+        const cutoff = radius(left) + radius(right);
+        return Number.isFinite(cutoff) && cutoff > 0 ? cutoff : 1.5;
+    }
+
+    repulsionPairRecord(left, right) {
+        const key = this.repulsionPairKey(left, right);
+        const source = this.state.repulsionPairRanges?.[key];
+        const fallback = this.repulsionReferencePairCutoff(left, right);
+        if (source && typeof source === 'object') {
+            const distance = Number(source.distance);
+            return {
+                enabled: source.enabled !== false && Number.isFinite(distance) && distance > 0,
+                distance: Number.isFinite(distance) && distance >= 0 ? distance : fallback
+            };
+        }
+        const legacy = Number(source);
+        if (Number.isFinite(legacy)) {
+            return { enabled: legacy > 0, distance: Math.max(0, legacy) };
+        }
+        return { enabled: true, distance: fallback };
+    }
+
+    repulsionPairValueFromSource(source, left, right) {
+        if (!source || typeof source !== 'object') return undefined;
+        const keys = [
+            `${left}|${right}`, `${right}|${left}`,
+            `${left}-${right}`, `${right}-${left}`
+        ];
+        const matched = keys.find(key => Object.prototype.hasOwnProperty.call(source, key));
+        return matched ? source[matched] : undefined;
+    }
+
+    hydrateRepulsionPairRanges(source = null, basis = null) {
+        if (basis === 'vdw' || basis === 'covalent') this.state.repulsionPairBasis = basis;
+        const raw = source && typeof source === 'object' ? source : null;
+        const signature = raw ? JSON.stringify(raw) : '';
+        const shouldImport = Boolean(raw && Object.keys(raw).length)
+            && signature !== this.state.repulsionPairSourceSignature;
+        const ranges = { ...(this.state.repulsionPairRanges || {}) };
+        this.uniqueLabelPairs().forEach(([left, right]) => {
+            const key = this.repulsionPairKey(left, right);
+            const incoming = shouldImport
+                ? Number(this.repulsionPairValueFromSource(raw, left, right))
+                : NaN;
+            if (Number.isFinite(incoming)) {
+                ranges[key] = { enabled: incoming > 0, distance: Math.max(0, incoming) };
+            } else if (!(key in ranges)) {
+                ranges[key] = {
+                    enabled: true,
+                    distance: this.repulsionReferencePairCutoff(left, right)
+                };
+            }
+        });
+        this.state.repulsionPairRanges = ranges;
+        if (shouldImport) this.state.repulsionPairSourceSignature = signature;
+    }
+
+    parseRepulsionPairControls() {
+        const ranges = { ...(this.state.repulsionPairRanges || {}) };
+        document.querySelectorAll('.repulsion-pair-row').forEach(row => {
+            const key = row.dataset.pairKey;
+            if (!key) return;
+            const previous = ranges[key] || { enabled: true, distance: 1.5 };
+            const raw = Number(row.querySelector('.repulsion-pair-distance')?.value);
+            const distance = Number.isFinite(raw) ? Math.max(0, raw) : previous.distance;
+            ranges[key] = {
+                enabled: row.querySelector('.repulsion-pair-enabled')?.checked !== false && distance > 0,
+                distance
+            };
+        });
+        this.state.repulsionPairRanges = ranges;
+        return ranges;
+    }
+
+    renderRepulsionPairControls({ capture = true } = {}) {
+        const root = document.getElementById('repulsion-pair-list');
+        if (!root || !this.state.atoms?.symbols) return;
+        if (capture) this.parseRepulsionPairControls();
+        this.hydrateRepulsionPairRanges();
+        const focused = document.activeElement?.dataset?.repulsionPairKey
+            ? {
+                key: document.activeElement.dataset.repulsionPairKey,
+                field: document.activeElement.dataset.repulsionPairField
+            }
+            : null;
+        const disabled = Boolean(this.state.isRelaxing || this.addAtomsUI?.active?.is_relaxing);
+        root.innerHTML = '';
+        this.uniqueLabelPairs().forEach(([left, right]) => {
+            const key = this.repulsionPairKey(left, right);
+            const record = this.repulsionPairRecord(left, right);
+            this.state.repulsionPairRanges[key] = { ...record };
+            const row = document.createElement('div');
+            row.className = 'repulsion-pair-row';
+            row.dataset.pairKey = key;
+
+            const enabled = document.createElement('input');
+            enabled.type = 'checkbox';
+            enabled.className = 'repulsion-pair-enabled';
+            enabled.checked = record.enabled;
+            enabled.disabled = disabled;
+            enabled.dataset.repulsionPairKey = key;
+            enabled.dataset.repulsionPairField = 'enabled';
+            enabled.setAttribute('aria-label', `Enable ${left} and ${right} repulsion`);
+
+            const label = document.createElement('span');
+            label.className = 'repulsion-pair-label';
+            label.textContent = `${left} – ${right}`;
+            label.title = `${left} – ${right}`;
+
+            const distance = document.createElement('input');
+            distance.type = 'number';
+            distance.className = 'repulsion-pair-distance';
+            distance.min = '0';
+            distance.max = '100';
+            distance.step = '0.05';
+            distance.value = Number(record.distance).toFixed(3);
+            distance.disabled = disabled;
+            distance.dataset.repulsionPairKey = key;
+            distance.dataset.repulsionPairField = 'distance';
+            distance.setAttribute('aria-label', `${left} and ${right} repulsion cutoff in Angstrom`);
+            enabled.addEventListener('change', () => this.safeApplyCalculatorControls());
+            distance.addEventListener('input', () => this.parseRepulsionPairControls());
+            distance.addEventListener('change', () => this.safeApplyCalculatorControls());
+            row.append(enabled, label, distance);
+            root.appendChild(row);
+        });
+        if (focused) {
+            [...root.querySelectorAll('[data-repulsion-pair-key]')].find(element => (
+                element.dataset.repulsionPairKey === focused.key
+                && element.dataset.repulsionPairField === focused.field
+            ))?.focus();
+        }
+    }
+
+    resetRepulsionPairRanges(basis = this.state.repulsionPairBasis) {
+        this.state.repulsionPairBasis = basis === 'vdw' ? 'vdw' : 'covalent';
+        const ranges = {};
+        this.uniqueLabelPairs().forEach(([left, right]) => {
+            ranges[this.repulsionPairKey(left, right)] = {
+                enabled: true,
+                distance: this.repulsionReferencePairCutoff(left, right, this.state.repulsionPairBasis)
+            };
+        });
+        this.state.repulsionPairRanges = ranges;
+        this.state.repulsionPairSourceSignature = '';
+        this.renderRepulsionPairControls({ capture: false });
     }
 
     repulsionPairCutoffs() {
-        const mode = this.state.display.bondMode || 'auto';
-        const autoScale = Math.max(0, Number(this.state.display.bondCutoffScale) || 1);
-        const manualPairs = mode === 'manual'
-            ? new Set(
-                this.activeRdfPairs().map(([left, right]) => [left, right].sort().join('|'))
-            )
-            : null;
+        this.parseRepulsionPairControls();
         const cutoffs = {};
         this.uniqueLabelPairs().forEach(([left, right]) => {
-            const key = [left, right].sort().join('|');
-            let enabled = true;
-            let cutoff = 0;
-            if (mode === 'pairwise') {
-                const range = this.pairwiseBondRange(left, right);
-                enabled = Boolean(range.enabled && Number(range.max) > 0);
-                cutoff = Number(range.max) || 0;
-            } else {
-                enabled = mode !== 'manual' || manualPairs.has(key);
-                cutoff = this.automaticRepulsionPairCutoff(left, right) * autoScale;
-            }
-            cutoffs[key] = enabled && Number.isFinite(cutoff) && cutoff > 0
-                ? Number(cutoff.toFixed(6))
+            const key = this.repulsionPairKey(left, right);
+            const record = this.repulsionPairRecord(left, right);
+            cutoffs[key] = record.enabled && record.distance > 0
+                ? Number(record.distance.toFixed(6))
                 : 0;
         });
         return cutoffs;
@@ -8581,16 +8860,16 @@ class VAseApp {
         if (!details.is_default_repulsion && !this.addAtomsSessionActive()) return null;
         const device = document.getElementById('calc-device')?.value || details.requested_device || 'cpu';
         const cpuThreads = parseInt(document.getElementById('calc-cpus')?.value || details.cpu_threads || '4', 10);
-        const cutoffMode = document.getElementById('calc-cutoff-mode')?.value === 'absolute'
-            ? 'absolute'
-            : 'bonding';
+        const cutoffMode = document.getElementById('calc-cutoff-mode')?.value === 'scaled'
+            ? 'scaled'
+            : 'absolute';
         const cutoffDistanceValue = Number(
             document.getElementById('calc-cutoff-distance')?.value
                 ?? details.cutoff_distance
                 ?? 2.0
         );
         const cutoffScaleValue = Number(
-            document.getElementById('calc-cutoff-scale')?.value ?? details.cutoff_scale ?? 0.7
+            document.getElementById('calc-cutoff-scale')?.value ?? details.cutoff_scale ?? 1.0
         );
         const strengthValue = Number(
             document.getElementById('calc-strength')?.value ?? details.k_repulsion ?? 1.0
@@ -8599,12 +8878,15 @@ class VAseApp {
             device,
             cpu_threads: Number.isFinite(cpuThreads) ? cpuThreads : 4,
             cutoff_mode: cutoffMode,
+            cutoff_basis: document.getElementById('calc-cutoff-basis')?.value === 'vdw'
+                ? 'vdw'
+                : 'covalent',
             cutoff_distance: Number.isFinite(cutoffDistanceValue)
                 ? Math.max(0.01, Math.min(100, cutoffDistanceValue))
                 : 2.0,
             cutoff_scale: Number.isFinite(cutoffScaleValue)
                 ? Math.max(0.05, Math.min(3, cutoffScaleValue))
-                : 0.7,
+                : 1.0,
             pair_cutoffs: this.repulsionPairCutoffs(),
             k_repulsion: Number.isFinite(strengthValue)
                 ? Math.max(0, Math.min(1000, strengthValue))
@@ -8619,6 +8901,7 @@ class VAseApp {
             device: overrides.device,
             cpu_threads: overrides.cpu_threads ?? overrides.cpuThreads,
             cutoff_mode: overrides.cutoff_mode ?? overrides.cutoffMode,
+            cutoff_basis: overrides.cutoff_basis ?? overrides.cutoffBasis,
             cutoff_distance: overrides.cutoff_distance ?? overrides.cutoffDistance,
             cutoff_scale: overrides.cutoff_scale ?? overrides.cutoffScale,
             pair_cutoffs: overrides.pair_cutoffs ?? overrides.pairCutoffs,
@@ -8632,23 +8915,27 @@ class VAseApp {
     }
 
     syncRepulsionCutoffControls() {
-        const mode = document.getElementById('calc-cutoff-mode')?.value === 'absolute'
-            ? 'absolute'
-            : 'bonding';
+        const mode = document.getElementById('calc-cutoff-mode')?.value === 'scaled'
+            ? 'scaled'
+            : 'absolute';
         document.getElementById('calc-cutoff-scale-row')?.classList.toggle(
             'hidden',
-            mode !== 'bonding'
-        );
-        document.getElementById('calc-cutoff-distance-row')?.classList.toggle(
-            'hidden',
-            mode !== 'absolute'
+            mode !== 'scaled'
         );
         const note = document.getElementById('calc-cutoff-note');
         if (note) {
             note.textContent = mode === 'absolute'
-                ? 'Every enabled pair repels below the stated distance and has zero pair force at or above it. This is not a hard minimum separation.'
-                : 'Each label pair uses its active automatic bonding cutoff. Same-class pairs hidden only from automatic bond rendering use their covalent contact cutoff. Explicitly disabled and 0 Å Pairwise pairs remain inactive.';
+                ? 'Each enabled label pair uses its stated distance in Angstrom, independently from bond visualization. This is a zero-force onset, not a hard minimum separation.'
+                : 'Each enabled label-pair reference distance is multiplied by the contact-distance multiplier. Visual bond settings do not affect repulsion.';
         }
+    }
+
+    safeApplyCalculatorControls({ quiet = false } = {}) {
+        if (this.state.calculatorApplyTimer) clearTimeout(this.state.calculatorApplyTimer);
+        this.state.calculatorApplyTimer = setTimeout(() => {
+            this.state.calculatorApplyTimer = null;
+            void this.applyCalculatorControls({ quiet });
+        }, 120);
     }
 
     cpuThreadChoices(details) {
@@ -8666,11 +8953,12 @@ class VAseApp {
         const device = document.getElementById('calc-device');
         const cpus = document.getElementById('calc-cpus');
         const cutoffMode = document.getElementById('calc-cutoff-mode');
+        const cutoffBasis = document.getElementById('calc-cutoff-basis');
         const cutoffDistance = document.getElementById('calc-cutoff-distance');
         const cutoffScale = document.getElementById('calc-cutoff-scale');
         const strength = document.getElementById('calc-strength');
         if (
-            !controls || !device || !cpus || !cutoffMode
+            !controls || !device || !cpus || !cutoffMode || !cutoffBasis
             || !cutoffDistance || !cutoffScale || !strength
         ) return;
 
@@ -8710,10 +8998,17 @@ class VAseApp {
         cpus.disabled = !isRepulsion || running || device.value !== 'cpu';
         const preserveSharedValues = additionTarget && !details.is_default_repulsion;
         if (document.activeElement !== cutoffMode && !preserveSharedValues) {
-            cutoffMode.value = (addition?.cutoff_mode || details.cutoff_mode) === 'absolute'
-                ? 'absolute'
-                : 'bonding';
+            cutoffMode.value = ['scaled', 'bonding'].includes(addition?.cutoff_mode || details.cutoff_mode)
+                ? 'scaled'
+                : 'absolute';
         }
+        const basis = addition?.cutoff_basis || details.cutoff_basis || this.state.repulsionPairBasis;
+        if (document.activeElement !== cutoffBasis) cutoffBasis.value = basis === 'vdw' ? 'vdw' : 'covalent';
+        this.state.repulsionPairBasis = cutoffBasis.value;
+        this.hydrateRepulsionPairRanges(
+            addition?.pair_cutoffs || details.pair_cutoffs,
+            this.state.repulsionPairBasis
+        );
         if (document.activeElement !== cutoffDistance && !preserveSharedValues) {
             cutoffDistance.value = Number(
                 addition?.cutoff_distance ?? details.cutoff_distance ?? 2.0
@@ -8721,7 +9016,7 @@ class VAseApp {
         }
         if (document.activeElement !== cutoffScale && !preserveSharedValues) {
             cutoffScale.value = Number(
-                addition?.cutoff_scale ?? details.cutoff_scale ?? 0.7
+                addition?.cutoff_scale ?? details.cutoff_scale ?? 1.0
             ).toFixed(2);
         }
         if (document.activeElement !== strength && !preserveSharedValues) {
@@ -8730,10 +9025,12 @@ class VAseApp {
             ).toFixed(2);
         }
         cutoffMode.disabled = !isRepulsion || running;
+        cutoffBasis.disabled = !isRepulsion || running;
         cutoffDistance.disabled = !isRepulsion || running;
         cutoffScale.disabled = !isRepulsion || running;
         strength.disabled = !isRepulsion || running;
         this.syncRepulsionCutoffControls();
+        this.renderRepulsionPairControls({ capture: false });
     }
 
     applyCalculatorResponse(data) {
@@ -9404,6 +9701,80 @@ class VAseApp {
                 : 'Optimization frames use a separate movie timeline until this mode is closed.';
         }
         document.getElementById('btn-exit-relax-mode')?.classList.toggle('hidden', !generalMode);
+        const clearTrajectory = document.getElementById('btn-clear-relax-trajectory');
+        const hasRelaxFrames = Boolean(
+            this.state.relaxTrajectory?.active
+            && this.state.relaxTrajectory?.frames?.length
+        );
+        clearTrajectory?.classList.toggle('hidden', !hasRelaxFrames);
+        if (clearTrajectory) clearTrajectory.disabled = !hasRelaxFrames;
+    }
+
+    chooseRelaxationTrajectoryResult() {
+        const trajectory = this.state.relaxTrajectory || {};
+        const current = Number(trajectory.frame || 0) + 1;
+        const count = trajectory.frames?.length || 0;
+        this.showModal(`
+            <h2>Clear Relaxation Trajectory</h2>
+            <p class="modal-intro">Choose which geometry remains after the ${count}-frame optimization movie is removed. The active mode stays open.</p>
+            <ul class="confirm-list">
+                <li><strong>Use final frame</strong> keeps the last optimized geometry.</li>
+                <li><strong>Keep displayed frame</strong> keeps frame ${current} currently shown in the viewport.</li>
+            </ul>
+        `, `
+            <button id="relax-clear-cancel" class="btn">Cancel</button>
+            <button id="relax-clear-displayed" class="btn">Keep Displayed Frame</button>
+            <button id="relax-clear-final" class="btn primary">Use Final Frame</button>
+        `);
+        return new Promise(resolve => {
+            let settled = false;
+            const done = value => {
+                if (settled) return;
+                settled = true;
+                this.closeModal();
+                resolve(value);
+            };
+            document.getElementById('relax-clear-cancel')?.addEventListener('click', () => done(null), { once: true });
+            document.getElementById('relax-clear-displayed')?.addEventListener('click', () => done(false), { once: true });
+            document.getElementById('relax-clear-final')?.addEventListener('click', () => done(true), { once: true });
+        });
+    }
+
+    async clearRelaxationTrajectoryUsing(useLatest) {
+        const trajectory = this.state.relaxTrajectory || {};
+        const frames = trajectory.frames || [];
+        if (!frames.length) {
+            throw new Error('No relaxation trajectory is available to clear.');
+        }
+        const chosen = useLatest
+            ? frames[frames.length - 1]
+            : frames[Math.max(0, Math.min(frames.length - 1, Number(trajectory.frame) || 0))];
+        const data = await this.api.clearRelaxTrajectory(
+            trajectory.kind || 'relaxation',
+            chosen,
+            useLatest
+        );
+        this.state.isRelaxing = false;
+        this.setAtomsData(data, { clearSelection: false });
+        this.clearModeTrajectory();
+        return data;
+    }
+
+    async clearRelaxationTrajectory() {
+        const useLatest = await this.chooseRelaxationTrajectoryResult();
+        if (useLatest === null) return;
+        try {
+            await this.withBusy(
+                'Clearing the relaxation trajectory...',
+                () => this.clearRelaxationTrajectoryUsing(useLatest)
+            );
+            this.toast(
+                useLatest ? 'Trajectory cleared; final frame retained.' : 'Trajectory cleared; displayed frame retained.',
+                'success'
+            );
+        } catch (error) {
+            this.toast(`Clear trajectory failed: ${error.message}`, 'error');
+        }
     }
 
     chooseRelaxationExitResult() {
@@ -9565,6 +9936,9 @@ class VAseApp {
         this.state.display.bondStyle = ['cylinder', 'flat'].includes(config.bond_style)
             ? config.bond_style
             : this.state.display.bondStyle;
+        this.state.display.bondMaterial = this.normalizedBondMaterial(
+            config.bond_material || this.state.display.bondMaterial
+        );
         const initialBondThickness = Number(
             config.bond_thickness ?? this.state.display.bondThickness
         );
@@ -9577,6 +9951,14 @@ class VAseApp {
         if (/^#[0-9A-Fa-f]{6}$/.test(config.bond_custom_color || '')) {
             this.state.display.bondCustomColor = config.bond_custom_color;
         }
+        const initialBondOpacity = Number(config.bond_opacity ?? this.state.display.bondOpacity);
+        this.state.display.bondOpacity = Number.isFinite(initialBondOpacity)
+            ? Math.max(0.05, Math.min(1, initialBondOpacity))
+            : 1;
+        this.state.display.pairwiseBondStyles = config.pairwise_bond_styles
+            && typeof config.pairwise_bond_styles === 'object'
+            ? this.clonePlain(config.pairwise_bond_styles)
+            : {};
         this.state.applyConstraints = config.apply_constraint !== false;
         this.state.antiAliasing = config.anti_aliasing !== false;
         this.state.sphereQuality = config.sphere_quality || 'auto';
@@ -9640,9 +10022,11 @@ class VAseApp {
         document.getElementById('chk-bonds').checked = this.state.display.showBonds;
         document.getElementById('chk-periodic-bonds').checked = this.state.display.showPeriodicBonds;
         document.getElementById('bond-style').value = this.state.display.bondStyle;
+        document.getElementById('bond-material').value = this.state.display.bondMaterial;
         document.getElementById('bond-thickness').value = this.state.display.bondThickness;
         document.getElementById('bond-color-mode').value = this.state.display.bondColorMode;
         document.getElementById('bond-custom-color').value = this.state.display.bondCustomColor;
+        document.getElementById('bond-opacity').value = this.state.display.bondOpacity;
         document.getElementById('chk-cell').checked = this.state.display.showCell;
         document.getElementById('cell-thickness').value = this.state.display.cellThickness;
         document.getElementById('cell-color').value = this.state.display.cellColor;
@@ -12624,6 +13008,123 @@ class VAseApp {
         return [a, b].sort().join('-');
     }
 
+    normalizedBondMaterial(value) {
+        return ['standard', 'metal', 'rubber', 'unlit'].includes(value)
+            ? value
+            : 'standard';
+    }
+
+    normalizedBondPairStyle(value = {}) {
+        return {
+            style: value.style === 'flat' ? 'flat' : 'cylinder',
+            material: this.normalizedBondMaterial(value.material),
+            colorMode: value.colorMode === 'custom' ? 'custom' : 'split',
+            color: this.validHexColor(value.color) ? value.color : '#c8ccd0',
+            opacity: Math.max(0.05, Math.min(1, Number.isFinite(Number(value.opacity))
+                ? Number(value.opacity)
+                : 1))
+        };
+    }
+
+    bondPairStyleForKey(key) {
+        const source = this.state.display.pairwiseBondStyles?.[key];
+        return source && typeof source === 'object'
+            ? this.normalizedBondPairStyle(source)
+            : null;
+    }
+
+    populateBondPairStyleSelector() {
+        const select = document.getElementById('bond-pair-style-key');
+        if (!select) return;
+        const previous = select.value;
+        const pairs = this.uniqueLabelPairs().map(([left, right]) => this.labelPairKey(left, right));
+        select.innerHTML = '';
+        pairs.forEach(key => {
+            const option = document.createElement('option');
+            option.value = key;
+            option.textContent = key;
+            select.appendChild(option);
+        });
+        select.value = pairs.includes(previous) ? previous : (pairs[0] || '');
+        this.syncBondPairStyleEditor();
+    }
+
+    syncBondPairStyleEditor() {
+        const key = document.getElementById('bond-pair-style-key')?.value;
+        const explicit = key ? this.bondPairStyleForKey(key) : null;
+        const fallback = this.normalizedBondPairStyle({
+            style: this.state.display.bondStyle,
+            material: this.state.display.bondMaterial,
+            colorMode: this.state.display.bondColorMode,
+            color: this.state.display.bondCustomColor,
+            opacity: this.state.display.bondOpacity
+        });
+        const style = explicit || fallback;
+        const enabled = document.getElementById('bond-pair-style-enabled');
+        if (enabled) enabled.checked = Boolean(explicit);
+        const fields = document.getElementById('bond-pair-style-fields');
+        fields?.classList.toggle('disabled', !explicit);
+        fields?.querySelectorAll('input, select').forEach(control => {
+            control.disabled = !explicit;
+        });
+        const setValue = (id, value) => {
+            const element = document.getElementById(id);
+            if (element) element.value = value;
+        };
+        setValue('bond-pair-style', style.style);
+        setValue('bond-pair-material', style.material);
+        setValue('bond-pair-color-mode', style.colorMode);
+        setValue('bond-pair-custom-color', style.color);
+        setValue('bond-pair-opacity', style.opacity);
+        document.getElementById('bond-pair-custom-color-row')?.classList.toggle(
+            'hidden', style.colorMode !== 'custom'
+        );
+        const opacityOutput = document.getElementById('bond-pair-opacity-value');
+        if (opacityOutput) opacityOutput.textContent = `${Math.round(style.opacity * 100)}%`;
+    }
+
+    bondPairStyleFromEditor() {
+        return this.normalizedBondPairStyle({
+            style: document.getElementById('bond-pair-style')?.value,
+            material: document.getElementById('bond-pair-material')?.value,
+            colorMode: document.getElementById('bond-pair-color-mode')?.value,
+            color: document.getElementById('bond-pair-custom-color')?.value,
+            opacity: document.getElementById('bond-pair-opacity')?.value
+        });
+    }
+
+    applyBondPairStyle({ all = false } = {}) {
+        const selectedKey = document.getElementById('bond-pair-style-key')?.value;
+        const enabled = document.getElementById('bond-pair-style-enabled')?.checked === true;
+        if (!selectedKey && !all) return;
+        const next = { ...(this.state.display.pairwiseBondStyles || {}) };
+        const keys = all
+            ? this.uniqueLabelPairs().map(([left, right]) => this.labelPairKey(left, right))
+            : [selectedKey];
+        const style = this.bondPairStyleFromEditor();
+        keys.forEach(key => {
+            if (enabled || all) next[key] = { ...style };
+            else delete next[key];
+        });
+        this.state.display.pairwiseBondStyles = next;
+        if (all) {
+            const checkbox = document.getElementById('bond-pair-style-enabled');
+            if (checkbox) checkbox.checked = true;
+        }
+        this.syncBondPairStyleEditor();
+        this.applyBondOptions();
+    }
+
+    resetBondPairStyle() {
+        const key = document.getElementById('bond-pair-style-key')?.value;
+        if (!key) return;
+        const next = { ...(this.state.display.pairwiseBondStyles || {}) };
+        delete next[key];
+        this.state.display.pairwiseBondStyles = next;
+        this.syncBondPairStyleEditor();
+        this.applyBondOptions();
+    }
+
     uniqueAtomLabels() {
         return this.reconcileLabelOrder(this.state.atoms?.symbols || []);
     }
@@ -13019,6 +13520,8 @@ class VAseApp {
         });
         const cutoffs = this.state.display.pairwiseBondCutoffs || {};
         const ranges = this.state.display.pairwiseBondRanges || {};
+        const pairStyles = this.state.display.pairwiseBondStyles || {};
+        const repulsionRanges = this.state.repulsionPairRanges || {};
         const partners = new Set([
             oldSymbol,
             newSymbol,
@@ -13035,11 +13538,21 @@ class VAseApp {
             if (copySource && oldKey in ranges && !(newKey in ranges)) {
                 ranges[newKey] = { ...ranges[oldKey] };
             }
+            if (copySource && oldKey in pairStyles && !(newKey in pairStyles)) {
+                pairStyles[newKey] = { ...pairStyles[oldKey] };
+            }
+            const oldRepulsionKey = this.repulsionPairKey(oldSymbol, partner);
+            const newRepulsionKey = this.repulsionPairKey(newSymbol, mappedPartner);
+            if (copySource && oldRepulsionKey in repulsionRanges && !(newRepulsionKey in repulsionRanges)) {
+                repulsionRanges[newRepulsionKey] = { ...repulsionRanges[oldRepulsionKey] };
+            }
         });
         if (removeSource) {
             partners.forEach(partner => {
                 delete cutoffs[this.labelPairKey(oldSymbol, partner)];
                 delete ranges[this.labelPairKey(oldSymbol, partner)];
+                delete pairStyles[this.labelPairKey(oldSymbol, partner)];
+                delete repulsionRanges[this.repulsionPairKey(oldSymbol, partner)];
             });
         }
     }
@@ -13863,6 +14376,7 @@ class VAseApp {
             target?.focus();
         }
         this.updateBondModeUI();
+        this.populateBondPairStyleSelector();
     }
 
     normalizedPairwiseLabelColumnWidth(value = this.state.display.pairwiseLabelColumnWidth) {
@@ -13967,6 +14481,9 @@ class VAseApp {
         }
         const style = document.getElementById('bond-style')?.value;
         if (['cylinder', 'flat'].includes(style)) this.state.display.bondStyle = style;
+        this.state.display.bondMaterial = this.normalizedBondMaterial(
+            document.getElementById('bond-material')?.value
+        );
         const thickness = Number(document.getElementById('bond-thickness')?.value);
         if (Number.isFinite(thickness) && thickness > 0) {
             this.state.display.bondThickness = Math.max(0.02, Math.min(0.6, thickness));
@@ -13976,6 +14493,10 @@ class VAseApp {
         const customColor = document.getElementById('bond-custom-color')?.value;
         if (/^#[0-9A-Fa-f]{6}$/.test(customColor || '')) {
             this.state.display.bondCustomColor = customColor;
+        }
+        const opacity = Number(document.getElementById('bond-opacity')?.value);
+        if (Number.isFinite(opacity)) {
+            this.state.display.bondOpacity = Math.max(0.05, Math.min(1, opacity));
         }
         const parsedSpecifications = this.parsePairwiseBondRanges();
         this.state.display.pairwiseBondRanges = {
@@ -14016,6 +14537,12 @@ class VAseApp {
         const thickness = Number.isFinite(rawThickness) ? rawThickness : 0.25;
         const output = document.getElementById('bond-thickness-value');
         if (output) output.innerText = `${thickness.toFixed(2)} A`;
+        const opacity = Math.max(0.05, Math.min(1, Number(
+            document.getElementById('bond-opacity')?.value || this.state.display.bondOpacity || 1
+        )));
+        const opacityOutput = document.getElementById('bond-opacity-value');
+        if (opacityOutput) opacityOutput.textContent = `${Math.round(opacity * 100)}%`;
+        this.syncBondPairStyleEditor();
     }
 
     parseBondPairs() {
@@ -14176,7 +14703,6 @@ class VAseApp {
                     ? this.selectedActiveRdfPairs()
                     : this.activeRdfPairs()
             ) : null;
-        const previousRepulsionCutoffs = JSON.stringify(this.repulsionPairCutoffs());
         this.state.display.showBonds = Boolean(document.getElementById('chk-bonds')?.checked);
         this.state.display.showPeriodicBonds = Boolean(
             document.getElementById('chk-periodic-bonds')?.checked
@@ -14191,10 +14717,13 @@ class VAseApp {
             manualBondPairs: this.state.display.manualBondPairs,
             pairwiseBondCutoffs: this.state.display.pairwiseBondCutoffs,
             pairwiseBondRanges: this.state.display.pairwiseBondRanges,
+            pairwiseBondStyles: this.state.display.pairwiseBondStyles,
             bondStyle: this.state.display.bondStyle,
+            bondMaterial: this.state.display.bondMaterial,
             bondThickness: this.state.display.bondThickness,
             bondColorMode: this.state.display.bondColorMode,
-            bondCustomColor: this.state.display.bondCustomColor
+            bondCustomColor: this.state.display.bondCustomColor,
+            bondOpacity: this.state.display.bondOpacity
         });
         const nextRdfPairs = rdfPairMode === 'selected'
             ? this.selectedActiveRdfPairs()
@@ -14214,16 +14743,6 @@ class VAseApp {
                     );
                 }
             }
-        }
-        const calculatorDetails = this.repulsionCalculatorDetails();
-        if (
-            previousRepulsionCutoffs !== JSON.stringify(this.repulsionPairCutoffs())
-            && calculatorDetails.is_default_repulsion
-            && calculatorDetails.cutoff_mode !== 'absolute'
-            && !this.state.vizOnly
-            && !this.state.isRelaxing
-        ) {
-            this.applyCalculatorControls({ quiet: true });
         }
         if (this.state.exportPreviewEnabled) this.syncImageExportPreview();
         this.scheduleVisualHistoryCommit('bonds');
@@ -14552,6 +15071,7 @@ class VAseApp {
             else if ([
                 'start-relaxation',
                 'stop-relaxation',
+                'clear-relaxation-trajectory',
                 'exit-relaxation-mode',
                 'start-registry-relaxation',
                 'run-registry-relaxation',
@@ -14644,6 +15164,17 @@ class VAseApp {
                 attached: Boolean(atoms.metadata?.has_calculator),
                 name: atoms.metadata?.calculator || null,
                 details: this.clonePlain(atoms.metadata?.calculator_details || {})
+            },
+            relaxation: {
+                active: Boolean(
+                    atoms.metadata?.relaxation?.active
+                    || this.state.relaxTrajectory?.active
+                ),
+                running: Boolean(this.state.isRelaxing),
+                kind: this.state.relaxTrajectory?.kind || null,
+                frame: Number(this.state.relaxTrajectory?.frame || 0),
+                frameCount: Number(this.state.relaxTrajectory?.frames?.length || 0),
+                finished: Boolean(this.state.relaxTrajectory?.finished)
             },
             selection: this.aiSelectionSnapshot(),
             measurement: this.getSelectionMeasureText(),
@@ -14875,7 +15406,7 @@ class VAseApp {
             'stop-registry-relaxation', 'finish-registry-relaxation',
             'cancel-registry-relaxation', 'undo', 'redo',
             'reset-coordinates', 'start-relaxation', 'stop-relaxation',
-            'exit-relaxation-mode',
+            'clear-relaxation-trajectory', 'exit-relaxation-mode',
             'refresh-displacements', 'load-volumetric', 'show-volumetric',
             'add-volumetric-plane', 'update-volumetric-planes',
             'remove-volumetric-planes',
@@ -14897,7 +15428,7 @@ class VAseApp {
                 'atoms', 'labels', 'elements', 'positions', 'cell', 'pbc',
                 'constraints', 'forces', 'charges', 'tags', 'magnetic-moments',
                 'selection', 'measurement', 'trajectory', 'camera', 'display',
-                'render-area', 'add-atoms',
+                'render-area', 'add-atoms', 'relaxation',
                 'volumetric-data', 'volumetric-planes', 'rdf', 'commensurate',
                 'commensurate-proposal',
                 'registry-map', 'registry-relaxation', 'atom-colorscale', 'force-vectors',
@@ -14964,9 +15495,28 @@ class VAseApp {
                     randomOrientation: true,
                     rigidMolecules: true,
                     freezeExisting: true,
+                    constrainToDomain: false,
                     allowEscape: true
                 },
-                note: 'The exact insertion domain is the unit cell intersected with the Allow union, or the complete cell when no Allow exists, minus the Reject union. A structure without a finite cell requires at least one Allow region. Molecule coordinates and rotations use the native ASE template origin.'
+                note: 'The exact insertion domain is the unit cell intersected with the Allow union, or the complete cell when no Allow exists, minus the Reject union. A structure without a finite cell requires at least one Allow region. constrainToDomain is false by default; when enabled, rigid molecules are constrained by the native ASE template origin. allowEscape is the inverse compatibility field.'
+            },
+            repulsion: {
+                defaultMode: 'absolute',
+                modes: ['absolute', 'scaled'],
+                bases: ['covalent', 'vdw'],
+                pairKey: 'unordered visual labels',
+                disabledValue: 0,
+                note: 'Repulsion pair distances are independent from visual bond connectivity. Absolute values are Angstrom onset distances; scaled values are reference distances multiplied by cutoff_scale.'
+            },
+            bondAppearance: {
+                globalDisplayKeys: [
+                    'bondStyle', 'bondMaterial', 'bondOpacity',
+                    'bondColorMode', 'bondCustomColor'
+                ],
+                pairDisplayKey: 'pairwiseBondStyles',
+                pairFields: ['style', 'material', 'colorMode', 'color', 'opacity'],
+                styles: ['cylinder', 'flat'],
+                materials: ['standard', 'metal', 'rubber', 'unlit']
             }
         };
     }
@@ -15416,7 +15966,9 @@ class VAseApp {
                 region_role: regionMode === 'box' && operation.regionRole === 'prohibited'
                     ? 'prohibited'
                     : 'allowed',
-                allow_escape: operation.allowEscape !== false,
+                constrain_to_domain: operation.constrainToDomain !== undefined
+                    ? operation.constrainToDomain === true
+                    : operation.allowEscape === false,
                 placement_mode: ['homogeneous', 'regular'].includes(operation.placementMode)
                     ? operation.placementMode
                     : 'random',
@@ -15433,7 +15985,7 @@ class VAseApp {
                 seed: operation.seed ?? null,
                 freeze_existing: operation.freezeExisting !== false,
                 cutoff_basis: operation.cutoffBasis || 'covalent',
-                cutoff_scale: Number(operation.cutoffScale ?? 0.7),
+                cutoff_scale: Number(operation.cutoffScale ?? 1.0),
                 pair_cutoffs: operation.pairCutoffs || undefined
             };
             const data = setData(await this.api.startAtomAddition(payload), true);
@@ -15476,15 +16028,19 @@ class VAseApp {
             const data = await this.api.updateAtomAdditionRegion({
                 regions,
                 region_mic: operation.regionMic ?? current.domain?.pbc_aware ?? true,
-                allow_escape: operation.allowEscape ?? current.allow_escape ?? true
+                constrain_to_domain: operation.constrainToDomain !== undefined
+                    ? operation.constrainToDomain === true
+                    : operation.allowEscape !== undefined
+                        ? operation.allowEscape === false
+                        : current.constrain_to_domain === true
             });
             const summary = data?.metadata?.atom_addition || null;
             if (this.state.atoms?.metadata) {
                 this.state.atoms.metadata.atom_addition = summary;
             }
             this.syncAddAtomsSessionFromData(data);
-            const allowEscape = document.getElementById('add-atoms-allow-escape');
-            if (allowEscape) allowEscape.checked = summary.allow_escape !== false;
+            const constrainDomain = document.getElementById('add-atoms-constrain-domain');
+            if (constrainDomain) constrainDomain.checked = summary.constrain_to_domain === true;
             this.updateAddAtomsRegionPreview();
             this.syncAddAtomsActionState();
             return;
@@ -15545,7 +16101,11 @@ class VAseApp {
             const data = await this.api.updateAtomAdditionRegion({
                 regions,
                 region_mic: operation.regionMic ?? this.addAtomsUI.active.domain?.pbc_aware ?? true,
-                allow_escape: operation.allowEscape ?? this.addAtomsUI.active.allow_escape ?? true
+                constrain_to_domain: operation.constrainToDomain !== undefined
+                    ? operation.constrainToDomain === true
+                    : operation.allowEscape !== undefined
+                        ? operation.allowEscape === false
+                        : this.addAtomsUI.active.constrain_to_domain === true
             });
             if (this.state.atoms?.metadata) {
                 this.state.atoms.metadata.atom_addition = data?.metadata?.atom_addition || null;
@@ -15562,13 +16122,15 @@ class VAseApp {
             }
             const freezeExisting = document.getElementById('add-atoms-freeze-existing');
             const mic = document.getElementById('add-atoms-mic');
-            const allowEscape = document.getElementById('add-atoms-allow-escape');
+            const constrainDomain = document.getElementById('add-atoms-constrain-domain');
             if (freezeExisting && operation.freezeExisting !== undefined) {
                 freezeExisting.checked = operation.freezeExisting !== false;
             }
             if (mic && operation.mic !== undefined) mic.checked = operation.mic !== false;
-            if (allowEscape && operation.allowEscape !== undefined) {
-                allowEscape.checked = operation.allowEscape !== false;
+            if (constrainDomain && (operation.constrainToDomain !== undefined || operation.allowEscape !== undefined)) {
+                constrainDomain.checked = operation.constrainToDomain !== undefined
+                    ? operation.constrainToDomain === true
+                    : operation.allowEscape === false;
             }
             await this.relaxAddedAtomsFromWidget({
                 calculator: {
@@ -15596,6 +16158,7 @@ class VAseApp {
         if (name === 'finish-add-atoms') {
             this.aiRequireEdit('finish-add-atoms');
             const data = setData(await this.api.finishAtomAddition(), true);
+            this.addAtomsHistoryToken = null;
             this.addAtomsUI.active = null;
             this.setAddAtomsRegionSelected(false, { update: false });
             this.clearModeTrajectory('add-atoms');
@@ -15605,7 +16168,10 @@ class VAseApp {
         }
         if (name === 'cancel-add-atoms') {
             this.aiRequireEdit('cancel-add-atoms');
+            const historyScope = this.addAtomsHistoryToken;
             const data = setData(await this.api.cancelAtomAddition(), true);
+            this.removeHistoryScope(historyScope);
+            this.addAtomsHistoryToken = null;
             this.addAtomsUI.active = null;
             this.setAddAtomsRegionSelected(false, { update: false });
             this.clearModeTrajectory('add-atoms');
@@ -16011,6 +16577,14 @@ class VAseApp {
         if (name === 'stop-relaxation') {
             if (this.addAtomsSessionActive()) await this.stopAddedAtomsRelaxation();
             else await this.api.relaxStop();
+            return;
+        }
+        if (name === 'clear-relaxation-trajectory') {
+            const retain = String(operation.retain || 'final').trim().toLowerCase();
+            if (!['displayed', 'final'].includes(retain)) {
+                throw new Error("clear-relaxation-trajectory retain must be 'displayed' or 'final'.");
+            }
+            await this.clearRelaxationTrajectoryUsing(retain === 'final');
             return;
         }
         if (name === 'exit-relaxation-mode') {
@@ -17061,9 +17635,11 @@ class VAseApp {
         setValue('bond-mode', display.bondMode || 'auto');
         setValue('bond-cutoff', display.bondCutoffScale || 1.0);
         setValue('bond-style', display.bondStyle || 'cylinder');
+        setValue('bond-material', this.normalizedBondMaterial(display.bondMaterial));
         setValue('bond-thickness', display.bondThickness || 0.25);
         setValue('bond-color-mode', display.bondColorMode || 'split');
         setValue('bond-custom-color', display.bondCustomColor || '#c8ccd0');
+        setValue('bond-opacity', Math.max(0.05, Math.min(1, Number(display.bondOpacity) || 1)));
         setValue('blender-export-mode', display.blenderExportMode || 'instanced');
         setValue('atom-radius-scale', display.atomRadiusScale || 0.6);
         setValue('move-increment', this.state.moveIncrement || 0);
@@ -17204,6 +17780,7 @@ class VAseApp {
         const savedRanges = nextDisplay.pairwiseBondRanges || {};
         const pairwiseBondCutoffs = {};
         const pairwiseBondRanges = {};
+        const pairwiseBondStyles = {};
         for (let i = 0; i < labels.length; i++) {
             for (let j = i; j < labels.length; j++) {
                 const key = this.labelPairKey(labels[i], labels[j]);
@@ -17213,6 +17790,10 @@ class VAseApp {
                 });
                 pairwiseBondRanges[key] = range;
                 pairwiseBondCutoffs[key] = range.enabled ? range.max : 0;
+                const style = nextDisplay.pairwiseBondStyles?.[key];
+                if (style && typeof style === 'object') {
+                    pairwiseBondStyles[key] = this.normalizedBondPairStyle(style);
+                }
             }
         }
 
@@ -17294,6 +17875,9 @@ class VAseApp {
             manualBondPairs,
             pairwiseBondCutoffs,
             pairwiseBondRanges,
+            pairwiseBondStyles,
+            bondMaterial: this.normalizedBondMaterial(nextDisplay.bondMaterial),
+            bondOpacity: finiteClamped(nextDisplay.bondOpacity, 1, 0.05, 1),
             labelRadii,
             labelColors,
             labelOpacities,
@@ -17478,6 +18062,7 @@ class VAseApp {
             manualBondPairs: this.clonePlain(nextDisplay.manualBondPairs),
             pairwiseBondCutoffs: this.clonePlain(nextDisplay.pairwiseBondCutoffs),
             pairwiseBondRanges: this.clonePlain(nextDisplay.pairwiseBondRanges),
+            pairwiseBondStyles: this.clonePlain(nextDisplay.pairwiseBondStyles),
             labelRadii: this.clonePlain(nextDisplay.labelRadii),
             labelColors: this.clonePlain(nextDisplay.labelColors),
             labelOpacities: this.clonePlain(nextDisplay.labelOpacities),
@@ -19186,15 +19771,13 @@ class VAseApp {
         const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
         const ws = new WebSocket(`${protocol}://${window.location.host}/ws/${this.sessionId}`);
         this.ws = ws;
-        const closeSocket = () => {
+        this.closeSocket = () => {
             try {
                 if (this.ws && this.ws.readyState <= WebSocket.OPEN) this.ws.close(1000, 'page closing');
             } catch {
                 // Page teardown path; ignore browser-specific close races.
             }
         };
-        window.addEventListener('pagehide', closeSocket, { once: true });
-        window.addEventListener('beforeunload', closeSocket, { once: true });
         ws.onmessage = (event) => {
             let msg;
             try {
@@ -21575,7 +22158,8 @@ class VAseApp {
     }
 
     setupEventListeners() {
-        window.addEventListener('resize', () => this.renderer.onResize());
+        this.handleWindowResize = () => this.renderer?.onResize?.();
+        window.addEventListener('resize', this.handleWindowResize, { passive: true });
 
         const headerActions = document.querySelector('.action-group');
         headerActions?.addEventListener('wheel', event => {
@@ -21919,6 +22503,13 @@ class VAseApp {
             const fmax = parseFloat(document.getElementById('relax-fmax').value || '0.05');
             const steps = parseInt(document.getElementById('relax-steps').value || '200', 10);
             try {
+                const enteringRelaxationMode = !Boolean(
+                    this.state.atoms?.metadata?.relaxation?.active
+                    || (
+                        this.state.relaxTrajectory?.active
+                        && this.state.relaxTrajectory?.kind === 'relaxation'
+                    )
+                );
                 this.startRelaxTrajectory();
                 const response = await this.api.relaxStart(
                     this.backendPositionsPayload(),
@@ -21928,6 +22519,9 @@ class VAseApp {
                     this.currentCalculatorPayload()
                 );
                 if (response.status === 'started' || response.status === 'restarting') {
+                    if (response.status === 'started' && enteringRelaxationMode) {
+                        this.recordStructureHistoryAction('/api/relax/start/');
+                    }
                     const completionArrivedFirst = (
                         this.state.relaxTrajectory?.kind === 'relaxation'
                         && this.state.relaxTrajectory?.finished === true
@@ -21960,6 +22554,7 @@ class VAseApp {
             }
         };
         document.getElementById('btn-exit-relax-mode').onclick = () => this.exitRelaxationMode();
+        document.getElementById('btn-clear-relax-trajectory').onclick = () => this.clearRelaxationTrajectory();
         document.getElementById('calc-device')?.addEventListener('change', () => {
             const cpus = document.getElementById('calc-cpus');
             if (cpus) cpus.disabled = document.getElementById('calc-device')?.value !== 'cpu';
@@ -21968,11 +22563,34 @@ class VAseApp {
         document.getElementById('calc-cpus')?.addEventListener('change', () => this.applyCalculatorControls());
         document.getElementById('calc-cutoff-mode')?.addEventListener('change', () => {
             this.syncRepulsionCutoffControls();
-            this.applyCalculatorControls();
+            this.safeApplyCalculatorControls();
         });
-        document.getElementById('calc-cutoff-distance')?.addEventListener('change', () => this.applyCalculatorControls());
-        document.getElementById('calc-cutoff-scale')?.addEventListener('change', () => this.applyCalculatorControls());
-        document.getElementById('calc-strength')?.addEventListener('change', () => this.applyCalculatorControls());
+        document.getElementById('calc-cutoff-basis')?.addEventListener('change', event => {
+            this.resetRepulsionPairRanges(event.target.value);
+            this.safeApplyCalculatorControls();
+        });
+        document.getElementById('calc-cutoff-scale')?.addEventListener('change', () => this.safeApplyCalculatorControls());
+        document.getElementById('calc-strength')?.addEventListener('change', () => this.safeApplyCalculatorControls());
+        document.getElementById('btn-repulsion-set-all')?.addEventListener('click', () => {
+            const value = Number(document.getElementById('calc-cutoff-distance')?.value);
+            if (!Number.isFinite(value) || value <= 0) {
+                this.toast('Set-all distance must be greater than 0 Å.', 'warning');
+                return;
+            }
+            this.uniqueLabelPairs().forEach(([left, right]) => {
+                this.state.repulsionPairRanges[this.repulsionPairKey(left, right)] = {
+                    enabled: true,
+                    distance: Math.max(0.01, Math.min(100, value))
+                };
+            });
+            this.renderRepulsionPairControls({ capture: false });
+            this.safeApplyCalculatorControls();
+        });
+        document.getElementById('btn-repulsion-reset-pairs')?.addEventListener('click', () => {
+            this.resetRepulsionPairRanges(document.getElementById('calc-cutoff-basis')?.value);
+            this.safeApplyCalculatorControls();
+            this.toast('Repulsion distances reset from the selected radii.', 'success');
+        });
         document.getElementById('chk-bonds').onchange = () => this.safeApplyBondOptions();
         document.getElementById('chk-periodic-bonds').onchange = () => this.safeApplyBondOptions();
         document.getElementById('chk-cell').onchange = () => this.safeApplyDisplayOptions();
@@ -22012,6 +22630,7 @@ class VAseApp {
         document.getElementById('bond-cutoff').onchange = () => this.safeApplyBondOptions();
         document.getElementById('bond-cutoff').oninput = () => this.safeApplyBondOptions();
         document.getElementById('bond-style').onchange = () => this.safeApplyBondOptions();
+        document.getElementById('bond-material').onchange = () => this.safeApplyBondOptions();
         document.getElementById('blender-export-mode').onchange = () => this.safeApplyDisplayOptions();
         document.getElementById('export-include-cell').onchange = event => {
             const includeCell = event.target.checked;
@@ -22032,6 +22651,32 @@ class VAseApp {
         };
         document.getElementById('bond-custom-color').oninput = () => this.safeApplyBondOptions();
         document.getElementById('bond-custom-color').onchange = () => this.safeApplyBondOptions();
+        document.getElementById('bond-opacity').oninput = () => {
+            this.updateBondAppearanceUI();
+            this.safeApplyBondOptions();
+        };
+        document.getElementById('bond-opacity').onchange = () => this.safeApplyBondOptions();
+        document.getElementById('bond-pair-style-key').onchange = () => this.syncBondPairStyleEditor();
+        document.getElementById('bond-pair-style-enabled').onchange = event => {
+            const fields = document.getElementById('bond-pair-style-fields');
+            fields?.classList.toggle('disabled', !event.target.checked);
+            fields?.querySelectorAll('input, select').forEach(control => {
+                control.disabled = !event.target.checked;
+            });
+        };
+        document.getElementById('bond-pair-color-mode').onchange = event => {
+            document.getElementById('bond-pair-custom-color-row')?.classList.toggle(
+                'hidden', event.target.value !== 'custom'
+            );
+        };
+        document.getElementById('bond-pair-opacity').oninput = () => {
+            const value = Number(document.getElementById('bond-pair-opacity').value);
+            const output = document.getElementById('bond-pair-opacity-value');
+            if (output) output.textContent = `${Math.round(Math.max(0.05, Math.min(1, value)) * 100)}%`;
+        };
+        document.getElementById('btn-bond-pair-apply').onclick = () => this.applyBondPairStyle();
+        document.getElementById('btn-bond-pair-apply-all').onclick = () => this.applyBondPairStyle({ all: true });
+        document.getElementById('btn-bond-pair-reset').onclick = () => this.resetBondPairStyle();
         document.getElementById('bond-pairs').oninput = () => this.safeApplyBondOptions();
         document.getElementById('bond-pairs').onchange = () => this.safeApplyBondOptions();
         document.getElementById('btn-bond-reset-specifications').onclick = () => {
@@ -22639,6 +23284,66 @@ class VAseApp {
                 }
             }
         });
+    }
+
+    dispose() {
+        if (this.disposed) return;
+        this.disposed = true;
+
+        const clearTimer = value => {
+            if (value !== null && value !== undefined) {
+                clearTimeout(value);
+                clearInterval(value);
+            }
+        };
+        clearTimer(this.visualHistoryTimer);
+        clearTimer(this.constraintTimeout);
+        clearTimer(this.addAtomsUI?.domainRequestTimer);
+        clearTimer(this.bulkBuilderRuntime?.previewTimer);
+        if (this.state) {
+            Object.keys(this.state)
+                .filter(key => /Timer$/.test(key))
+                .forEach(key => {
+                    clearTimer(this.state[key]);
+                    this.state[key] = null;
+                });
+            this.state.trajectoryPlaybackTask = null;
+            this.state.trajectoryStopPromise = null;
+            this.state.trajectoryBinaryCache = null;
+            this.state.rdfTrajectoryCache = null;
+            this.state.relaxTrajectory = null;
+        }
+
+        this.atomColorScaleRuntime.requestToken += 1;
+        this.forceVectorRuntime.requestToken += 1;
+        this.displacementRuntime.requestToken += 1;
+        this.volumetricHistogramObserver?.disconnect?.();
+        this.volumetricHistogramObserver = null;
+        this.hideToolbarTooltip?.();
+        this.cleanupCallbacks.splice(0).forEach(callback => {
+            try { callback(); } catch { /* page teardown */ }
+        });
+
+        this.closeSocket?.();
+        if (this.ws) {
+            this.ws.onmessage = null;
+            this.ws.onopen = null;
+            this.ws.onerror = null;
+            this.ws.onclose = null;
+        }
+        window.removeEventListener('resize', this.handleWindowResize);
+        window.removeEventListener('v_ase-theme-change', this.handleThemeChange);
+        window.removeEventListener('pagehide', this.handlePageTeardown);
+        window.removeEventListener('beforeunload', this.handlePageTeardown);
+        if (this.workspaceChild) {
+            window.removeEventListener('message', this.handleWorkspaceMessage);
+        }
+
+        this.renderer?.dispose?.();
+        if (window.__V_ASE_APP__ === this) window.__V_ASE_APP__ = null;
+        if (window.__ASE_APP__ === this) window.__ASE_APP__ = null;
+        window.v_aseAI = null;
+        window.__V_ASE_AI__ = null;
     }
 }
 

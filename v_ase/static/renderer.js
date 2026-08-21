@@ -82,6 +82,42 @@ function bondRangeRecordEqual(first = {}, second = {}) {
     return true;
 }
 
+function cloneBondStyleRecord(source = {}) {
+    return Object.fromEntries(Object.entries(source).flatMap(([key, style]) => (
+        style && typeof style === 'object'
+            ? [[key, {
+                style: style.style === 'flat' ? 'flat' : 'cylinder',
+                material: ['standard', 'metal', 'rubber', 'unlit'].includes(style.material)
+                    ? style.material
+                    : 'standard',
+                colorMode: style.colorMode === 'custom' ? 'custom' : 'split',
+                color: typeof style.color === 'string' ? style.color : '#c8ccd0',
+                opacity: Math.max(0.05, Math.min(1, Number(style.opacity) || 1))
+            }]]
+            : []
+    )));
+}
+
+function bondStyleRecordEqual(first = {}, second = {}) {
+    if (first === second) return true;
+    const firstKeys = Object.keys(first);
+    const secondKeys = Object.keys(second);
+    if (firstKeys.length !== secondKeys.length) return false;
+    for (const key of firstKeys) {
+        const a = first[key];
+        const b = second[key];
+        if (
+            !b
+            || a.style !== b.style
+            || a.material !== b.material
+            || a.colorMode !== b.colorMode
+            || a.color !== b.color
+            || Number(a.opacity) !== Number(b.opacity)
+        ) return false;
+    }
+    return true;
+}
+
 class BlenderTumbleControls {
     constructor(camera, domElement) {
         this.camera = camera;
@@ -390,6 +426,25 @@ class BlenderTumbleControls {
     update() {
         return false;
     }
+
+    dispose() {
+        this.enabled = false;
+        this.endGesture(null, { force: true });
+        this.finishWheelGesture();
+        this.removeWindowGestureListeners();
+        const element = this.domElement;
+        element.removeEventListener('contextmenu', this.onContextMenu);
+        element.removeEventListener('auxclick', this.onAuxClick);
+        element.removeEventListener('pointerdown', this.onPointerDown);
+        element.removeEventListener('pointermove', this.onPointerMove);
+        element.removeEventListener('pointerup', this.onPointerUp);
+        element.removeEventListener('pointercancel', this.onPointerCancel);
+        element.removeEventListener('lostpointercapture', this.onLostPointerCapture);
+        element.removeEventListener('wheel', this.onWheel);
+        this.onChange = null;
+        this.onGestureStart = null;
+        this.onGestureEnd = null;
+    }
 }
 
 const FALLBACK_ATOM_COLOR = '#cccccc';
@@ -663,9 +718,12 @@ export class ASERenderer {
             pairwiseBondCutoffs: {},
             pairwiseBondRanges: {},
             bondStyle: 'cylinder',
+            bondMaterial: 'standard',
             bondThickness: 0.25,
             bondColorMode: 'split',
             bondCustomColor: '#c8ccd0',
+            bondOpacity: 1,
+            pairwiseBondStyles: {},
             atomRadiusScale: 0.6,
             labelRadii: {},
             labelColors: {},
@@ -1579,10 +1637,10 @@ export class ASERenderer {
         return this.displayOptions?.atomDisplayMode === '2d' ? '2d' : '3d';
     }
 
-    effectiveBondStyle() {
+    effectiveBondStyle(requestedStyle = this.displayOptions?.bondStyle) {
         return this.atomDisplayMode() === '2d'
             ? 'flat'
-            : (this.displayOptions?.bondStyle === 'flat' ? 'flat' : 'cylinder');
+            : (requestedStyle === 'flat' ? 'flat' : 'cylinder');
     }
 
     atomVisualRadius(index) {
@@ -4014,6 +4072,9 @@ export class ASERenderer {
             pairwiseBondRanges: cloneBondRangeRecord(
                 options.pairwiseBondRanges || this.displayOptions.pairwiseBondRanges || {}
             ),
+            pairwiseBondStyles: cloneBondStyleRecord(
+                options.pairwiseBondStyles || this.displayOptions.pairwiseBondStyles || {}
+            ),
             labelRadii: { ...(options.labelRadii || this.displayOptions.labelRadii || {}) },
             labelColors: { ...(options.labelColors || this.displayOptions.labelColors || {}) },
             labelOpacities: { ...(options.labelOpacities || this.displayOptions.labelOpacities || {}) },
@@ -4031,8 +4092,16 @@ export class ASERenderer {
         const sphereQualityChanged = previous.sphereQuality !== this.displayOptions.sphereQuality;
         const atomDisplayModeChanged = previous.atomDisplayMode !== this.displayOptions.atomDisplayMode;
         const viewportBackgroundChanged = previous.viewportBackground !== this.displayOptions.viewportBackground;
+        const pairUsesFlatBonds = record => Object.values(record || {}).some(
+            style => style?.style === 'flat'
+        );
         const flatOutlineChanged = viewportBackgroundChanged && (
-            previous.atomDisplayMode === '2d' || this.displayOptions.atomDisplayMode === '2d'
+            previous.atomDisplayMode === '2d'
+            || this.displayOptions.atomDisplayMode === '2d'
+            || previous.bondStyle === 'flat'
+            || this.displayOptions.bondStyle === 'flat'
+            || pairUsesFlatBonds(previous.pairwiseBondStyles)
+            || pairUsesFlatBonds(this.displayOptions.pairwiseBondStyles)
         );
         const radiusChanged = previous.atomRadiusScale !== this.displayOptions.atomRadiusScale ||
             !scalarRecordEqual(previous.labelRadii, this.displayOptions.labelRadii);
@@ -4142,10 +4211,13 @@ export class ASERenderer {
             previous.bondMode !== this.displayOptions.bondMode ||
             previous.bondCutoffScale !== this.displayOptions.bondCutoffScale ||
             previous.bondStyle !== this.displayOptions.bondStyle ||
+            previous.bondMaterial !== this.displayOptions.bondMaterial ||
             atomDisplayModeChanged ||
             previous.bondThickness !== this.displayOptions.bondThickness ||
             previous.bondColorMode !== this.displayOptions.bondColorMode ||
             previous.bondCustomColor !== this.displayOptions.bondCustomColor ||
+            previous.bondOpacity !== this.displayOptions.bondOpacity ||
+            !bondStyleRecordEqual(previous.pairwiseBondStyles, this.displayOptions.pairwiseBondStyles) ||
             (colorChanged && this.displayOptions.bondColorMode === 'split') ||
             !flatPairArrayEqual(previous.manualBondPairs, this.displayOptions.manualBondPairs) ||
             !scalarRecordEqual(previous.pairwiseBondCutoffs, this.displayOptions.pairwiseBondCutoffs) ||
@@ -5743,7 +5815,14 @@ export class ASERenderer {
         this.domElement.dataset.bondCount = '0';
         this.domElement.dataset.supercellBridgeBondCount = '0';
         this.domElement.dataset.periodicBonds = this.displayOptions.showPeriodicBonds ? 'true' : 'false';
-        this.domElement.dataset.bondStyle = this.effectiveBondStyle();
+        const pairStyles = Object.values(this.displayOptions.pairwiseBondStyles || {});
+        const effectiveStyles = new Set([
+            this.effectiveBondStyle(),
+            ...pairStyles.map(style => this.effectiveBondStyle(style?.style))
+        ]);
+        this.domElement.dataset.bondStyle = effectiveStyles.size > 1
+            ? 'mixed'
+            : [...effectiveStyles][0];
         this.domElement.dataset.requestedBondStyle = this.displayOptions.bondStyle || 'cylinder';
         this.domElement.dataset.bondColorMode = this.displayOptions.bondColorMode || 'split';
         this.domElement.dataset.bondThickness = String(this.bondThickness());
@@ -5768,24 +5847,21 @@ export class ASERenderer {
                 !hookeanExcluded.has(this.hookeanPairKey(i, j)))
             : this.inferBondPairs());
         this.domElement.dataset.bondCount = String(this.bondPairs.length);
-        const split = this.displayOptions.bondColorMode !== 'custom';
-        const segments = this.bondPairs.flatMap(([i, j]) => split
-            ? [
-                { i, j, t0: 0, t1: 0.5, colorIndex: i },
-                { i, j, t0: 0.5, t1: 1, colorIndex: j }
-            ]
-            : [{ i, j, t0: 0, t1: 1, colorIndex: null }]);
-        const flat = this.effectiveBondStyle() === 'flat';
-        const segmentsByColor = new Map();
+        const segments = this.bondPairs.flatMap(([i, j]) => this.bondSegmentsForPair(i, j));
+        const segmentsByAppearance = new Map();
         segments.forEach(segment => {
-            const color = this.bondSegmentColor(segment);
-            if (!segmentsByColor.has(color)) segmentsByColor.set(color, []);
-            segmentsByColor.get(color).push(segment);
+            const key = this.bondAppearanceKey(segment);
+            if (!segmentsByAppearance.has(key)) segmentsByAppearance.set(key, []);
+            segmentsByAppearance.get(key).push(segment);
         });
-        segmentsByColor.forEach((colorSegments, color) => {
+        segmentsByAppearance.forEach(colorSegments => {
+            const sample = colorSegments[0];
+            const appearance = sample.appearance;
+            const color = this.bondSegmentColor(sample);
+            const flat = appearance.style === 'flat';
             const mesh = new THREE.InstancedMesh(
                 flat ? this.bondFlatGeometry : this.bondCylinderGeometry,
-                this.bondMaterial(flat ? 'flat' : 'cylinder', color),
+                this.bondMaterial(appearance.style, color, appearance.material, appearance.opacity),
                 colorSegments.length
             );
             mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
@@ -5796,6 +5872,7 @@ export class ASERenderer {
                 bondPairs: this.bondPairs,
                 bondSegments: colorSegments,
                 bondColor: color,
+                bondAppearance: { ...appearance },
                 sharedGeometry: true,
                 sharedMaterial: true
             };
@@ -5810,7 +5887,9 @@ export class ASERenderer {
                     segment.t1,
                     null,
                     null,
-                    thickness
+                    thickness,
+                    null,
+                    appearance.style
                 );
             });
             mesh.instanceMatrix.needsUpdate = true;
@@ -5837,7 +5916,9 @@ export class ASERenderer {
                             segment.t1,
                             null,
                             null,
-                            thickness
+                            thickness,
+                            null,
+                            segment.appearance?.style
                         );
                     });
                     bond.instanceMatrix.needsUpdate = true;
@@ -6982,27 +7063,98 @@ export class ASERenderer {
         return Number.isFinite(value) ? Math.max(0.02, Math.min(0.6, value)) : 0.25;
     }
 
+    normalizedBondMaterial(value) {
+        return ['standard', 'metal', 'rubber', 'unlit'].includes(value)
+            ? value
+            : 'standard';
+    }
+
+    bondAppearance(i, j) {
+        const left = this.atomsData?.symbols?.[i] || '';
+        const right = this.atomsData?.symbols?.[j] || '';
+        const override = this.displayOptions.pairwiseBondStyles?.[this.labelPairKey(left, right)];
+        const source = override && typeof override === 'object' ? override : {};
+        const opacity = Number(source.opacity ?? this.displayOptions.bondOpacity);
+        return {
+            style: this.effectiveBondStyle(source.style ?? this.displayOptions.bondStyle),
+            material: this.normalizedBondMaterial(source.material ?? this.displayOptions.bondMaterial),
+            colorMode: (source.colorMode ?? this.displayOptions.bondColorMode) === 'custom'
+                ? 'custom'
+                : 'split',
+            customColor: this.validHexColor(source.color)
+                ? source.color.toLowerCase()
+                : (this.validHexColor(this.displayOptions.bondCustomColor)
+                    ? this.displayOptions.bondCustomColor.toLowerCase()
+                    : '#c8ccd0'),
+            opacity: Math.max(0.05, Math.min(1, Number.isFinite(opacity) ? opacity : 1))
+        };
+    }
+
+    bondSegmentsForPair(i, j) {
+        const appearance = this.bondAppearance(i, j);
+        return appearance.colorMode === 'custom'
+            ? [{ i, j, t0: 0, t1: 1, colorIndex: null, appearance }]
+            : [
+                { i, j, t0: 0, t1: 0.5, colorIndex: i, appearance },
+                { i, j, t0: 0.5, t1: 1, colorIndex: j, appearance }
+            ];
+    }
+
+    bondAppearanceKey(segment) {
+        const appearance = segment.appearance || this.bondAppearance(segment.i, segment.j);
+        const color = this.bondSegmentColor(segment);
+        return [
+            appearance.style,
+            appearance.material,
+            appearance.opacity.toFixed(4),
+            color
+        ].join(':');
+    }
+
     bondSegmentColor(segment) {
         const requested = segment.colorIndex === null
-            ? this.displayOptions.bondCustomColor
+            ? (segment.appearance?.customColor || this.displayOptions.bondCustomColor)
             : this.atomVisualColor(segment.colorIndex, this.customColors[segment.colorIndex]);
         return this.validHexColor(requested) ? requested.toLowerCase() : '#c8ccd0';
     }
 
-    bondMaterial(style, color) {
-        const key = `bond:${style}:${style === 'flat' ? this.viewportBackgroundMode : 'lit'}:${color}`;
+    bondMaterial(style, color, presetName = 'standard', opacity = 1) {
+        const preset = this.normalizedBondMaterial(presetName);
+        const normalizedOpacity = Math.max(0.05, Math.min(1, Number(opacity) || 1));
+        const transparent = normalizedOpacity < 0.999;
+        const key = [
+            'bond', style, preset,
+            style === 'flat' ? this.viewportBackgroundMode : 'lit',
+            color, normalizedOpacity.toFixed(4)
+        ].join(':');
         if (this.materialCache.has(key)) return this.materialCache.get(key);
-        const material = style === 'flat'
-            ? new THREE.MeshBasicMaterial({
+        let material;
+        if (preset === 'unlit') {
+            material = new THREE.MeshBasicMaterial({
                 color,
-                side: THREE.DoubleSide,
-                toneMapped: false
-            })
-            : new THREE.MeshStandardMaterial({
-                color,
-                roughness: 0.5,
-                metalness: 0.03
+                side: style === 'flat' ? THREE.DoubleSide : THREE.FrontSide,
+                toneMapped: false,
+                transparent,
+                opacity: normalizedOpacity,
+                depthWrite: !transparent
             });
+        } else {
+            const spec = ATOM_MATERIAL_PRESETS[preset];
+            material = new THREE.MeshPhysicalMaterial({
+                color,
+                roughness: spec.roughness,
+                metalness: spec.metalness,
+                clearcoat: spec.clearcoat,
+                clearcoatRoughness: spec.clearcoatRoughness,
+                specularIntensity: spec.specularIntensity,
+                envMap: preset === 'metal' ? this.ensureMetalEnvironmentMap() : null,
+                envMapIntensity: spec.envMapIntensity,
+                side: style === 'flat' ? THREE.DoubleSide : THREE.FrontSide,
+                transparent,
+                opacity: normalizedOpacity,
+                depthWrite: !transparent
+            });
+        }
         if (style === 'flat') this.applyFlatBondShader(material);
         this.materialCache.set(key, material);
         return material;
@@ -7095,7 +7247,8 @@ export class ASERenderer {
         }
         bond.visible = true;
         bond.position.copy(start).addScaledVector(delta, 0.5);
-        if (this.effectiveBondStyle() === 'flat') {
+        const style = this.bondAppearance(i, j).style;
+        if (style === 'flat') {
             bond.scale.set(this.bondThickness(), length, 1);
             this.orientFlatBond(bond, delta);
         } else {
@@ -7114,7 +7267,8 @@ export class ASERenderer {
         shift = null,
         imageOffset = null,
         thickness = this.bondThickness(),
-        cellOffset = null
+        cellOffset = null,
+        style = this.effectiveBondStyle()
     ) {
         const a = this.atomMeshByIndex.get(i);
         const b = this.atomMeshByIndex.get(j);
@@ -7156,7 +7310,7 @@ export class ASERenderer {
         const centerX = atomStart.x + (shift?.x || 0) + fullDelta.x * midpointFactor;
         const centerY = atomStart.y + (shift?.y || 0) + fullDelta.y * midpointFactor;
         const centerZ = atomStart.z + (shift?.z || 0) + fullDelta.z * midpointFactor;
-        if (this.effectiveBondStyle() === 'flat') {
+        if (style === 'flat') {
             dummy.position.set(centerX, centerY, centerZ);
             dummy.scale.set(thickness, length, 1);
             this.orientFlatBond(dummy, fullDelta);
@@ -7601,16 +7755,8 @@ export class ASERenderer {
         const translations = this.supercellTranslations(basis, repeats);
         if (!translations.length) return;
 
-        const split = this.displayOptions.bondColorMode !== 'custom';
-        const segmentsForPair = (i, j) => split
-            ? [
-                { i, j, t0: 0, t1: 0.5, colorIndex: i },
-                { i, j, t0: 0.5, t1: 1, colorIndex: j }
-            ]
-            : [{ i, j, t0: 0, t1: 1, colorIndex: null }];
-        const flat = this.effectiveBondStyle() === 'flat';
         const thickness = this.bondThickness();
-        const instancesByColor = new Map();
+        const instancesByAppearance = new Map();
         const addInstance = (
             segment,
             shift,
@@ -7618,13 +7764,13 @@ export class ASERenderer {
             bridge = false,
             cellOffset = null
         ) => {
-            const color = this.bondSegmentColor(segment);
-            if (!instancesByColor.has(color)) instancesByColor.set(color, []);
-            instancesByColor.get(color).push({ segment, shift, imageOffset, bridge, cellOffset });
+            const key = this.bondAppearanceKey(segment);
+            if (!instancesByAppearance.has(key)) instancesByAppearance.set(key, []);
+            instancesByAppearance.get(key).push({ segment, shift, imageOffset, bridge, cellOffset });
         };
 
         this.bondPairs.forEach(([i, j]) => {
-            segmentsForPair(i, j).forEach(segment => {
+            this.bondSegmentsForPair(i, j).forEach(segment => {
                 translations.forEach(translation => addInstance(
                     segment,
                     translation.vector,
@@ -7647,7 +7793,7 @@ export class ASERenderer {
         bridgeRecords.forEach(record => {
             this.supercellBridgeStartOffsets(record.imageOffset, repeats).forEach(cellOffset => {
                 const shift = this.cellOffsetVector(cellOffset, basis);
-                segmentsForPair(record.i, record.j).forEach(segment => {
+                this.bondSegmentsForPair(record.i, record.j).forEach(segment => {
                     addInstance(segment, shift, record.imageOffset, true, cellOffset);
                 });
                 bridgeBondCount++;
@@ -7655,8 +7801,17 @@ export class ASERenderer {
         });
         this.domElement.dataset.supercellBridgeBondCount = String(bridgeBondCount);
 
-        instancesByColor.forEach((bondInstances, color) => {
-            const material = this.bondMaterial(flat ? 'flat' : 'cylinder', color);
+        instancesByAppearance.forEach(bondInstances => {
+            const sample = bondInstances[0].segment;
+            const appearance = sample.appearance;
+            const color = this.bondSegmentColor(sample);
+            const flat = appearance.style === 'flat';
+            const material = this.bondMaterial(
+                appearance.style,
+                color,
+                appearance.material,
+                appearance.opacity
+            );
             const mesh = new THREE.InstancedMesh(
                 flat ? this.bondFlatGeometry : this.bondCylinderGeometry,
                 material,
@@ -7669,6 +7824,7 @@ export class ASERenderer {
                 supercellBonds: true,
                 bondInstances,
                 bondColor: color,
+                bondAppearance: { ...appearance },
                 sharedGeometry: true,
                 sharedMaterial: true,
                 replicaOpacity: 1
@@ -7685,7 +7841,8 @@ export class ASERenderer {
                     instance.shift,
                     instance.imageOffset,
                     thickness,
-                    instance.cellOffset
+                    instance.cellOffset,
+                    appearance.style
                 );
             });
             mesh.instanceMatrix.needsUpdate = true;
@@ -7709,7 +7866,8 @@ export class ASERenderer {
                     instance.shift,
                     instance.imageOffset,
                     thickness,
-                    instance.cellOffset
+                    instance.cellOffset,
+                    segment.appearance?.style
                 );
             });
             mesh.instanceMatrix.needsUpdate = true;
@@ -8890,5 +9048,52 @@ export class ASERenderer {
 
     animate() {
         this.requestRender();
+    }
+
+    dispose() {
+        if (this.renderRequestId !== null) {
+            cancelAnimationFrame(this.renderRequestId);
+            this.renderRequestId = null;
+        }
+        this.suspended = true;
+        this.controls?.dispose?.();
+
+        const geometries = new Set(this.geometryCache?.values?.() || []);
+        const materials = new Set(this.materialCache?.values?.() || []);
+        this.scene?.traverse?.(object => {
+            if (object.geometry) geometries.add(object.geometry);
+            const objectMaterials = Array.isArray(object.material)
+                ? object.material
+                : object.material ? [object.material] : [];
+            objectMaterials.forEach(material => materials.add(material));
+        });
+        geometries.forEach(geometry => geometry?.dispose?.());
+        materials.forEach(material => {
+            for (const value of Object.values(material || {})) {
+                if (value?.isTexture) value.dispose?.();
+            }
+            material?.dispose?.();
+        });
+        this.metalEnvironmentRenderTarget?.dispose?.();
+        if (
+            this.metalEnvironmentMap
+            && this.metalEnvironmentMap !== this.metalEnvironmentRenderTarget?.texture
+        ) {
+            this.metalEnvironmentMap.dispose?.();
+        }
+
+        this.geometryCache?.clear?.();
+        this.materialCache?.clear?.();
+        this.atomMeshByIndex?.clear?.();
+        this.atomInstanceRefs?.clear?.();
+        this.atomInstanceMeshes?.clear?.();
+        this.volumetricPlanes?.clear?.();
+        this.renderer?.renderLists?.dispose?.();
+        this.renderer?.dispose?.();
+        this.renderer?.forceContextLoss?.();
+        this.domElement?.remove?.();
+        this.onFrame = null;
+        this.onCameraChange = null;
+        this.onLightingChange = null;
     }
 }

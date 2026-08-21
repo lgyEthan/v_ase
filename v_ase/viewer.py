@@ -338,7 +338,7 @@ class ASEEditor:
             finalize_workspace(self.workspace_id)
         if self.session_id in sessions:
             session = sessions.pop(self.session_id)
-            session.cleanup_temporary_files()
+            session.release_resources()
         release_local_server(self.port, expected_handle=self._server_handle)
 
     def export_poscar(self, filename="POSCAR"):
@@ -599,7 +599,7 @@ def view(
                     finalize_workspace(workspace.workspace_id)
                 closed_session = sessions.pop(session_id, None)
                 if closed_session is not None:
-                    closed_session.cleanup_temporary_files()
+                    closed_session.release_resources()
                 release_local_server(port, expected_handle=server_handle)
         else:
             return ASEEditor(

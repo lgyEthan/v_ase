@@ -14,7 +14,7 @@ All lengths are Angstrom and all angles are degrees unless stated otherwise.
 Install the tested release:
 
 ```bash
-python -m pip install "v_ase-gui==0.2.26"
+python -m pip install "v_ase-gui==0.2.27"
 ```
 
 Start the terminal-oriented API session yourself:
@@ -221,7 +221,10 @@ when they matter.
 Prefer stable multi-region objects with `id`, `name`, `role:"allow"|"reject"`,
 and Cartesian `bounds`. The exact domain is cell intersect Allow union minus
 Reject union; without a finite cell an Allow region is mandatory. `regionMic`
-uses complete triclinic lattice vectors and `allowEscape` defaults true. Use
+uses complete triclinic lattice vectors. `constrainToDomain` defaults false;
+when true, every staged atom remains in the Allow union and outside every
+Reject region, while rigid molecules are tested by their native ASE template
+origin. `allowEscape` is the inverse compatibility field. Use
 `update-add-atoms-region` and `scale-add-atoms-regions`; GUI region `G` moves,
 `S` scales with optional Cartesian axis lock, and `R` is deliberately rejected.
 Before `scatter-molecules`, read `capabilities().addAtoms.moleculeCatalog`.
@@ -354,7 +357,8 @@ For any nontrivial task, verify all applicable items:
   entry counts, random seed, homogeneous spacing diagnostics, regular Cartesian
   spacing, exact triclinic Boolean domain, stable multi-region IDs, Allow-union
   and Reject-union semantics, no-cell Allow requirement, analytic accessible
-  volume, periodic region images, default escape policy, multi-selected live
+  volume, periodic region images, default unconstrained policy and explicit
+  Allow/Reject relaxation confinement, multi-selected live
   `G` bounds, global-Cartesian `S` bounds, edge-only nested-region selection,
   one intact source box plus deduplicated nonzero wrapped fragments, rejected
   region rotation, pairwise cutoffs, MIC, temporary host
@@ -377,7 +381,8 @@ For any nontrivial task, verify all applicable items:
   for 3D periodic RDF verify the unique-MIC reference, image span, `g(r) = 1` bulk limit, long-range behavior, and warnings; for no PBC verify the unordered-pair probability-density integral;
   require open plots to follow `G`/`R`/`S`, committed edits, and relaxation frames without closing;
 - appearance: visibility, radii, colors, per-label opacity, materials, bonds,
-  cell, and background;
+  global bond material/opacity, independent pair style/material/color/opacity,
+  pair-flat geometry inside a 3D scene, cell, and background;
 - per-atom colorscale: exact catalog field ID, scope, map, reverse state,
   gamma, resolved `vmin`/`vmax`, current/trajectory/manual range source, and
   identical locked range across every trajectory frame and export; for large
@@ -388,8 +393,9 @@ For any nontrivial task, verify all applicable items:
 - force vectors: stored-force availability, exact Cartesian direction,
   `scale * |F|` length, 2D/3D style, thickness/color, replica placement, and
   an explicit unavailable state rather than calculator evaluation;
-- preferences: resolved interface theme, system/light/dark preference, saved
-  personal-default state, and the intended scope before storing or restoring;
+- preferences: resolved interface theme, System mixed chrome/white-viewport
+  behavior, explicit Light/Dark viewport behavior, saved personal-default
+  state, and the intended scope before storing or restoring;
 - camera: projection, position, target, up vector, framing, expected direction;
 - manipulation overlays: rotation axis, fixed start reference, moving current
   reference, and separate commensurate candidates when a human is editing;
@@ -433,8 +439,9 @@ For any nontrivial task, verify all applicable items:
   annotation-free 3D helix at `r > rt`, and ASE force magnitude
   `k * (r - rt)` without altering backend constraint semantics; verify the same
   threshold transition on every trajectory frame;
-- relaxation modes: source, structure, Add Atoms, and planar-translation timelines remain distinguishable; stop permits restart, while exit keeps current coordinates or restores the exact baseline and removes only that optimizer timeline;
-- built-in repulsion: Bonding mode uses the active label-pair cutoff table times a multiplier; explicit disabled/zero Pairwise entries stay inactive, while automatic same-class visual suppression uses a covalent contact fallback. Absolute mode uses one Angstrom onset.
+- relaxation modes: source, structure, Add Atoms, and planar-translation timelines remain distinguishable; stop permits restart; `clear-relaxation-trajectory` retains the displayed or final frame while leaving the mode active; exit keeps current coordinates or restores the exact baseline and removes only that optimizer timeline;
+- built-in repulsion: visual bonds and contact repulsion are independent. The default absolute mode uses enabled label-pair onset distances in Angstrom, seeded from ASE covalent-radius sums or optional van der Waals sums; zero disables only that pair. Scaled mode multiplies the same reference table by a dimensionless contact multiplier. Neither onset is a hard distance constraint.
+- history: one confirmed transform gesture, Apply action, placement batch, or relaxation start is one undo step. During Add Atoms, Undo/Redo traverses individual batches and Cancel still restores the exact pre-session baseline.
 - render: exact dimensions, format, options, nonblank decoded pixels;
 - export: MIME type, filename, byte count, and reopenability where supported;
 - standalone HTML: both lightweight and project-embedded modes load from

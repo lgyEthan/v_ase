@@ -15,7 +15,8 @@ import re
 import threading
 import traceback
 import uuid
-from dataclasses import dataclass, field
+import copy
+from dataclasses import dataclass, field, fields
 from functools import lru_cache
 from typing import Any, Iterable, Sequence
 
@@ -1360,7 +1361,7 @@ def default_pair_cutoffs(
     symbols: Iterable[str],
     *,
     basis: str = "covalent",
-    scale: float = 0.7,
+    scale: float = 1.0,
 ) -> dict[str, float]:
     """Build NARA-style explicit pair thresholds in angstrom."""
     normalized_basis = str(basis or "covalent").strip().lower()
@@ -1811,7 +1812,7 @@ class AtomAdditionSession:
     effective_device: str = "cpu"
     cpu_threads: int = field(default_factory=default_cpu_threads)
     calculator_backend: str = "numpy"
-    cutoff_mode: str = "bonding"
+    cutoff_mode: str = "absolute"
     cutoff_distance: float = 2.0
     k_repulsion: float = 1.0
     lock: threading.RLock = field(default_factory=threading.RLock, repr=False)
@@ -1851,6 +1852,7 @@ class AtomAdditionSession:
             "domain": self.domain.to_json(),
             "accessible_volume_angstrom3": self.domain.volume,
             "allow_escape": self.allow_escape,
+            "constrain_to_domain": not self.allow_escape,
             "cell": np.asarray(self.baseline_atoms.cell.array, dtype=float).tolist(),
             "pbc": np.asarray(self.baseline_atoms.pbc, dtype=bool).tolist(),
             "entries": [dict(entry) for entry in self.entries],
@@ -1894,6 +1896,39 @@ class AtomAdditionSession:
             "cpu_thread_options": cpu_thread_options(),
             "cuda_available": cuda_available(),
         }
+
+
+def snapshot_atom_addition_session(
+    addition: AtomAdditionSession | None,
+) -> AtomAdditionSession | None:
+    """Return a worker-free deep snapshot suitable for document history.
+
+    The lock and optimizer lifecycle are process resources, not document state.
+    Restored snapshots therefore receive a fresh lock and always resume in a
+    stopped state while preserving every staged atom, molecule, region, and
+    calculator setting.
+    """
+    if not isinstance(addition, AtomAdditionSession):
+        return None
+    with addition.lock:
+        values: dict[str, Any] = {}
+        for descriptor in fields(AtomAdditionSession):
+            name = descriptor.name
+            if name == "lock":
+                continue
+            value = getattr(addition, name)
+            if name == "baseline_atoms":
+                values[name] = _copy_atoms_with_calculator(value)
+            elif name == "redo_before":
+                # History states are treated as immutable snapshots. A shallow
+                # copy avoids recursively duplicating the complete timeline.
+                values[name] = list(value)
+            else:
+                values[name] = copy.deepcopy(value)
+        values["is_relaxing"] = False
+        values["stop_requested"] = False
+        values["run_id"] = int(addition.run_id) + 1
+    return AtomAdditionSession(**values)
 
 
 def atom_addition_summary(session: Any) -> dict[str, Any] | None:
@@ -1997,7 +2032,11 @@ def start_atom_addition(session: Any, payload: dict[str, Any]) -> dict[str, Any]
         if not np.isfinite(regular_spacing) or regular_spacing <= 0:
             raise ValueError("Regular Cartesian spacing must be positive or left blank for Auto.")
     pbc_aware = bool(payload.get("pbc_aware", True))
-    allow_escape = bool(payload.get("allow_escape", True))
+    allow_escape = (
+        not bool(payload.get("constrain_to_domain"))
+        if "constrain_to_domain" in payload
+        else bool(payload.get("allow_escape", True))
+    )
     seed = _random_seed(payload.get("seed"))
     random_orientation = bool(payload.get("random_orientation", True))
     rigid_molecules = bool(payload.get("rigid_molecules", True))
@@ -2066,7 +2105,7 @@ def start_atom_addition(session: Any, payload: dict[str, Any]) -> dict[str, Any]
     sampling["content_kind"] = content_kind
 
     basis = str(payload.get("cutoff_basis") or "covalent").strip().lower()
-    cutoff_scale = float(payload.get("cutoff_scale", 0.7))
+    cutoff_scale = float(payload.get("cutoff_scale", 1.0))
     all_elements = [*current.get_chemical_symbols(), *elements]
     pair_cutoffs = normalize_pair_cutoffs(
         payload.get("pair_cutoffs"),
@@ -2160,6 +2199,7 @@ def start_atom_addition(session: Any, payload: dict[str, Any]) -> dict[str, Any]
         )
     else:
         addition = active
+        session.push_history()
         with addition.lock:
             if getattr(session, "atom_addition", None) is not addition:
                 raise ValueError("The active Add Atoms session changed unexpectedly.")
@@ -2263,6 +2303,7 @@ def update_atom_addition_region(session: Any, payload: dict[str, Any]) -> dict[s
             regions=regions,
             pbc_aware=bool(payload.get("region_mic", addition.domain.pbc_aware)),
         )
+        session.push_history()
         addition.regions = list(domain.regions)
         addition.domain = domain
         if addition.density:
@@ -2271,18 +2312,18 @@ def update_atom_addition_region(session: Any, payload: dict[str, Any]) -> dict[s
                 addition.entries,
                 domain.volume,
             )
-        if "allow_escape" in payload:
+        if "constrain_to_domain" in payload:
+            addition.allow_escape = not bool(payload.get("constrain_to_domain"))
+        elif "allow_escape" in payload:
             addition.allow_escape = bool(payload.get("allow_escape"))
         return addition.summary()
 
 
 def _restore_cancelled_addition(session: Any, addition: AtomAdditionSession) -> None:
     history_state = None
-    if (
-        addition.history_index == len(session.history) - 1
-        and addition.history_index >= 0
-    ):
-        history_state = session.history.pop()
+    if 0 <= addition.history_index < len(session.history):
+        history_state = session.history[addition.history_index]
+        del session.history[addition.history_index:]
     if history_state is not None:
         session._restore_history_state(history_state)
     else:
@@ -2366,10 +2407,9 @@ def apply_atom_addition_positions(
 ) -> dict[str, Any]:
     """Apply an interactive transform to staged atoms without touching the host.
 
-    Add Atoms owns one reversible history entry for its whole staging lifetime,
-    so G/R edits update that staged state directly instead of adding nested undo
-    entries.  Submitted host coordinates must still match the current host;
-    this makes a stale or over-broad client transform fail before mutation.
+    Each completed G/R/S gesture is one reversible history action. Submitted
+    host coordinates must still match the current host; this makes a stale or
+    over-broad client transform fail before mutation.
     """
     addition = getattr(session, "atom_addition", None)
     if not isinstance(addition, AtomAdditionSession):
@@ -2415,6 +2455,7 @@ def apply_atom_addition_positions(
                         "Preserve molecular geometry is active. Move or rotate each "
                         "inserted molecule as a complete rigid body, or disable that option."
                     )
+        session.push_history()
         updated = np.asarray(current.positions, dtype=float).copy()
         updated[addition.new_indices] = proposed[addition.new_indices]
         current.set_positions(updated, apply_constraint=False)
@@ -2662,10 +2703,12 @@ def start_atom_addition_relaxation(
         steps = int(payload.get("steps", 250))
         k_repulsion = float(payload.get("k_repulsion", 2.0))
         k_boundary = float(payload.get("k_boundary", 5.0))
-        cutoff_mode = str(payload.get("cutoff_mode") or "bonding").strip().lower()
+        cutoff_mode = str(payload.get("cutoff_mode") or "absolute").strip().lower()
+        if cutoff_mode == "bonding":
+            cutoff_mode = "scaled"
         cutoff_distance = float(payload.get("cutoff_distance", 2.0))
         cutoff_scale = float(
-            payload.get("cutoff_scale", 1.0 if "cutoff_mode" not in payload else 0.7)
+            payload.get("cutoff_scale", 1.0)
         )
         device = str(payload.get("device", addition.requested_device or "cpu")).strip().lower()
         cpu_threads = int(payload.get("cpu_threads", addition.cpu_threads))
@@ -2679,12 +2722,12 @@ def start_atom_addition_relaxation(
         raise ValueError("Repulsion strength must be from 0 through 1000.")
     if not np.isfinite(k_boundary) or k_boundary <= 0 or k_boundary > 1000:
         raise ValueError("Boundary strength must be greater than 0 and at most 1000.")
-    if cutoff_mode not in {"bonding", "absolute"}:
-        raise ValueError("Cutoff definition must be bonding or absolute.")
+    if cutoff_mode not in {"scaled", "absolute"}:
+        raise ValueError("Cutoff definition must be scaled or absolute.")
     if not np.isfinite(cutoff_distance) or cutoff_distance < 0.01 or cutoff_distance > 100:
         raise ValueError("Absolute cutoff distance must be from 0.01 through 100 angstrom.")
     if not np.isfinite(cutoff_scale) or cutoff_scale < 0.05 or cutoff_scale > 3:
-        raise ValueError("Bond cutoff multiplier must be from 0.05 through 3.")
+        raise ValueError("Contact-distance multiplier must be from 0.05 through 3.")
     if device not in {"cpu", "cuda"}:
         raise ValueError("Repulsive placement device must be CPU or CUDA.")
     available_threads = cpu_thread_options()
@@ -2705,9 +2748,14 @@ def start_atom_addition_relaxation(
         if not np.isfinite(value) or value < 0 or value > 100:
             raise ValueError("Pair cutoff distances must be finite values from 0 through 100 angstrom.")
         pair_cutoffs[key] = value
+    session.push_history()
     addition.pair_cutoffs = pair_cutoffs
     addition.freeze_existing = bool(payload.get("freeze_existing", addition.freeze_existing))
-    addition.allow_escape = bool(payload.get("allow_escape", addition.allow_escape))
+    addition.allow_escape = (
+        not bool(payload.get("constrain_to_domain"))
+        if "constrain_to_domain" in payload
+        else bool(payload.get("allow_escape", addition.allow_escape))
+    )
     addition.status = "relaxing"
     addition.is_relaxing = True
     addition.stop_requested = False

@@ -85,14 +85,24 @@ def _valid_cutoff_scale(value: Any | None) -> float:
     try:
         scale = float(value)
     except (TypeError, ValueError):
-        scale = 0.7
+        scale = 1.0
     if not np.isfinite(scale):
-        scale = 0.7
+        scale = 1.0
     return min(3.0, max(0.05, scale))
 
 
 def _valid_cutoff_mode(value: Any | None) -> str:
-    return "absolute" if str(value or "").strip().lower() == "absolute" else "bonding"
+    normalized = str(value or "").strip().lower()
+    if normalized == "absolute":
+        return "absolute"
+    # ``bonding`` was the public name before repulsion distances were
+    # separated from visual bond cutoffs. Read it as the equivalent scaled
+    # reference-distance mode so older projects remain reproducible.
+    return "scaled"
+
+
+def _valid_cutoff_basis(value: Any | None) -> str:
+    return "vdw" if str(value or "").strip().lower().startswith("vdw") else "covalent"
 
 
 def _valid_pair_cutoffs(value: Any | None) -> dict[str, float] | None:
@@ -140,7 +150,12 @@ def _copy_calc_config(source: "VAseRepulsionCalculator") -> dict[str, Any]:
         "k_boundary": source.k_boundary,
         "k_repulsion": source.k_repulsion,
         "cutoff_mode": source.cutoff_mode,
-        "cutoff_distance": source.cutoff_distance,
+        "cutoff_basis": source.cutoff_basis,
+        "cutoff_distance": (
+            source.cutoff_distance
+            if source._absolute_global_override
+            else None
+        ),
         "cutoff_scale": source.cutoff_scale,
         "max_force_norm": source.max_force_norm,
         "mic": source.mic,
@@ -164,13 +179,15 @@ def is_vase_repulsion_calculator(calc) -> bool:
 class VAseRepulsionCalculator(Calculator):
     """ASE calculator for soft pair repulsion and optional region penalties.
 
-    In ``bonding`` cutoff mode, atoms repel below ``cutoff_scale`` times their
-    active label-pair bonding cutoff. The ASE covalent-radius sum remains a
-    compatibility fallback when no pair table is supplied. In ``absolute``
-    mode, every enabled pair instead uses ``cutoff_distance`` in Angstrom.
-    Both modes use ``0.5 * k_repulsion * (r_cut - r)**2`` below the threshold
-    and exactly zero pair energy and force at or beyond it. The threshold is an
-    onset distance, not a constrained minimum separation.
+    Each label-pair entry is independent from bond visualization. In
+    ``absolute`` mode the entry itself is the repulsion onset distance in
+    Angstrom. In ``scaled`` mode it is a reference contact distance multiplied
+    by ``cutoff_scale``. ASE covalent-radius sums are used when no explicit pair
+    table is supplied; van der Waals sums can be requested with
+    ``cutoff_basis='vdw'``. Both modes use
+    ``0.5 * k_repulsion * (r_cut - r)**2`` below the threshold and exactly zero
+    pair energy and force at or beyond it. The onset is not a hard minimum
+    separation.
 
     Torch is used when available, including CUDA if requested; otherwise the
     same force expression is evaluated with NumPy.
@@ -185,9 +202,10 @@ class VAseRepulsionCalculator(Calculator):
         set_region_as_prohibited: bool = False,
         k_boundary: float = 1.0,
         k_repulsion: float = 1.0,
-        cutoff_mode: str = "bonding",
-        cutoff_distance: float = 2.0,
-        cutoff_scale: float = 0.7,
+        cutoff_mode: str = "absolute",
+        cutoff_basis: str = "covalent",
+        cutoff_distance: float | None = None,
+        cutoff_scale: float = 1.0,
         pair_cutoffs: dict[str, float] | None = None,
         max_force_norm: float | None = 10.0,
         mic: bool = True,
@@ -199,10 +217,23 @@ class VAseRepulsionCalculator(Calculator):
     ):
         super().__init__(**kwargs)
         normalized_pair_cutoffs = _valid_pair_cutoffs(pair_cutoffs)
-        self.min_bondinfo = (
+        self.cutoff_basis = _valid_cutoff_basis(cutoff_basis)
+        requested_minimums = (
             normalized_pair_cutoffs
             if normalized_pair_cutoffs is not None
             else min_bondinfo.lower() if isinstance(min_bondinfo, str) else min_bondinfo
+        )
+        if (
+            normalized_pair_cutoffs is None
+            and isinstance(requested_minimums, str)
+            and requested_minimums.startswith("cov")
+            and self.cutoff_basis == "vdw"
+        ):
+            requested_minimums = "vdw"
+        self.min_bondinfo = requested_minimums
+        self._absolute_global_override = (
+            cutoff_distance is not None
+            and not isinstance(requested_minimums, dict)
         )
         self.region = [None] * 6 if region is None else list(region)
         if len(self.region) != 6:
@@ -228,6 +259,7 @@ class VAseRepulsionCalculator(Calculator):
         device: str | None = None,
         cpu_threads: int | None = None,
         cutoff_mode: str | None = None,
+        cutoff_basis: str | None = None,
         cutoff_distance: float | None = None,
         cutoff_scale: float | None = None,
         pair_cutoffs: dict[str, float] | None = None,
@@ -239,6 +271,8 @@ class VAseRepulsionCalculator(Calculator):
             self.cpu_threads = _valid_cpu_threads(cpu_threads)
         if cutoff_mode is not None:
             self.cutoff_mode = _valid_cutoff_mode(cutoff_mode)
+        if cutoff_basis is not None:
+            self.cutoff_basis = _valid_cutoff_basis(cutoff_basis)
         if cutoff_distance is not None:
             self.cutoff_distance = _valid_cutoff_distance(cutoff_distance)
         if cutoff_scale is not None:
@@ -246,6 +280,9 @@ class VAseRepulsionCalculator(Calculator):
         normalized_pair_cutoffs = _valid_pair_cutoffs(pair_cutoffs)
         if normalized_pair_cutoffs is not None:
             self.min_bondinfo = normalized_pair_cutoffs
+            self._absolute_global_override = False
+        elif cutoff_distance is not None and not isinstance(self.min_bondinfo, dict):
+            self._absolute_global_override = True
         if k_repulsion is not None:
             self.k_repulsion = _valid_repulsion_strength(k_repulsion)
         self.reset()
@@ -263,6 +300,7 @@ class VAseRepulsionCalculator(Calculator):
             "cuda_available": cuda_available(),
             "min_bondinfo": self.min_bondinfo,
             "cutoff_mode": self.cutoff_mode,
+            "cutoff_basis": self.cutoff_basis,
             "cutoff_distance": self.cutoff_distance,
             "cutoff_scale": self.cutoff_scale,
             "pair_cutoffs": (
@@ -314,13 +352,11 @@ class VAseRepulsionCalculator(Calculator):
             )
             if value is None:
                 return None
-            # Pair dictionaries use zero or a negative value to disable a
-            # pair. Absolute mode changes the active threshold distance; it
-            # must not reactivate an explicitly disabled pair.
+            # Pair dictionaries use zero to disable a pair in either mode.
             if float(value) <= 0:
                 return None
             if self.cutoff_mode == "absolute":
-                return self.cutoff_distance
+                return self.cutoff_distance if self._absolute_global_override else float(value)
             return float(value) * self.cutoff_scale
         if self.cutoff_mode == "absolute":
             return self.cutoff_distance
@@ -354,12 +390,19 @@ class VAseRepulsionCalculator(Calculator):
     def _neighbor_pairs(self, atoms: Atoms, min_bondinfo):
         if len(atoms) < 2:
             return []
-        if self.cutoff_mode == "absolute":
+        if (
+            self.cutoff_mode == "absolute"
+            and self._absolute_global_override
+        ):
             max_cutoff = self.cutoff_distance
             cutoff = max_cutoff
         elif isinstance(min_bondinfo, dict):
             max_cutoff = max(float(value) for value in min_bondinfo.values()) if min_bondinfo else 0.0
-            max_cutoff *= self.cutoff_scale
+            if self.cutoff_mode == "scaled":
+                max_cutoff *= self.cutoff_scale
+            cutoff = max_cutoff
+        elif self.cutoff_mode == "absolute":
+            max_cutoff = self.cutoff_distance
             cutoff = max_cutoff
         else:
             cutoff = float(min_bondinfo) * self.cutoff_scale

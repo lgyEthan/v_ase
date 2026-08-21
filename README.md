@@ -279,10 +279,12 @@ the viewport below the app header, leaving bottom-left notifications visible:
   symmetry-equivalent opposite face. Shared fragment edges are drawn once, and
   the same lattice-vector mapping controls sampling in orthogonal or triclinic
   cells.
-- Regions describe initial placement. **Allow inserted content to leave the
-  region domain** is on by default, so repulsive placement can find nearby
-  free volume. Turn it off to confine inserted content to the complete Boolean
-  domain during placement relaxation. **Finish** commits the staged
+- Regions describe initial placement. **Enforce Allow and Reject regions
+  during relaxation** is off by default, so repulsive placement can find
+  nearby free volume. Turn it on to keep every staged atom inside the Allow
+  union and outside every Reject region throughout placement relaxation.
+  Rigid molecules are constrained by their ASE template origin, preserving
+  their internal geometry while avoiding per-atom boundary work. **Finish** commits the staged
   coordinates; it does not project an unrelaxed batch into the domain by
   itself.
 - **Temporarily fix existing atoms** keeps the loaded structure stationary
@@ -294,7 +296,7 @@ the viewport below the app header, leaving bottom-left notifications visible:
   move or rotate only the staged content before repulsive placement; **Select
   added** restores that selection at any time.
 - The placement card opens **Structure > Relaxation**. Its calculator,
-  label-pair or absolute cutoff, strength, device, CPU threads, `fmax`, and
+  independent label-pair contact distances, strength, device, CPU threads, `fmax`, and
   step count are the same controls used for ordinary structure relaxation.
   Starting relaxation while Add Atoms is active routes that shared setup
   through one `AdditionRepulsionCalculator` attached to the complete staged
@@ -961,6 +963,8 @@ Before Relaxation** exactly. Choosing Continue leaves the mode active. A
 stopped run can be started again without reopening the document. Very short
 runs may finish before the interface visibly enters its running state; their
 initial, optimizer, and final frames still remain on the Relaxation timeline.
+**Clear Trajectory** removes an accumulated optimization movie without leaving
+the mode and asks whether to retain the displayed frame or the final frame.
 
 The included example starts from a deliberately compressed C60 geometry and
 runs ASE FIRE with v_ase's repulsive fallback calculator:
@@ -974,19 +978,16 @@ v_ase gui examples/readme_scene_assets/crowded_c60_initial.cif --interactive
 ```
 
 The fallback calculator is intended for removing obvious close contacts, not
-for predictive chemistry. **Cutoff definition** has two explicit meanings:
-
-- **Bond cutoffs x multiplier** uses
-  `r_cut,ij = multiplier x active bonding cutoff(label_i, label_j)`.
-  It follows the current automatic, pairwise, or manual label-pair bond setup.
-  Automatic same-class pairs hidden only to reduce visual bond clutter use
-  their covalent contact distance, so overlapping scratch atoms can still
-  separate. A Pairwise pair explicitly disabled or set to `0 Å` remains
-  non-repulsive. The multiplier is dimensionless and is not a minimum
-  permitted distance.
-- **Absolute distance / Å** uses one physical `r_cut` for every enabled pair.
-  Pairs at or beyond that distance have exactly zero repulsive energy and
-  force.
+for predictive chemistry. Repulsion is deliberately independent from visible
+bonds: a pair such as `H_water-H_water` can repel even when no H-H bond is
+drawn. **Absolute pair distances** is the default. Its label-pair table uses
+one physical onset distance `r_cut,ij` in angstrom for every pair; disabling a
+row or entering `0 Å` makes only that pair non-repulsive. New rows start from
+ASE covalent-radius sums, with van der Waals radii available as an alternative
+reference. **Reference distances x contact multiplier** retains a
+dimensionless multiplier for workflows that want all enabled reference
+distances scaled together. A global absolute distance remains available as a
+fallback when no pair table is supplied.
 
 Below either onset distance, the pair potential is
 `E = 1/2 k (r_cut - r)^2`. Because there is no restoring term beyond the
@@ -1049,7 +1050,9 @@ Changes apply immediately. Bonds support:
 - cell-local or periodic minimum-image display;
 - cylinder or flat 2D geometry;
 - custom color or two half-bonds using the atom colors;
-- configurable diameter;
+- configurable diameter, opacity, and Standard, Metal, Rubber, or Unlit material;
+- independent label-pair appearance overrides, including per-pair flat 2D
+  geometry while the rest of the scene remains 3D, plus one-click Apply All;
 - live formation and breaking during Edit transforms.
 
 The top view shows a `6 x 6 Cu2O(111)` film on `7 x 7 Cu(111)`, with one
@@ -1085,15 +1088,19 @@ without rebuilding scientific state.
 
 The top-bar renderer switches between fast modeling light and Sun/soft-shadow
 rendering. Sun source, target, intensity, and direction can be manipulated in
-the viewport and carried into Blender export.
+the viewport and carried into Blender export. Hovering any compact top-bar
+icon briefly opens its plain-language description; this includes the renderer,
+grid, view-orbit, open, reset, and help controls.
 
 ### Interface Theme And Personal Defaults
 
-**View > Interface theme** controls the application chrome independently from
-the white/dark 3D viewport background. **System** is the default and follows
-the browser or operating-system light/dark preference, including changes made
-while v_ase is open. **Light** and **Dark** keep an explicit choice in that
-browser.
+**View > Interface theme** controls the application chrome and its default
+viewport treatment. **System** is the default: the chrome follows the browser
+or operating-system preference while the scientific viewport remains white,
+giving the mixed layout used for ordinary work. **Light** keeps both chrome
+and viewport light. **Dark** explicitly switches both the interface and atom
+viewport to dark. A manually selected viewport background still takes
+precedence when restoring a visual preset.
 
 Under **Export > Visual Settings**, **Set Current as Default** stores the
 current reusable appearance, bonds, lighting, viewport, display replication,
@@ -1476,6 +1483,12 @@ Custom labels retain their complete text when they are renamed.
 | `Ctrl+Z`, `Ctrl+Shift+Z` | Undo and redo structure and visualization-setting changes; camera navigation is excluded |
 | `Delete` / `Backspace` | Hide exact visual instances in View; physically delete base atoms in Edit |
 | `Space` | Play or pause the active timeline |
+
+Undo follows user actions rather than intermediate animation frames. One
+confirmed `G`/`R`/`S` gesture, one Apply, one atom/molecule placement batch,
+or one completed relaxation start is one history step. Repeated placement
+inside an active Add session can therefore be undone and redone batch by
+batch; cancelling that session still restores its exact pre-session baseline.
 | Left / Right Arrow | Previous / next frame in the active timeline |
 | `Tab` or `Esc` | Open a collapsed control panel |
 | `Esc` with the panel open | Close it and return focus to the viewport |

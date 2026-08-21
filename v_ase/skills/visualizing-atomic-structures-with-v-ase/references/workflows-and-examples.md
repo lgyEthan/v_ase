@@ -420,11 +420,11 @@ await applyCurrent({operation: {
     {id: "protected-site", name: "Protected site", role: "reject",
      bounds: [3.5, 6.5, 3.0, 6.0, 3.0, 11.0]}
   ],
-  allowEscape: true,
+  constrainToDomain: false,
   seed: 2021,
   freezeExisting: true,
   cutoffBasis: "covalent",
-  cutoffScale: 0.7
+  cutoffScale: 1.0
 }});
 
 const scattered = await ai.describe({includePositions: true});
@@ -450,8 +450,8 @@ await applyCurrent({operation: {
   calculator: {
     device: "cpu",
     cpu_threads: 4,
-    cutoff_mode: "bonding",
-    cutoff_scale: 0.70,
+    cutoff_mode: "absolute",
+    cutoff_basis: "covalent",
     pair_cutoffs: scattered.addAtoms.pair_cutoffs,
     k_repulsion: 2.0,
     k_boundary: 5.0
@@ -499,7 +499,7 @@ await applyCurrent({operation: {
   name: "update-add-atoms-region",
   regions: revisedRegions,
   regionMic: true,
-  allowEscape: true
+  constrainToDomain: false
 }});
 await applyCurrent({operation: {
   name: "scatter-molecules",
@@ -526,8 +526,8 @@ await applyCurrent({operation: {
   fmax: 0.05,
   steps: 300,
   calculator: {
-    device: "cpu", cpu_threads: 4, cutoff_mode: "bonding",
-    cutoff_scale: 0.70, pair_cutoffs: expanded.addAtoms.pair_cutoffs,
+    device: "cpu", cpu_threads: 4, cutoff_mode: "absolute",
+    cutoff_basis: "covalent", pair_cutoffs: expanded.addAtoms.pair_cutoffs,
     k_repulsion: 2.0, k_boundary: 5.0
   }
 }});
@@ -553,9 +553,12 @@ for (let index = 0; index < baseline.atomCount; index += 1) {
 For Cartesian regions, use six Angstrom bounds. The exact domain is the finite
 cell intersected with the Allow union, or the complete cell when there is no
 Allow, minus the Reject union. Without a finite cell, require an Allow region.
-`allowEscape:true` is the default and means the Boolean domain only defines
-initial positions; set it false only when repulsive placement must retain all
-region rules. `update-add-atoms-region` accepts a complete region array or one
+`constrainToDomain:false` is the default and means the Boolean domain only
+defines initial positions; set it true only when repulsive placement must keep
+every staged atom in the Allow union and outside every Reject region. Rigid
+molecules use their native ASE template origin for this constraint.
+`allowEscape` is the inverse compatibility field.
+`update-add-atoms-region` accepts a complete region array or one
 stable region ID and changes geometry, role, name, `regionMic`, or escape
 policy without moving staged atoms. Verify the returned exact volume, periodic images,
 sampling diagnostics, mode-only placement timeline, and host invariants before

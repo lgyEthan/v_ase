@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.2.27
+
+- Separated repulsive contact distances from visual bond connectivity. The
+  default is now an absolute-Angstrom label-pair table seeded from covalent
+  radii, with optional van der Waals defaults, per-pair enable/disable, and a
+  scaled reference-distance mode for one shared contact multiplier.
+- Added global and label-pair bond material, opacity, split/custom color, and
+  cylinder/flat appearance controls. A selected pair can remain flat 2D while
+  the rest of the scene uses 3D bonds, and the same style can be applied to all
+  pairs at once.
+- Made explicit Dark theme switch both interface and atom viewport to dark,
+  while the default System theme keeps OS-responsive chrome with the white
+  scientific viewport. Added delayed descriptions to compact top-bar icons.
+- Fixed the top-bar renderer and adjacent grid controls so both respond to
+  pointer activation and expose their current state correctly.
+- Added optional Allow/Reject-domain enforcement during Add Atoms relaxation.
+  Staged atoms remain inside the Allow union and outside Reject regions; rigid
+  molecules use their native ASE template origin for efficient confinement.
+- Added relaxation-trajectory clearing with displayed/final-frame retention
+  while the active mode remains open, including live semantic-agent control.
+- Reworked Undo/Redo around complete user actions. Placement batches and
+  confirmed transforms are individually reversible during Add Atoms, while
+  Cancel still restores the exact pre-session baseline.
+- Released indexed trajectory sources, workers, browser listeners, WebGL
+  resources, caches, and timers when documents close or are replaced to bound
+  long-session CPU and memory use.
+
 ## 0.2.26
 
 - Rebuilt the product-wide interface around one role-based typography system,

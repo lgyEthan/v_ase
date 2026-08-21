@@ -360,18 +360,18 @@ async def plotly_javascript_bundle():
 _AI_REPULSION_CALCULATOR_SCHEMA = {
     "type": "object",
     "description": (
-        "Optional settings for v_ase's built-in repulsion calculator. In bonding "
-        "mode the onset distance is cutoff_scale times each active label-pair "
-        "bonding cutoff supplied in pair_cutoffs. In absolute mode it is "
-        "cutoff_distance in Angstrom for every enabled pair. Disabled and zero-"
-        "cutoff pairs remain inactive. Pair energy and force are exactly zero at "
-        "and beyond the onset distance."
+        "Optional settings for v_ase's built-in repulsion calculator. Pair "
+        "distances are independent from visual bonds. In absolute mode each "
+        "pair_cutoffs value is its onset distance in Angstrom. In scaled mode "
+        "the value is multiplied by cutoff_scale. Zero disables a pair. Pair "
+        "energy and force are exactly zero at and beyond the onset distance."
     ),
     "additionalProperties": False,
     "properties": {
         "device": {"enum": ["cpu", "cuda"]},
         "cpu_threads": {"type": "integer", "minimum": 1},
-        "cutoff_mode": {"enum": ["bonding", "absolute"]},
+        "cutoff_mode": {"enum": ["absolute", "scaled"]},
+        "cutoff_basis": {"enum": ["covalent", "vdw"]},
         "cutoff_distance": {
             "type": "number", "minimum": 0.01, "maximum": 100,
         },
@@ -381,8 +381,9 @@ _AI_REPULSION_CALCULATOR_SCHEMA = {
         "pair_cutoffs": {
             "type": "object",
             "description": (
-                "Active bonding cutoffs in Angstrom, keyed by an unordered "
-                "label pair such as Cu_surface|O_ads. Zero disables the pair."
+                "Independent repulsion reference distances in Angstrom, keyed "
+                "by an unordered label pair such as Cu_surface|O_ads. Zero "
+                "disables the pair even if a visual bond is shown."
             ),
             "additionalProperties": {
                 "type": "number", "minimum": 0, "maximum": 100,
@@ -390,6 +391,9 @@ _AI_REPULSION_CALCULATOR_SCHEMA = {
         },
         "k_repulsion": {
             "type": "number", "minimum": 0, "maximum": 1000,
+        },
+        "k_boundary": {
+            "type": "number", "exclusiveMinimum": 0, "maximum": 1000,
         },
     },
 }
@@ -438,7 +442,8 @@ AI_CONTROL_SCHEMA = {
                 "showCell, showAxes, showGrid, viewportBackground, "
                 "atomDisplayMode, atomRadiusScale, labelRadii, labelColors, "
                 "labelOpacities, labelMaterials, bondThickness, "
-                "supercell, translation, translationMode, lightingMode, "
+                "bondMaterial, bondOpacity, pairwiseBondStyles, supercell, "
+                "translation, translationMode, lightingMode, "
                 "sunIntensity, sunPosition, and sunTarget."
             ),
             "additionalProperties": True,
@@ -493,7 +498,7 @@ AI_CONTROL_SCHEMA = {
                 "stop-registry-relaxation, finish-registry-relaxation, "
                 "cancel-registry-relaxation, undo, redo, "
                 "reset-coordinates, start-relaxation, stop-relaxation, "
-                "exit-relaxation-mode, and "
+                "clear-relaxation-trajectory, exit-relaxation-mode, and "
                 "refresh-displacements, load-volumetric, show-volumetric, "
                 "add-volumetric-plane, update-volumetric-planes, "
                 "remove-volumetric-planes, combine-volumetric, "
@@ -514,7 +519,7 @@ AI_CONTROL_SCHEMA = {
                         "update-add-atoms-region",
                         "stop-registry-relaxation", "finish-registry-relaxation",
                         "cancel-registry-relaxation",
-                        "exit-relaxation-mode",
+                        "clear-relaxation-trajectory", "exit-relaxation-mode",
                     ],
                 },
                 {
@@ -546,7 +551,8 @@ AI_CONTROL_SCHEMA = {
                                 "cancel-registry-relaxation",
                                 "undo", "redo",
                                 "reset-coordinates", "start-relaxation",
-                                "stop-relaxation", "exit-relaxation-mode",
+                                "stop-relaxation", "clear-relaxation-trajectory",
+                                "exit-relaxation-mode",
                                 "refresh-displacements",
                                 "load-volumetric", "show-volumetric",
                                 "add-volumetric-plane",
@@ -692,6 +698,7 @@ AI_CONTROL_SCHEMA = {
                                         "enum": ["allow", "reject", "allowed", "prohibited"]
                                     },
                                     "regionMic": {"type": "boolean"},
+                                    "constrainToDomain": {"type": "boolean"},
                                     "allowEscape": {"type": "boolean"},
                                     "placementMode": {"enum": ["random", "homogeneous", "regular"]},
                                     "regularSpacing": {"type": "number", "exclusiveMinimum": 0},
@@ -766,6 +773,7 @@ AI_CONTROL_SCHEMA = {
                                         "enum": ["allow", "reject", "allowed", "prohibited"]
                                     },
                                     "regionMic": {"type": "boolean"},
+                                    "constrainToDomain": {"type": "boolean"},
                                     "allowEscape": {"type": "boolean"},
                                     "placementMode": {"enum": ["random", "homogeneous", "regular"]},
                                     "regularSpacing": {"type": "number", "exclusiveMinimum": 0},
@@ -825,6 +833,7 @@ AI_CONTROL_SCHEMA = {
                                         "enum": ["allow", "reject", "allowed", "prohibited"]
                                     },
                                     "regionMic": {"type": "boolean"},
+                                    "constrainToDomain": {"type": "boolean"},
                                     "allowEscape": {"type": "boolean"},
                                 },
                             },
@@ -857,6 +866,7 @@ AI_CONTROL_SCHEMA = {
                                         ],
                                     },
                                     "regionMic": {"type": "boolean"},
+                                    "constrainToDomain": {"type": "boolean"},
                                     "allowEscape": {"type": "boolean"},
                                 },
                             },
@@ -913,7 +923,21 @@ AI_CONTROL_SCHEMA = {
                                     "device": {"enum": ["cpu", "cuda"]},
                                     "cpuThreads": {"type": "integer", "minimum": 1},
                                     "mic": {"type": "boolean"},
+                                    "constrainToDomain": {"type": "boolean"},
                                     "allowEscape": {"type": "boolean"},
+                                },
+                            },
+                        },
+                        {
+                            "if": {
+                                "required": ["name"],
+                                "properties": {
+                                    "name": {"const": "clear-relaxation-trajectory"},
+                                },
+                            },
+                            "then": {
+                                "properties": {
+                                    "retain": {"enum": ["displayed", "final"]},
                                 },
                             },
                         },
@@ -1521,7 +1545,8 @@ AI_OPERATION_PARAMETERS = {
         "required": ["entries-or-element-count"],
         "optional": [
             "entries", "element", "label", "count", "regionMode", "regions", "bounds",
-            "regionRole", "regionMic", "allowEscape", "placementMode", "regularSpacing", "coordinateBasis", "pbcAware",
+            "regionRole", "regionMic", "constrainToDomain", "allowEscape",
+            "placementMode", "regularSpacing", "coordinateBasis", "pbcAware",
             "seed", "freezeExisting", "cutoffBasis", "cutoffScale", "pairCutoffs",
         ],
         "notes": (
@@ -1537,8 +1562,9 @@ AI_OPERATION_PARAMETERS = {
             "the unit cell intersected with the Allow union (or the full cell when no Allow exists), "
             "minus the Reject union. Periodic region images are clipped to the triclinic primary cell "
             "without voxel approximation. A structure without a finite cell requires an Allow region. "
-            "Legacy regionMode=box remains accepted. allowEscape defaults "
-            "to true, so the region controls initial sampling without confining relaxation. The default "
+            "Legacy regionMode=box remains accepted. constrainToDomain defaults "
+            "to false, so the region controls initial sampling without confining relaxation; "
+            "allowEscape is the inverse compatibility field. The default "
             "temporarily fixes every pre-session atom. Follow with common start-relaxation "
             "and finish-add-atoms, append another batch, or use cancel-add-atoms to restore "
             "the exact baseline."
@@ -1549,7 +1575,8 @@ AI_OPERATION_PARAMETERS = {
         "required": ["molecules-or-molecule-count"],
         "optional": [
             "molecules", "molecule", "label", "count", "regionMode", "regions", "bounds",
-            "regionRole", "regionMic", "allowEscape", "placementMode", "regularSpacing", "coordinateBasis", "pbcAware",
+            "regionRole", "regionMic", "constrainToDomain", "allowEscape",
+            "placementMode", "regularSpacing", "coordinateBasis", "pbcAware",
             "randomOrientation", "rigidMolecules", "seed", "freezeExisting",
             "quantityMode", "targetDensityGcm3", "cutoffBasis", "cutoffScale", "pairCutoffs",
         ],
@@ -1571,7 +1598,7 @@ AI_OPERATION_PARAMETERS = {
         "required": ["active-cartesian-add-atoms-session"],
         "optional": [
             "regions", "regionId", "regionName", "bounds", "regionRole",
-            "regionMic", "allowEscape",
+            "regionMic", "constrainToDomain", "allowEscape",
         ],
         "notes": (
             "Replaces all active Allow/Reject regions, or updates one stable regionId, without moving "
@@ -1583,7 +1610,8 @@ AI_OPERATION_PARAMETERS = {
         "required": ["active-add-atoms-session"],
         "optional": [
             "pairCutoffs", "freezeExisting", "strength", "boundaryStrength",
-            "fmax", "steps", "device", "cpuThreads", "mic", "allowEscape",
+            "fmax", "steps", "device", "cpuThreads", "mic",
+            "constrainToDomain", "allowEscape",
         ],
         "notes": (
             "Compatibility alias for the same shared placement-relaxation path used by "
@@ -1663,7 +1691,7 @@ AI_OPERATION_PARAMETERS = {
     "scale-add-atoms-regions": {
         "mode": "edit",
         "required": ["regionIds", "factor", "active-add-atoms-session"],
-        "optional": ["axis", "pivot", "regionMic", "allowEscape"],
+        "optional": ["axis", "pivot", "regionMic", "constrainToDomain", "allowEscape"],
         "notes": (
             "Scales Cartesian insertion-region bounds about their shared center, or an "
             "explicit three-number pivot. axis is X, Y, Z, or ALL."
@@ -1769,9 +1797,9 @@ AI_OPERATION_PARAMETERS = {
             "Optimizes the two rigid in-plane translation degrees of freedom with the "
             "attached calculator or the default pairwise repulsion calculator. Consume "
             "registry_relax_step events until is_relaxing is false. calculator may "
-            "configure cutoff_mode=bonding with pair_cutoffs and cutoff_scale, or "
-            "cutoff_mode=absolute with cutoff_distance in Angstrom; neither cutoff "
-            "is a hard constraint."
+            "configure absolute pair_cutoffs as independent onset distances in "
+            "Angstrom, or cutoff_mode=scaled with reference pair distances and "
+            "cutoff_scale; neither cutoff is a hard constraint."
         ),
     },
     "stop-registry-relaxation": {
@@ -1808,9 +1836,10 @@ AI_OPERATION_PARAMETERS = {
             "preserving the immutable pre-session host. Otherwise an ASE calculator must "
             "be attached to the structure. "
             "For the built-in repulsion calculator, calculator accepts device, "
-            "cpu_threads, k_repulsion, and either cutoff_mode=bonding with active "
-            "label-pair pair_cutoffs plus cutoff_scale, or cutoff_mode=absolute "
-            "with cutoff_distance in Angstrom. "
+            "cpu_threads, k_repulsion, cutoff_basis, and independent label-pair "
+            "pair_cutoffs. Absolute mode interprets each enabled pair value directly "
+            "in Angstrom; scaled mode multiplies its reference distance by "
+            "cutoff_scale. "
             "The cutoff is the zero-force onset distance, not a guaranteed minimum "
             "separation."
         ),
@@ -1820,6 +1849,15 @@ AI_OPERATION_PARAMETERS = {
         "required": [],
         "optional": [],
         "notes": "Stops the active ordinary or Add Atoms placement optimizer.",
+    },
+    "clear-relaxation-trajectory": {
+        "mode": "edit",
+        "required": ["available-relaxation-trajectory"],
+        "optional": ["retain"],
+        "notes": (
+            "Removes the dedicated optimization movie while leaving its mode active. "
+            "retain is final by default or displayed to keep the frame currently shown."
+        ),
     },
     "exit-relaxation-mode": {
         "mode": "edit",
@@ -3702,6 +3740,7 @@ def configure_repulsion_calculators(
     device=None,
     cpu_threads=None,
     cutoff_mode=None,
+    cutoff_basis=None,
     cutoff_distance=None,
     cutoff_scale=None,
     pair_cutoffs=None,
@@ -3715,6 +3754,7 @@ def configure_repulsion_calculators(
                 device=device,
                 cpu_threads=cpu_threads,
                 cutoff_mode=cutoff_mode,
+                cutoff_basis=cutoff_basis,
                 cutoff_distance=cutoff_distance,
                 cutoff_scale=cutoff_scale,
                 pair_cutoffs=pair_cutoffs,
@@ -5645,7 +5685,7 @@ async def wrap(session_id: str, payload: Dict[str, Any] | None = None):
 @app.post("/api/undo/{session_id}")
 async def undo(session_id: str):
     session = get_session(session_id)
-    require_editable(session, "Undo")
+    require_editable(session, "Undo", allow_atom_addition=True)
     atoms = session.undo()
     if atoms is not None:
         session.sync_current_frame()
@@ -5655,7 +5695,7 @@ async def undo(session_id: str):
 @app.post("/api/redo/{session_id}")
 async def redo(session_id: str):
     session = get_session(session_id)
-    require_editable(session, "Redo")
+    require_editable(session, "Redo", allow_atom_addition=True)
     atoms = session.redo()
     if atoms is not None:
         session.sync_current_frame()
@@ -5684,11 +5724,11 @@ async def atom_addition_pair_cutoffs(session_id: str, payload: Dict[str, Any]):
         elements = ["H"]
     return {
         "basis": str(payload.get("basis") or "covalent").lower(),
-        "scale": float(payload.get("scale", 0.7)),
+        "scale": float(payload.get("scale", 1.0)),
         "pair_cutoffs": default_pair_cutoffs(
             elements,
             basis=payload.get("basis") or "covalent",
-            scale=payload.get("scale", 0.7),
+            scale=payload.get("scale", 1.0),
         ),
     }
 
@@ -5942,6 +5982,7 @@ async def update_calculator(session_id: str, payload: Dict[str, Any]):
         device=payload.get("device"),
         cpu_threads=payload.get("cpu_threads"),
         cutoff_mode=payload.get("cutoff_mode"),
+        cutoff_basis=payload.get("cutoff_basis"),
         cutoff_distance=payload.get("cutoff_distance"),
         cutoff_scale=payload.get("cutoff_scale"),
         pair_cutoffs=payload.get("pair_cutoffs"),
@@ -7029,7 +7070,12 @@ async def workspace_websocket_endpoint(websocket: WebSocket, workspace_id: str):
 
 # Modular endpoints for scientific features
 if FASTAPI_AVAILABLE:
-    from .relax import exit_relaxation, start_relaxation, stop_relaxation
+    from .relax import (
+        clear_relaxation_trajectory,
+        exit_relaxation,
+        start_relaxation,
+        stop_relaxation,
+    )
     from .export import (
         OptionalExportDependencyError,
         VideoExportError,
@@ -7282,6 +7328,17 @@ if FASTAPI_AVAILABLE:
     async def api_relax_stop(session_id: str):
         session = get_session(session_id)
         return await stop_relaxation(session)
+
+    @app.post("/api/relax/trajectory/clear/{session_id}")
+    async def api_relax_trajectory_clear(session_id: str, payload: Dict[str, Any]):
+        session = get_session(session_id)
+        try:
+            result = clear_relaxation_trajectory(session, payload)
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        data = session_update_to_json(session)
+        data["relaxation_trajectory"] = result
+        return data
 
     @app.post("/api/relax/exit/{session_id}")
     async def api_relax_exit(session_id: str, payload: Dict[str, Any]):

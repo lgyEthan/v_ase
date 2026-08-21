@@ -870,6 +870,30 @@ def test_random_addition_cancel_restores_every_host_property_and_history():
     assert not session.history
 
 
+def test_addition_baseline_survives_history_eviction_until_cancel():
+    host = make_host()
+    session = EditorSession("add-history-cap", host.copy(), host.copy())
+    start_atom_addition(session, {
+        "element": "H",
+        "label": "H_inserted",
+        "count": 1,
+        "region_mode": "cell",
+        "seed": 17,
+    })
+
+    for step in range(65):
+        session.push_history()
+        session.working_atoms.positions[-1, 0] += 0.01 * (step + 1)
+
+    assert len(session.history) == 50
+    assert session.atom_addition.history_index == 0
+    cancel_atom_addition(session)
+
+    assert session.atom_addition is None
+    assert not session.history
+    assert_host_unchanged(host, session.working_atoms)
+
+
 @pytest.mark.parametrize("finish", [False, True])
 def test_addition_cancel_and_finish_preserve_reusable_host_calculator(finish):
     host = make_host()
@@ -1003,8 +1027,18 @@ def test_addition_session_accumulates_atoms_and_molecules_after_relaxation(monke
     assert second["last_content_kind"] == "molecules"
     assert second["last_batch_new_count"] == 6
     assert second["last_batch_molecule_count"] == 2
-    assert len(session.history) == 1
+    assert len(session.history) == 4
     assert_host_unchanged(host, session.atom_addition.baseline_atoms)
+
+    session.undo()
+    assert session.atom_addition is not None
+    assert session.atom_addition.placement_count == 1
+    assert len(session.atom_addition.new_indices) == 2
+    assert len(session.working_atoms) == len(host) + 2
+    session.redo()
+    assert session.atom_addition is not None
+    assert session.atom_addition.placement_count == 2
+    assert len(session.working_atoms) == len(host) + 8
 
     third = start_atom_addition(session, {
         "element": "O",
@@ -1077,6 +1111,7 @@ def test_add_atoms_box_role_and_escape_policy_are_independent_and_movable():
     })
     assert summary["region_role"] == "prohibited"
     assert summary["allow_escape"] is True
+    assert summary["constrain_to_domain"] is False
     inserted = session.working_atoms.positions[summary["new_indices"]]
     lower = np.asarray(bounds[::2])
     upper = np.asarray(bounds[1::2])
@@ -1085,11 +1120,12 @@ def test_add_atoms_box_role_and_escape_policy_are_independent_and_movable():
     moved = [2.3, 4.8, 1.1, 3.5, 1.5, 4.4]
     updated = update_atom_addition_region(session, {
         "bounds": moved,
-        "allow_escape": False,
+        "constrain_to_domain": True,
     })
     assert updated["bounds"] == moved
     assert updated["region_role"] == "prohibited"
     assert updated["allow_escape"] is False
+    assert updated["constrain_to_domain"] is True
     np.testing.assert_array_equal(
         session.working_atoms.positions[summary["new_indices"]],
         inserted,
@@ -1634,7 +1670,7 @@ def test_browser_random_add_atoms_mode_scatter_relax_and_finish():
             page.locator("#add-atoms-placement-random").scroll_into_view_if_needed()
             assert page.locator("#add-atoms-spacing-basis-row").is_hidden()
             assert page.locator("#add-atoms-placement-pbc-row").is_hidden()
-            assert page.locator("#add-atoms-allow-escape").is_checked()
+            assert not page.locator("#add-atoms-constrain-domain").is_checked()
             page.click("#btn-add-atoms-allow-region")
             page.click("#btn-add-atoms-reject-region")
             assert page.locator("#add-atoms-region-list .add-atoms-region-item").count() == 2
@@ -1956,7 +1992,10 @@ def test_browser_random_add_atoms_mode_scatter_relax_and_finish():
             assert page.evaluate("window.__ASE_APP__.addAtomsUI.active.new_count") == 16
             assert page.evaluate("window.__ASE_APP__.addAtomsUI.active.last_batch_new_count") == 3
             assert page.evaluate("window.__ASE_APP__.state.selected.size") == 16
-            assert len(backend.history) == 1
+            # Placement, both MIC policy changes, G/S region transforms,
+            # relaxation, the numeric region edit, and repeated placement are
+            # individually undoable while the baseline remains pinned.
+            assert len(backend.history) == 9
             assert_host_unchanged(host, backend.atom_addition.baseline_atoms)
             assert page.evaluate(
                 "window.__ASE_APP__.state.relaxTrajectory.frames.length"

@@ -170,7 +170,7 @@ Run all scenarios, not only static document checks:
 	     Structure > Relaxation calculator/cutoff/device/fmax/steps payload; after
 	     completion, edit a region, append a molecule batch without Finish, and
 	     verify `placement_count`, `last_batch_new_count`, total staged count, one
-	     history entry, one immutable pre-session host, and a newly reset Add
+	     action-level history, one immutable pre-session host, and a newly reset Add
 	     timeline before the next relaxation;
 	   - verify the staged host appears in the semantic constraint summary while
      the ASE constraints remain unchanged, then verify the temporary summary
@@ -191,7 +191,7 @@ Run all scenarios, not only static document checks:
      independent convex-polyhedron volume reference, including reject-only
      fallback to a finite cell and the required error without a finite cell;
      verify stable IDs, exact union-minus-union volume, default
-     `allowEscape:true`, confined `allowEscape:false`, Shift multi-selection,
+     `constrainToDomain:false`, confined `constrainToDomain:true`, Shift multi-selection,
      group `G` translation and global-Cartesian `S` scaling of all selected
      bounds, edge-only nested-box selection, and rejected `R` without moving
      staged atoms;
@@ -204,6 +204,10 @@ Run all scenarios, not only static document checks:
      require finite progress events, then finish and prove every host
      coordinate, constraint, tag, charge, custom array, label, and calculator
      survives exactly while only staged atoms remain added;
+   - hide an H_water-H_water visual bond while keeping its absolute repulsion
+     pair enabled, and enable a visible bond whose repulsion pair is zero;
+     verify the calculator follows only its independent table. Repeat with
+     covalent and van der Waals defaults, then scaled reference distances;
    - require an `add-atoms` movie timeline with at least two accepted frames
      during placement and require it to disappear after finish or cancel;
    - discover the molecule catalog from `capabilities`, place several H2O
@@ -234,6 +238,11 @@ Run all scenarios, not only static document checks:
      coincident atoms, stop, restart, and verify separation; exit once with
      Keep Current and once with Restore Before Relaxation while a worker is
      active, requiring correct button state and exact baseline restoration;
+   - clear an ordinary and Add-mode relaxation movie once with the displayed
+     frame and once with the final frame; require the selected coordinates,
+     active mode, restart controls, and semantic state to remain valid;
+   - place two batches in one Add session, Undo/Redo each batch independently,
+     and Cancel from any point to the exact pre-session structure/history;
    - select atoms and apply GUI/semantic isotropic plus X/Y/Z scaling. Require
      coordinates to follow the selected pivot in global Cartesian axes while
      atom radii, bond diameter, and cell remain bitwise unchanged.
@@ -328,7 +337,10 @@ Run all scenarios, not only static document checks:
    - undo and redo a label color, radius, opacity, and material change; verify both
      semantic display state and rendered pixels, with one history step per
      completed field edit;
-   - verify bonds, pairwise cutoffs, MIC toggle, cell styling, and lighting.
+   - verify bonds, pairwise cutoffs, MIC toggle, cell styling, and lighting;
+     set global bond material/opacity, then override one label pair with flat
+     2D geometry, custom color, material, and opacity while every other pair
+     remains on the global 3D style; repeat with Apply All and restore global.
 7. **Constraints rendering**
    - inspect FixAtoms, FixScaled, FixedLine, FixedPlane, and Hookean;
    - verify persistent FixedPlane markers remain depth-tested while its

@@ -194,7 +194,7 @@ def test_external_cli_agent_repeats_shared_relaxation_and_commits_staged_content
                     "calculator": {
                         "device": "cpu",
                         "cpu_threads": 1,
-                        "cutoff_mode": "bonding",
+                        "cutoff_mode": "scaled",
                         "cutoff_scale": 0.7,
                         "pair_cutoffs": scattered["addAtoms"]["pair_cutoffs"],
                         "k_repulsion": 2.0,
@@ -243,7 +243,9 @@ def test_external_cli_agent_repeats_shared_relaxation_and_commits_staged_content
             assert appended["addAtoms"]["last_batch_new_count"] == 3
             assert appended["addAtoms"]["new_count"] == 13
             assert appended["atomCount"] == len(host) + 13
-            assert len(sessions[editor.session_id].history) == 1
+            # Initial placement, region scaling, relaxation, and the second
+            # placement are distinct user actions while Add Atoms stays open.
+            assert len(sessions[editor.session_id].history) == 4
             np.testing.assert_array_equal(
                 sessions[editor.session_id].atom_addition.baseline_atoms.positions,
                 baseline_positions,
@@ -332,10 +334,11 @@ def test_external_cli_agent_places_and_rigidly_relaxes_molecules():
                 "regionMic": True,
                 "quantityMode": "count",
                 "randomOrientation": True,
-                "rigidMolecules": True,
-                "freezeExisting": True,
-                "allowEscape": True,
-            }
+                    "rigidMolecules": True,
+                    "freezeExisting": True,
+                    "constrainToDomain": False,
+                    "allowEscape": True,
+                }
             initial = _run_cli_command(
                 command_url,
                 "describe",
@@ -563,7 +566,10 @@ def test_http_bridge_controls_the_same_live_workspace_without_page_evaluation(
                 "set-interface-theme",
                 "set-personal-visual-default",
                 "restore-app-visual-defaults",
+                "clear-relaxation-trajectory",
             }.issubset(capabilities["operations"])
+            assert capabilities["repulsion"]["defaultMode"] == "absolute"
+            assert capabilities["bondAppearance"]["pairDisplayKey"] == "pairwiseBondStyles"
             assert "preferences" in capabilities["state"]
             assert {
                 "image",
@@ -585,7 +591,8 @@ def test_http_bridge_controls_the_same_live_workspace_without_page_evaluation(
             assert initial["frameCount"] == 2
             assert initial["calculator"]["attached"] is True
             assert initial["calculator"]["name"] == "Repulsion"
-            assert initial["calculator"]["details"]["cutoff_scale"] == pytest.approx(0.7)
+            assert initial["calculator"]["details"]["cutoff_mode"] == "absolute"
+            assert initial["calculator"]["details"]["cutoff_scale"] == pytest.approx(1.0)
             assert initial["preferences"]["interfaceTheme"]["preference"] == "system"
             assert initial["preferences"]["personalVisualDefaults"] is False
 
@@ -611,6 +618,9 @@ def test_http_bridge_controls_the_same_live_workspace_without_page_evaluation(
             assert schema["operation_parameters"]["start-relaxation"]["required"] == [
                 "attached-calculator-or-active-add-atoms-session"
             ]
+            assert schema["operation_parameters"]["clear-relaxation-trajectory"][
+                "optional"
+            ] == ["retain"]
             assert "same calculator" in (
                 schema["operation_parameters"]["start-relaxation"]["notes"]
             )
@@ -633,14 +643,14 @@ def test_http_bridge_controls_the_same_live_workspace_without_page_evaluation(
             )
             assert calculator_schema["additionalProperties"] is False
             assert calculator_schema["properties"]["cutoff_mode"]["enum"] == [
-                "bonding",
                 "absolute",
+                "scaled",
             ]
             assert calculator_schema["properties"]["pair_cutoffs"]["additionalProperties"][
                 "minimum"
             ] == 0
             assert calculator_schema["properties"]["cutoff_distance"]["minimum"] == 0.01
-            assert "cutoff_distance in Angstrom" in (
+            assert "Absolute mode" in (
                 schema["operation_parameters"]["start-relaxation"]["notes"]
             )
             assert schema["operation_parameters"]["set-registry-translation"]["required"] == [
@@ -789,6 +799,47 @@ def test_http_bridge_controls_the_same_live_workspace_without_page_evaluation(
             assert child.locator("#chk-cell").is_checked()
             assert not child.locator("#chk-grid").is_checked()
             assert child.locator("#selected-indices").inner_text().strip() == "0, 1"
+
+            started_relaxation = _run_cli_command(
+                command_url,
+                "apply",
+                {
+                    "expectedRevision": scaled["collaboration"]["revision"],
+                    "operation": {
+                        "name": "start-relaxation",
+                        "fmax": 0.001,
+                        "steps": 4,
+                        "calculator": {
+                            "cutoff_mode": "absolute",
+                            "pair_cutoffs": {"H|H": 2.0},
+                            "k_repulsion": 1.0,
+                        },
+                    },
+                },
+            )
+            assert started_relaxation["relaxation"]["active"] is True
+            deadline = time.monotonic() + 10
+            relaxed = started_relaxation
+            while relaxed["relaxation"]["running"] and time.monotonic() < deadline:
+                time.sleep(0.05)
+                relaxed = _stable_description(command_url)
+            assert relaxed["relaxation"]["running"] is False
+            assert relaxed["relaxation"]["frameCount"] >= 1
+
+            cleared_relaxation = _run_cli_command(
+                command_url,
+                "apply",
+                {
+                    "expectedRevision": relaxed["collaboration"]["revision"],
+                    "operation": {
+                        "name": "clear-relaxation-trajectory",
+                        "retain": "displayed",
+                    },
+                },
+            )
+            assert cleared_relaxation["relaxation"]["active"] is True
+            assert cleared_relaxation["relaxation"]["running"] is False
+            assert cleared_relaxation["relaxation"]["frameCount"] == 0
 
             stale = _post_command(
                 command_url,

@@ -453,7 +453,9 @@ def test_agent_endpoints_serve_the_canonical_skill_and_schema():
         "kind is fixed_line or fixed_plane"
     )
     scatter_atoms = schema["operation_parameters"]["scatter-atoms"]
-    assert {"regions", "regionMic"}.issubset(scatter_atoms["optional"])
+    assert {"regions", "regionMic", "constrainToDomain"}.issubset(
+        scatter_atoms["optional"]
+    )
     assert "Allow union" in scatter_atoms["notes"]
     assert "appends" in scatter_atoms["notes"]
     assert "immutable host" in scatter_atoms["notes"]
@@ -462,7 +464,9 @@ def test_agent_endpoints_serve_the_canonical_skill_and_schema():
         scatter_molecules["optional"]
     )
     update_regions = schema["operation_parameters"]["update-add-atoms-region"]
-    assert {"regions", "regionId", "regionName", "regionMic"}.issubset(
+    assert {
+        "regions", "regionId", "regionName", "regionMic", "constrainToDomain"
+    }.issubset(
         update_regions["optional"]
     )
     scale_regions = schema["operation_parameters"]["scale-add-atoms-regions"]
@@ -474,6 +478,9 @@ def test_agent_endpoints_serve_the_canonical_skill_and_schema():
     assert schema["operation_parameters"]["exit-relaxation-mode"]["optional"] == [
         "keep"
     ]
+    assert schema["operation_parameters"]["clear-relaxation-trajectory"][
+        "optional"
+    ] == ["retain"]
     assert schema["operation_parameters"]["start-relaxation"]["required"] == [
         "attached-calculator-or-active-add-atoms-session"
     ]
@@ -537,6 +544,9 @@ def test_agent_endpoints_serve_the_canonical_skill_and_schema():
         "role"
     ]["enum"] == ["allow", "reject"]
     assert update_regions_schema["properties"]["regionMic"] == {"type": "boolean"}
+    assert update_regions_schema["properties"]["constrainToDomain"] == {
+        "type": "boolean"
+    }
     relax_added_schema = next(
         item["then"]
         for item in operation_object["allOf"]
@@ -546,11 +556,19 @@ def test_agent_endpoints_serve_the_canonical_skill_and_schema():
         )
     )
     assert relax_added_schema["properties"]["allowEscape"] == {"type": "boolean"}
+    assert relax_added_schema["properties"]["constrainToDomain"] == {
+        "type": "boolean"
+    }
     assert relax_added_schema["properties"]["device"]["enum"] == ["cpu", "cuda"]
     assert relax_added_schema["properties"]["cpuThreads"] == {
         "type": "integer",
         "minimum": 1,
     }
+    clear_relaxation_schema = operation_schema("clear-relaxation-trajectory")
+    assert clear_relaxation_schema["properties"]["retain"]["enum"] == [
+        "displayed",
+        "final",
+    ]
     show_schema = next(
         item["then"]
         for item in operation_object["allOf"]

@@ -93,9 +93,10 @@ export class ASEApi {
                     effective_device: 'cpu',
                     cpu_threads: 4,
                     cpu_thread_options: [1, 2, 3, 4],
-                    cutoff_mode: 'bonding',
+                    cutoff_mode: 'absolute',
+                    cutoff_basis: 'covalent',
                     cutoff_distance: 2.0,
-                    cutoff_scale: 0.7,
+                    cutoff_scale: 1.0,
                     pair_cutoffs: {},
                     k_repulsion: 1.0,
                     torch_available: false,
@@ -229,7 +230,11 @@ export class ASEApi {
     }
 
     isUndoableMutation(path, options = {}) {
-        if (String(options.method || 'GET').toUpperCase() !== 'POST') return false;
+        const method = String(options.method || 'GET').toUpperCase();
+        if (method === 'PATCH') {
+            return path.includes('/api/add-session/region/');
+        }
+        if (method !== 'POST') return false;
         return [
             '/api/apply/',
             '/api/reset/',
@@ -238,6 +243,7 @@ export class ASEApi {
             '/api/add/',
             '/api/duplicate/',
             '/api/add-session/start/',
+            '/api/add-session/relax/',
             '/api/delete/',
             '/api/atom-identity/',
             '/api/constraints/',
@@ -830,17 +836,18 @@ export class ASEApi {
             details.requested_device = payload.device || details.requested_device || 'cpu';
             details.effective_device = details.requested_device === 'cuda' && details.cuda_available ? 'cuda' : 'cpu';
             details.cpu_threads = payload.cpu_threads || details.cpu_threads || 4;
-            details.cutoff_mode = payload.cutoff_mode === 'absolute'
-                ? 'absolute'
-                : ['bonding', 'scaled'].includes(payload.cutoff_mode)
-                    ? 'bonding'
-                    : details.cutoff_mode || 'bonding';
+            details.cutoff_mode = ['scaled', 'bonding'].includes(payload.cutoff_mode)
+                ? 'scaled'
+                : payload.cutoff_mode === 'absolute'
+                    ? 'absolute'
+                    : details.cutoff_mode || 'absolute';
+            details.cutoff_basis = payload.cutoff_basis === 'vdw' ? 'vdw' : 'covalent';
             details.cutoff_distance = Number.isFinite(Number(payload.cutoff_distance))
                 ? Math.max(0.01, Math.min(100, Number(payload.cutoff_distance)))
                 : Number(details.cutoff_distance ?? 2.0);
             details.cutoff_scale = Number.isFinite(Number(payload.cutoff_scale))
                 ? Math.max(0.05, Math.min(3, Number(payload.cutoff_scale)))
-                : Number(details.cutoff_scale ?? 0.7);
+                : Number(details.cutoff_scale ?? 1.0);
             if (payload.pair_cutoffs && typeof payload.pair_cutoffs === 'object') {
                 details.pair_cutoffs = this.clone(payload.pair_cutoffs);
             }
@@ -1024,7 +1031,7 @@ export class ASEApi {
         return await this.request(`/api/add-session/molecules/{session_id}`);
     }
 
-    async atomAdditionPairCutoffs(elements, basis = 'covalent', scale = 0.7, molecules = []) {
+    async atomAdditionPairCutoffs(elements, basis = 'covalent', scale = 1.0, molecules = []) {
         return await this.jsonPost(
             `/api/add-session/pairs/{session_id}`,
             { elements, basis, scale, molecules }
@@ -1489,6 +1496,14 @@ export class ASEApi {
 
     async relaxStop() {
         return await this.post(`/api/relax/stop/{session_id}`);
+    }
+
+    async clearRelaxTrajectory(kind, positions, useLatest = true) {
+        return await this.jsonPost(`/api/relax/trajectory/clear/{session_id}`, {
+            kind,
+            positions,
+            use_latest: Boolean(useLatest)
+        });
     }
 
     async relaxExit(keep = true) {

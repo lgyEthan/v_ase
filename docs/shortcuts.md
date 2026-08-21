@@ -140,8 +140,10 @@ the move is confirmed or canceled.
   Edit mode with the built-in v_ase calculator.
 - `CPU` is the default device. `CUDA` is enabled only when torch and CUDA are
   available in the Python environment.
-- The bond-cutoff multiplier defaults to `0.70`; strength defaults to `1.0`.
-  In Bonding mode, each label-pair cutoff comes from the current Bonding setup.
-  Automatic same-class visual suppression uses a covalent contact fallback;
-  explicit Pairwise disabled and `0 Å` pairs remain inactive.
+- Pair distances in Å are the default cutoff definition; strength defaults to
+  `1.0`. Each label pair has an independent on/off switch and repulsion onset,
+  initialized from covalent radii without reading the visible-bond table.
+- **Scaled reference radii** is the optional alternative. Its
+  contact-distance multiplier scales covalent or van der Waals reference
+  radii together; a disabled pair or `0 Å` distance remains inactive.
 - Torch is optional; NumPy fallback is used when torch is not installed.

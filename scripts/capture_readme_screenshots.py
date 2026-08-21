@@ -2130,11 +2130,10 @@ def capture_registry_media(browser) -> None:
                 "fmax": 0.002,
                 "steps": 80,
                 "calculator": {
-                    # Use a physical cross-layer onset that resolves the
-                    # top-view overlap without coupling this deterministic
-                    # README scene to the current automatic bond table.
+                    # Use physical cross-layer onsets independent from both
+                    # the visual bond table and other label pairs.
                     "cutoffMode": "absolute",
-                    "cutoffDistance": 4.0,
+                    "pairCutoffs": {"B|C": 4.0, "C|N": 4.0},
                     "kRepulsion": 2.4,
                 },
             },
@@ -3535,6 +3534,7 @@ def _configure_shared_add_atoms_relaxation(
             assign('calc-cpus', settings.cpuThreads);
             assign('calc-cutoff-mode', 'absolute');
             assign('calc-cutoff-distance', settings.cutoffDistance);
+            document.getElementById('btn-repulsion-set-all').click();
             assign('calc-strength', settings.strength);
             assign('relax-fmax', settings.fmax);
             assign('relax-steps', settings.steps);
@@ -3633,7 +3633,7 @@ def _capture_add_atoms_variant(
             name=allow_region["name"],
             bounds=bounds,
         )
-        page.locator("#add-atoms-allow-escape").set_checked(False)
+        page.locator("#add-atoms-constrain-domain").set_checked(True)
 
         for entry_index, entry in enumerate(metadata["entries"]):
             if entry_index:
@@ -4223,7 +4223,7 @@ def _capture_add_molecules_media(browser) -> None:
         page.locator("#add-molecules-random-orientation").set_checked(True)
         page.locator("#add-molecules-rigid").set_checked(True)
         page.locator("#add-atoms-select-added").set_checked(True)
-        page.locator("#add-atoms-allow-escape").set_checked(False)
+        page.locator("#add-atoms-constrain-domain").set_checked(True)
         page.evaluate(
             "count => window.__setReadmeMoleculeStage('2 · READY TO PLACE', "
             "`${count} H₂O · rigid · random orientation · shared repulsion settings`)",
