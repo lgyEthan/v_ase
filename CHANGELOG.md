@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.2.29
+
+- Replaced runtime ASE neighbor-list searches with one validated matscipy
+  backend across periodic RDF, finite pair distributions, built-in repulsion,
+  and exported bond topology. Cell-free, partial-PBC, full triclinic, and
+  long-cutoff periodic-image semantics remain covered by independent numerical
+  regressions.
+- Passed label-pair repulsion cutoffs directly to matscipy's compiled search
+  instead of generating every pair inside the largest cutoff in Python, and
+  vectorized force accumulation. Local production-path benchmarks measured
+  about 7-8x faster RDF calculations and 2.7-4.7x faster repulsion evaluations
+  over the tested 100-50,000 and 500-30,000 atom ranges respectively, with
+  unchanged RDF arrays and numerical force agreement.
+- Added matscipy 1.2 as a required dependency and aligned the runtime floors
+  with its supported ASE and NumPy versions.
+
 ## 0.2.28
 
 - Unified CLI and browser-upload format detection behind one canonical input

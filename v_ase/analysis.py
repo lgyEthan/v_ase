@@ -10,9 +10,9 @@ from typing import Any, Iterable, Sequence
 
 import numpy as np
 from ase import Atoms
-from ase.neighborlist import neighbor_list
 
 from .io import atom_labels
+from .neighbors import neighbour_list
 
 
 MAX_RDF_BINS = 5000
@@ -154,26 +154,38 @@ def _finite_pair_distribution(
         pair_mode,
         active_pairs,
     )
-    total_histogram = np.zeros(bins, dtype=float)
-    partial_histograms = {
-        pair_key(left, right): np.zeros(bins, dtype=float)
-        for left, right in combinations_with_replacement(ordered_labels, 2)
-        if _canonical_pair(left, right) in selected_pairs
-    }
-    positions = np.asarray(atoms.positions, dtype=float)
-    for atom_i in range(natoms - 1):
-        distances = np.linalg.norm(positions[atom_i + 1:] - positions[atom_i], axis=1)
-        total_histogram += np.histogram(distances, bins=edges)[0]
-        if not partial_histograms:
+    # Request the next representable float so a pair exactly on the public
+    # cutoff retains NumPy histogram's inclusive final-edge behavior.
+    search_cutoff = np.nextafter(requested, np.inf)
+    indices_i, indices_j, distances = neighbour_list(
+        "ijd",
+        atoms,
+        search_cutoff,
+        self_interaction=False,
+    )
+    unordered = (indices_i < indices_j) & (distances <= requested)
+    indices_i = np.asarray(indices_i[unordered], dtype=int)
+    indices_j = np.asarray(indices_j[unordered], dtype=int)
+    distances = np.asarray(distances[unordered], dtype=float)
+    total_histogram = np.histogram(distances, bins=edges)[0].astype(float)
+
+    partial_histograms: dict[str, np.ndarray] = {}
+    labels_i = labels[indices_i]
+    labels_j = labels[indices_j]
+    for left, right in combinations_with_replacement(ordered_labels, 2):
+        if _canonical_pair(left, right) not in selected_pairs:
             continue
-        left = labels[atom_i]
-        for offset, distance in enumerate(distances, start=atom_i + 1):
-            key = pair_key(left, labels[offset])
-            if key not in partial_histograms or not (0.0 <= distance <= requested):
-                continue
-            index = min(bins - 1, int(np.searchsorted(edges, distance, side="right") - 1))
-            if index >= 0:
-                partial_histograms[key][index] += 1.0
+        if left == right:
+            mask = (labels_i == left) & (labels_j == right)
+        else:
+            mask = (
+                ((labels_i == left) & (labels_j == right))
+                | ((labels_i == right) & (labels_j == left))
+            )
+        partial_histograms[pair_key(left, right)] = np.histogram(
+            distances[mask],
+            bins=edges,
+        )[0].astype(float)
 
     total_population = float(natoms * (natoms - 1) // 2)
     total = np.divide(
@@ -283,10 +295,10 @@ def calculate_rdf(
             frame_index=frame_index,
         )
 
-    # ASE enumerates all periodic cell shifts required by the scalar cutoff.
+    # Matscipy enumerates all periodic cell shifts required by the scalar cutoff.
     # With self_interaction=False it removes only the zero-shift i == j pair,
     # while retaining physically distinct copies of the same basis atom.
-    indices_i, indices_j, shifts, distances = neighbor_list(
+    indices_i, indices_j, shifts, distances = neighbour_list(
         "ijSd",
         atoms,
         effective,

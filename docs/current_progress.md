@@ -351,8 +351,8 @@ and documentation use `view()`.
     default, while explicit larger cutoffs enumerate every periodic image
     inside the requested sphere instead of assuming a fixed `2 x 2 x 2`
     repetition. Total and concentration-weighted visual-label partial curves
-    share one ASE periodic neighbor search and reconstruct the total through
-    the standard concentration-weighted relation. The Plotly view includes a
+    share one matscipy periodic neighbor search and reconstruct the total
+    through the standard concentration-weighted relation. The Plotly view includes a
     `g(r) = 1` bulk-limit reference and the generated amorphous regression
     reaches a statistically flat long-range plateau.
 62. `describe().analysis` and live capability discovery are authoritative for

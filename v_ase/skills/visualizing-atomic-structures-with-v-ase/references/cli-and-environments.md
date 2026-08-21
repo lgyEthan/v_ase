@@ -14,18 +14,20 @@
 Install the tested release into the active Python environment:
 
 ```bash
-python -m pip install "v_ase-gui==0.2.28"
+python -m pip install "v_ase-gui==0.2.29"
 ```
 
 Optional Rhino export:
 
 ```bash
-python -m pip install "v_ase-gui[rhino]==0.2.28"
+python -m pip install "v_ase-gui[rhino]==0.2.29"
 ```
 
-Runtime dependencies are ASE, FastAPI, Uvicorn, NumPy, SciPy, scikit-image,
-Plotly, Matplotlib, imageio-ffmpeg, and Pillow. No Node.js runtime, API key,
-or hosted account is required.
+Runtime dependencies are ASE, matscipy, FastAPI, Uvicorn, NumPy, SciPy,
+scikit-image, Plotly, Matplotlib, imageio-ffmpeg, and Pillow. matscipy provides
+the compiled pair-search backend used by RDF, finite pair distributions,
+repulsion, and exported bond topology. No Node.js runtime, API key, or hosted
+account is required.
 
 v_ase uses the `AGPL-3.0-or-later` license. Preserve the license and source
 offer when redistributing v_ase or operating a modified version for users over

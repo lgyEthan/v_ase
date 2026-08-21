@@ -43,11 +43,11 @@ settling restores only those planes at their configured resolution. Displayed
 supercells resample the periodic 2D section rather than repeating the full 3D
 grid.
 
-RDF uses one periodic neighbor-list pass at the requested cutoff. ASE
-enumerates every contributing periodic shift, so a long cutoff is not
-truncated to a prebuilt supercell. Total and selected partial histograms share
-that pass. Plotly is loaded from the local Python installation and the drawer
-is created only when analysis is requested. After the first trajectory RDF
+RDF uses one matscipy periodic neighbor-list pass at the requested cutoff.
+The search enumerates every contributing periodic shift, so a long cutoff is
+not truncated to a prebuilt supercell. Total and selected partial histograms
+share that pass. Plotly is loaded from the local Python installation and the
+drawer is created only when analysis is requested. After the first trajectory RDF
 request, ordinary trajectories precompute every frame with two concurrent
 backend workers. Large frame/bin/curve products use a bounded circular cache
 covering up to eight frames behind and 32 ahead of the displayed frame; the

@@ -65,8 +65,8 @@ def test_rdf_automatically_counts_images_beyond_a_two_by_two_by_two_cell():
     )
 
     # The requested sphere reaches shifts +/-2 in every direction. A fixed
-    # 2x2x2 construction cannot contain those images, whereas ASE's periodic
-    # neighbor search enumerates them directly.
+    # 2x2x2 construction cannot contain those images, whereas matscipy's
+    # periodic neighbor search enumerates them directly.
     assert primitive_result.periodic_image_extent == (2, 2, 2)
     assert primitive_result.periodic_image_span == (5, 5, 5)
     assert primitive_result.cutoff == pytest.approx(cutoff)
@@ -308,6 +308,28 @@ def test_finite_pair_distribution_respects_explicit_cutoff_probability_mass():
     dr = result.cutoff / result.bins
     # One of the three unordered pairs lies inside the requested interval.
     assert np.sum(result.total) * dr == pytest.approx(1.0 / 3.0, abs=1e-12)
+
+
+def test_finite_pair_distribution_matches_independent_unordered_pair_histogram():
+    rng = np.random.default_rng(511)
+    atoms = Atoms("H60", positions=rng.normal(size=(60, 3)) * 4.0, pbc=False)
+    set_atom_labels(
+        atoms,
+        ["H_a" if index % 3 else "H_b" for index in range(len(atoms))],
+    )
+    cutoff = 3.75
+    bins = 75
+    result = calculate_rdf(atoms, cutoff=cutoff, bins=bins, pair_mode="all")
+
+    first, second = np.triu_indices(len(atoms), k=1)
+    distances = np.linalg.norm(atoms.positions[second] - atoms.positions[first], axis=1)
+    edges = np.linspace(0.0, cutoff, bins + 1)
+    expected_histogram = np.histogram(distances, bins=edges)[0]
+    expected = expected_histogram / (
+        (len(atoms) * (len(atoms) - 1) / 2) * np.diff(edges)
+    )
+
+    np.testing.assert_allclose(result.total, expected, rtol=0, atol=1e-12)
 
 
 def test_rdf_http_contract_returns_plot_payload_and_matching_csv():

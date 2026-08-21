@@ -1162,29 +1162,27 @@ def _display_bonds(data: Dict[str, Any], display: Dict[str, Any], explicit_pairs
 
         candidate_pairs = []
         if search_radius > 0 and len(symbols) > 1:
-            if include_periodic_images and any(pbc):
-                from ase import Atoms
-                from ase.neighborlist import neighbor_list
+            from ase import Atoms
 
-                probe = Atoms(
-                    numbers=np.ones(len(symbols), dtype=int),
-                    positions=positions,
-                    cell=cell,
-                    pbc=pbc,
-                )
-                first, second = neighbor_list("ij", probe, search_radius, self_interaction=False)
-                candidate_pairs = sorted({
-                    (min(int(i), int(j)), max(int(i), int(j)))
-                    for i, j in zip(first, second)
-                    if int(i) != int(j)
-                })
-            else:
-                from scipy.spatial import cKDTree
+            from .neighbors import neighbour_list
 
-                candidate_pairs = cKDTree(positions).query_pairs(
-                    search_radius,
-                    output_type="ndarray",
-                )
+            probe = Atoms(
+                numbers=np.ones(len(symbols), dtype=int),
+                positions=positions,
+                cell=cell,
+                pbc=pbc if include_periodic_images else False,
+            )
+            first, second = neighbour_list(
+                "ij",
+                probe,
+                search_radius,
+                self_interaction=False,
+            )
+            candidate_pairs = sorted({
+                (min(int(i), int(j)), max(int(i), int(j)))
+                for i, j in zip(first, second)
+                if int(i) != int(j)
+            })
         for i, j in candidate_pairs:
             i, j = int(i), int(j)
             delta = bond_delta(i, j)

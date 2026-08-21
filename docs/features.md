@@ -595,7 +595,7 @@ surface summary containing rendered levels, post-smearing range, mesh counts,
 and refinement settings. Invalid semantic refinement values are rejected;
 volumetric imports publish analysis-only collaboration changes.
 
-Bulk radial distribution functions use an ASE periodic directed-neighbor
+Bulk radial distribution functions use a matscipy periodic directed-neighbor
 search and exact spherical shell-volume normalization. The default radius is
 the unique-MIC reference, but an explicit larger cutoff is retained: every
 periodic cell shift contributing a pair inside the requested sphere is

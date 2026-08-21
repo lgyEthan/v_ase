@@ -56,6 +56,10 @@ Install from PyPI:
 python -m pip install v_ase-gui
 ```
 
+The compiled matscipy pair engine is installed automatically with v_ase. It
+accelerates RDF, finite pair distributions, repulsive relaxation, and bond
+generation without changing their displayed or exported definitions.
+
 Or install the current GitHub source:
 
 ```bash
@@ -303,6 +307,9 @@ the viewport below the app header, leaving bottom-left notifications visible:
   structure. CPU and CUDA use the same pair model; unavailable CUDA requests
   fall back to CPU. Minimum-image vectors are evaluated by the calculator for
   the complete structure rather than by moving atom pairs independently.
+  Candidate pairs and enabled label-pair onset distances are filtered in the
+  compiled matscipy search before force accumulation, including cell-free and
+  triclinic structures.
 
 **Place atoms** and **Place molecules** remain available after each completed
 placement relaxation. Edit the species rows or Allow/Reject regions, place
@@ -873,15 +880,15 @@ original input trajectory. It therefore follows manual atom transforms and
 the separate optimization timeline produced by Relaxation without dismissing
 the drawer.
 
-Periodic RDF uses exact spherical shell volumes and ASE's periodic neighbor
-search in the full triclinic cell. The requested cutoff is not limited to a
-`2 x 2 x 2` replica or reduced at the unique minimum-image radius: v_ase
-includes every periodic image whose distance falls inside the sphere and
-reports the image span used. The finite pair distribution uses direct
-Cartesian distances without inventing a bulk density; at a cutoff containing
-all pairs, its probability density integrates to one. Partial-PBC slab and
-wire systems remain rejected because they require a geometry-specific boundary
-correction.
+Periodic RDF uses exact spherical shell volumes and matscipy's compiled
+periodic neighbor search in the full triclinic cell. The requested cutoff is
+not limited to a `2 x 2 x 2` replica or reduced at the unique minimum-image
+radius: v_ase includes every periodic image whose distance falls inside the
+sphere and reports the image span used. The finite pair distribution uses
+direct Cartesian distances from the same accelerated pair engine without
+inventing a bulk density; at a cutoff containing all pairs, its probability
+density integrates to one. Partial-PBC slab and wire systems remain rejected
+because they require a geometry-specific boundary correction.
 
 The dotted `g(r) = 1` reference makes the bulk limit explicit. In the
 deterministic amorphous Cu-Zr example below, total, Cu-Cu, Cu-Zr, and Zr-Zr
@@ -1714,8 +1721,26 @@ python -m pip install --upgrade "v_ase-gui>=0.1.6"
 v_ase --version
 ```
 
-v_ase 0.1.6 and later support the declared `ase>=3.23` range without making
-ordinary structure loading depend on a newer VASP-internal helper.
+Current v_ase releases use matscipy for compiled pair searches and install
+`ase>=3.26`, `numpy>=2.0`, and `matscipy>=1.2` together. Upgrade the complete
+v_ase environment rather than replacing only ASE.
+
+</details>
+
+<details>
+<summary>matscipy cannot be installed or imported</summary>
+
+Install or upgrade v_ase with the same Python that runs the `v_ase` command:
+
+```bash
+python -m pip install --upgrade pip
+python -m pip install --upgrade v_ase-gui
+```
+
+v_ase uses matscipy's compiled neighbor search for analysis, repulsion, and
+bond export. A matching wheel is normally selected automatically. If pip says
+that no compatible wheel exists, use a supported CPython/platform combination
+or install the compiler toolchain requested by matscipy's source build.
 
 </details>
 

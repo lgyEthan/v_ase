@@ -312,6 +312,10 @@ at and beyond `r_cut`. This is not a hard minimum-separation constraint. Read
 `describe().calculator.details` after applying the command and verify
 `cutoff_mode`, `cutoff_basis`, `pair_cutoffs`, the active cutoff field, and
 `k_repulsion` before trusting the run.
+The required matscipy backend filters enabled label-pair candidates in compiled
+code. Treat this as a performance detail: the semantic cutoff table, MIC
+behavior, harmonic energy, forces, and disabled-pair behavior above remain the
+authoritative contract.
 
 ### ASE Bulk Builder Contract
 
@@ -1219,6 +1223,8 @@ enumerates every periodic image inside that sphere instead of truncating to a
 fixed `2 x 2 x 2` replica. With no periodic axes it computes a finite-system
 unordered-pair probability density and labels the result
 `Pair-distribution function`; it does not claim bulk `g(r)` normalization.
+Both searches use the required compiled matscipy backend; this changes runtime,
+not normalization or pair/image semantics.
 Partial PBC remains rejected because neither of those normalizations applies
 without an explicit boundary correction. The result reports `analysisKind`,
 `title`, `normalization`, `requestedCutoff`, `cutoff`, `uniqueMicCutoff`,

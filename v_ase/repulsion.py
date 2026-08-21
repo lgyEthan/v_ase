@@ -11,9 +11,9 @@ from ase import Atoms
 from ase.calculators.calculator import Calculator, all_changes
 from ase.data import atomic_numbers, covalent_radii, vdw_radii
 from ase.geometry import find_mic
-from ase.neighborlist import primitive_neighbor_list
 
 from .io import atom_labels
+from .neighbors import primitive_neighbour_list
 
 _EPS = 1e-12
 
@@ -362,94 +362,77 @@ class VAseRepulsionCalculator(Calculator):
             return self.cutoff_distance
         return float(min_bondinfo) * self.cutoff_scale
 
-    def _manual_pairs(self, atoms: Atoms, min_bondinfo):
-        positions = atoms.get_positions()
-        symbols = atoms.get_chemical_symbols()
-        labels = atom_labels(atoms)
-        pairs = []
-        for i in range(len(atoms) - 1):
-            for j in range(i + 1, len(atoms)):
-                threshold = self._threshold_for_pair(
-                    min_bondinfo,
-                    labels[i],
-                    labels[j],
-                    symbols[i],
-                    symbols[j],
-                )
-                if threshold is None or threshold <= 0:
-                    continue
-                vec = positions[j] - positions[i]
-                dist = float(np.linalg.norm(vec))
-                if dist <= _EPS:
-                    vec = _coincident_pair_vector(i, j) * _EPS
-                    dist = _EPS
-                if dist < threshold:
-                    pairs.append((i, j, vec, dist, threshold))
-        return pairs
-
     def _neighbor_pairs(self, atoms: Atoms, min_bondinfo):
         if len(atoms) < 2:
             return []
-        if (
-            self.cutoff_mode == "absolute"
-            and self._absolute_global_override
-        ):
-            max_cutoff = self.cutoff_distance
-            cutoff = max_cutoff
-        elif isinstance(min_bondinfo, dict):
-            max_cutoff = max(float(value) for value in min_bondinfo.values()) if min_bondinfo else 0.0
-            if self.cutoff_mode == "scaled":
-                max_cutoff *= self.cutoff_scale
-            cutoff = max_cutoff
-        elif self.cutoff_mode == "absolute":
-            max_cutoff = self.cutoff_distance
-            cutoff = max_cutoff
-        else:
-            cutoff = float(min_bondinfo) * self.cutoff_scale
-            max_cutoff = cutoff
-        if max_cutoff <= 0:
-            return []
-        pbc = np.asarray(atoms.pbc, dtype=bool) if self.mic else np.asarray([False, False, False])
-        use_neighborlist = atoms.cell.rank > 0 or bool(np.any(pbc))
-        if not use_neighborlist:
-            return self._manual_pairs(atoms, min_bondinfo)
-        try:
-            is_, js, vecs, dists = primitive_neighbor_list(
-                "ijDd",
-                pbc=pbc,
-                cell=atoms.cell,
-                positions=atoms.get_positions(),
-                cutoff=cutoff,
-                numbers=atoms.get_atomic_numbers(),
-                self_interaction=False,
-                use_scaled_positions=False,
-            )
-        except Exception:
-            return self._manual_pairs(atoms, min_bondinfo)
 
-        symbols = atoms.get_chemical_symbols()
-        labels = atom_labels(atoms)
+        symbols = np.asarray(atoms.get_chemical_symbols(), dtype=str)
+        labels = np.asarray(atom_labels(atoms), dtype=str)
+        interaction_types = list(dict.fromkeys(zip(labels.tolist(), symbols.tolist())))
+        type_ids_by_key = {
+            key: index + 1
+            for index, key in enumerate(interaction_types)
+        }
+        type_ids = np.fromiter(
+            (type_ids_by_key[(label, symbol)] for label, symbol in zip(labels, symbols)),
+            dtype=np.int32,
+            count=len(atoms),
+        )
+        threshold_matrix = np.zeros(
+            (len(interaction_types) + 1, len(interaction_types) + 1),
+            dtype=float,
+        )
+        native_cutoffs: dict[tuple[int, int], float] = {}
+        for left_index, (left_label, left_symbol) in enumerate(interaction_types, start=1):
+            for right_index in range(left_index, len(interaction_types) + 1):
+                right_label, right_symbol = interaction_types[right_index - 1]
+                threshold = self._threshold_for_pair(
+                    min_bondinfo,
+                    left_label,
+                    right_label,
+                    left_symbol,
+                    right_symbol,
+                )
+                if threshold is None or not np.isfinite(threshold) or threshold <= 0:
+                    continue
+                clean_threshold = float(threshold)
+                native_cutoffs[(left_index, right_index)] = clean_threshold
+                threshold_matrix[left_index, right_index] = clean_threshold
+                threshold_matrix[right_index, left_index] = clean_threshold
+        if not native_cutoffs:
+            return []
+
+        pbc = np.asarray(atoms.pbc, dtype=bool) if self.mic else np.asarray([False, False, False])
+        is_, js, vecs, dists = primitive_neighbour_list(
+            "ijDd",
+            pbc=pbc,
+            cell=atoms.cell,
+            positions=atoms.get_positions(),
+            cutoff=native_cutoffs,
+            numbers=type_ids,
+            self_interaction=False,
+            use_scaled_positions=False,
+        )
+
+        is_ = np.asarray(is_, dtype=int)
+        js = np.asarray(js, dtype=int)
+        vecs = np.asarray(vecs, dtype=float)
+        dists = np.asarray(dists, dtype=float)
+        thresholds = threshold_matrix[type_ids[is_], type_ids[js]]
+        active = (is_ < js) & (thresholds > 0) & (dists < thresholds)
+        is_ = is_[active]
+        js = js[active]
+        vecs = vecs[active]
+        dists = dists[active]
+        thresholds = thresholds[active]
+
         pairs = []
-        seen = set()
-        for i, j, vec, dist in zip(is_, js, vecs, dists):
-            i = int(i)
-            j = int(j)
-            if i >= j:
-                continue
-            threshold = self._threshold_for_pair(
-                min_bondinfo,
-                labels[i],
-                labels[j],
-                symbols[i],
-                symbols[j],
-            )
-            if threshold is None or dist >= threshold:
-                continue
+        for i, j, vec, dist, threshold in zip(is_, js, vecs, dists, thresholds):
             if dist <= _EPS:
-                vec = _coincident_pair_vector(i, j) * _EPS
+                vec = _coincident_pair_vector(int(i), int(j)) * _EPS
                 dist = _EPS
-            pairs.append((i, j, np.asarray(vec, dtype=float), float(dist), float(threshold)))
-            seen.add((i, j))
+            pairs.append((int(i), int(j), vec, float(dist), float(threshold)))
+        seen = set(zip(is_.tolist(), js.tolist()))
 
         # Some neighbor-list backends omit exact overlaps.  Hash wrapped
         # Cartesian positions first so only plausible coincidences require an
@@ -558,15 +541,22 @@ class VAseRepulsionCalculator(Calculator):
     def _pair_energy_forces_numpy(self, atoms: Atoms, pairs):
         tags = atoms.get_tags()
         forces = np.zeros((len(atoms), 3), dtype=float)
-        energy = 0.0
-        for i, j, vec, dist, threshold in pairs:
-            delta = threshold - dist
-            energy += 0.5 * self.k_repulsion * delta**2
-            f_vec = (self.k_repulsion * delta / max(dist, _EPS)) * vec
-            if tags[i] == 3 or self.work_on_relax_atoms_too:
-                forces[i] -= f_vec
-            if tags[j] == 3 or self.work_on_relax_atoms_too:
-                forces[j] += f_vec
+        is_ = np.fromiter((pair[0] for pair in pairs), dtype=np.int64, count=len(pairs))
+        js = np.fromiter((pair[1] for pair in pairs), dtype=np.int64, count=len(pairs))
+        vecs = np.asarray([pair[2] for pair in pairs], dtype=float)
+        dists = np.fromiter((pair[3] for pair in pairs), dtype=float, count=len(pairs))
+        thresholds = np.fromiter((pair[4] for pair in pairs), dtype=float, count=len(pairs))
+        deltas = thresholds - dists
+        energy = 0.5 * self.k_repulsion * float(deltas @ deltas)
+        fvec = (
+            self.k_repulsion * deltas / np.maximum(dists, _EPS)
+        )[:, None] * vecs
+        apply_i = (tags[is_] == 3) | bool(self.work_on_relax_atoms_too)
+        apply_j = (tags[js] == 3) | bool(self.work_on_relax_atoms_too)
+        if np.any(apply_i):
+            np.add.at(forces, is_[apply_i], -fvec[apply_i])
+        if np.any(apply_j):
+            np.add.at(forces, js[apply_j], fvec[apply_j])
         return energy, forces
 
     def _pair_energy_forces_torch(self, atoms: Atoms, pairs, torch, device: str):
@@ -602,12 +592,14 @@ class VAseRepulsionCalculator(Calculator):
             return forces
         tags = atoms.get_tags()
         limited = np.array(forces, dtype=float, copy=True)
-        for i, force in enumerate(limited):
-            if tags[i] != 3 and not self.work_on_relax_atoms_too:
-                continue
-            norm = float(np.linalg.norm(force))
-            if norm > _EPS:
-                limited[i] = self.max_force_norm * np.tanh(norm / self.max_force_norm) * (force / norm)
+        active = np.ones(len(atoms), dtype=bool) if self.work_on_relax_atoms_too else tags == 3
+        norms = np.linalg.norm(limited, axis=1)
+        active &= norms > _EPS
+        if np.any(active):
+            scales = self.max_force_norm * np.tanh(
+                norms[active] / self.max_force_norm
+            ) / norms[active]
+            limited[active] *= scales[:, None]
         return limited
 
     def calculate(self, atoms=None, properties=("energy", "forces"), system_changes=all_changes):

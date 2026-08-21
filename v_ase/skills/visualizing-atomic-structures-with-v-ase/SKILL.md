@@ -14,7 +14,7 @@ All lengths are Angstrom and all angles are degrees unless stated otherwise.
 Install the tested release:
 
 ```bash
-python -m pip install "v_ase-gui==0.2.28"
+python -m pip install "v_ase-gui==0.2.29"
 ```
 
 Start the terminal-oriented API session yourself:
@@ -440,7 +440,7 @@ For any nontrivial task, verify all applicable items:
   `k * (r - rt)` without altering backend constraint semantics; verify the same
   threshold transition on every trajectory frame;
 - relaxation modes: source, structure, Add Atoms, and planar-translation timelines remain distinguishable; stop permits restart; `clear-relaxation-trajectory` retains the displayed or final frame while leaving the mode active; exit keeps current coordinates or restores the exact baseline and removes only that optimizer timeline;
-- built-in repulsion: visual bonds and contact repulsion are independent. The default absolute mode uses enabled label-pair onset distances in Angstrom, seeded from ASE covalent-radius sums or optional van der Waals sums; zero disables only that pair. Scaled mode multiplies the same reference table by a dimensionless contact multiplier. Neither onset is a hard distance constraint.
+- built-in repulsion: visual bonds and contact repulsion are independent. The default absolute mode uses enabled label-pair onset distances in Angstrom, seeded from ASE covalent-radius sums or optional van der Waals sums; zero disables only that pair. Scaled mode multiplies the same reference table by a dimensionless contact multiplier. Neither onset is a hard distance constraint. matscipy's compiled label-pair search is an implementation acceleration only; it does not alter the onset, MIC, energy, or force contract.
 - history: one confirmed transform gesture, Apply action, placement batch, or relaxation start is one undo step. During Add Atoms, Undo/Redo traverses individual batches and Cancel still restores the exact pre-session baseline.
 - render: exact dimensions, format, options, nonblank decoded pixels;
 - export: MIME type, filename, byte count, and reopenability where supported;

@@ -136,6 +136,7 @@ test edit and a new filename for output.
 | Message or symptom | Cause | Action |
 | --- | --- | --- |
 | `requires Edit mode` | A physical operation was attempted in View | Send `apply` with `{"mode":"edit"}`, describe, retry |
+| `No module named 'matscipy'` or a matscipy binary import error | The required compiled pair-search dependency is missing or does not match the active Python/platform | Upgrade `v_ase-gui` with the same Python as the `v_ase` executable; use a supported wheel or install the compiler toolchain requested by matscipy's source build |
 | `requires crystal structure and lattice parameter a` | A custom compound has no ASE reference prototype/lattice data | Read `capabilities().bulkBuilder.catalogUrl`, choose an explicit compatible prototype, supply `a`, and preview before building |
 | `cannot construct a cubic cell` | The selected ASE prototype/reference has no cubic construction path | Use a cell mode listed by the bulk catalog; do not reshape the result silently |
 | `build-bulk replaces the current structure and trajectory` | Replacement was requested without explicit approval | Obtain human approval, then retry with `confirmReplace:true`; verify and Undo on mismatch |

@@ -1294,7 +1294,7 @@ def test_exact_overlap_mic_fallback_batches_candidate_vectors(monkeypatch):
     atoms.set_tags([3, 3, 3, 3])
     monkeypatch.setattr(
         repulsion_module,
-        "primitive_neighbor_list",
+        "primitive_neighbour_list",
         lambda *_args, **_kwargs: (
             np.asarray([], dtype=int),
             np.asarray([], dtype=int),
@@ -1948,11 +1948,19 @@ def test_browser_random_add_atoms_mode_scatter_relax_and_finish():
             page.select_option("#calc-cpus", thread_value)
             page.fill("#relax-steps", "20")
             page.click("#btn-relax")
-            page.wait_for_function(
-                "window.__ASE_APP__.addAtomsUI?.active?.is_relaxing === true"
-            )
-            assert page.locator("#add-atoms-mic").is_disabled()
-            assert page.locator("#calc-device").is_disabled()
+            running_controls = page.wait_for_function("""() => {
+                const running = window.__ASE_APP__.addAtomsUI?.active?.is_relaxing === true;
+                const micDisabled = document.getElementById('add-atoms-mic')?.disabled === true;
+                const deviceDisabled = document.getElementById('calc-device')?.disabled === true;
+                return running && micDisabled && deviceDisabled
+                    ? {running, micDisabled, deviceDisabled}
+                    : false;
+            }""").json_value()
+            assert running_controls == {
+                "running": True,
+                "micDisabled": True,
+                "deviceDisabled": True,
+            }
             assert backend.atom_addition.requested_device == "cpu"
             assert backend.atom_addition.cpu_threads == int(thread_value)
             page.wait_for_function(
@@ -2273,17 +2281,35 @@ def test_browser_add_molecules_homogeneous_transform_rigid_relax_and_finish():
             page.keyboard.type("30")
             page.keyboard.press("Enter")
             page.wait_for_function("window.__ASE_APP__.transform.mode === 'IDLE'")
-            page.wait_for_timeout(150)
+            deadline = time.monotonic() + 5.0
+            while (
+                np.allclose(backend.working_atoms.positions[len(host):], before[len(host):])
+                and time.monotonic() < deadline
+            ):
+                page.wait_for_timeout(25)
             np.testing.assert_array_equal(backend.working_atoms.positions[:len(host)], host.positions)
             assert not np.allclose(backend.working_atoms.positions[len(host):], before[len(host):])
 
+            after_rotation = backend.working_atoms.positions.copy()
             page.keyboard.press("g")
             page.keyboard.press("x")
             page.keyboard.type("0.4")
             page.keyboard.press("Enter")
             page.wait_for_function("window.__ASE_APP__.transform.mode === 'IDLE'")
-            page.wait_for_timeout(150)
+            deadline = time.monotonic() + 5.0
+            while (
+                np.allclose(
+                    backend.working_atoms.positions[len(host):],
+                    after_rotation[len(host):],
+                )
+                and time.monotonic() < deadline
+            ):
+                page.wait_for_timeout(25)
             np.testing.assert_array_equal(backend.working_atoms.positions[:len(host)], host.positions)
+            assert not np.allclose(
+                backend.working_atoms.positions[len(host):],
+                after_rotation[len(host):],
+            )
 
             page.click("#btn-add-atoms-open-relaxation")
             page.wait_for_selector('#inspector details[data-panel="scientific-tools"]:not(.group-hidden)[open]')
