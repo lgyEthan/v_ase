@@ -1,13 +1,13 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.2.27';
-import { ASERenderer } from './renderer.js?v=0.2.27';
-import { ASESelection } from './selection.js?v=0.2.27';
-import { ASETransform } from './transform.js?v=0.2.27';
+import { ASEApi } from './api.js?v=0.2.28';
+import { ASERenderer } from './renderer.js?v=0.2.28';
+import { ASESelection } from './selection.js?v=0.2.28';
+import { ASETransform } from './transform.js?v=0.2.28';
 import {
     interpolateTrajectoryFrames,
     interpolatedFrameCount,
     normalizeInterpolationMultiplier
-} from './trajectory.js?v=0.2.27';
+} from './trajectory.js?v=0.2.28';
 
 const CHEMICAL_ELEMENT_SYMBOLS = Object.freeze([
     'H','He','Li','Be','B','C','N','O','F','Ne',

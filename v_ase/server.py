@@ -29,7 +29,13 @@ from .session import (
 )
 from .serialization import atoms_to_json
 from .websocket_manager import ws_manager
-from .io import atom_labels, base_symbol_for_atom_type, normalize_atom_type_label, set_atom_labels
+from .io import (
+    atom_labels,
+    base_symbol_for_atom_type,
+    infer_input_format,
+    normalize_atom_type_label,
+    set_atom_labels,
+)
 from .repulsion import (
     copy_calculator,
     ensure_default_calculator,
@@ -4302,24 +4308,7 @@ async def active_session():
 
 
 def _uploaded_format_hint(filename: str, explicit_format: str | None) -> str | None:
-    if explicit_format:
-        return explicit_format
-    lower_name = filename.lower()
-    if lower_name in {"poscar", "contcar"}:
-        return "vasp"
-    if lower_name == "xdatcar":
-        return "vasp-xdatcar"
-    if lower_name == "vasprun.xml":
-        return "vasp-xml"
-    if lower_name in {"chg", "chgcar"} or lower_name.startswith(("chg.", "chg_", "chg-", "chgcar.", "chgcar_", "chgcar-")):
-        return "vasp-density"
-    if lower_name == "locpot" or lower_name.startswith(("locpot.", "locpot_", "locpot-")):
-        return "vasp-potential"
-    if lower_name == "parchg" or lower_name.startswith(("parchg.", "parchg_", "parchg-")):
-        return "vasp-partial-density"
-    if lower_name == "elfcar" or lower_name.startswith(("elfcar.", "elfcar_", "elfcar-")):
-        return "vasp-elf"
-    return None
+    return infer_input_format(filename, explicit_format)
 
 
 def _selected_frame_indices(index: str | int | slice | None, frame_count: int) -> list[int]:

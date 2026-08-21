@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.28
+
+- Unified CLI and browser-upload format detection behind one canonical input
+  resolver. **Open File** now auto-detects numbered or calculation-specific
+  VASP names such as `XDATCAR_2` exactly as `v_ase gui XDATCAR_2` does.
+- Applied the same original-filename hint to Replace, Add to trajectory, and
+  Open in new tab, while retaining an explicitly selected Reader as the
+  highest-priority override.
+
 ## 0.2.27
 
 - Separated repulsive contact distances from visual bond connectivity. The

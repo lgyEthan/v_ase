@@ -75,6 +75,44 @@ def resolve_input_format(fmt: str | None) -> str | None:
     return INPUT_FORMAT_ALIASES.get(key, fmt)
 
 
+def infer_input_format(
+    filename: str | Path | None,
+    explicit_format: str | None = None,
+) -> str | None:
+    """Resolve one reader hint from an explicit choice or the original filename.
+
+    Browser uploads are stored under temporary filenames, so every entry point
+    must inspect the user-visible filename before reading the temporary file.
+    """
+    if explicit_format and explicit_format.strip().lower() != "auto":
+        return resolve_input_format(explicit_format)
+    if filename is None:
+        return None
+
+    basename = Path(filename).name.casefold()
+
+    def matches_stem(stem: str) -> bool:
+        return basename == stem or basename.startswith(
+            (f"{stem}.", f"{stem}_", f"{stem}-")
+        )
+
+    if matches_stem("poscar") or matches_stem("contcar"):
+        return "vasp"
+    if matches_stem("xdatcar"):
+        return "vasp-xdatcar"
+    if basename == "vasprun.xml":
+        return "vasp-xml"
+    if matches_stem("chgcar") or matches_stem("chg"):
+        return "vasp-density"
+    if matches_stem("locpot"):
+        return "vasp-potential"
+    if matches_stem("parchg"):
+        return "vasp-partial-density"
+    if matches_stem("elfcar"):
+        return "vasp-elf"
+    return None
+
+
 @dataclass
 class FastLammpsDumpTrajectory:
     """Offset-indexed LAMMPS dump reader for large viz-only trajectories."""
@@ -478,9 +516,8 @@ def read_indexed_trajectory(
     """Return an on-demand source for formats with reliable random access."""
 
     source = Path(path)
-    resolved = resolve_input_format(fmt)
-    name = source.name.upper()
-    if resolved == "vasp-xdatcar" or (fmt is None and name.startswith("XDATCAR")):
+    resolved = infer_input_format(source, fmt)
+    if resolved == "vasp-xdatcar":
         trajectory = index_vasp_xdatcar(source, index)
         return IndexedTrajectoryResult(
             atoms=trajectory.template_atoms.copy(),
@@ -1259,7 +1296,7 @@ def read_structure_frames(
 ) -> list[Atoms]:
     """Read one or more frames through the canonical v_ase input pipeline."""
     source = Path(path)
-    resolved_format = resolve_input_format(fmt)
+    resolved_format = infer_input_format(source, fmt)
     suffix = source.suffix.lower()
 
     if resolved_format == "lammps-dump-text" or (

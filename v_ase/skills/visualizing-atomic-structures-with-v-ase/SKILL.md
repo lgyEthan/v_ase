@@ -14,7 +14,7 @@ All lengths are Angstrom and all angles are degrees unless stated otherwise.
 Install the tested release:
 
 ```bash
-python -m pip install "v_ase-gui==0.2.27"
+python -m pip install "v_ase-gui==0.2.28"
 ```
 
 Start the terminal-oriented API session yourself:

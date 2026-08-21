@@ -1442,6 +1442,12 @@ Volumetric inputs include VASP CHGCAR/CHG/PARCHG/LOCPOT/ELFCAR and Gaussian
 Cube/XSF grids. VASP scalar names may carry `.`, `_`, or `-` suffixes for
 separate calculations. ASE readers cover additional structure formats.
 
+The terminal and **Open File > Auto detect** use the same original-filename
+resolver. Standard VASP names may carry `.`, `_`, or `-` suffixes, so files
+such as `POSCAR_1`, `CONTCAR-final`, and `XDATCAR_2` open automatically for
+Replace, Add to trajectory, and Open in new tab. Choosing a Reader explicitly
+always overrides filename detection.
+
 Use `--format` when an ambiguous filename does not identify the reader:
 
 ```bash
@@ -1774,7 +1780,9 @@ browser download would remove advance destination selection.
 
 v_ase shows the final useful reader message rather than a generic Internal
 Server Error. If it says the format could not be determined, choose the
-matching **Reader** explicitly or use a recognized extension. Missing-file,
+matching **Reader** explicitly or use a recognized name/extension. Numbered
+VASP names such as `XDATCAR_2` are recognized automatically in both the CLI
+and **Open File**. Missing-file,
 permission, directory, invalid-text, and truncated-file failures have targeted
 messages. For an unrecognized failure, the dialog shows the final exception
 line while the complete traceback remains only in the terminal log.

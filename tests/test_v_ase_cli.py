@@ -14,7 +14,7 @@ import pytest
 import v_ase.remote as remote
 from v_ase.cli import build_parser, normalize_argv, run_api_command, run_gui
 from v_ase.export import export_html_response
-from v_ase.io import read_structure_frames, resolve_input_format
+from v_ase.io import infer_input_format, read_structure_frames, resolve_input_format
 from v_ase.io import atom_labels
 from v_ase.serialization import atoms_to_json
 from v_ase.session import EditorSession
@@ -693,6 +693,18 @@ def test_format_aliases_resolve_to_ase_format_names():
     assert resolve_input_format("cube") == "cube"
     assert resolve_input_format("xsf") == "xsf"
     assert resolve_input_format("espresso-in") == "espresso-in"
+
+
+@pytest.mark.parametrize(
+    "filename",
+    ["XDATCAR", "XDATCAR_1", "XDATCAR-2", "xdatcar.production"],
+)
+def test_vasp_trajectory_filename_variants_use_one_canonical_detector(filename):
+    assert infer_input_format(filename) == "vasp-xdatcar"
+
+
+def test_explicit_reader_overrides_filename_detection():
+    assert infer_input_format("XDATCAR_2", "xyz") == "xyz"
 
 
 def test_v_ase_gui_opens_volumetric_input_with_grid_attached(tmp_path, monkeypatch):

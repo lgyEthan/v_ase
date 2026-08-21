@@ -74,8 +74,9 @@ def test_native_ase_trajectory_uses_random_access_selection(tmp_path):
     np.testing.assert_allclose(result.trajectory.read_positions(1), [[3, 0, 0]])
 
 
-def test_view_mode_upload_keeps_indexed_xdatcar_on_demand(tmp_path):
-    path = tmp_path / "XDATCAR"
+@pytest.mark.parametrize("uploaded_name", ["XDATCAR", "XDATCAR_2"])
+def test_view_mode_upload_keeps_indexed_xdatcar_on_demand(tmp_path, uploaded_name):
+    path = tmp_path / uploaded_name
     write_xdatcar(path)
     session = EditorSession(
         session_id="indexed-xdatcar-upload",
@@ -88,7 +89,7 @@ def test_view_mode_upload_keeps_indexed_xdatcar_on_demand(tmp_path):
         data = asyncio.run(load_structure_file(
             session.session_id,
             StreamRequest(path.read_bytes()),
-            filename="XDATCAR",
+            filename=uploaded_name,
             index=":",
             runtime_mode="view",
         ))
@@ -96,6 +97,62 @@ def test_view_mode_upload_keeps_indexed_xdatcar_on_demand(tmp_path):
         assert session.frame_count == 2
         assert data["metadata"]["virtual_trajectory"] is True
         assert len(session.temporary_files) == 1
+    finally:
+        session.cleanup_temporary_files()
+        sessions.pop(session.session_id, None)
+
+
+def test_auto_detected_indexed_xdatcar_can_be_appended_from_browser(tmp_path):
+    path = tmp_path / "XDATCAR_2"
+    write_xdatcar(path)
+    initial = Atoms("O2", positions=[[0, 0, 0], [0.5, 0.5, 0.5]])
+    session = EditorSession(
+        session_id="indexed-xdatcar-append",
+        original_atoms=initial.copy(),
+        working_atoms=initial.copy(),
+        config={"viz_only": True, "empty_workspace": False},
+    )
+    sessions[session.session_id] = session
+    try:
+        data = asyncio.run(append_structure_file(
+            session.session_id,
+            StreamRequest(path.read_bytes()),
+            filename=path.name,
+            index=":",
+        ))
+        assert data["loaded_file"]["format"] == "vasp-xdatcar"
+        assert data["loaded_file"]["appended_frames"] == 2
+        assert session.frame_count == 3
+    finally:
+        session.cleanup_temporary_files()
+        sessions.pop(session.session_id, None)
+
+
+def test_edit_mode_upload_auto_detects_numbered_xdatcar(tmp_path):
+    path = tmp_path / "XDATCAR_2"
+    write_xdatcar(path)
+    session = EditorSession(
+        session_id="editable-numbered-xdatcar-upload",
+        original_atoms=Atoms(),
+        working_atoms=Atoms(),
+        config={"viz_only": False, "empty_workspace": True},
+    )
+    sessions[session.session_id] = session
+    try:
+        data = asyncio.run(load_structure_file(
+            session.session_id,
+            StreamRequest(path.read_bytes()),
+            filename=path.name,
+            index=":",
+            runtime_mode="edit",
+        ))
+        assert data["loaded_file"]["format"] == "vasp-xdatcar"
+        assert data["metadata"]["frame_count"] == 2
+        assert session.trajectory_source is None
+        np.testing.assert_allclose(
+            session.trajectory_frames[1].positions,
+            [[0.4, 0.9, 1.6], [1.0, 1.8, 2.8]],
+        )
     finally:
         session.cleanup_temporary_files()
         sessions.pop(session.session_id, None)

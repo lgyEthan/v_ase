@@ -15,10 +15,10 @@ from ase.io import write
 
 from v_ase._version import __version__
 from v_ase.io import (
+    infer_input_format,
     read_fast_lammps_dump,
     read_indexed_trajectory,
     read_structure_frames,
-    resolve_input_format,
 )
 from v_ase.viewer import view
 
@@ -404,7 +404,7 @@ def run_gui(args: argparse.Namespace) -> int:
     if path is not None and not path.exists():
         raise SystemExit(f"v_ase: file not found: {path}")
 
-    resolved_format = resolve_input_format(args.format)
+    resolved_format = infer_input_format(path, args.format)
     suffix = path.suffix.lower() if path is not None else ""
     trajectory_source = None
     initial_frame = 0

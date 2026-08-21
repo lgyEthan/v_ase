@@ -14,13 +14,13 @@
 Install the tested release into the active Python environment:
 
 ```bash
-python -m pip install "v_ase-gui==0.2.27"
+python -m pip install "v_ase-gui==0.2.28"
 ```
 
 Optional Rhino export:
 
 ```bash
-python -m pip install "v_ase-gui[rhino]==0.2.27"
+python -m pip install "v_ase-gui[rhino]==0.2.28"
 ```
 
 Runtime dependencies are ASE, FastAPI, Uvicorn, NumPy, SciPy, scikit-image,
@@ -189,6 +189,12 @@ ASE-readable structures and trajectories are supported. Common inputs include:
 - LAMMPS dump/`lammpstrj` and LAMMPS data;
 - CIF and other formats registered by ASE;
 - self-contained `.vase` projects.
+
+CLI paths and **Open File > Auto detect** share one filename resolver. Standard
+VASP basenames accept `.`, `_`, or `-` calculation suffixes: for example,
+`POSCAR_1`, `CONTCAR-final`, and `XDATCAR_2` select the same readers in both
+entry points. This rule also covers browser Replace, Add to trajectory, and
+Open in new tab. An explicit `--format` or GUI Reader always takes precedence.
 
 Volumetric inputs may be opened directly or loaded into an existing document:
 
