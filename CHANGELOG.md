@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.2.30
+
+- Made the matscipy adapter exactly preserve ASE neighbor semantics for
+  full-rank partial-PBC cells whose atoms lie outside a finite cell direction.
+  Periodic lattice vectors remain unchanged, nonperiodic image shifts remain
+  zero, and scalar, per-atom-radius, and label-pair cutoffs now share the same
+  validated behavior.
+- Replaced fractional-coordinate rounding in exported periodic bonds with
+  ASE's exact `find_mic`, so strongly skewed triclinic cells select the true
+  shortest image rather than a merely component-wrapped image.
+- Added deterministic ASE-oracle matrices and physical regressions covering
+  cell-free, finite, wire, slab, partial-PBC, orthogonal, and triclinic cells;
+  cutoff-edge exclusion; RDF normalization and long-range images; repulsion
+  energy/force equivalence; finite-difference gradients; momentum, torque, and
+  lattice-translation invariance; and exported bond geometry.
+
 ## 0.2.29
 
 - Replaced runtime ASE neighbor-list searches with one validated matscipy

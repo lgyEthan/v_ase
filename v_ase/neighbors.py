@@ -57,30 +57,49 @@ def _nonperiodic_search_geometry(
     return np.diag(lengths), lower
 
 
-def _complete_periodic_search_geometry(
+def _partial_periodic_search_geometry(
     cell: np.ndarray,
     positions: np.ndarray,
     pbc: np.ndarray,
     cutoff: Any,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Complete nonperiodic missing vectors while preserving periodic rows."""
+    """Enclose finite axes without changing any periodic lattice vector.
+
+    matscipy bins atoms through the complete cell matrix.  With partial PBC,
+    coordinates outside a finite cell direction can otherwise acquire a shift
+    in that nonperiodic direction.  Complete missing finite vectors, then
+    enlarge every nonperiodic basis direction to contain the atoms plus one
+    search-cutoff margin.  Returned shifts therefore use periodic rows only.
+    """
 
     missing = np.linalg.norm(cell, axis=1) <= _CELL_EPS
     if np.any(missing & pbc):
         raise ValueError("A periodic direction requires a finite cell vector.")
-    if not np.any(missing):
-        return cell, np.zeros(3, dtype=float)
-
-    completed = np.asarray(Cell(cell).complete(), dtype=float)
+    completed = (
+        np.asarray(Cell(cell).complete(), dtype=float)
+        if np.any(missing)
+        else np.array(cell, dtype=float, copy=True)
+    )
+    inverse = np.linalg.inv(completed)
+    fractional = positions @ inverse if len(positions) else np.empty((0, 3), dtype=float)
     origin = np.zeros(3, dtype=float)
     margin = max(_maximum_cutoff(cutoff), 1.0)
-    for axis in np.flatnonzero(missing):
-        unit = completed[axis] / np.linalg.norm(completed[axis])
-        projections = positions @ unit if len(positions) else np.asarray([], dtype=float)
-        lower = float(np.min(projections) - margin) if len(projections) else -margin
-        upper = float(np.max(projections) + margin) if len(projections) else margin
-        completed[axis] = unit * max(upper - lower, 2.0 * margin)
-        origin += lower * unit
+    for axis in np.flatnonzero(~pbc):
+        # f = r @ inv(cell), so this reciprocal column bounds the largest
+        # fractional displacement made by any Cartesian vector of length
+        # ``margin`` through Cauchy-Schwarz.
+        fractional_margin = margin * float(np.linalg.norm(inverse[:, axis]))
+        fractional_margin = max(fractional_margin, _CELL_EPS)
+        if len(fractional):
+            lower = float(np.min(fractional[:, axis]) - fractional_margin)
+            upper = float(np.max(fractional[:, axis]) + fractional_margin)
+        else:
+            lower = -fractional_margin
+            upper = fractional_margin
+        span = max(upper - lower, 2.0 * fractional_margin)
+        basis = completed[axis].copy()
+        origin += lower * basis
+        completed[axis] = span * basis
     return completed, origin
 
 
@@ -149,13 +168,18 @@ def primitive_neighbour_list(
             clean_positions,
             clean_cutoff,
         )
-    else:
-        search_cell, cell_origin = _complete_periodic_search_geometry(
+    elif not np.all(clean_pbc):
+        search_cell, cell_origin = _partial_periodic_search_geometry(
             clean_cell,
             clean_positions,
             clean_pbc,
             clean_cutoff,
         )
+    else:
+        if np.linalg.matrix_rank(clean_cell, tol=_CELL_EPS) < 3:
+            raise ValueError("Three periodic directions require a full-rank cell.")
+        search_cell = clean_cell
+        cell_origin = np.zeros(3, dtype=float)
 
     return _matscipy_neighbour_list(
         quantities,
@@ -180,7 +204,7 @@ def neighbour_list(
     if not len(atoms):
         return _empty_result(quantities)
     clean_cutoff = _normalized_cutoff(cutoff)
-    if atoms.cell.rank == 3 and np.any(np.asarray(atoms.pbc, dtype=bool)):
+    if atoms.cell.rank == 3 and np.all(np.asarray(atoms.pbc, dtype=bool)):
         if self_interaction:
             raise ValueError("v_ase pair searches do not include zero-shift self interactions.")
         return _matscipy_neighbour_list(

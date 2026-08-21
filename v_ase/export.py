@@ -984,19 +984,17 @@ def _trajectory_frames_json(session):
 
 def _minimum_image_delta(delta, cell, pbc):
     delta = np.asarray(delta, dtype=float)
-    if not any(pbc or []) or not cell:
+    clean_pbc = np.asarray(pbc if pbc is not None else [], dtype=bool).reshape(-1)
+    matrix = np.asarray(cell if cell is not None else [], dtype=float)
+    if clean_pbc.size != 3 or not np.any(clean_pbc) or matrix.size == 0:
         return delta
-    matrix = np.asarray(cell, dtype=float)
-    if matrix.shape != (3, 3) or abs(np.linalg.det(matrix)) < 1e-10:
+    if matrix.shape != (3, 3):
         return delta
     try:
-        fractional = np.linalg.solve(matrix.T, delta)
-    except np.linalg.LinAlgError:
+        vectors, _ = find_mic(delta.reshape(1, 3), matrix, pbc=clean_pbc)
+    except (ValueError, np.linalg.LinAlgError):
         return delta
-    for axis, periodic in enumerate(pbc):
-        if periodic:
-            fractional[axis] -= np.round(fractional[axis])
-    return matrix.T @ fractional
+    return np.asarray(vectors[0], dtype=float)
 
 
 def _normalized_bond_mode(display: Dict[str, Any]) -> str:

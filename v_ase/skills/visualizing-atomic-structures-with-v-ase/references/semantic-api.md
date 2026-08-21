@@ -315,7 +315,11 @@ at and beyond `r_cut`. This is not a hard minimum-separation constraint. Read
 The required matscipy backend filters enabled label-pair candidates in compiled
 code. Treat this as a performance detail: the semantic cutoff table, MIC
 behavior, harmonic energy, forces, and disabled-pair behavior above remain the
-authoritative contract.
+authoritative contract. Its adapter preserves every periodic cell vector,
+expands only finite search directions for partial PBC, and returns zero image
+shift on those finite axes even when coordinates are outside their nominal
+cell extent. Exported boundary bonds use ASE's exact triclinic `find_mic` for
+the final vector.
 
 ### ASE Bulk Builder Contract
 

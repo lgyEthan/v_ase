@@ -355,6 +355,11 @@ and documentation use `view()`.
     through the standard concentration-weighted relation. The Plotly view includes a
     `g(r) = 1` bulk-limit reference and the generated amorphous regression
     reaches a statistically flat long-range plateau.
+    The common matscipy adapter is cross-checked against ASE over scalar,
+    per-atom-radius, and label-pair cutoffs for cell-free, finite, wire, slab,
+    full-rank partial-PBC, orthogonal, and triclinic cells. Finite axes retain
+    zero image shift even for coordinates outside their nominal cell extent.
+    Exported periodic bond vectors use ASE's exact triclinic `find_mic`.
 62. `describe().analysis` and live capability discovery are authoritative for
     volumetric dataset IDs, RDF cutoffs/warnings, and partial curve names.
     Agents never receive the complete scalar grid or infer analysis from

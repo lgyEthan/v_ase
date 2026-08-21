@@ -46,7 +46,10 @@ grid.
 RDF uses one matscipy periodic neighbor-list pass at the requested cutoff.
 The search enumerates every contributing periodic shift, so a long cutoff is
 not truncated to a prebuilt supercell. Total and selected partial histograms
-share that pass. Plotly is loaded from the local Python installation and the
+share that pass. The adapter preserves the physical periodic lattice vectors
+and expands only finite search directions for partial-PBC data, preventing a
+finite axis from being wrapped without returning to a Python all-pairs scan.
+Plotly is loaded from the local Python installation and the
 drawer is created only when analysis is requested. After the first trajectory RDF
 request, ordinary trajectories precompute every frame with two concurrent
 backend workers. Large frame/bin/curve products use a bounded circular cache

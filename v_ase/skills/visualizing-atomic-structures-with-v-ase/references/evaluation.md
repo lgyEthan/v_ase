@@ -426,6 +426,15 @@ Run all scenarios, not only static document checks:
    - reject partial PBC, retain an explicit long triclinic cutoff, verify the
      returned image extent/span, render the Plotly drawer, and export matching
      CSV columns and row count.
+   - compare the common pair adapter with ASE for scalar, per-atom-radius, and
+     label-pair cutoffs across cell-free, finite, wire, slab, full-rank
+     partial-PBC, orthogonal, and strongly skewed triclinic cells; include
+     unwrapped coordinates, require `D = r_j - r_i + S @ cell`, and require
+     every nonperiodic component of `S` to remain zero;
+   - verify strict cutoff-edge exclusion, repulsion energy/force equality with
+     an ASE-neighbor oracle, central finite-difference gradients, zero net
+     internal force and torque, periodic lattice-translation invariance, and
+     exact ASE-MIC exported bond endpoints in a strongly skewed cell;
    - require a selected movable component for the planar translation map, scan
      both short-contact and bond-strain metrics, and verify the live marker
      follows unwrapped plane-lattice coordinates while `G` remains constrained

@@ -1062,6 +1062,10 @@ Changes apply immediately. Bonds support:
   geometry while the rest of the scene remains 3D, plus one-click Apply All;
 - live formation and breaking during Edit transforms.
 
+Periodic bond export uses ASE's exact minimum-image search, including strongly
+skewed triclinic cells. For slab and wire operations, periodic vectors are
+preserved while finite directions never acquire a periodic image shift.
+
 The top view shows a `6 x 6 Cu2O(111)` film on `7 x 7 Cu(111)`, with one
 interfacial oxygen positioned over a substrate Cu top site.
 The Cu(111) substrate uses a nearest-neighbor touching-sphere radius.

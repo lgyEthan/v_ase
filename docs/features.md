@@ -606,6 +606,14 @@ concentration-weighted relation `g = sum(c_a c_b g_ab)`, with a factor of two
 for mixed pairs. Pair selection
 can follow enabled bond labels, include all label pairs, or be disabled.
 
+The shared pair-search adapter is numerically checked against ASE for
+cell-free and finite systems, rank-one wires, rank-two slabs, full-rank
+partial PBC, and orthogonal or triclinic 3D PBC. Partial-periodic searches keep
+the original periodic lattice rows and require zero image shift on every
+finite axis, including when coordinates lie outside that finite cell extent.
+Exported periodic bonds use ASE `find_mic` for the final vector rather than
+component-wise fractional wrapping.
+
 The Analysis drawer uses the locally installed Plotly bundle and remains
 resizable below the viewport. RDF computation stays in the backend; the
 browser receives numeric arrays for plotting and CSV export. A dotted
