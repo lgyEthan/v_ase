@@ -400,3 +400,105 @@ def test_browser_ase_bulk_builder_validates_builds_replaces_and_undoes():
                 browser.close()
     finally:
         editor.close()
+
+
+def test_browser_ase_bulk_builder_uses_unified_readable_design_tokens():
+    port = find_free_port()
+    editor = view(
+        Atoms(),
+        notebook=True,
+        block=False,
+        port=port,
+        viz_only=False,
+        close_on_disconnect=False,
+    )
+    try:
+        with sync_playwright() as playwright:
+            try:
+                browser = playwright.chromium.launch(headless=True)
+            except PlaywrightError as exc:
+                pytest.skip(f"Playwright Chromium is not installed: {exc}")
+            page = browser.new_page(viewport={"width": 760, "height": 700})
+            try:
+                page.goto(f"http://127.0.0.1:{port}/?session_id={editor.session_id}")
+                page.wait_for_function("window.__ASE_APP__?.state?.atoms")
+                page.evaluate("window.v_aseTheme.apply('dark')")
+                page.click("#btn-create-atom-toggle")
+                page.click("#add-atoms-tab-build")
+                page.wait_for_selector("#add-atoms-pane-build:not(.hidden)")
+                page.wait_for_function(
+                    "document.getElementById('ase-bulk-preview')?.dataset.state === 'valid'"
+                )
+
+                metrics = page.evaluate(
+                    """
+                    () => {
+                        const panel = document.getElementById('create-atom-widget');
+                        const leafText = [...panel.querySelectorAll('*')].filter((element) => {
+                            const style = getComputedStyle(element);
+                            const rect = element.getBoundingClientRect();
+                            const ownText = [...element.childNodes].some((node) =>
+                                node.nodeType === Node.TEXT_NODE && node.textContent.trim()
+                            );
+                            return ownText && rect.width > 0 && rect.height > 0 &&
+                                style.display !== 'none' && style.visibility !== 'hidden';
+                        });
+                        const inputs = [
+                            'ase-bulk-formula', 'ase-bulk-structure',
+                            'ase-bulk-cell-mode', 'ase-bulk-a'
+                        ].map((id) => {
+                            const element = document.getElementById(id);
+                            const style = getComputedStyle(element);
+                            return {
+                                height: Math.round(element.getBoundingClientRect().height),
+                                fontSize: parseFloat(style.fontSize),
+                                fontFamily: style.fontFamily,
+                            };
+                        });
+                        const tabs = [...document.querySelectorAll('.create-atom-tabs button')]
+                            .map((element) => ({
+                                height: Math.round(element.getBoundingClientRect().height),
+                                fontSize: parseFloat(getComputedStyle(element).fontSize),
+                            }));
+                        const rect = panel.getBoundingClientRect();
+                        const primary = getComputedStyle(
+                            document.getElementById('btn-ase-bulk-build')
+                        );
+                        return {
+                            minTextSize: Math.min(...leafText.map((element) =>
+                                parseFloat(getComputedStyle(element).fontSize)
+                            )),
+                            inputs,
+                            tabs,
+                            panelLeft: rect.left,
+                            panelRight: rect.right,
+                            panelScrollWidth: panel.scrollWidth,
+                            panelClientWidth: panel.clientWidth,
+                            primaryBackground: primary.backgroundColor,
+                            primaryColor: primary.color,
+                        };
+                    }
+                    """
+                )
+
+                assert metrics["minTextSize"] >= 11
+                assert {item["height"] for item in metrics["inputs"]} == {36}
+                assert {item["fontSize"] for item in metrics["inputs"]} == {13}
+                assert {item["height"] for item in metrics["tabs"]} == {36}
+                assert {item["fontSize"] for item in metrics["tabs"]} == {12}
+                assert metrics["panelLeft"] >= 0
+                assert metrics["panelRight"] <= 760
+                assert metrics["panelScrollWidth"] <= metrics["panelClientWidth"]
+                assert metrics["primaryBackground"] != "rgba(0, 0, 0, 0)"
+                assert metrics["primaryBackground"] != metrics["primaryColor"]
+
+                build = page.locator("#btn-ase-bulk-build")
+                build.scroll_into_view_if_needed()
+                box = build.bounding_box()
+                assert box is not None
+                assert box["y"] >= 0
+                assert box["y"] + box["height"] <= 700
+            finally:
+                browser.close()
+    finally:
+        editor.close()

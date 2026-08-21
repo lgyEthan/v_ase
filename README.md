@@ -128,8 +128,10 @@ URL or copy it into any local browser.
 **Structure**, **Analysis**, and **Export** each expose a **Section** menu in
 the panel header. Selecting an item opens it and scrolls directly to that
 section; scrolling the panel updates the menu to show the section currently in
-view. On a narrow window the top action strip scrolls horizontally instead of
-placing camera, render, reset, and help controls on top of one another.
+view. The interface uses the same compact, readable type hierarchy and control
+dimensions across builders, panels, dialogs, and exported HTML views. On a
+narrow window the top action strip scrolls horizontally instead of placing
+camera, render, reset, and help controls on top of one another.
 
 The guide is organized by task:
 

@@ -52,12 +52,12 @@
             });
         })();
     </script>
-    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.2.25&amp;rev=1">
+    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.2.26">
     <script>
         window.__V_ASE_MOCK__ = new URLSearchParams(window.location.search).has('v_ase_mock');
         const threeModulePath = window.location.protocol === 'file:'
             ? './vendor/three.module.js'
-            : '/static/vendor/three.module.js?v=0.2.25';
+            : '/static/vendor/three.module.js?v=0.2.26';
         const importMap = document.createElement('script');
         importMap.type = 'importmap';
         importMap.textContent = JSON.stringify({
@@ -123,7 +123,7 @@
     <header id="top-bar" class="glass-panel">
         <div class="logo">
             <img class="brand-logo-asset" src="static/v_ase-logo.png" alt="v_ase">
-            <span class="version">0.2.25</span>
+            <span class="version">0.2.26</span>
         </div>
         <div id="runtime-mode-switch" class="runtime-mode-switch" role="group" aria-label="Workspace mode">
             <button type="button" data-runtime-mode="view" aria-pressed="true"
@@ -354,7 +354,10 @@
     <datalist id="element-type-options"></datalist>
 
     <div id="create-atom-widget" class="create-atom-widget glass-panel collapsed" data-edit-only>
-        <button id="btn-create-atom-toggle" class="create-atom-toggle" type="button" title="Add atoms">+ Add atoms</button>
+        <button id="btn-create-atom-toggle" class="create-atom-toggle" type="button" title="Add atoms">
+            <span class="create-atom-toggle-icon" aria-hidden="true">+</span>
+            <span>Add atoms</span>
+        </button>
         <div id="create-atom-card" class="create-atom-card" aria-label="Add atoms">
             <div id="create-atom-drag" class="create-atom-head" title="Drag Add Atoms panel">
                 <div class="create-atom-title">
@@ -558,7 +561,7 @@
                     </div>
                     <span id="ase-bulk-version" class="ase-builder-version">ASE</span>
                 </div>
-                <p class="panel-note">
+                <p class="panel-note ase-builder-description">
                     Generate a periodic crystal from ASE reference data or an explicit prototype.
                     Building replaces the active structure and trajectory; Undo restores them.
                 </p>
@@ -1270,7 +1273,7 @@
                     <span>Select</span>
                     <span>Label</span>
                     <span>Color</span>
-                    <span>Radius / A</span>
+                    <span title="Radius / Å">Radius</span>
                     <span>Opacity</span>
                     <span>Material</span>
                 </div>
@@ -1914,7 +1917,7 @@
         }
         const modulePath = (window.location.protocol === 'file:' || window.location.pathname.endsWith('/static/index.html'))
             ? './main.js'
-            : './static/main.js?v=0.2.25&rev=1';
+            : './static/main.js?v=0.2.26';
         import(modulePath).catch(error => {
             console.error('v_ase failed to initialize:', error?.stack || error);
         });

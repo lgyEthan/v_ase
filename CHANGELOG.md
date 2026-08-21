@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.2.26
+
+- Rebuilt the product-wide interface around one role-based typography system,
+  consistent 36 px controls, restrained neutral surfaces, and a focused teal
+  action color in both light and dark themes.
+- Refined **+ Add atoms**, **Build with ASE**, the Inspector, dialogs, document
+  tabs, and standalone HTML views into one compact scientific-tool language.
+  Labels, field values, descriptions, actions, and numerical readouts now keep
+  a stable hierarchy instead of mixing unrelated font sizes.
+- Added browser regression coverage for readable minimum text sizes, aligned
+  builder controls, visible primary actions, and narrow-window overflow.
+
 ## 0.2.25
 
 - Added per-label atom opacity (`0..1`) beside color, radius, and material in

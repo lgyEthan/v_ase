@@ -1,9 +1,13 @@
 :root {
     color-scheme: dark;
-    --chrome: #111516;
-    --chrome-raised: #181d1e;
-    --surface: #202627;
-    --surface-hover: #272e2f;
+    --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Helvetica, Arial, sans-serif;
+    --type-caption: 11px;
+    --type-label: 12px;
+    --type-control: 13px;
+    --chrome: #111416;
+    --chrome-raised: #181d20;
+    --surface: #1d2326;
+    --surface-hover: #242b2e;
     --line: rgba(255, 255, 255, 0.11);
     --line-strong: rgba(255, 255, 255, 0.18);
     --text: #eef2f1;
@@ -11,7 +15,7 @@
     --teal: #58d5bd;
     --teal-soft: rgba(88, 213, 189, 0.10);
     --danger: #ff7269;
-    --tab-height: 40px;
+    --tab-height: 44px;
 }
 
 html[data-ui-theme="light"] {
@@ -41,9 +45,12 @@ body {
     overflow: hidden;
     background: var(--chrome);
     color: var(--text);
-    font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    font-size: 13px;
+    font-family: var(--font-ui);
+    font-size: 14px;
+    line-height: 1.5;
     letter-spacing: 0;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
 }
 
 button {
@@ -64,11 +71,11 @@ button:focus-visible {
     height: var(--tab-height);
     display: flex;
     align-items: stretch;
-    gap: 4px;
-    padding: 0 8px;
+    gap: 6px;
+    padding: 0 10px;
     border-bottom: 1px solid var(--line);
     background: var(--chrome);
-    box-shadow: 0 5px 18px rgba(0, 0, 0, 0.16);
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.14);
 }
 
 .document-tabs {
@@ -85,10 +92,10 @@ button:focus-visible {
 
 .document-tab {
     position: relative;
-    min-width: 118px;
-    max-width: 230px;
+    min-width: 132px;
+    max-width: 260px;
     height: 100%;
-    flex: 0 1 190px;
+    flex: 0 1 210px;
     display: flex;
     align-items: stretch;
     border-left: 1px solid transparent;
@@ -127,8 +134,8 @@ button:focus-visible {
     flex: 1;
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 0 6px 0 12px;
+    gap: 9px;
+    padding: 0 7px 0 13px;
     border: 0;
     background: transparent;
     cursor: pointer;
@@ -153,8 +160,8 @@ button:focus-visible {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: 0.82rem;
-    font-weight: 650;
+    font-size: var(--type-control);
+    font-weight: 600;
 }
 
 .document-close,
@@ -198,7 +205,7 @@ button:focus-visible {
 
 .new-document {
     width: 36px;
-    height: 30px;
+    height: 34px;
     align-self: center;
     flex: none;
     position: sticky;
