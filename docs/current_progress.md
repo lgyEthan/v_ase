@@ -398,7 +398,7 @@ and documentation use `view()`.
     the strict numerical validation under `examples/commensurate_host_guest`
     and `docs/commensurate_validation.md`. Both parent grids share one fixed
     in-plane origin; basis rotation never introduces visual lattice drift.
-    Planar Translation constructs a primitive periodic lattice in any compatible
+    Rigid Translation constructs a primitive periodic lattice in any compatible
     `(hkl)` plane. Its optional map scans a selected rigid component over one
     complete plane cell with either a short-contact or enabled-pair bond-strain
     geometry score. Live `G` motion is projected into the same plane, the cell
@@ -407,12 +407,16 @@ and documentation use `view()`.
     energies. A separate calculator-driven mode optimizes exactly two rigid
     plane coordinates, reports projected net selected force in eV/Angstrom,
     owns a temporary timeline, commits as one undo step, and cancels to the
-    exact baseline.
+    exact baseline. Cartesian mode instead optimizes one common x/y/z vector in
+    Angstrom, supports cell-free systems, and enforces an explicit bound on each
+    component while preserving the same host/cell/internal-geometry invariants.
+    Selection COM to Origin is visual-only and uses ASE masses without changing
+    structure coordinates.
 65. Workspace activation and browser resizing update the camera-signature
     baseline but are not collaboration edits. A `describe()` revision is not
     invalidated by iframe activation or framebuffer aspect changes; deliberate
     human camera controls continue to publish revisioned camera events.
-66. Source, structure-relaxation, Add Atoms placement, and rigid planar timelines
+66. Source, structure-relaxation, Add Atoms placement, and rigid-translation timelines
     have explicit owners. Closing a mode removes only its temporary optimizer
     timeline; commit/cancel behavior remains operation-specific.
 67. Temporary Add Atoms host fixation changes only the fixed-material shader;
@@ -573,7 +577,8 @@ Current benchmark method and results are in [performance.md](performance.md).
 3. Full `pytest` suite.
 4. Real Chromium browser workflows, including large trajectories, supercells,
    bonds, constraints, volumetric surfaces, RDF/CSV, same-lattice and
-   independent-host/guest common cells, planar translation maps, preview/export parity,
+   independent-host/guest common cells, rigid planar/Cartesian translation,
+   selection-COM visual alignment, preview/export parity,
    and multiple documents.
 5. 15,000-atom browser benchmark with zero idle render frames.
 6. Blender runtime and 15,000-atom optimized scene benchmark when Blender is

@@ -10,17 +10,33 @@ import time
 from pathlib import Path
 from urllib.parse import unquote_to_bytes, urlsplit
 
-from ase import Atoms
-from ase.io import write
-
 from v_ase._version import __version__
-from v_ase.io import (
-    infer_input_format,
-    read_fast_lammps_dump,
-    read_indexed_trajectory,
-    read_structure_frames,
-)
-from v_ase.viewer import view
+
+# Kept as an injectable seam for the CLI regression suite while the actual
+# viewer import remains lazy for normal command startup.
+view = None
+
+
+def _scientific_stack_error(error: Exception) -> str:
+    detail = str(error).strip() or error.__class__.__name__
+    lowered = detail.lower()
+    binary_markers = (
+        "numpy.dtype size changed",
+        "numpy.core.multiarray failed to import",
+        "_array_api not found",
+        "compiled using numpy 1.x",
+    )
+    if any(marker in lowered for marker in binary_markers):
+        return (
+            "v_ase: NumPy and SciPy/matscipy are binary-incompatible in this "
+            "Python environment. The structure file has not been read yet. "
+            "Upgrade v_ase in the same interpreter with "
+            "`python -m pip install --upgrade --force-reinstall v_ase-gui`; "
+            "if this is a shared Conda base environment, a clean environment "
+            "is recommended. Original import error: "
+            f"{detail}"
+        )
+    return f"v_ase: could not load the scientific Python stack: {detail}"
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -400,6 +416,20 @@ def run_gui(args: argparse.Namespace) -> int:
             "v_ase: --remote-python is only valid with a HOST:/path input"
         )
 
+    try:
+        from ase import Atoms
+        from ase.io import write
+
+        from v_ase.io import (
+            infer_input_format,
+            read_fast_lammps_dump,
+            read_indexed_trajectory,
+            read_structure_frames,
+        )
+        from v_ase.viewer import view as imported_view
+    except (ImportError, ModuleNotFoundError, ValueError) as exc:
+        raise SystemExit(_scientific_stack_error(exc)) from exc
+
     path = Path(args.file).expanduser() if args.file else None
     if path is not None and not path.exists():
         raise SystemExit(f"v_ase: file not found: {path}")
@@ -524,7 +554,8 @@ def run_gui(args: argparse.Namespace) -> int:
         raise SystemExit(f"v_ase: no frames found in {path}")
 
     keep_alive = bool(args.no_block or args.cli_mode)
-    result = view(
+    runtime_view = view or imported_view
+    result = runtime_view(
         frames,
         block=not keep_alive,
         port=args.port,

@@ -226,6 +226,7 @@ Pass `operation` as a name string or object:
 | --- | --- | --- |
 | `wrap` | none | Wrap current View frame or all Edit frames |
 | `translate-all` | `vector`, `coordinateMode` | Physically move every atom, leave cell fixed |
+| `center-selection-at-origin` | selection/`indices` | Set scene translation so one selected atom or the mass-weighted selected COM lies at Cartesian origin; ASE positions and cell remain unchanged |
 | `set-unit-cell` | Cartesian 3 x 3 `cell`; optional three-axis `pbc` | Define or replace the ASE cell without moving atoms; creates a usable scratch document when no structure is loaded |
 | `build-bulk` | `formula`; optional `crystalStructure`, `cellMode`, `a`, `b`, `c`, `alpha`, `covera`, `u`, `basis`, `confirmReplace` | Build one periodic frame through installed `ase.build.bulk`; replacing existing content requires prior human approval and `confirmReplace:true` |
 | `set-supercell` | `reps` | Materialize repeated cell in every frame |
@@ -252,9 +253,9 @@ Pass `operation` as a name string or object:
 | `apply-commensurate-cell` | active proposal | Materialize the validated common cell as the ASE unit cell |
 | `dismiss-commensurate-cell` | none | Close the proposal and restore the pre-preview camera |
 | `calculate-registry-map` | selection/`indices`; optional `metric`, `gridX`, `gridY`, `pairCutoffs`, `hkl` | Sample one primitive periodic `(hkl)` translation cell and open its physical-Angstrom geometry map |
-| `start-registry-relaxation` | selection/`indices`; optional `hkl` | Enter rigid planar-translation mode while preserving the host, cell, and selected internal geometry |
-| `set-registry-translation` | active mode, `coordinates` | Set the exact two coefficients of the active plane-lattice basis without moving the cell or host |
-| `run-registry-relaxation` | optional `fmax`, `steps`, `calculator` | Optimize only the two shared plane coordinates and expose an operation-specific movie timeline; no map is required |
+| `start-registry-relaxation` | selection/`indices`; optional `space`, `hkl`, `maxDisplacement` | Enter rigid plane mode by default, or Cartesian 3D mode with a per-axis Angstrom bound, while preserving host, cell, and selected internal geometry |
+| `set-registry-translation` | active mode, `coordinates` | Set two plane-lattice coefficients in plane mode or three Cartesian Angstrom components in 3D mode without moving the cell or host |
+| `run-registry-relaxation` | optional `fmax`, `steps`, `calculator` | Optimize only the active two- or three-coordinate shared translation and expose an operation-specific movie timeline; no map is required |
 | `stop-registry-relaxation` | none | Request the active rigid translation optimizer to stop |
 | `finish-registry-relaxation` | none | Commit the rigid translation as one undoable edit and close its timeline |
 | `cancel-registry-relaxation` | none | Restore the exact pre-mode coordinates and close its timeline without adding history |
@@ -847,6 +848,34 @@ Use `finish-registry-relaxation` to commit one undoable rigid translation or
 `cancel-registry-relaxation` to restore the exact pre-mode coordinates. Both
 close the temporary `registry` movie timeline.
 
+For a full three-dimensional rigid search, use Cartesian Angstrom coordinates.
+`maxDisplacement` bounds each of x, y, and z independently relative to mode
+activation; it is not a spherical radius. The derivative is exactly the
+negative selected-component net Cartesian force:
+
+```javascript
+await ai.apply({operation: {
+  name: "start-registry-relaxation",
+  indices: [40, 41, 42, 43],
+  space: "cartesian",
+  maxDisplacement: 4.0
+}});
+await ai.apply({operation: {
+  name: "set-registry-translation",
+  coordinates: [0.2, -0.1, 0.5]
+}});
+await ai.apply({operation: {
+  name: "run-registry-relaxation",
+  fmax: 0.05,
+  steps: 100
+}});
+```
+
+This mode is valid without a unit cell or PBC. Verify that every selected atom
+receives the same x/y/z shift, all selected pairwise vectors are invariant,
+all unselected coordinates and cell values are exact, and `projected_force`
+is the full selected net-force norm in `eV/angstrom`.
+
 ```javascript
 await ai.apply({
   mode: "view",
@@ -862,6 +891,20 @@ Visual translation is an absolute display setting, is evaluated after
 supercell repetition, moves atoms/bonds/constraints/analysis overlays together,
 and does not alter ASE coordinates or the unit cell. Setting it to `[0,0,0]`
 removes the offset.
+
+To align a selected atom or mass-weighted selected center of mass with the
+scene origin without calculating the vector manually:
+
+```javascript
+await ai.apply({
+  selection: {clear: true, indices: [10, 11]},
+  operation: {name: "center-selection-at-origin"}
+});
+```
+
+Describe again and verify only `display.translation` changed. Atom masses come
+from ASE; structure positions, cell, labels, constraints, and calculator state
+must remain byte-for-byte equivalent where serialized.
 
 `pivot` is `"selection"`, `"active"`, `"origin"`, `"cell"`, or an explicit
 three-vector. For `"active"`, the last entry in the explicit `indices` array is

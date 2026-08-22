@@ -62,7 +62,8 @@ Before every release:
 
 Current operation coverage:
 
-- wrap, translate-all, set-unit-cell, build-bulk, set-supercell, make-supercell;
+- wrap, translate-all, center-selection-at-origin, set-unit-cell, build-bulk,
+  set-supercell, make-supercell;
 - add-atom, scatter-atoms, scatter-molecules, update-add-atoms-region,
   scale-add-atoms-regions, relax-added-atoms, stop-added-atoms,
   finish-add-atoms, cancel-add-atoms, delete-selection, set-identity,
@@ -309,6 +310,13 @@ Run all scenarios, not only static document checks:
      verify `projected_force` units and convergence, require host/cell/selected
      internal invariants, inspect the mode-only timeline, cancel to exact
      baseline, then finish another run and undo it in one step;
+   - activate Cartesian rigid translation without a cell, compare its
+     three-coordinate analytic gradient to central finite differences, require
+     convergence to a known x/y/z well, enforce each per-axis bound, and verify
+     exact host/cell/selected-internal invariants plus one-step finish/undo;
+   - select atoms with unequal masses, apply `center-selection-at-origin`, and
+     verify scene translation equals the negative mass-weighted displayed COM
+     while ASE positions and the cell remain unchanged;
    - for skew cells, test `(0,0,1)`, `(1,0,0)`, and `(2,1,1)` against exact
      integer lattice vectors satisfying `h*u+k*v+l*w=0`; reject a plane whose
      primitive basis uses a disabled PBC vector;

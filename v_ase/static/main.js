@@ -1,13 +1,13 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.2.30';
-import { ASERenderer } from './renderer.js?v=0.2.30';
-import { ASESelection } from './selection.js?v=0.2.30';
-import { ASETransform } from './transform.js?v=0.2.30';
+import { ASEApi } from './api.js?v=0.2.31';
+import { ASERenderer } from './renderer.js?v=0.2.31';
+import { ASESelection } from './selection.js?v=0.2.31';
+import { ASETransform } from './transform.js?v=0.2.31';
 import {
     interpolateTrajectoryFrames,
     interpolatedFrameCount,
     normalizeInterpolationMultiplier
-} from './trajectory.js?v=0.2.30';
+} from './trajectory.js?v=0.2.31';
 
 const CHEMICAL_ELEMENT_SYMBOLS = Object.freeze([
     'H','He','Li','Be','B','C','N','O','F','Ne',
@@ -3332,7 +3332,7 @@ class VAseApp {
                 ['forces', 'Forces'],
                 ['volumetric', 'Volumetric Data'],
                 ['rdf', 'Distribution Functions'],
-                ['registry-map', 'Planar Translation']
+                ['registry-map', 'Rigid Translation']
             ],
             export: [
                 ['export', 'Files & Media'],
@@ -7015,6 +7015,53 @@ class VAseApp {
         return hkl;
     }
 
+    registryTranslationSpace(overrides = {}) {
+        const requested = String(
+            overrides.space
+            ?? overrides.translationSpace
+            ?? document.getElementById('registry-translation-space')?.value
+            ?? 'plane'
+        ).trim().toLowerCase();
+        return ['cartesian', '3d', 'xyz'].includes(requested) ? 'cartesian' : 'plane';
+    }
+
+    registryMaxDisplacement(overrides = {}) {
+        const value = Number(
+            overrides.maxDisplacement
+            ?? document.getElementById('registry-max-displacement')?.value
+            ?? 5
+        );
+        if (!Number.isFinite(value) || value <= 0) {
+            throw new Error('3D maximum shift per Cartesian axis must be greater than 0 Å.');
+        }
+        return value;
+    }
+
+    syncRegistrySpaceControls() {
+        const activeMode = this.state.registryRelaxation;
+        const select = document.getElementById('registry-translation-space');
+        const space = activeMode?.translation_space
+            || this.registryTranslationSpace();
+        if (select && activeMode) select.value = space;
+        const planar = space === 'plane';
+        document.getElementById('registry-plane-controls')?.classList.toggle('hidden', !planar);
+        document.getElementById('registry-cartesian-controls')?.classList.toggle('hidden', planar);
+        document.getElementById('registry-map-card')?.classList.toggle('hidden', !planar);
+        const description = document.getElementById('registry-mode-description');
+        if (description) {
+            description.textContent = planar
+                ? 'Move the selected atoms as one rigid component in a periodic (hkl) plane. The cell, host atoms, and selected internal coordinates remain fixed.'
+                : 'Move the selected atoms as one rigid component in x, y, and z. Internal coordinates, host atoms, and the cell remain fixed.';
+        }
+        const instruction = document.getElementById('registry-mode-instruction');
+        if (instruction) {
+            instruction.textContent = planar
+                ? 'Activate first, then use G or optimize the shared two-coordinate translation.'
+                : 'Activate first, then use G or optimize one shared Cartesian x/y/z translation.';
+        }
+        return space;
+    }
+
     registryOptions(jobId = null, overrides = {}) {
         const requestedMetric = overrides.metric
             ?? document.getElementById('registry-metric')?.value;
@@ -7338,6 +7385,13 @@ class VAseApp {
     updateRegistryMapMarker(coordinates, { refreshTrials = false } = {}) {
         const source = this.registryPlaneSource();
         if (!source) return;
+        if (source.translation_space === 'cartesian') {
+            this.state.registryTranslationCoordinates = [0, 1, 2].map(index => (
+                Number(coordinates?.[index]) || 0
+            ));
+            this.state.registryTranslationFractional = null;
+            return;
+        }
         const unwrapped = [
             Number(coordinates?.[0]) || 0,
             Number(coordinates?.[1]) || 0
@@ -7417,17 +7471,23 @@ class VAseApp {
         const stop = document.getElementById('btn-registry-relax-stop');
         const cancel = document.getElementById('btn-registry-relax-cancel');
         const finish = document.getElementById('btn-registry-relax-finish');
+        const spaceSelect = document.getElementById('registry-translation-space');
+        const displacementControl = document.getElementById('registry-max-displacement');
+        const configuredSpace = this.syncRegistrySpaceControls();
+        const space = mode?.translation_space || configuredSpace;
         if (activate) activate.disabled = active || this.state.vizOnly || !this.hasLoadedAtoms();
         if (run) run.disabled = !active || running;
         if (stop) stop.disabled = !running;
         if (cancel) cancel.disabled = !active;
         if (finish) finish.disabled = !active || running;
+        if (spaceSelect) spaceSelect.disabled = active;
+        if (displacementControl) displacementControl.disabled = active;
         ['registry-h', 'registry-k', 'registry-l'].forEach(id => {
             const control = document.getElementById(id);
             if (control) control.disabled = active;
         });
         const cellToggle = document.getElementById('chk-cell');
-        if (cellToggle) {
+        if (cellToggle && space === 'plane') {
             if (active) cellToggle.checked = true;
             cellToggle.disabled = active;
         }
@@ -7436,18 +7496,25 @@ class VAseApp {
             this.setRegistryRelaxStatus(
                 'idle',
                 'Mode inactive',
-                'Select a movable component, choose an (hkl) plane, then activate rigid translation.'
+                space === 'plane'
+                    ? 'Select a movable component, choose an (hkl) plane, then activate rigid translation.'
+                    : 'Select a movable component, choose the maximum shift per Cartesian axis, then activate rigid translation.'
             );
             return;
         }
-        const coordinates = mode.translation_coordinates || [0, 0];
+        const coordinates = mode.translation_coordinates || (space === 'plane' ? [0, 0] : [0, 0, 0]);
         const force = Number(mode.projected_force ?? mode.generalized_force);
-        const forceDetail = Number.isFinite(force) ? ` · |Fplane| ${force.toFixed(4)} eV/Å` : '';
+        const forceDetail = Number.isFinite(force)
+            ? ` · ${space === 'plane' ? '|Fplane|' : '|F|'} ${force.toFixed(4)} eV/Å`
+            : '';
         const hkl = mode.hkl || [0, 0, 1];
+        const coordinateDetail = space === 'plane'
+            ? `(${hkl.join(' ')}) · u ${Number(coordinates[0] || 0).toFixed(4)} · v ${Number(coordinates[1] || 0).toFixed(4)}`
+            : `x ${Number(coordinates[0] || 0).toFixed(4)} · y ${Number(coordinates[1] || 0).toFixed(4)} · z ${Number(coordinates[2] || 0).toFixed(4)} Å`;
         this.setRegistryRelaxStatus(
             running ? 'loading' : (mode.status === 'error' ? 'warning' : 'ready'),
             running ? `Optimizing · step ${Number(mode.step) || 0}/${Number(mode.max_steps) || 0}` : `Mode ${mode.status || 'active'}`,
-            `(${hkl.join(' ')}) · u ${Number(coordinates[0] || 0).toFixed(4)} · v ${Number(coordinates[1] || 0).toFixed(4)}${forceDetail}`
+            `${coordinateDetail}${forceDetail}`
         );
     }
 
@@ -7458,9 +7525,9 @@ class VAseApp {
             this.state.registryTranslationCoordinates = [
                 ...(this.state.registryRelaxation.translation_coordinates || [0, 0])
             ];
-            this.state.registryTranslationFractional = [
-                ...(this.state.registryRelaxation.translation_fractional || [0, 0])
-            ];
+            this.state.registryTranslationFractional = this.state.registryRelaxation.translation_space === 'plane'
+                ? [...(this.state.registryRelaxation.translation_fractional || [0, 0])]
+                : null;
         } else {
             this.state.registryTranslationCoordinates = [0, 0];
             this.state.registryTranslationFractional = [0, 0];
@@ -7471,7 +7538,7 @@ class VAseApp {
     registryRelaxationFromMessage(message) {
         if (!message) return null;
         return {
-            schema: message.schema || 'v_ase.registry-relaxation.v1',
+            schema: message.schema || 'v_ase.rigid-translation-relaxation.v2',
             session_id: message.session_id,
             status: message.status,
             is_relaxing: Boolean(message.is_relaxing),
@@ -7483,9 +7550,17 @@ class VAseApp {
             plane_basis_cartesian: (message.plane_basis_cartesian || []).map(row => [...row]),
             translation_basis_angstrom: (message.translation_basis_angstrom || []).map(row => [...row]),
             translation_basis_2d_angstrom: (message.translation_basis_2d_angstrom || []).map(row => [...row]),
+            translation_space: message.translation_space === 'cartesian' ? 'cartesian' : 'plane',
+            degrees_of_freedom: Number(message.degrees_of_freedom) || (message.translation_space === 'cartesian' ? 3 : 2),
+            coordinate_basis: message.coordinate_basis || (message.translation_space === 'cartesian' ? 'cartesian-angstrom' : 'fractional-plane-lattice'),
+            max_displacement_angstrom: Number.isFinite(Number(message.max_displacement_angstrom))
+                ? Number(message.max_displacement_angstrom)
+                : null,
             translation_cartesian: [...(message.translation_cartesian || [0, 0, 0])],
-            translation_fractional: [...(message.translation_fractional || [0, 0])],
-            translation_coordinates: [...(message.translation_coordinates || [0, 0])],
+            translation_fractional: Array.isArray(message.translation_fractional)
+                ? [...message.translation_fractional]
+                : null,
+            translation_coordinates: [...(message.translation_coordinates || (message.translation_space === 'cartesian' ? [0, 0, 0] : [0, 0]))],
             trials: (message.trials || []).map(trial => ({
                 ...trial,
                 coordinates: [...(trial.coordinates || [0, 0])],
@@ -7508,7 +7583,7 @@ class VAseApp {
         };
     }
 
-    async activateRegistryRelaxation(selectedIndices = null) {
+    async activateRegistryRelaxation(selectedIndices = null, overrides = {}) {
         const selected = Array.isArray(selectedIndices)
             ? selectedIndices.map(Number).filter(index => this.isEditableIndex(index))
             : this.state.registryResult
@@ -7516,33 +7591,47 @@ class VAseApp {
                 ? [...(this.state.registryResult.selected_indices || [])]
                 : [...this.state.selected].filter(index => this.isEditableIndex(index));
         if (!selected.length) throw new Error('Select the movable guest or interface atoms first.');
-        const data = await this.api.startRegistryRelaxation({
+        const space = this.registryTranslationSpace(overrides);
+        const payload = {
             positions: this.backendPositionsPayload(),
             selected_indices: selected,
-            hkl: this.registryHkl()
-        });
+            hkl: space === 'plane' ? this.registryHkl(overrides) : [0, 0, 1],
+            translation_space: space,
+            max_displacement: space === 'cartesian'
+                ? this.registryMaxDisplacement(overrides)
+                : undefined
+        };
+        const data = await this.api.startRegistryRelaxation(payload);
         this.setAtomsData(data, {
             clearSelection: false,
             preserveRdf: true,
             preserveColorScaleRange: true
         });
         this.aiSelectIndices(selected);
-        const cellToggle = document.getElementById('chk-cell');
-        if (cellToggle) cellToggle.checked = true;
-        this.state.display.showCell = true;
-        this.renderer.setDisplayOptions(this.state.display, { rebuild: false });
-        await this.plotRegistryPlane(this.state.registryRelaxation);
+        if (space === 'plane') {
+            const cellToggle = document.getElementById('chk-cell');
+            if (cellToggle) cellToggle.checked = true;
+            this.state.display.showCell = true;
+            this.renderer.setDisplayOptions(this.state.display, { rebuild: false });
+            await this.plotRegistryPlane(this.state.registryRelaxation);
+        } else if (this.state.activeAnalysisPlot === 'registry') {
+            this.closeAnalysisDrawer();
+        }
         const hkl = this.state.registryRelaxation?.hkl || [0, 0, 1];
         this.setRegistryRelaxStatus(
             'ready',
-            `Rigid (${hkl.join(' ')}) translation active`,
-            'G moves every selected atom by one common vector in this plane.'
+            space === 'plane' ? `Rigid (${hkl.join(' ')}) translation active` : 'Rigid 3D translation active',
+            space === 'plane'
+                ? 'G moves every selected atom by one common vector in this plane.'
+                : 'G moves every selected atom by one common Cartesian vector.'
         );
-        this.toast(`Rigid (${hkl.join(' ')}) translation mode activated.`, 'success');
+        this.toast(space === 'plane'
+            ? `Rigid (${hkl.join(' ')}) translation mode activated.`
+            : 'Rigid 3D translation mode activated.', 'success');
     }
 
     async runRegistryRelaxation({ fmax: requestedFmax, steps: requestedSteps, calculator } = {}) {
-        if (!this.state.registryRelaxation) throw new Error('Activate rigid planar translation first.');
+        if (!this.state.registryRelaxation) throw new Error('Activate rigid translation first.');
         const fmaxControl = document.getElementById('registry-relax-fmax');
         const stepsControl = document.getElementById('registry-relax-steps');
         const fmax = Math.max(
@@ -7555,7 +7644,10 @@ class VAseApp {
         if (fmaxControl) fmaxControl.value = `${fmax}`;
         if (stepsControl) stepsControl.value = `${steps}`;
         const requestedCalculator = this.calculatorPayloadWithOverrides(calculator);
-        this.startModeTrajectory('registry', 'Rigid planar translation relaxation');
+        const threeDimensional = this.state.registryRelaxation.translation_space === 'cartesian';
+        this.startModeTrajectory('registry', threeDimensional
+            ? 'Rigid 3D translation relaxation'
+            : 'Rigid planar translation relaxation');
         try {
             const summary = await this.api.runRegistryRelaxation({
                 fmax,
@@ -7590,7 +7682,7 @@ class VAseApp {
             preserveColorScaleRange: true
         });
         this.clearModeTrajectory('registry');
-        this.toast('Rigid planar translation applied.', 'success');
+        this.toast('Rigid translation applied.', 'success');
     }
 
     async cancelRegistryRelaxation() {
@@ -7603,12 +7695,23 @@ class VAseApp {
         this.clearModeTrajectory('registry');
         this.state.registryTranslationCoordinates = [0, 0];
         this.state.registryTranslationFractional = [0, 0];
-        this.toast('Rigid planar translation restored to its starting structure.', 'success');
+        this.toast('Rigid translation restored to its starting structure.', 'success');
     }
 
     constrainMoveToRegistryPlane(moveDelta) {
         const mode = this.state.registryRelaxation;
         if (!mode) {
+            return moveDelta;
+        }
+        if (mode.translation_space === 'cartesian') {
+            const start = this.state.registryTransformStartCoordinates
+                || mode.translation_coordinates
+                || [0, 0, 0];
+            this.state.registryTranslationCoordinates = [
+                Number(start[0] || 0) + moveDelta.x,
+                Number(start[1] || 0) + moveDelta.y,
+                Number(start[2] || 0) + moveDelta.z
+            ];
             return moveDelta;
         }
         const basis = (mode.translation_basis_angstrom || []).map(row => new THREE.Vector3(...row));
@@ -7648,6 +7751,10 @@ class VAseApp {
             const control = document.getElementById(id);
             if (control) control.value = `${storedHkl[index]}`;
         });
+        document.getElementById('registry-translation-space')?.addEventListener('change', () => {
+            this.syncRegistrySpaceControls();
+            this.syncRegistryRelaxationControls({ updateStatus: true });
+        });
         ['registry-metric', 'registry-grid-x', 'registry-grid-y', 'registry-h', 'registry-k', 'registry-l'].forEach(id => {
             document.getElementById(id)?.addEventListener('change', () => {
                 if (id.startsWith('registry-') && ['registry-h', 'registry-k', 'registry-l'].includes(id)) {
@@ -7673,12 +7780,12 @@ class VAseApp {
         });
         document.getElementById('btn-registry-relax-activate')?.addEventListener('click', () => {
             this.activateRegistryRelaxation().catch(error => {
-                this.toast(`Could not activate rigid planar translation: ${error.message}`, 'error');
+                this.toast(`Could not activate rigid translation: ${error.message}`, 'error');
             });
         });
         document.getElementById('btn-registry-relax-run')?.addEventListener('click', () => {
             this.runRegistryRelaxation().catch(error => {
-                this.toast(`Planar translation optimization failed: ${error.message}`, 'error');
+                this.toast(`Rigid translation optimization failed: ${error.message}`, 'error');
             });
         });
         document.getElementById('btn-registry-relax-stop')?.addEventListener('click', () => {
@@ -7690,6 +7797,7 @@ class VAseApp {
         document.getElementById('btn-registry-relax-cancel')?.addEventListener('click', () => {
             this.cancelRegistryRelaxation().catch(error => this.toast(`Cancel failed: ${error.message}`, 'error'));
         });
+        this.syncRegistrySpaceControls();
         this.syncRegistryRelaxationControls();
     }
 
@@ -9600,7 +9708,12 @@ class VAseApp {
         if (source === 'loaded') return compact ? 'SOURCE' : 'Source frames';
         const mode = this.state.relaxTrajectory || {};
         if (mode.kind === 'add-atoms') return compact ? 'ADD ATOMS' : 'Add Atoms placement';
-        if (mode.kind === 'registry') return compact ? 'PLANE SHIFT' : 'Rigid planar translation relaxation';
+        if (mode.kind === 'registry') {
+            const isCartesian = /3D/i.test(String(mode.label || ''));
+            return compact
+                ? (isCartesian ? '3D SHIFT' : 'PLANE SHIFT')
+                : (mode.label || 'Rigid translation relaxation');
+        }
         if (mode.label) return compact ? String(mode.label).toUpperCase() : String(mode.label);
         const calculator = String(this.state.atoms?.metadata?.calculator || '').trim();
         const calculatorName = calculator && calculator.toLowerCase() !== 'none'
@@ -12132,7 +12245,7 @@ class VAseApp {
             this.updateRegistryMapMarker(coordinates);
             return data;
         } catch (error) {
-            this.toast(`Planar translation failed: ${error.message}`, 'error');
+            this.toast(`Rigid translation failed: ${error.message}`, 'error');
             throw error;
         }
     }
@@ -12246,11 +12359,11 @@ class VAseApp {
         if (editableSelection.length === 0) return;
         if (this.state.registryRelaxation) {
             if (mode !== 'MOVE') {
-                this.toast('Planar translation mode only permits G. Finish or cancel it before another transform.', 'warning');
+                this.toast('Rigid translation mode only permits G. Finish or cancel it before another transform.', 'warning');
                 return;
             }
             if (this.state.registryRelaxation.is_relaxing) {
-                this.toast('Stop the planar translation optimization before moving the component manually.', 'warning');
+                this.toast('Stop the rigid translation optimization before moving the component manually.', 'warning');
                 return;
             }
             const required = [...(this.state.registryRelaxation.selected_indices || [])]
@@ -12258,7 +12371,7 @@ class VAseApp {
                 .sort((left, right) => left - right);
             const current = [...editableSelection].map(Number).sort((left, right) => left - right);
             if (JSON.stringify(required) !== JSON.stringify(current)) {
-                this.toast('Select exactly the component used to activate planar translation before pressing G.', 'warning');
+                this.toast('Select exactly the component used to activate rigid translation before pressing G.', 'warning');
                 return;
             }
         }
@@ -15392,7 +15505,7 @@ class VAseApp {
         const operationParameters = this.clonePlain(discovery.operation_parameters || {});
         const exportParameters = this.clonePlain(discovery.export_parameters || {});
         const fallbackOperations = [
-            'wrap', 'translate-all', 'set-unit-cell', 'build-bulk', 'set-supercell', 'make-supercell',
+            'wrap', 'translate-all', 'center-selection-at-origin', 'set-unit-cell', 'build-bulk', 'set-supercell', 'make-supercell',
             'add-atom', 'scatter-atoms', 'scatter-molecules',
             'update-add-atoms-region', 'scale-add-atoms-regions', 'relax-added-atoms',
             'stop-added-atoms', 'finish-add-atoms', 'cancel-add-atoms',
@@ -15715,7 +15828,7 @@ class VAseApp {
         ]);
         if (this.state.registryRelaxation && !registryRelaxationControls.has(name)) {
             throw new Error(
-                'Finish or cancel the active rigid planar translation before applying another operation.'
+                'Finish or cancel the active rigid translation before applying another operation.'
             );
         }
         const applyConstraints = operation.applyConstraints ?? this.state.applyConstraints;
@@ -15731,6 +15844,13 @@ class VAseApp {
                 throw new Error('set-interface-theme requires system, light, or dark.');
             }
             this.applyThemePreference(theme);
+            return;
+        }
+        if (name === 'center-selection-at-origin') {
+            if (Array.isArray(operation.indices)) {
+                this.aiSelectIndices(this.aiOperationIndices(operation));
+            }
+            this.centerSelectionAtOrigin();
             return;
         }
         if (name === 'set-personal-visual-default') {
@@ -16470,30 +16590,47 @@ class VAseApp {
         if (name === 'start-registry-relaxation') {
             this.aiRequireEdit('start-registry-relaxation');
             if (this.state.registryRelaxation) {
-                throw new Error('Rigid planar translation mode is already active.');
+                throw new Error('Rigid translation mode is already active.');
             }
             const indices = this.aiOperationIndices(operation);
             this.aiSelectIndices(indices);
-            const hkl = this.registryHkl({ hkl: operation.hkl || this.state.display.registryHkl });
-            ['registry-h', 'registry-k', 'registry-l'].forEach((id, index) => {
-                const control = document.getElementById(id);
-                if (control) control.value = `${hkl[index]}`;
+            const space = this.registryTranslationSpace({ space: operation.space });
+            const spaceControl = document.getElementById('registry-translation-space');
+            if (spaceControl) spaceControl.value = space;
+            if (space === 'plane') {
+                const hkl = this.registryHkl({ hkl: operation.hkl || this.state.display.registryHkl });
+                ['registry-h', 'registry-k', 'registry-l'].forEach((id, index) => {
+                    const control = document.getElementById(id);
+                    if (control) control.value = `${hkl[index]}`;
+                });
+            } else if (operation.maxDisplacement !== undefined) {
+                const limit = this.registryMaxDisplacement(operation);
+                const control = document.getElementById('registry-max-displacement');
+                if (control) control.value = `${limit}`;
+            }
+            this.syncRegistrySpaceControls();
+            await this.activateRegistryRelaxation(indices, {
+                space,
+                hkl: operation.hkl,
+                maxDisplacement: operation.maxDisplacement
             });
-            await this.activateRegistryRelaxation(indices);
             return;
         }
         if (name === 'set-registry-translation') {
             this.aiRequireEdit('set-registry-translation');
             if (!this.state.registryRelaxation) {
-                throw new Error('Activate rigid planar translation before setting its coordinates.');
+                throw new Error('Activate rigid translation before setting its coordinates.');
             }
             const coordinates = operation.coordinates;
+            const expected = this.state.registryRelaxation.translation_space === 'cartesian' ? 3 : 2;
             if (
                 !Array.isArray(coordinates)
-                || coordinates.length !== 2
+                || coordinates.length !== expected
                 || !coordinates.every(value => Number.isFinite(Number(value)))
             ) {
-                throw new Error('set-registry-translation requires two finite plane-lattice coordinates.');
+                throw new Error(
+                    `set-registry-translation requires ${expected} finite ${expected === 3 ? 'Cartesian' : 'plane-lattice'} coordinates.`
+                );
             }
             const normalized = coordinates.map(Number);
             const data = await this.api.translateRegistryRelaxation(normalized);
@@ -18508,6 +18645,56 @@ class VAseApp {
         return vector;
     }
 
+    selectionCenterOfMass(references = this.selectionEntries()) {
+        if (!references.length) return null;
+        const masses = this.state.atoms?.masses || [];
+        const weighted = new THREE.Vector3();
+        let totalMass = 0;
+        references.forEach(reference => {
+            const normalized = this.normalizeSelectionReference(reference);
+            const position = this.selectionReferencePosition(normalized);
+            if (!normalized || !position) return;
+            const requestedMass = Number(masses[normalized.index]);
+            const mass = Number.isFinite(requestedMass) && requestedMass > 0
+                ? requestedMass
+                : 1;
+            weighted.addScaledVector(position, mass);
+            totalMass += mass;
+        });
+        return totalMass > 0 ? weighted.multiplyScalar(1 / totalMass) : null;
+    }
+
+    centerSelectionAtOrigin() {
+        try {
+            const references = this.selectionEntries();
+            if (!references.length) {
+                throw new Error('Select one or more atoms first.');
+            }
+            const center = this.selectionCenterOfMass(references);
+            if (!center) throw new Error('The selected center of mass is unavailable.');
+            const cartesian = center.multiplyScalar(-1).toArray();
+            const mode = this.state.translationCoordinateMode === 'fractional'
+                ? 'fractional'
+                : 'cartesian';
+            const vector = this.translationVectorFromCartesian(cartesian, mode);
+            this.state.display.translation = [...vector];
+            this.state.display.translationMode = mode;
+            this.renderer.setDisplayOptions({
+                translation: this.state.display.translation,
+                translationMode: mode
+            });
+            this.writeTranslationControls(vector);
+            this.updateSelectionMeasurementOverlay();
+            if (this.state.exportPreviewEnabled) this.syncImageExportPreview();
+            this.scheduleVisualHistoryCommit('selection-com-origin');
+            this.toast('Selected center of mass placed at the visual origin; ASE coordinates are unchanged.', 'success');
+            return vector;
+        } catch (error) {
+            this.toast(`Center selection failed: ${error.message}`, 'error');
+            throw error;
+        }
+    }
+
     async applyAtomTranslation() {
         try {
             const vector = this.translationVectorFromControls();
@@ -18524,6 +18711,7 @@ class VAseApp {
             this.writeTranslationControls(vector);
             this.updateSelectionMeasurementOverlay();
             if (this.state.exportPreviewEnabled) this.syncImageExportPreview();
+            this.scheduleVisualHistoryCommit('visual-translation');
             const unit = mode === 'fractional' ? 'fractional' : 'Å';
             const reset = vector.every(value => Math.abs(value) < 1e-12);
             this.toast(
@@ -19868,6 +20056,9 @@ class VAseApp {
             if (msg.type === 'registry_relax_step') {
                 if (!this.state.registryRelaxation) return;
                 this.state.registryRelaxation = this.registryRelaxationFromMessage(msg);
+                const registryLabel = this.state.registryRelaxation.translation_space === 'cartesian'
+                    ? 'Rigid 3D translation relaxation'
+                    : 'Rigid planar translation relaxation';
                 if (Array.isArray(msg.positions)) {
                     this.state.atoms.positions = msg.positions;
                     this.state.originalPositions = msg.positions.map(position => [...position]);
@@ -19875,18 +20066,25 @@ class VAseApp {
                         !this.state.relaxTrajectory?.active
                         || this.state.relaxTrajectory?.kind !== 'registry'
                     ) {
-                        this.startModeTrajectory('registry', 'Rigid planar translation relaxation');
+                        this.startModeTrajectory('registry', registryLabel);
                     }
                     this.appendRelaxFrame(msg.positions);
                     if (this.workspaceActive) this.renderer.updatePositions(msg.positions);
                     else this.workspaceNeedsRefresh = true;
                 }
-                this.updateRegistryMapMarker(msg.translation_coordinates || [0, 0], { refreshTrials: true });
+                this.updateRegistryMapMarker(
+                    msg.translation_coordinates || (this.state.registryRelaxation.translation_space === 'cartesian' ? [0, 0, 0] : [0, 0]),
+                    { refreshTrials: true }
+                );
                 this.syncRegistryRelaxationControls();
             }
             if (msg.type === 'registry_relax_finished') {
                 if (!this.state.registryRelaxation) return;
                 this.state.registryRelaxation = this.registryRelaxationFromMessage(msg);
+                const registry3d = this.state.registryRelaxation.translation_space === 'cartesian';
+                const registryLabel = registry3d
+                    ? 'Rigid 3D translation relaxation'
+                    : 'Rigid planar translation relaxation';
                 if (Array.isArray(msg.positions)) {
                     this.state.atoms.positions = msg.positions;
                     this.state.originalPositions = msg.positions.map(position => [...position]);
@@ -19894,7 +20092,7 @@ class VAseApp {
                         !this.state.relaxTrajectory?.active
                         || this.state.relaxTrajectory?.kind !== 'registry'
                     ) {
-                        this.startModeTrajectory('registry', 'Rigid planar translation relaxation');
+                        this.startModeTrajectory('registry', registryLabel);
                     }
                     this.appendRelaxFrame(msg.positions, { force: this.relaxFrameCount() <= 1 });
                     if (this.workspaceActive) this.renderer.updatePositions(msg.positions);
@@ -19904,20 +20102,23 @@ class VAseApp {
                     this.state.relaxTrajectory.finished = true;
                     this.updateTrajectoryUI();
                 }
-                this.updateRegistryMapMarker(msg.translation_coordinates || [0, 0], { refreshTrials: true });
+                this.updateRegistryMapMarker(
+                    msg.translation_coordinates || (registry3d ? [0, 0, 0] : [0, 0]),
+                    { refreshTrials: true }
+                );
                 this.syncRegistryRelaxationControls();
                 const failed = msg.status === 'error';
                 this.toast(
                     failed
-                        ? `Planar translation optimization failed: ${msg.message || 'unknown error'}`
-                        : `Planar translation optimization ${msg.status}.`,
+                        ? `Rigid translation optimization failed: ${msg.message || 'unknown error'}`
+                        : `Rigid translation optimization ${msg.status}.`,
                     failed ? 'error' : 'success'
                 );
                 this.scheduleCollaborationEvent({
                     source: 'system',
                     categories: ['structure', 'trajectory', 'analysis'],
                     changedPaths: ['structure.positions', 'analysis.registryRelaxation'],
-                    summary: `Rigid planar translation optimization ${msg.status}.`
+                    summary: `Rigid translation optimization ${msg.status}.`
                 });
             }
             if (msg.type === 'add_atoms_relax_step') {
@@ -22707,6 +22908,13 @@ class VAseApp {
         });
         this.setTranslationCoordinateMode(this.state.translationCoordinateMode);
         document.getElementById('btn-apply-translation').onclick = () => this.applyAtomTranslation();
+        document.getElementById('btn-selection-to-origin').onclick = () => {
+            try {
+                this.centerSelectionAtOrigin();
+            } catch {
+                // The method already reports a user-facing error.
+            }
+        };
         document.getElementById('btn-set-unit-cell').onclick = () => this.setUnitCellFromControls();
         document.getElementById('btn-set-supercell').onclick = () => this.setSupercellAsCell();
         document.getElementById('btn-apply-supercell-matrix').onclick = () => this.applyMakeSupercellMatrix();

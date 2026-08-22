@@ -504,8 +504,11 @@ when one exists.
 
 Structure relaxation is an explicit mode. Leaving it removes its temporary
 optimizer timeline without deleting the current optimized structure. Add
-Atoms placement and rigid planar translation follow the same timeline ownership
-rule while retaining their own commit/cancel semantics.
+Atoms placement and rigid translation follow the same timeline ownership rule
+while retaining their own commit/cancel semantics. Rigid translation supports
+either two coordinates in a PBC-compatible `(hkl)` plane or one shared
+Cartesian x/y/z vector with an explicit per-axis Angstrom bound. In both modes
+the host, cell, and moving component's internal geometry remain exact.
 
 ## Displacement Analysis
 

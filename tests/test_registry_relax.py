@@ -1,4 +1,4 @@
-"""Physical invariants for rigid in-plane registry relaxation."""
+"""Physical invariants for rigid planar and Cartesian translation."""
 
 from __future__ import annotations
 
@@ -272,3 +272,127 @@ def test_manual_registry_translation_is_exact_reversible_and_preserves_the_cell(
     cancel_registry_relaxation_mode(session)
     np.testing.assert_allclose(session.working_atoms.positions, baseline, atol=0.0)
     assert not session.history
+
+
+def test_cartesian_rigid_translation_optimizes_xyz_without_cell_or_internal_deformation(
+    monkeypatch,
+):
+    session, selected = make_registry_session("registry-cartesian")
+    monkeypatch.setattr("v_ase.registry_relax.ws_manager.broadcast_sync", lambda *_args, **_kwargs: None)
+    session.working_atoms.cell = np.zeros((3, 3))
+    session.working_atoms.pbc = False
+    baseline = session.working_atoms.positions.copy()
+    target = np.asarray([0.7, -0.45, 0.8])
+    session.working_atoms.calc = RigidTranslationWell(
+        baseline,
+        selected,
+        target=target,
+    )
+    internal = baseline[selected[1]] - baseline[selected[0]]
+
+    summary = start_registry_relaxation_mode(
+        session,
+        selected,
+        translation_space="cartesian",
+        max_displacement=2.0,
+    )
+    assert summary["translation_space"] == "cartesian"
+    assert summary["coordinate_basis"] == "cartesian-angstrom"
+    assert summary["degrees_of_freedom"] == 3
+    assert summary["translation_fractional"] is None
+    assert summary["max_displacement_angstrom"] == 2.0
+    run_registry_relaxation(session, {"fmax": 1e-7, "steps": 100})
+    wait_for_mode(session)
+
+    final = session.working_atoms.positions.copy()
+    np.testing.assert_array_equal(final[:2], baseline[:2])
+    np.testing.assert_allclose(final[selected[1]] - final[selected[0]], internal, atol=1e-12)
+    np.testing.assert_allclose(
+        np.mean(final[selected] - baseline[selected], axis=0),
+        target,
+        atol=2e-5,
+    )
+    np.testing.assert_array_equal(session.working_atoms.cell.array, np.zeros((3, 3)))
+    assert session.registry_relaxation.projected_force < 1e-6
+
+
+def test_cartesian_rigid_gradient_matches_finite_difference():
+    session, selected = make_registry_session("registry-cartesian-gradient")
+    start_registry_relaxation_mode(
+        session,
+        selected,
+        translation_space="cartesian",
+        max_displacement=3.0,
+    )
+    mode = session.registry_relaxation
+    coordinates = np.asarray([0.11, -0.07, 0.23])
+    atoms = copy_atoms_with_calc(mode.baseline_atoms)
+
+    def energy(values):
+        atoms.set_positions(_coordinates_for(mode, values), apply_constraint=False)
+        return float(atoms.get_potential_energy())
+
+    atoms.set_positions(_coordinates_for(mode, coordinates), apply_constraint=False)
+    forces = np.asarray(atoms.get_forces(apply_constraint=False), dtype=float)
+    gradient, rigid_force = _rigid_translation_derivatives(mode, forces)
+    epsilon = 1e-6
+    finite_difference = np.zeros(3)
+    for axis in range(3):
+        offset = np.zeros(3)
+        offset[axis] = epsilon
+        finite_difference[axis] = (
+            energy(coordinates + offset) - energy(coordinates - offset)
+        ) / (2.0 * epsilon)
+
+    np.testing.assert_allclose(gradient, finite_difference, rtol=1e-7, atol=1e-8)
+    np.testing.assert_allclose(rigid_force, np.linalg.norm(-gradient), atol=1e-14)
+
+
+def test_cartesian_rigid_translation_obeys_explicit_per_axis_bound(monkeypatch):
+    session, selected = make_registry_session("registry-cartesian-bounds")
+    monkeypatch.setattr("v_ase.registry_relax.ws_manager.broadcast_sync", lambda *_args, **_kwargs: None)
+    baseline = session.working_atoms.positions.copy()
+    session.working_atoms.calc = RigidTranslationWell(
+        baseline,
+        selected,
+        target=(4.0, 0.0, 0.0),
+    )
+    start_registry_relaxation_mode(
+        session,
+        selected,
+        translation_space="cartesian",
+        max_displacement=0.25,
+    )
+    run_registry_relaxation(session, {"fmax": 1e-9, "steps": 100})
+    wait_for_mode(session)
+
+    np.testing.assert_allclose(
+        session.registry_relaxation.current_coordinates,
+        [0.25, 0.0, 0.0],
+        atol=1e-8,
+    )
+    assert session.registry_relaxation.status == "steps"
+
+
+def test_manual_cartesian_rigid_translation_is_exact_and_reversible():
+    session, selected = make_registry_session("registry-cartesian-manual")
+    baseline = session.working_atoms.positions.copy()
+    baseline_cell = session.working_atoms.cell.array.copy()
+    start_registry_relaxation_mode(
+        session,
+        selected,
+        translation_space="cartesian",
+        max_displacement=3.0,
+    )
+    coordinates = np.asarray([0.4, -0.3, 0.7])
+
+    summary = set_registry_translation(session, coordinates)
+    expected = baseline.copy()
+    expected[selected] += coordinates
+    np.testing.assert_allclose(session.working_atoms.positions, expected, atol=0.0)
+    np.testing.assert_allclose(summary["translation_coordinates"], coordinates)
+    np.testing.assert_allclose(summary["translation_cartesian"], coordinates)
+    np.testing.assert_array_equal(session.working_atoms.cell.array, baseline_cell)
+
+    set_registry_translation(session, [0.0, 0.0, 0.0])
+    np.testing.assert_array_equal(session.working_atoms.positions, baseline)

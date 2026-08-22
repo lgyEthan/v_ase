@@ -489,7 +489,7 @@ AI_CONTROL_SCHEMA = {
         "operation": {
             "description": (
                 "One semantic structure operation. Supported names are wrap, "
-                "translate-all, set-unit-cell, build-bulk, set-supercell, make-supercell, add-atom, "
+                "translate-all, center-selection-at-origin, set-unit-cell, build-bulk, set-supercell, make-supercell, add-atom, "
                 "scatter-atoms, scatter-molecules, update-add-atoms-region, "
                 "scale-add-atoms-regions, "
                 "relax-added-atoms, stop-added-atoms, "
@@ -516,7 +516,7 @@ AI_CONTROL_SCHEMA = {
                 {
                     "type": "string",
                     "enum": [
-                        "wrap", "undo", "redo", "reset-coordinates",
+                        "wrap", "center-selection-at-origin", "undo", "redo", "reset-coordinates",
                         "stop-relaxation", "refresh-displacements",
                         "apply-commensurate-cell", "dismiss-commensurate-cell",
                         "remove-commensurate-guest", "calculate-rdf",
@@ -534,7 +534,7 @@ AI_CONTROL_SCHEMA = {
                     "properties": {
                         "name": {
                             "enum": [
-                                "wrap", "translate-all", "set-unit-cell", "build-bulk", "set-supercell",
+                                "wrap", "translate-all", "center-selection-at-origin", "set-unit-cell", "build-bulk", "set-supercell",
                                 "make-supercell", "add-atom", "scatter-atoms",
                                 "scatter-molecules",
                                 "update-add-atoms-region", "scale-add-atoms-regions",
@@ -1160,12 +1160,9 @@ AI_CONTROL_SCHEMA = {
                                 "properties": {
                                     "coordinates": {
                                         "type": "array",
-                                        "prefixItems": [
-                                            {"type": "number"},
-                                            {"type": "number"},
-                                        ],
+                                        "items": {"type": "number"},
                                         "minItems": 2,
-                                        "maxItems": 2,
+                                        "maxItems": 3,
                                     },
                                 },
                             },
@@ -1202,6 +1199,10 @@ AI_CONTROL_SCHEMA = {
                                         ],
                                         "minItems": 3,
                                         "maxItems": 3,
+                                    },
+                                    "space": {"enum": ["plane", "cartesian", "3d"]},
+                                    "maxDisplacement": {
+                                        "type": "number", "exclusiveMinimum": 0
                                     },
                                 },
                             },
@@ -1775,15 +1776,26 @@ AI_OPERATION_PARAMETERS = {
             "metric is short-contact or bond-strain; both are geometry scores, not energies."
         ),
     },
+    "center-selection-at-origin": {
+        "mode": "view-or-edit",
+        "required": ["selection-or-indices"],
+        "optional": ["indices"],
+        "notes": (
+            "Sets visual translation so the selected atom, or the mass-weighted center "
+            "of mass of multiple selected atoms, lies at Cartesian origin. ASE positions "
+            "and the unit cell are unchanged."
+        ),
+    },
     "start-registry-relaxation": {
         "mode": "edit",
         "required": ["selection-or-indices"],
-        "optional": ["indices", "hkl"],
+        "optional": ["indices", "hkl", "space", "maxDisplacement"],
         "notes": (
-            "Activates the rigid registry-translation mode for a selected guest or "
-            "interface component. Only one common translation in the periodic (hkl) plane "
-            "can change; host coordinates, cell vectors, and all selected internal "
-            "relative coordinates remain invariant."
+            "Activates rigid translation for a selected component. space=plane (default) "
+            "uses two coordinates in the periodic (hkl) plane; space=cartesian uses one "
+            "common x/y/z translation in Angstrom with maxDisplacement as the bound "
+            "for each Cartesian component. Host coordinates, cell vectors, and "
+            "selected internal relative coordinates remain invariant."
         ),
     },
     "set-registry-translation": {
@@ -1791,8 +1803,9 @@ AI_OPERATION_PARAMETERS = {
         "required": ["active-registry-relaxation", "coordinates"],
         "optional": [],
         "notes": (
-            "Sets the two unwrapped coefficients of the active primitive plane-lattice "
-            "basis without moving the cell or changing selected internal coordinates."
+            "Sets two unwrapped plane-lattice coefficients in plane mode or three "
+            "Cartesian Angstrom components in 3D mode, without moving the cell or "
+            "changing selected internal coordinates."
         ),
     },
     "run-registry-relaxation": {
@@ -1800,7 +1813,8 @@ AI_OPERATION_PARAMETERS = {
         "required": ["active-registry-relaxation"],
         "optional": ["fmax", "steps", "calculator"],
         "notes": (
-            "Optimizes the two rigid in-plane translation degrees of freedom with the "
+            "Optimizes the active two-coordinate plane or three-coordinate Cartesian "
+            "rigid translation with the "
             "attached calculator or the default pairwise repulsion calculator. Consume "
             "registry_relax_step events until is_relaxing is false. calculator may "
             "configure absolute pair_cutoffs as independent onset distances in "
@@ -2448,7 +2462,7 @@ def require_no_registry_relaxation(session: EditorSession, action: str = "This o
     if session.registry_relaxation is not None:
         raise HTTPException(
             status_code=409,
-            detail=f"Apply or cancel planar translation relaxation before {action.lower()}.",
+            detail=f"Apply or cancel rigid translation relaxation before {action.lower()}.",
         )
 
 
@@ -6662,7 +6676,7 @@ async def registry_analysis_csv(session_id: str, payload: Dict[str, Any]):
 @app.post("/api/registry-relax/start/{session_id}")
 async def start_registry_relaxation(session_id: str, payload: Dict[str, Any]):
     session = get_session(session_id)
-    require_editable(session, "planar translation relaxation")
+    require_editable(session, "rigid translation relaxation")
     sync_session_frame_from_payload(session, payload)
     positions = payload.get("positions")
     if positions is not None:
@@ -6676,6 +6690,8 @@ async def start_registry_relaxation(session_id: str, payload: Dict[str, Any]):
             session,
             payload.get("selected_indices") or [],
             payload.get("hkl") or [0, 0, 1],
+            payload.get("translation_space") or payload.get("space") or "plane",
+            float(payload.get("max_displacement", payload.get("maxDisplacement", 5.0))),
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -6689,7 +6705,7 @@ async def run_registry_relaxation_endpoint(session_id: str, payload: Dict[str, A
     session = get_session(session_id)
     require_editable(
         session,
-        "planar translation relaxation",
+        "rigid translation relaxation",
         allow_registry_relaxation=True,
     )
     calculator = payload.get("calculator") or {}
@@ -6732,7 +6748,7 @@ async def translate_registry_relaxation_endpoint(session_id: str, payload: Dict[
     session = get_session(session_id)
     require_editable(
         session,
-        "planar translation",
+        "rigid translation",
         allow_registry_relaxation=True,
     )
     try:
@@ -6749,7 +6765,7 @@ async def finish_registry_relaxation_endpoint(session_id: str):
     session = get_session(session_id)
     require_editable(
         session,
-        "planar translation relaxation",
+        "rigid translation relaxation",
         allow_registry_relaxation=True,
     )
     try:
@@ -6766,7 +6782,7 @@ async def cancel_registry_relaxation_endpoint(session_id: str):
     session = get_session(session_id)
     require_editable(
         session,
-        "planar translation relaxation",
+        "rigid translation relaxation",
         allow_registry_relaxation=True,
     )
     cancel_registry_relaxation_mode(session)

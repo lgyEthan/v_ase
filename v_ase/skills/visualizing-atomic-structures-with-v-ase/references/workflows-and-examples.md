@@ -20,7 +20,7 @@
    - RDF And CSV
 5. Match Periodic Interfaces
    - Bounded Commensurate 2D Cells
-   - Rigid Planar Translation
+   - Rigid Translation
    - Periodic Supercell Measurement
 6. Collaborate And Share
    - Multi-Document Live Collaboration
@@ -1256,7 +1256,7 @@ The CSV must include angle, matrices, area, max principal strain, mean absolute
 strain, host/guest/total atom counts, and the CellMatch and Stradi et al.
 references carried by the bounded-search implementation.
 
-### Rigid Planar Translation
+### Rigid Translation
 
 Run this after selecting the component that should move together. Choose a
 nonzero integer `(hkl)` whose plane contains two translations allowed by the
@@ -1340,6 +1340,43 @@ Cartesian force projected into the chosen plane, in `eV/angstrom`. Inspect the
 temporary `registry` timeline, then use `finish-registry-relaxation` to commit
 one undoable edit or `cancel-registry-relaxation` to restore the exact pre-mode
 structure. Both actions remove that temporary timeline.
+
+For a rigid x/y/z search, activate Cartesian mode instead. This does not require
+a periodic cell and does not relax individual atoms:
+
+```javascript
+await applyCurrent({operation: {
+  name: "start-registry-relaxation",
+  indices: [36, 37, 38, 39],
+  space: "cartesian",
+  maxDisplacement: 3.0
+}});
+await applyCurrent({operation: {
+  name: "set-registry-translation",
+  coordinates: [0.2, -0.1, 0.4]
+}});
+await applyCurrent({operation: {
+  name: "run-registry-relaxation",
+  fmax: 0.05,
+  steps: 100
+}});
+```
+
+`maxDisplacement` is a separate `±` bound for each Cartesian component. Verify
+the analytic gradient against the negative selected net force, require one
+identical displacement for every selected atom, and require exact host, cell,
+constraint, and selected-internal-vector invariance. Commit or cancel with the
+same operations as plane mode.
+
+For visual alignment only, select the desired atom or atoms and apply:
+
+```javascript
+await applyCurrent({operation: {name: "center-selection-at-origin"}});
+```
+
+One atom uses its displayed position. Multiple atoms use the mass-weighted COM,
+including selected periodic references. Verify that scene translation changes
+while every ASE coordinate and cell value remains unchanged.
 
 ### Periodic Supercell Measurement
 

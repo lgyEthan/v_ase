@@ -680,6 +680,8 @@ def test_agent_endpoints_serve_the_canonical_skill_and_schema():
     assert schema["operation_parameters"]["start-registry-relaxation"]["optional"] == [
         "indices",
         "hkl",
+        "space",
+        "maxDisplacement",
     ]
     assert schema["operation_parameters"]["set-registry-translation"]["required"] == [
         "active-registry-relaxation",
@@ -702,6 +704,7 @@ def test_agent_endpoints_serve_the_canonical_skill_and_schema():
         "set-interface-theme",
         "set-personal-visual-default",
         "restore-app-visual-defaults",
+        "center-selection-at-origin",
         "add-volumetric-plane",
         "update-volumetric-planes",
         "remove-volumetric-planes",
@@ -798,6 +801,9 @@ def test_skill_documents_commensurate_and_registry_end_to_end_contracts():
         "candidate validity",
         "one-primitive-cell boundary shell",
         "geometry scores, not energies",
+        "mass-weighted COM",
+        "space: \"cartesian\"",
+        "per-axis",
         "icon-only CSV",
         "CellMatch",
         "Stradi",

@@ -2,6 +2,7 @@ import json
 import os
 import shlex
 import subprocess
+import sys
 import tomllib
 from pathlib import Path
 
@@ -12,7 +13,13 @@ from ase.io import read, write
 import pytest
 
 import v_ase.remote as remote
-from v_ase.cli import build_parser, normalize_argv, run_api_command, run_gui
+from v_ase.cli import (
+    _scientific_stack_error,
+    build_parser,
+    normalize_argv,
+    run_api_command,
+    run_gui,
+)
 from v_ase.export import export_html_response
 from v_ase.io import infer_input_format, read_structure_frames, resolve_input_format
 from v_ase.io import atom_labels
@@ -44,6 +51,46 @@ def test_v_ase_gui_parser_accepts_ase_gui_style_file_argument():
     assert args.command == "gui"
     assert args.file == "XXXX.vasp"
     assert args.index == ":"
+
+
+def test_binary_stack_error_explains_that_the_structure_was_not_parsed():
+    message = _scientific_stack_error(
+        ValueError(
+            "numpy.dtype size changed, may indicate binary incompatibility. "
+            "Expected 96 from C header, got 88 from PyObject"
+        )
+    )
+
+    assert "binary-incompatible" in message
+    assert "structure file has not been read yet" in message
+    assert "python -m pip install --upgrade --force-reinstall v_ase-gui" in message
+    assert "Expected 96" in message
+
+
+def test_cli_import_and_version_do_not_eagerly_import_ase_or_scipy():
+    code = (
+        "import sys; import v_ase.cli; "
+        "assert 'ase' not in sys.modules; "
+        "assert 'scipy' not in sys.modules"
+    )
+    imported = subprocess.run(
+        [sys.executable, "-c", code],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert imported.returncode == 0, imported.stderr
+
+    version = subprocess.run(
+        [sys.executable, "-m", "v_ase.cli", "--version"],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert version.returncode == 0, version.stderr
+    assert version.stdout.startswith("v_ase ")
 
 
 def test_v_ase_gui_parser_accepts_an_empty_workspace():

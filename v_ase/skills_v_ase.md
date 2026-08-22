@@ -65,10 +65,11 @@ documents specific-atom rotation through the human
 Trajectory property coloring and force-vector overlays are frame-aware: an
 agent must describe or fetch the active frame after changing frames and must
 never treat one frame's stored force buffer as trajectory-wide data. Rigid
-planar translation accepts any PBC-compatible integer `(h k l)` plane, keeps
-the cell and unselected host fixed, moves every selected atom by one shared
-Cartesian vector, and exposes exact plane bases through semantic state and CSV
-output. The sampled translation map is optional; an agent may activate the
-mode, set or optimize the two plane coordinates, inspect its trial timeline,
-then apply or cancel without calculating a colorscale first.
+translation either accepts any PBC-compatible integer `(h k l)` plane or uses
+three Cartesian Angstrom coordinates with independent per-axis bounds. Both
+keep the cell and unselected host fixed and move every selected atom by one
+shared vector. The sampled plane map is optional; an agent may activate either
+mode, inspect its trial timeline, then apply or cancel. Visual
+`center-selection-at-origin` separately aligns one atom or a mass-weighted COM
+without modifying ASE coordinates.
 The compatibility file remains available so existing links do not fail.

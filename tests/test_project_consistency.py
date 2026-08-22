@@ -49,6 +49,16 @@ def test_release_version_is_synchronized():
     assert f"## {__version__}" in changelog
 
 
+def test_scientific_binary_dependencies_follow_supported_python_abis():
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    dependencies = set(project["project"]["dependencies"])
+
+    assert "numpy>=1.24,<2.0; python_version < '3.13'" in dependencies
+    assert "matscipy>=1.1.1,<1.2.0; python_version < '3.13'" in dependencies
+    assert "numpy>=2.0; python_version >= '3.13'" in dependencies
+    assert "matscipy>=1.2.0; python_version >= '3.13'" in dependencies
+
+
 def test_release_license_is_agpl_and_vendor_license_is_preserved():
     project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     license_text = (ROOT / "LICENSE").read_text(encoding="utf-8")

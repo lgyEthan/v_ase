@@ -198,7 +198,7 @@ def test_rdf_drawer_controls_and_selected_active_bond_pairs():
                     "Forces",
                     "Volumetric Data",
                     "Distribution Functions",
-                    "Planar Translation",
+                    "Rigid Translation",
                 ]
                 page.select_option("#structure-section-select", "rdf")
                 page.click('[data-inspector-group="export"]')
@@ -4752,6 +4752,117 @@ def test_host_guest_commensurate_and_registry_map_complete_in_one_live_document(
             assert closed_mode["mode"] is None
             assert closed_mode["timeline"]["active"] is False
             assert closed_mode["timeline"]["kind"] is None
+            browser.close()
+    finally:
+        editor.close()
+
+
+def test_visual_com_origin_and_cartesian_rigid_translation_share_one_live_ui():
+    atoms = Atoms(
+        "HOCu",
+        positions=[
+            [1.0, 1.0, 1.0],
+            [3.0, 2.0, 2.0],
+            [7.0, 5.0, 4.0],
+        ],
+        pbc=False,
+    )
+    port = find_free_port()
+    editor = view(
+        atoms,
+        notebook=True,
+        block=False,
+        port=port,
+        viz_only=False,
+        close_on_disconnect=False,
+    )
+    try:
+        with sync_playwright() as playwright:
+            try:
+                browser = playwright.chromium.launch(headless=True)
+            except PlaywrightError as exc:
+                pytest.skip(f"Playwright Chromium is not installed: {exc}")
+            page = browser.new_page(viewport={"width": 1280, "height": 840})
+            page.goto(f"http://127.0.0.1:{port}/?session_id={editor.session_id}")
+            page.wait_for_function("window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 3")
+
+            centered = page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                app.clearAtomSelection();
+                app.addSelectionReference(0);
+                app.addSelectionReference(1);
+                app.updateSelectionVisuals();
+                const center = app.selectionCenterOfMass().toArray();
+                app.centerSelectionAtOrigin();
+                return {
+                    masses: app.state.atoms.masses,
+                    center,
+                    translation: app.state.display.translation,
+                    mode: app.state.display.translationMode,
+                    buttonLabel: document.getElementById('btn-selection-to-origin')?.textContent.trim()
+                };
+            }""")
+            expected_mass = atoms.get_masses()[:2]
+            expected_center = np.average(atoms.positions[:2], axis=0, weights=expected_mass)
+            np.testing.assert_allclose(centered["masses"], atoms.get_masses())
+            np.testing.assert_allclose(centered["center"], expected_center, atol=1e-12)
+            np.testing.assert_allclose(centered["translation"], -expected_center, atol=1e-12)
+            assert centered["mode"] == "cartesian"
+            assert centered["buttonLabel"] == "Selection COM to Origin"
+
+            rigid = page.evaluate("""async () => {
+                const app = window.__ASE_APP__;
+                const before = app.state.atoms.positions.map(position => [...position]);
+                await window.v_aseAI.apply({
+                    operation: {
+                        name: 'start-registry-relaxation',
+                        indices: [0, 1],
+                        space: 'cartesian',
+                        maxDisplacement: 2.5
+                    }
+                });
+                const unconstrained = app.constrainMoveToRegistryPlane(
+                    app.renderer.camera.position.clone().set(0.4, -0.3, 0.8)
+                ).toArray();
+                await window.v_aseAI.apply({
+                    operation: {
+                        name: 'set-registry-translation',
+                        coordinates: [0.4, -0.3, 0.8]
+                    }
+                });
+                const after = app.state.atoms.positions.map(position => [...position]);
+                const mode = (await window.v_aseAI.describe()).analysis.registryRelaxation;
+                await window.v_aseAI.apply({operation: 'cancel-registry-relaxation'});
+                return {
+                    before,
+                    after,
+                    mode,
+                    unconstrained,
+                    spaceControl: document.getElementById('registry-translation-space')?.value,
+                    planeHidden: document.getElementById('registry-plane-controls')?.classList.contains('hidden'),
+                    cartesianHidden: document.getElementById('registry-cartesian-controls')?.classList.contains('hidden')
+                };
+            }""")
+            assert rigid["mode"]["translation_space"] == "cartesian"
+            assert rigid["mode"]["degrees_of_freedom"] == 3
+            assert rigid["mode"]["coordinate_basis"] == "cartesian-angstrom"
+            assert rigid["mode"]["max_displacement_angstrom"] == pytest.approx(2.5)
+            assert rigid["mode"]["translation_coordinates"] == pytest.approx([0.4, -0.3, 0.8])
+            assert rigid["unconstrained"] == pytest.approx([0.4, -0.3, 0.8])
+            np.testing.assert_allclose(rigid["after"][2], rigid["before"][2], atol=0.0)
+            np.testing.assert_allclose(
+                np.asarray(rigid["after"][1]) - np.asarray(rigid["after"][0]),
+                np.asarray(rigid["before"][1]) - np.asarray(rigid["before"][0]),
+                atol=1e-12,
+            )
+            np.testing.assert_allclose(
+                np.asarray(rigid["after"][:2]) - np.asarray(rigid["before"][:2]),
+                np.tile([0.4, -0.3, 0.8], (2, 1)),
+                atol=1e-12,
+            )
+            assert rigid["spaceControl"] == "cartesian"
+            assert rigid["planeHidden"] is True
+            assert rigid["cartesianHidden"] is False
             browser.close()
     finally:
         editor.close()

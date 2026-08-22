@@ -1,4 +1,4 @@
-"""Rigid two-degree-of-freedom registry relaxation sessions."""
+"""Rigid planar and three-dimensional translation relaxation sessions."""
 
 from __future__ import annotations
 
@@ -34,6 +34,8 @@ class RegistryRelaxationSession:
     plane_basis: np.ndarray
     translation_basis: np.ndarray
     translation_basis_2d: np.ndarray
+    translation_space: str = "plane"
+    max_displacement: float | None = None
     current_coordinates: np.ndarray = field(default_factory=lambda: np.zeros(2))
     trials: list[dict[str, Any]] = field(default_factory=list)
     status: str = "ready"
@@ -50,12 +52,18 @@ class RegistryRelaxationSession:
     def translation_vector(self) -> np.ndarray:
         return np.asarray(self.current_coordinates, dtype=float) @ self.translation_basis
 
-    def fractional_translation(self) -> np.ndarray:
+    def fractional_translation(self) -> np.ndarray | None:
+        if self.translation_space != "plane":
+            return None
         return np.mod(np.asarray(self.current_coordinates, dtype=float), 1.0)
+
+    @property
+    def degrees_of_freedom(self) -> int:
+        return int(self.translation_basis.shape[0])
 
     def summary(self) -> dict[str, Any]:
         return {
-            "schema": "v_ase.registry-relaxation.v1",
+            "schema": "v_ase.rigid-translation-relaxation.v2",
             "session_id": self.session_id,
             "status": self.status,
             "is_relaxing": self.is_relaxing,
@@ -67,11 +75,22 @@ class RegistryRelaxationSession:
             "plane_basis_cartesian": self.plane_basis.tolist(),
             "translation_basis_angstrom": self.translation_basis.tolist(),
             "translation_basis_2d_angstrom": self.translation_basis_2d.tolist(),
-            "coordinate_basis": "fractional-plane-lattice",
+            "translation_space": self.translation_space,
+            "degrees_of_freedom": self.degrees_of_freedom,
+            "coordinate_basis": (
+                "fractional-plane-lattice"
+                if self.translation_space == "plane"
+                else "cartesian-angstrom"
+            ),
+            "max_displacement_angstrom": self.max_displacement,
             "reference_component": "unselected-host",
             "mobile_component": "selected-guest",
             "translation_cartesian": self.translation_vector().tolist(),
-            "translation_fractional": self.fractional_translation().tolist(),
+            "translation_fractional": (
+                None
+                if self.fractional_translation() is None
+                else self.fractional_translation().tolist()
+            ),
             "translation_coordinates": self.current_coordinates.tolist(),
             "trials": list(self.trials),
             "step": int(self.step),
@@ -82,7 +101,11 @@ class RegistryRelaxationSession:
             # the physically explicit projected-force name.
             "generalized_force": self.projected_force,
             "generalized_gradient": self.generalized_gradient,
-            "force_definition": "norm of the selected-component net force projected into the periodic interface plane",
+            "force_definition": (
+                "norm of the selected-component net force projected into the periodic interface plane"
+                if self.translation_space == "plane"
+                else "norm of the selected-component net Cartesian force"
+            ),
             "force_units": "eV/angstrom",
         }
 
@@ -107,28 +130,62 @@ def start_registry_relaxation_mode(
     session: Any,
     selected_indices: Sequence[int],
     hkl: Sequence[int | float] = (0, 0, 1),
+    translation_space: str = "plane",
+    max_displacement: float = 5.0,
 ) -> dict[str, Any]:
     if getattr(session, "registry_relaxation", None) is not None:
-        raise ValueError("Finish or cancel the active planar translation relaxation first.")
+        raise ValueError("Finish or cancel the active rigid translation relaxation first.")
     if getattr(session, "atom_addition", None) is not None:
-        raise ValueError("Finish or cancel Add Atoms before planar translation relaxation.")
+        raise ValueError("Finish or cancel Add Atoms before rigid translation relaxation.")
     if getattr(session, "is_relaxing", False):
         raise ValueError("Stop the active structure relaxation first.")
     selected = _validated_selection(len(session.working_atoms), selected_indices)
     baseline = copy_atoms_with_calc(session.working_atoms)
-    plane = lattice_plane(baseline.cell.array, baseline.pbc, hkl)
+    space = str(translation_space or "plane").strip().lower()
+    if space in {"3d", "xyz"}:
+        space = "cartesian"
+    if space not in {"plane", "cartesian"}:
+        raise ValueError("Rigid translation space must be 'plane' or 'cartesian'.")
+    if space == "cartesian":
+        limit = float(max_displacement)
+        if not np.isfinite(limit) or limit <= 0:
+            raise ValueError("3D maximum shift per Cartesian axis must be greater than 0 Å.")
+        normalized_hkl = tuple(int(value) for value in hkl)
+        if len(normalized_hkl) != 3:
+            normalized_hkl = (0, 0, 1)
+        periodic_axes = tuple(int(axis) for axis, enabled in enumerate(baseline.pbc) if enabled)
+        plane_integer_basis = np.empty((0, 3), dtype=int)
+        plane_normal = np.zeros(3, dtype=float)
+        plane_basis = np.eye(3, dtype=float)
+        translation_basis = np.eye(3, dtype=float)
+        translation_basis_2d = np.eye(2, dtype=float)
+        current_coordinates = np.zeros(3, dtype=float)
+    else:
+        plane = lattice_plane(baseline.cell.array, baseline.pbc, hkl)
+        limit = None
+        normalized_hkl = plane.hkl
+        periodic_axes = plane.periodic_axes
+        plane_integer_basis = plane.integer_basis
+        plane_normal = plane.normal
+        plane_basis = plane.plane_basis
+        translation_basis = plane.translation_basis
+        translation_basis_2d = plane.translation_basis_2d
+        current_coordinates = np.zeros(2, dtype=float)
     mode = RegistryRelaxationSession(
         session_id=str(uuid.uuid4()),
         baseline_atoms=baseline,
         frame_index=int(session.current_frame),
         selected_indices=selected,
-        hkl=plane.hkl,
-        periodic_axes=plane.periodic_axes,
-        plane_integer_basis=plane.integer_basis,
-        plane_normal=plane.normal,
-        plane_basis=plane.plane_basis,
-        translation_basis=plane.translation_basis,
-        translation_basis_2d=plane.translation_basis_2d,
+        hkl=normalized_hkl,
+        periodic_axes=periodic_axes,
+        plane_integer_basis=plane_integer_basis,
+        plane_normal=plane_normal,
+        plane_basis=plane_basis,
+        translation_basis=translation_basis,
+        translation_basis_2d=translation_basis_2d,
+        translation_space=space,
+        max_displacement=limit,
+        current_coordinates=current_coordinates,
     )
     session.registry_relaxation = mode
     return mode.summary()
@@ -145,22 +202,23 @@ def _rigid_translation_derivatives(
     mode: RegistryRelaxationSession,
     forces: np.ndarray,
 ) -> tuple[np.ndarray, float]:
-    """Return dE/dq and the Cartesian in-plane force norm.
+    """Return dE/dq and the allowed Cartesian rigid-force norm.
 
-    The optimizer variables ``q`` are dimensionless coefficients of the two
-    periodic cell vectors.  Their energy gradient therefore has units of eV,
-    while the convergence quantity shown to users is the selected component's
-    net Cartesian force projected into the interface plane, in eV/angstrom.
+    Plane coordinates are dimensionless coefficients of two periodic lattice
+    translations. Cartesian coordinates are translations in angstrom. In both
+    cases the derivative is obtained exactly from the selected component's net
+    force, and the convergence quantity is expressed in eV/angstrom.
     """
 
     selected = np.asarray(mode.selected_indices, dtype=int)
     net_force = np.sum(np.asarray(forces, dtype=float)[selected], axis=0)
-    gradient = -np.asarray([
-        float(np.dot(net_force, mode.translation_basis[0])),
-        float(np.dot(net_force, mode.translation_basis[1])),
-    ])
-    projected_components = np.asarray(mode.plane_basis, dtype=float) @ net_force
-    return gradient, float(np.linalg.norm(projected_components))
+    gradient = -np.asarray(mode.translation_basis, dtype=float) @ net_force
+    allowed_components = (
+        np.asarray(mode.plane_basis, dtype=float) @ net_force
+        if mode.translation_space == "plane"
+        else net_force
+    )
+    return gradient, float(np.linalg.norm(allowed_components))
 
 
 def _publish_step(
@@ -271,21 +329,34 @@ def _run_registry_relaxation(
             generalized_gradient=float(np.linalg.norm(gradient)),
             run_id=run_id,
         )
-        singular_values = np.linalg.svd(mode.translation_basis, compute_uv=False)
-        minimum_scale = max(float(np.min(singular_values)), 1e-12)
-        # L-BFGS-B tests the infinity norm of dE/dq.  This conservative
-        # conversion guarantees that satisfying gtol also satisfies the
-        # requested Cartesian in-plane force tolerance.
-        fractional_gtol = max(minimum_scale * float(fmax) / np.sqrt(2.0), 1e-12)
+        if mode.translation_space == "plane":
+            singular_values = np.linalg.svd(mode.translation_basis, compute_uv=False)
+            minimum_scale = max(float(np.min(singular_values)), 1e-12)
+            # L-BFGS-B tests the infinity norm of dE/dq. This conservative
+            # conversion guarantees the requested Cartesian plane-force norm.
+            optimizer_gtol = max(
+                minimum_scale * float(fmax) / np.sqrt(mode.degrees_of_freedom),
+                1e-12,
+            )
+            bounds = tuple((-0.5, 0.5) for _ in range(mode.degrees_of_freedom))
+        else:
+            # Cartesian q and forces share angstrom/eV-per-angstrom units.
+            # ||F||_2 <= sqrt(n)||F||_inf gives a conservative scalar gtol.
+            optimizer_gtol = max(
+                float(fmax) / np.sqrt(mode.degrees_of_freedom),
+                1e-12,
+            )
+            limit = float(mode.max_displacement)
+            bounds = tuple((-limit, limit) for _ in range(mode.degrees_of_freedom))
         result = minimize(
             evaluate,
             initial,
             method="L-BFGS-B",
             jac=True,
-            bounds=((-0.5, 0.5), (-0.5, 0.5)),
+            bounds=bounds,
             callback=callback,
             options={
-                "gtol": fractional_gtol,
+                "gtol": optimizer_gtol,
                 "maxiter": int(steps),
                 "maxls": 30,
                 "ftol": 1e-12,
@@ -336,9 +407,9 @@ def _run_registry_relaxation(
 def run_registry_relaxation(session: Any, payload: dict[str, Any]) -> dict[str, Any]:
     mode = getattr(session, "registry_relaxation", None)
     if not isinstance(mode, RegistryRelaxationSession):
-        raise ValueError("Activate planar translation relaxation first.")
+        raise ValueError("Activate rigid translation relaxation first.")
     if mode.is_relaxing:
-        raise ValueError("Planar translation relaxation is already running.")
+        raise ValueError("Rigid translation relaxation is already running.")
     fmax = float(payload.get("fmax", 0.05))
     steps = int(payload.get("steps", 100))
     if not np.isfinite(fmax) or fmax <= 0:
@@ -380,10 +451,10 @@ def stop_registry_relaxation(session: Any) -> bool:
 def finish_registry_relaxation_mode(session: Any) -> dict[str, Any]:
     mode = getattr(session, "registry_relaxation", None)
     if not isinstance(mode, RegistryRelaxationSession):
-        raise ValueError("There is no active planar translation relaxation to finish.")
+        raise ValueError("There is no active rigid translation relaxation to finish.")
     with mode.lock:
         if mode.is_relaxing:
-            raise ValueError("Stop or wait for planar translation relaxation before applying it.")
+            raise ValueError("Stop or wait for rigid translation relaxation before applying it.")
         final_atoms = copy_atoms_with_calc(session.working_atoms)
         session.working_atoms = copy_atoms_with_calc(mode.baseline_atoms)
         session.sync_current_frame()
@@ -408,17 +479,21 @@ def cancel_registry_relaxation_mode(session: Any) -> None:
 
 
 def set_registry_translation(session: Any, coordinates: Sequence[float]) -> dict[str, Any]:
-    """Preview one exact rigid translation in the active plane basis."""
+    """Preview one exact translation in the active rigid coordinate basis."""
 
     mode = getattr(session, "registry_relaxation", None)
     if not isinstance(mode, RegistryRelaxationSession):
-        raise ValueError("Activate planar translation mode first.")
+        raise ValueError("Activate rigid translation mode first.")
     with mode.lock:
         if mode.is_relaxing:
-            raise ValueError("Stop planar translation relaxation before moving it manually.")
+            raise ValueError("Stop rigid translation relaxation before moving it manually.")
         values = np.asarray(coordinates, dtype=float)
-        if values.shape != (2,) or not np.all(np.isfinite(values)):
-            raise ValueError("Planar translation coordinates must contain two finite values.")
+        expected = mode.degrees_of_freedom
+        if values.shape != (expected,) or not np.all(np.isfinite(values)):
+            basis = "plane-lattice" if mode.translation_space == "plane" else "Cartesian"
+            raise ValueError(
+                f"Rigid {basis} translation requires {expected} finite coordinates."
+            )
         mode.current_coordinates = values.copy()
         mode.status = "preview"
         atoms = copy_atoms_with_calc(mode.baseline_atoms)

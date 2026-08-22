@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.2.31
+
+- Restored reliable Python 3.10-3.12 installation after the compiled matscipy
+  migration by resolving the NumPy 1.x/matscipy 1.1.x ABI family there, while
+  Python 3.13+ retains NumPy 2.x/matscipy 1.2+. Lightweight CLI commands now
+  avoid eager ASE/SciPy imports and startup reports a direct binary-stack repair
+  instead of misidentifying a valid POSCAR.
+- Added mass-weighted **Selection COM to Origin** scene alignment without
+  changing ASE coordinates, cell vectors, constraints, labels, or calculator
+  state.
+- Added calculator-driven 3D rigid translation over one shared Cartesian
+  x/y/z vector with explicit per-axis Angstrom bounds. Analytic-force,
+  finite-difference, nonperiodic, invariant-geometry, timeline, and browser/API
+  regressions cover the new mode while preserving the existing `(hkl)` plane
+  workflow.
+
 ## 0.2.30
 
 - Made the matscipy adapter exactly preserve ASE neighbor semantics for

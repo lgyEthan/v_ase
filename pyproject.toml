@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "v_ase-gui"
-version = "0.2.30"
+version = "0.2.31"
 description = "A local 3D viewer, editor, and analysis workspace for atomistic structures, trajectories, and DFT fields."
 readme = "README.md"
 license = "AGPL-3.0-or-later"
@@ -35,10 +35,12 @@ classifiers = [
 ]
 dependencies = [
   "ase>=3.26",
-  "matscipy>=1.2.0",
+  "matscipy>=1.1.1,<1.2.0; python_version < '3.13'",
+  "matscipy>=1.2.0; python_version >= '3.13'",
   "fastapi>=0.110",
   "uvicorn[standard]>=0.29",
-  "numpy>=2.0",
+  "numpy>=1.24,<2.0; python_version < '3.13'",
+  "numpy>=2.0; python_version >= '3.13'",
   "scipy>=1.10",
   "scikit-image>=0.23",
   "plotly>=5.24",

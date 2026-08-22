@@ -95,12 +95,13 @@ test edit and a new filename for output.
   target in g/cm^3, exact accessible volume, and at least one complete primitive
   composition batch. Report target and realizable density separately; never
   promise an exact target that requires fractional molecules.
-- Rigid planar translation is not an atomic relaxation. It may change only one
-  common selected-component vector in a periodic `(hkl)` plane. Verify the
+- Rigid translation is not an atomic relaxation. Plane mode may change only one
+  common selected-component vector in a periodic `(hkl)` plane; Cartesian mode
+  may change one common x/y/z vector within independent per-axis bounds. Verify
   host, cell, and selected internal geometry exactly. Selected z is invariant
-  only for `(0,0,1)`; for other planes, verify the complete shared vector
-  instead. Do not call the projected net force a per-atom force or an energy
-  gradient.
+  only for plane `(0,0,1)`. Do not call the selected net force a per-atom force
+  or an energy. `center-selection-at-origin` is separate visual translation and
+  must never alter ASE coordinates.
 - Angle and torsion measurements preserve selection order and do not use MIC.
 - Volumetric linear combinations are valid only for grids with the same
   dimensions, cell, origin, PBC, endpoint convention, and scalar units.
@@ -137,6 +138,7 @@ test edit and a new filename for output.
 | --- | --- | --- |
 | `requires Edit mode` | A physical operation was attempted in View | Send `apply` with `{"mode":"edit"}`, describe, retry |
 | `No module named 'matscipy'` or a matscipy binary import error | The required compiled pair-search dependency is missing or does not match the active Python/platform | Upgrade `v_ase-gui` with the same Python as the `v_ase` executable; use a supported wheel or install the compiler toolchain requested by matscipy's source build |
+| `numpy.dtype size changed` | NumPy and a compiled SciPy/matscipy extension use incompatible ABIs; the structure has not been parsed | With the same interpreter, force-reinstall the complete pinned v_ase release. Python 3.10-3.12 resolves NumPy 1.x/matscipy 1.1.x; Python 3.13+ resolves NumPy 2.x/matscipy 1.2+ |
 | `requires crystal structure and lattice parameter a` | A custom compound has no ASE reference prototype/lattice data | Read `capabilities().bulkBuilder.catalogUrl`, choose an explicit compatible prototype, supply `a`, and preview before building |
 | `cannot construct a cubic cell` | The selected ASE prototype/reference has no cubic construction path | Use a cell mode listed by the bulk catalog; do not reshape the result silently |
 | `build-bulk replaces the current structure and trajectory` | Replacement was requested without explicit approval | Obtain human approval, then retry with `confirmReplace:true`; verify and Undo on mismatch |
@@ -162,9 +164,10 @@ test edit and a new filename for output.
 | host/guest matching needs a guest | `mode:"host-guest"` was requested before loading one | Run `load-commensurate-guest`, describe, then calculate again |
 | commensurate matching requires global XY/Z | Periodic plane is tilted or another axis was requested | Reorient/transform the cell explicitly or use ordinary atom rotation; do not project and materialize silently |
 | commensurate materialization unsupported | Trajectory, volumetric data, or an ambiguous cross-layer Hookean constraint is active | Keep/dismiss the preview; do not force an inferred topology or field transform |
-| planar translation asks for selected moving atoms | No selected indices were supplied | Select the moving component and retry |
+| rigid translation asks for selected moving atoms | No selected indices were supplied | Select the moving component and retry |
 | bond-strain registry has no enabled pair | No selected-to-host bond is inside an enabled pairwise cutoff | Enable scientifically intended label pairs or use the short-contact score; do not fabricate a cutoff |
-| activate planar translation first | A run/finish request has no active rigid-translation mode | Start the mode with the current selected component and `(hkl)`, then re-describe before continuing |
+| activate rigid translation first | A run/finish request has no active rigid-translation mode | Start plane mode with `(hkl)` or Cartesian mode with `space:"cartesian"`, then re-describe before continuing |
+| 3D maximum shift per Cartesian axis must be greater than 0 Å | Cartesian rigid mode received an invalid bound | Supply a finite positive `maxDisplacement`; interpret it independently on x, y, and z, not as a radial sphere |
 | leave at least one unselected host atom | The selected component contains the complete structure | Select only the movable layer; rigid translation needs an unselected reference component |
 | `(hkl)` plane is incompatible with PBC | Its primitive in-plane basis uses a nonperiodic cell vector or is degenerate | Choose a compatible plane or correct PBC; do not silently replace the requested Miller indices |
 | repeated atom selection changes the base atom | Edit maps every displayed replica to one unique editable unit-cell atom | This is intentional: the base gets the full halo and equivalent replicas get muted rings. Use View for independent replica measurement/appearance, or materialize with Set Supercell as Cell when every copy must become physical |

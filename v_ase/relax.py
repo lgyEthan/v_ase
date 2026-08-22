@@ -222,7 +222,7 @@ def clear_relaxation_trajectory(session, payload):
     Optimization frames are streamed by the browser rather than retained as a
     second backend trajectory. The client submits either its displayed frame or
     the final frame; this method commits that choice without leaving the active
-    Relaxation, Add Atoms, or planar-translation mode.
+    Relaxation, Add Atoms, or rigid-translation mode.
     """
     kind = str(payload.get("kind") or "relaxation").strip().lower()
     if kind not in {"relaxation", "add-atoms", "registry"}:
@@ -247,7 +247,7 @@ def clear_relaxation_trajectory(session, payload):
     elif kind == "registry":
         registry = session.registry_relaxation
         if registry is None:
-            raise ValueError("There is no active planar translation mode.")
+            raise ValueError("There is no active rigid translation mode.")
         with registry.lock:
             registry.stop_requested = True
             registry.run_id += 1

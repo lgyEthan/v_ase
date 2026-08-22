@@ -1,15 +1,15 @@
 # Source-checkout runtime and build dependencies.
-# Tested on Python 3.11 with:
-# ase 3.28.0, matscipy 1.2.0, fastapi 0.136.1, uvicorn 0.46.0,
-# numpy 2.4.4, scipy 1.17.1, scikit-image 0.26.0, plotly 6.7.0,
-# matplotlib 3.10.8.
+# Python 3.10-3.12 retain the NumPy 1 ABI used by common Conda scientific
+# stacks. Python 3.13 uses the NumPy 2-compatible matscipy release.
 # Optional Rhino 3DM export: python -m pip install "v_ase-gui[rhino]"
 # OBJ/MTL export uses only the Python standard library.
 ase>=3.26
-matscipy>=1.2.0
+matscipy>=1.1.1,<1.2.0; python_version < '3.13'
+matscipy>=1.2.0; python_version >= '3.13'
 fastapi>=0.110
 uvicorn[standard]>=0.29
-numpy>=2.0
+numpy>=1.24,<2.0; python_version < '3.13'
+numpy>=2.0; python_version >= '3.13'
 scipy>=1.10
 scikit-image>=0.23
 plotly>=5.24

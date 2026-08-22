@@ -14,13 +14,13 @@
 Install the tested release into the active Python environment:
 
 ```bash
-python -m pip install "v_ase-gui==0.2.30"
+python -m pip install "v_ase-gui==0.2.31"
 ```
 
 Optional Rhino export:
 
 ```bash
-python -m pip install "v_ase-gui[rhino]==0.2.30"
+python -m pip install "v_ase-gui[rhino]==0.2.31"
 ```
 
 Runtime dependencies are ASE, matscipy, FastAPI, Uvicorn, NumPy, SciPy,
@@ -28,6 +28,17 @@ scikit-image, Plotly, Matplotlib, imageio-ffmpeg, and Pillow. matscipy provides
 the compiled pair-search backend used by RDF, finite pair distributions,
 repulsion, and exported bond topology. No Node.js runtime, API key, or hosted
 account is required.
+
+Binary dependency markers keep supported interpreters on compatible ABI
+families: Python 3.10-3.12 resolves NumPy 1.x with matscipy 1.1.x, while Python
+3.13 and newer resolves NumPy 2.x with matscipy 1.2 or newer. A
+`numpy.dtype size changed` failure occurs before any structure parsing. Repair
+the complete environment with the same interpreter instead of replacing NumPy
+alone:
+
+```bash
+python -m pip install --upgrade --force-reinstall "v_ase-gui==0.2.31"
+```
 
 v_ase uses the `AGPL-3.0-or-later` license. Preserve the license and source
 offer when redistributing v_ase or operating a modified version for users over

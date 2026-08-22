@@ -14,7 +14,7 @@ All lengths are Angstrom and all angles are degrees unless stated otherwise.
 Install the tested release:
 
 ```bash
-python -m pip install "v_ase-gui==0.2.30"
+python -m pip install "v_ase-gui==0.2.31"
 ```
 
 Start the terminal-oriented API session yourself:
@@ -422,15 +422,17 @@ For any nontrivial task, verify all applicable items:
   absolute strain against actual host-plus-guest atom count. `maxAreaRatio`
   defaults to 16 and accepts only 1 through 128. Never call
   `apply-commensurate-cell` without explicit user intent;
-- planar translation: nonzero integer `(hkl)`, two exact primitive periodic
-  lattice translations satisfying `h*u + k*v + l*w = 0`, selected moving
-  component, unselected host, visible physical plane cell, and a live shared
-  translation marker. The sampled short-contact or pair-length map is optional
-  and is a lower-is-better geometry screen, never an energy. For rigid
-  optimization verify the attached calculator or explicit repulsive fallback,
-  exactly two common plane coordinates, invariant host/cell/selected internal
-  geometry, projected net selected force in `eV/angstrom`, a mode-only
-  timeline, one undo step on finish, and exact pre-mode restoration on cancel;
+- rigid translation: plane mode requires a nonzero integer `(hkl)` and two exact
+  primitive periodic translations satisfying `h*u + k*v + l*w = 0`; Cartesian
+  mode uses one common x/y/z vector in Angstrom and an explicit per-axis bound.
+  Both require a selected moving component plus an unselected host and preserve
+  host/cell/selected internal geometry exactly. The sampled plane map is
+  optional and is a lower-is-better geometry screen, never an energy. Verify
+  the attached calculator or explicit repulsive fallback, the analytic
+  derivative from the selected-component net force, a mode-only timeline, one
+  undo step on finish, and exact pre-mode restoration on cancel. Visual
+  `center-selection-at-origin` instead uses one atom or a mass-weighted COM and
+  changes only scene translation, never ASE positions;
 - constraints: persistent per-atom FixedLine/FixedPlane markers, one long
   original-position FixedLine direction guide during `G`, and one
   original-position FixedPlane motion guide per selected atom during `G`;
@@ -439,7 +441,7 @@ For any nontrivial task, verify all applicable items:
   annotation-free 3D helix at `r > rt`, and ASE force magnitude
   `k * (r - rt)` without altering backend constraint semantics; verify the same
   threshold transition on every trajectory frame;
-- relaxation modes: source, structure, Add Atoms, and planar-translation timelines remain distinguishable; stop permits restart; `clear-relaxation-trajectory` retains the displayed or final frame while leaving the mode active; exit keeps current coordinates or restores the exact baseline and removes only that optimizer timeline;
+- relaxation modes: source, structure, Add Atoms, and rigid-translation timelines remain distinguishable; stop permits restart; `clear-relaxation-trajectory` retains the displayed or final frame while leaving the mode active; exit keeps current coordinates or restores the exact baseline and removes only that optimizer timeline;
 - built-in repulsion: visual bonds and contact repulsion are independent. The default absolute mode uses enabled label-pair onset distances in Angstrom, seeded from ASE covalent-radius sums or optional van der Waals sums; zero disables only that pair. Scaled mode multiplies the same reference table by a dimensionless contact multiplier. Neither onset is a hard distance constraint. matscipy's compiled label-pair search is an implementation acceleration only; it does not alter the onset, MIC, energy, or force contract. Partial-PBC searches preserve periodic cell vectors and never return an image shift on a finite axis; exported periodic bonds use ASE's exact triclinic `find_mic`.
 - history: one confirmed transform gesture, Apply action, placement batch, or relaxation start is one undo step. During Add Atoms, Undo/Redo traverses individual batches and Cancel still restores the exact pre-session baseline.
 - render: exact dimensions, format, options, nonblank decoded pixels;

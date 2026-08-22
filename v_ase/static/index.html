@@ -52,12 +52,12 @@
             });
         })();
     </script>
-    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.2.30">
+    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.2.31">
     <script>
         window.__V_ASE_MOCK__ = new URLSearchParams(window.location.search).has('v_ase_mock');
         const threeModulePath = window.location.protocol === 'file:'
             ? './vendor/three.module.js'
-            : '/static/vendor/three.module.js?v=0.2.30';
+            : '/static/vendor/three.module.js?v=0.2.31';
         const importMap = document.createElement('script');
         importMap.type = 'importmap';
         importMap.textContent = JSON.stringify({
@@ -123,7 +123,7 @@
     <header id="top-bar" class="glass-panel">
         <div class="logo">
             <img class="brand-logo-asset" src="static/v_ase-logo.png" alt="v_ase">
-            <span class="version">0.2.30</span>
+            <span class="version">0.2.31</span>
         </div>
         <div id="runtime-mode-switch" class="runtime-mode-switch" role="group" aria-label="Workspace mode">
             <button type="button" data-runtime-mode="view" aria-pressed="true"
@@ -1025,9 +1025,16 @@
         </details>
 
         <details class="panel-section" open data-panel="registry-map" data-panel-group="analysis">
-            <summary class="section-header">Planar Translation</summary>
-            <p class="panel-note">Move the selected atoms as one rigid component in a periodic (hkl) plane. The cell, host atoms, and selected internal coordinates remain fixed.</p>
-            <div class="prop-row registry-hkl-row">
+            <summary class="section-header">Rigid Translation</summary>
+            <p id="registry-mode-description" class="panel-note">Move the selected atoms as one rigid component in a periodic (hkl) plane. The cell, host atoms, and selected internal coordinates remain fixed.</p>
+            <div class="prop-row">
+                <label for="registry-translation-space">Degrees of freedom</label>
+                <select id="registry-translation-space">
+                    <option value="plane" selected>In-plane (hkl)</option>
+                    <option value="cartesian">3D Cartesian</option>
+                </select>
+            </div>
+            <div id="registry-plane-controls" class="prop-row registry-hkl-row">
                 <label>Plane (h k l)</label>
                 <div class="num-group">
                     <input id="registry-h" type="number" step="1" value="0" aria-label="Translation plane h">
@@ -1035,12 +1042,16 @@
                     <input id="registry-l" type="number" step="1" value="1" aria-label="Translation plane l">
                 </div>
             </div>
+            <div id="registry-cartesian-controls" class="prop-row hidden">
+                <label for="registry-max-displacement">Max shift / axis / Å</label>
+                <input id="registry-max-displacement" type="number" min="0.001" step="0.5" value="5">
+            </div>
             <div class="registry-relax-card">
                 <div class="registry-relax-heading">
                     <span>Rigid translation mode</span>
                     <span id="registry-relax-mode-badge" class="analysis-mode-badge hidden">ACTIVE</span>
                 </div>
-                <p class="panel-note">Activate first, then use G or optimize the shared two-coordinate translation.</p>
+                <p id="registry-mode-instruction" class="panel-note">Activate first, then use G or optimize the shared two-coordinate translation.</p>
                 <div class="registry-relax-grid">
                     <label>fmax / eV Å<sup>−1</sup><input id="registry-relax-fmax" type="number" min="0.0001" step="0.01" value="0.05"></label>
                     <label>Steps<input id="registry-relax-steps" type="number" min="1" max="100000" step="10" value="100"></label>
@@ -1057,7 +1068,7 @@
                     <span class="analysis-status-detail">Select the movable atoms and activate the plane.</span>
                 </div>
             </div>
-            <div class="registry-map-card">
+            <div id="registry-map-card" class="registry-map-card">
                 <div class="registry-relax-heading"><span>Optional translation map</span></div>
                 <p class="panel-note">The plane is shown immediately. Calculate only when a sampled geometry score is needed.</p>
                 <div class="prop-row">
@@ -1328,6 +1339,7 @@
                     <input type="number" id="translate-z" value="0" step="0.1" aria-label="Translation z component">
                 </div>
                 <button id="btn-apply-translation" class="btn-block" type="button">Apply Translation</button>
+                <button id="btn-selection-to-origin" class="btn-block" type="button">Selection COM to Origin</button>
                 <p class="panel-note">Offsets displayed atoms after cell replication. ASE coordinates and the unit cell remain unchanged.</p>
             </div>
         </details>
@@ -2010,7 +2022,7 @@
         }
         const modulePath = (window.location.protocol === 'file:' || window.location.pathname.endsWith('/static/index.html'))
             ? './main.js'
-            : './static/main.js?v=0.2.30';
+            : './static/main.js?v=0.2.31';
         import(modulePath).catch(error => {
             console.error('v_ase failed to initialize:', error?.stack || error);
         });

@@ -28,7 +28,7 @@ completed structure is inspected from above and below.
 | --- | --- |
 | **ASE-native workflow** | Open ASE-supported structures and trajectories from the terminal or Python, retain scientific metadata, and return to the same environment after inspection or editing. |
 | **Direct 3D structure editing** | Start from a file or an empty document, define a cell, insert atoms or molecules, and use `G`, `R`, and physical `S` transforms in the same local browser. [Explore editing](#edit-structures). |
-| **Periodic interfaces and analysis** | Build supercells, search commensurate 2D cells, optimize a rigid translation in any compatible periodic `(hkl)` plane, measure ordered geometry, plot periodic RDFs or finite pair distributions, and inspect volumetric fields. [Explore interfaces](#periodic-cells-and-interfaces) and [analysis](#analyze-structures-and-fields). |
+| **Periodic interfaces and analysis** | Build supercells, search commensurate 2D cells, optimize a selected rigid component either in a compatible periodic `(hkl)` plane or over Cartesian x/y/z, measure ordered geometry, plot periodic RDFs or finite pair distributions, and inspect volumetric fields. [Explore interfaces](#periodic-cells-and-interfaces) and [analysis](#analyze-structures-and-fields). |
 | **External AI collaboration** | Give a scientific request to an external AI Agent; the bundled Skill lets it operate exact revisioned state while you watch and refine the same GUI. [See the collaboration workflow](#work-with-an-ai-agent). |
 | **Portable HTML projects** | Save the structure, trajectory, camera, labels, bonds, lighting, analysis state, and visualization settings in one HTML file. Preview it with macOS Quick Look, open the offline 3D view in a browser, or restore the embedded project in v_ase. [See HTML projects](#project-or-shareable-html). |
 | **Publication and reusable output** | Switch the whole scene between 3D materials and a flat 2D diagram, lock a persistent Render Area, then prepare images, videos, HTML, Blender scenes, and compact `.vase` projects. [See styling](#style-atoms-bonds-and-rendering) and [export options](#export-and-save). |
@@ -141,7 +141,7 @@ The guide is organized by task:
 
 - [Edit structures](#edit-structures): select, move, insert, and rotate atoms.
 - [Match periodic cells and interfaces](#periodic-cells-and-interfaces):
-  replication, common cells, and rigid planar translation.
+  replication, common cells, and rigid translation.
 - [Analyze structures and fields](#analyze-structures-and-fields): ordered
   geometry, trajectories, forces, RDF, and volumetric data.
 - [Use constraints and relaxation](#constraints-and-relaxation): ASE-enforced
@@ -182,6 +182,12 @@ enabled.
 label, element, every per-atom ASE array, compatible atom constraint,
 single-point per-atom result, and per-atom material. Whole-structure energy is
 not copied because it is no longer valid after atom count changes.
+
+For scene alignment without changing ASE coordinates, open **Structure > Cell
+& Replication** and click **Selection COM to Origin**. One selected atom uses
+its position; multiple atoms use their mass-weighted center of mass. The
+result is stored as visual translation, follows displayed replication, and can
+be returned to the original view by applying `(0, 0, 0)`.
 
 ### Build From Scratch
 
@@ -582,10 +588,11 @@ frame. Display replication is separate again: it only repeats what is shown.
 The common-cell equations, limits, and assumptions are documented in
 [unit_cell_aware_rotate.md](docs/unit_cell_aware_rotate.md).
 
-### Planar Translation
+### Rigid Translation
 
 Select the layer, adsorbate, or other component that should move and open
-**Analysis > Planar Translation**. Choose a nonzero Miller plane `(h k l)`.
+**Analysis > Rigid Translation**. **In-plane (hkl)** keeps the established
+two-coordinate periodic workflow: choose a nonzero Miller plane `(h k l)`.
 v_ase constructs two primitive integer lattice translations lying exactly in
 that plane, so the workflow remains valid for skew and triclinic cells rather
 than assuming Cartesian XY. The requested plane must contain two translations
@@ -641,6 +648,17 @@ accepted optimizer step on its own timeline, and **Apply & Exit** commits one
 undoable translation. **Cancel** restores the exact pre-mode structure. The
 mode timeline disappears when either exit action finishes. Calculating a map
 later overlays its geometry score without changing any trial or coordinate.
+
+Choose **3D Cartesian** when the selected component must translate in x, y,
+and z rather than remain in one plane. **Max shift / axis** is an explicit
+Angstrom bound on each Cartesian translation component relative to mode
+activation. `G` remains a free three-axis rigid move, and **Optimize
+Translation** uses the currently attached calculator, or v_ase repulsion when
+none is attached. The objective derivative is the selected component's total
+Cartesian force. Selected internal geometry, all unselected coordinates, the
+cell, labels, and constraints remain unchanged. The temporary optimization
+timeline, **Apply & Exit**, **Cancel**, and one-step Undo behavior are identical
+to in-plane mode.
 
 ## Analyze Structures And Fields
 
@@ -1284,9 +1302,9 @@ same chemical roles.
 
 The live schema covers structure edits, constraints, trajectories, cameras,
 appearance, force vectors, volumetric surfaces and planes, colorscales, RDF,
-commensurate cells, planar translation maps, rendering, and export. The bundled release
-tests require advertised operations, browser handlers, and Skill instructions
-to remain synchronized.
+commensurate cells, rigid planar and Cartesian translation, rendering, and
+export. The bundled release tests require advertised operations, browser
+handlers, and Skill instructions to remain synchronized.
 
 The example is generated locally from `ase.build.graphene`:
 
@@ -1725,9 +1743,29 @@ python -m pip install --upgrade "v_ase-gui>=0.1.6"
 v_ase --version
 ```
 
-Current v_ase releases use matscipy for compiled pair searches and install
-`ase>=3.26`, `numpy>=2.0`, and `matscipy>=1.2` together. Upgrade the complete
+Current v_ase releases use matscipy for compiled pair searches and resolve a
+compatible NumPy/matscipy pair for the active Python. Upgrade the complete
 v_ase environment rather than replacing only ASE.
+
+</details>
+
+<details>
+<summary>Startup fails with <code>numpy.dtype size changed</code></summary>
+
+This is a binary mismatch between NumPy and a compiled SciPy or matscipy
+module. It occurs while importing the scientific Python stack, before v_ase
+reads the POSCAR or other structure file. Reinstall the complete matching stack
+with the same Python that owns the `v_ase` executable:
+
+```bash
+python -m pip install --upgrade --force-reinstall v_ase-gui
+```
+
+Python 3.10-3.12 installations resolve NumPy 1.x with matscipy 1.1.x to remain
+compatible with common Conda binary stacks. Python 3.13 and newer resolve the
+NumPy 2-compatible matscipy 1.2+ stack. Avoid upgrading NumPy alone inside a
+shared Conda base environment; a dedicated environment is the most reliable
+repair when unrelated compiled packages impose conflicting ABI requirements.
 
 </details>
 
