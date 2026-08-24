@@ -730,11 +730,16 @@ without changing the physical displacement.
 ### Map Per-Atom Data
 
 **Atom colorscale** maps a numeric per-atom property onto any registered
-Matplotlib colormap. The property list is discovered from the open structure
-and includes coordinates, stored-force magnitude, scalar/component/norm views
-of numeric `Atoms.arrays`, and per-atom calculator results such as charge,
-magnetic moment, local energy, uncertainty, or model-specific MLIP outputs.
-Numeric LAMMPS atom columns are exposed by their stored names.
+Matplotlib colormap or a custom map. The colormap menu previews the complete
+0-1 range before selection. **Custom** opens a compact editor where two or
+more positioned colors can be added, removed, reordered by position, and
+shown with continuous interpolation or discrete color bands; its preview
+updates while the colors are edited. The property list is discovered from the
+open structure and includes coordinates, stored-force magnitude,
+scalar/component/norm views of numeric `Atoms.arrays`, and per-atom calculator
+results such as charge, magnetic moment, local energy, uncertainty, or
+model-specific MLIP outputs. Numeric LAMMPS atom columns are exposed by their
+stored names.
 
 ![Trajectory-wide force-magnitude colorscale with locked limits and matching Cartesian force vectors](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_atom_colorscale.gif)
 
@@ -755,10 +760,12 @@ calculator merely to draw arrows.
 Use **Selected atoms only** to preserve the established appearance of every
 other atom. **Fit current frame** resolves one range from the active frame and
 keeps it fixed during playback. **Scan trajectory** resolves one global range
-across every frame. Manual `vmin`/`vmax`, map reversal, and gamma contrast are
-applied consistently to playback and export. The feature is lazy: disabling
-it immediately restores the prior appearance without loading another scalar
-array or colormap.
+across every frame. Manual `vmin`/`vmax`, map reversal, gamma contrast, and the
+custom map definition are applied consistently to playback, saved visual
+settings, projects, and export. Preset previews are compact cached gradients;
+custom lookup tables are generated locally. Disabling the feature immediately
+restores the prior appearance without loading another scalar array or
+colormap.
 
 ### Volumetric Fields
 

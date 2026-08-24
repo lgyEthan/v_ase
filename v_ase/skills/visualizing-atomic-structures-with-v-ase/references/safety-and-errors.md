@@ -211,6 +211,7 @@ test edit and a new filename for output.
 | per-atom trajectory range has no finite values | The field is absent/non-finite in every scanned frame or the selected subset is empty there | Inspect the scalar catalog and selection, then choose another exact field or scope; never substitute zero silently |
 | colorscale contrast is invalid | `gamma` is outside `0.1..5.0` or is not finite | Use a finite value in the documented range; use `1.0` for unchanged contrast |
 | requested colormap is unavailable | A map name was guessed or differs across Matplotlib versions | Read `capabilities().atomColorScale.colormapCatalogUrl` and use an exact registered name |
+| custom colormap is invalid | It has fewer than two or more than 64 stops, duplicate/out-of-range positions, an invalid mode, or a non-`#RRGGBB` color | Read `capabilities().atomColorScale.customMap`, correct the exact definition, and retry with `map:"custom"` |
 
 Do not suppress an error and report success. Return the specific failed command,
 message, and the last verified state.

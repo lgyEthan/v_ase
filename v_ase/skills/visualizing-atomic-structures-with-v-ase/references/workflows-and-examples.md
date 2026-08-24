@@ -106,6 +106,34 @@ prefetched single frame. Use `rangeMode:"manual"` with explicit `minimum` and
 to change contrast without reloading scalar values or the Matplotlib lookup
 table.
 
+For an exact user-defined palette, replace the preset `map` with `"custom"`
+and provide `customMap`. Use continuous mode for interpolated scalar fields or
+discrete mode for explicit value classes:
+
+```javascript
+await applyCurrent({operation: {
+  name: "set-atom-colorscale",
+  enabled: true,
+  field: uncertainty.id,
+  map: "custom",
+  customMap: {
+    mode: "discrete",
+    stops: [
+      {position: 0.0, color: "#20364A"},
+      {position: 0.35, color: "#58A58C"},
+      {position: 0.7, color: "#F0C75E"},
+      {position: 1.0, color: "#C84B52"}
+    ]
+  },
+  rangeMode: "manual",
+  minimum: 0,
+  maximum: 1
+}});
+```
+
+Verify that `describe().display.atomColorScaleCustomMap` exactly preserves the
+mode and stops before exporting.
+
 To show stored forces over the same locked colorscale, update display state
 without evaluating a calculator:
 

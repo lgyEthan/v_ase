@@ -1,13 +1,13 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.2.32';
-import { ASERenderer } from './renderer.js?v=0.2.32';
-import { ASESelection } from './selection.js?v=0.2.32';
-import { ASETransform } from './transform.js?v=0.2.32';
+import { ASEApi } from './api.js?v=0.2.33';
+import { ASERenderer } from './renderer.js?v=0.2.33';
+import { ASESelection } from './selection.js?v=0.2.33';
+import { ASETransform } from './transform.js?v=0.2.33';
 import {
     interpolateTrajectoryFrames,
     interpolatedFrameCount,
     normalizeInterpolationMultiplier
-} from './trajectory.js?v=0.2.32';
+} from './trajectory.js?v=0.2.33';
 
 const CHEMICAL_ELEMENT_SYMBOLS = Object.freeze([
     'H','He','Li','Be','B','C','N','O','F','Ne',
@@ -37,6 +37,24 @@ const MAX_ATOM_COLORSCALE_TRAJECTORY_CACHE_VALUES = 2_000_000;
 const MAX_FORCE_VECTOR_TRAJECTORY_CACHE_VALUES = 6_000_000;
 const MAX_RDF_TRAJECTORY_CACHE_VALUES = 4_000_000;
 const MAX_RDF_ROLLING_CACHE_FRAMES = 41;
+const CUSTOM_ATOM_COLORMAP = 'custom';
+const MAX_CUSTOM_COLORMAP_STOPS = 64;
+const ATOM_COLORMAP_CATEGORY_ORDER = Object.freeze([
+    'Perceptually uniform sequential',
+    'Sequential',
+    'Diverging',
+    'Cyclic',
+    'Qualitative',
+    'Other'
+]);
+const DEFAULT_CUSTOM_COLORMAP = Object.freeze({
+    mode: 'continuous',
+    stops: Object.freeze([
+        Object.freeze({ position: 0, color: '#2A6FBB' }),
+        Object.freeze({ position: 0.5, color: '#F4F1DE' }),
+        Object.freeze({ position: 1, color: '#C43F5E' })
+    ])
+});
 
 class VAseApp {
     constructor() {
@@ -162,6 +180,10 @@ class VAseApp {
                 atomColorScaleEnabled: false,
                 atomColorScaleField: 'position:z',
                 atomColorScaleMap: 'viridis',
+                atomColorScaleCustomMap: {
+                    mode: DEFAULT_CUSTOM_COLORMAP.mode,
+                    stops: DEFAULT_CUSTOM_COLORMAP.stops.map(stop => ({ ...stop }))
+                },
                 atomColorScaleReverse: false,
                 atomColorScaleScope: 'all',
                 atomColorScaleAutoRange: true,
@@ -374,7 +396,8 @@ class VAseApp {
             prefetchFrame: -1,
             prefetchPromise: null,
             prefetchTimer: null,
-            renderedFrame: -1
+            renderedFrame: -1,
+            colormapMenu: null
         };
         this.selectionPropertyRuntime = {
             cache: new Map(),
@@ -689,6 +712,529 @@ class VAseApp {
         this.updateSelectedAppearanceControls();
     }
 
+    defaultCustomAtomColormap() {
+        return {
+            mode: DEFAULT_CUSTOM_COLORMAP.mode,
+            stops: DEFAULT_CUSTOM_COLORMAP.stops.map(stop => ({ ...stop }))
+        };
+    }
+
+    normalizedCustomAtomColormap(value, { strict = false } = {}) {
+        const fail = message => {
+            if (strict) throw new Error(message);
+            return this.defaultCustomAtomColormap();
+        };
+        if (!value || typeof value !== 'object') return fail('Custom colormap must be an object.');
+        const mode = value.mode === 'discrete' ? 'discrete' : 'continuous';
+        if (strict && value.mode !== undefined && !['continuous', 'discrete'].includes(value.mode)) {
+            return fail('Custom colormap mode must be continuous or discrete.');
+        }
+        if (!Array.isArray(value.stops) || value.stops.length < 2) {
+            return fail('Custom colormap requires at least two colors.');
+        }
+        if (value.stops.length > MAX_CUSTOM_COLORMAP_STOPS) {
+            return fail(`Custom colormap supports up to ${MAX_CUSTOM_COLORMAP_STOPS} colors.`);
+        }
+        const stops = [];
+        for (const item of value.stops) {
+            const position = Number(item?.position);
+            const color = String(item?.color || '').toUpperCase();
+            if (!Number.isFinite(position) || position < 0 || position > 1) {
+                return fail('Every custom colormap position must be between 0 and 1.');
+            }
+            if (!this.validHexColor(color)) {
+                return fail('Every custom colormap color must use #RRGGBB notation.');
+            }
+            stops.push({ position, color });
+        }
+        stops.sort((left, right) => left.position - right.position);
+        for (let index = 1; index < stops.length; index += 1) {
+            if (stops[index].position - stops[index - 1].position <= 1e-9) {
+                return fail('Custom colormap positions must be unique.');
+            }
+        }
+        stops[0].position = 0;
+        stops[stops.length - 1].position = 1;
+        return { mode, stops };
+    }
+
+    atomColormapHexToRgb(color) {
+        if (!this.validHexColor(color)) return null;
+        return [1, 3, 5].map(offset => parseInt(color.slice(offset, offset + 2), 16));
+    }
+
+    atomColormapRgbToHex(channels) {
+        return `#${channels.map(value => (
+            Math.max(0, Math.min(255, Math.round(value))).toString(16).padStart(2, '0')
+        )).join('').toUpperCase()}`;
+    }
+
+    interpolateAtomColormapColor(left, right, amount) {
+        const a = this.atomColormapHexToRgb(left);
+        const b = this.atomColormapHexToRgb(right);
+        if (!a || !b) return '#808080';
+        return this.atomColormapRgbToHex(
+            a.map((value, index) => value + (b[index] - value) * amount)
+        );
+    }
+
+    customAtomColormapPalette(specification = null, samples = 256, reverse = false) {
+        const custom = this.normalizedCustomAtomColormap(
+            specification || this.state.display.atomColorScaleCustomMap
+        );
+        const count = Math.max(16, Math.min(2048, parseInt(samples, 10) || 256));
+        const colors = Array.from({ length: count }, (_, index) => {
+            const value = index / Math.max(1, count - 1);
+            let rightIndex = custom.stops.findIndex(stop => stop.position > value);
+            if (rightIndex < 0) return custom.stops[custom.stops.length - 1].color;
+            if (rightIndex === 0) return custom.stops[0].color;
+            const left = custom.stops[rightIndex - 1];
+            const right = custom.stops[rightIndex];
+            if (custom.mode === 'discrete') return left.color;
+            const span = Math.max(1e-12, right.position - left.position);
+            return this.interpolateAtomColormapColor(
+                left.color,
+                right.color,
+                (value - left.position) / span
+            );
+        });
+        if (reverse) colors.reverse();
+        return colors;
+    }
+
+    atomColormapGradientCss(colors = []) {
+        const palette = colors.filter(color => this.validHexColor(color));
+        if (!palette.length) return 'linear-gradient(90deg, #777777, #aaaaaa)';
+        const stops = palette.map((color, index) => (
+            `${color} ${(index / Math.max(1, palette.length - 1) * 100).toFixed(2)}%`
+        ));
+        return `linear-gradient(90deg, ${stops.join(', ')})`;
+    }
+
+    customAtomColormapGradientCss(specification = null, reverse = false) {
+        const custom = this.normalizedCustomAtomColormap(
+            specification || this.state.display.atomColorScaleCustomMap
+        );
+        let stops = custom.stops.map(stop => ({ ...stop }));
+        if (reverse) {
+            stops = stops.map(stop => ({
+                position: 1 - stop.position,
+                color: stop.color
+            })).reverse();
+        }
+        const parts = [];
+        if (custom.mode === 'continuous') {
+            stops.forEach(stop => {
+                parts.push(`${stop.color} ${(stop.position * 100).toFixed(2)}%`);
+            });
+        } else {
+            stops.forEach((stop, index) => {
+                const next = stops[index + 1];
+                parts.push(`${stop.color} ${(stop.position * 100).toFixed(2)}%`);
+                if (next) parts.push(`${stop.color} ${(next.position * 100).toFixed(2)}%`);
+            });
+        }
+        return `linear-gradient(90deg, ${parts.join(', ')})`;
+    }
+
+    atomColormapCatalogItem(name) {
+        return (this.atomColorScaleRuntime.colormapCatalog?.maps || [])
+            .find(item => item.name === name) || null;
+    }
+
+    orderedAtomColormapGroups(groups) {
+        const rank = label => {
+            const index = ATOM_COLORMAP_CATEGORY_ORDER.indexOf(label);
+            return index >= 0 ? index : ATOM_COLORMAP_CATEGORY_ORDER.length;
+        };
+        return Array.from(groups.entries()).sort(([left], [right]) => (
+            rank(left) - rank(right) || left.localeCompare(right)
+        ));
+    }
+
+    atomColormapPreviewCss(name = this.state.display.atomColorScaleMap, { reverse = false } = {}) {
+        if (name === CUSTOM_ATOM_COLORMAP) {
+            return this.customAtomColormapGradientCss(null, reverse);
+        }
+        const preview = this.atomColormapCatalogItem(name)?.preview || [];
+        const colors = reverse ? [...preview].reverse() : preview;
+        return this.atomColormapGradientCss(colors);
+    }
+
+    syncAtomColormapPicker() {
+        const name = this.state.display.atomColorScaleMap || 'viridis';
+        const trigger = document.getElementById('atom-colormap-trigger');
+        const preview = document.getElementById('atom-colormap-trigger-preview');
+        const label = document.getElementById('atom-colormap-trigger-name');
+        if (preview) {
+            preview.style.background = this.atomColormapPreviewCss(name, {
+                reverse: Boolean(this.state.display.atomColorScaleReverse)
+            });
+        }
+        if (label) label.textContent = name === CUSTOM_ATOM_COLORMAP ? 'Custom' : name;
+        if (trigger) trigger.title = name === CUSTOM_ATOM_COLORMAP
+            ? 'Edit or choose a colormap'
+            : `Choose colormap; current: ${name}`;
+        this.syncAtomColormapMenuSelection();
+    }
+
+    ensureAtomColormapMenu() {
+        let menu = document.getElementById('atom-colormap-menu');
+        if (menu) return menu;
+        menu = document.createElement('div');
+        menu.id = 'atom-colormap-menu';
+        menu.className = 'atom-colormap-menu hidden';
+        menu.setAttribute('role', 'listbox');
+        menu.setAttribute('aria-label', 'Colormaps');
+        menu.innerHTML = `
+            <div class="atom-colormap-menu-head">
+                <input id="atom-colormap-menu-search" class="atom-colormap-menu-search"
+                       type="search" placeholder="Search colormaps" aria-label="Search colormaps">
+            </div>
+            <div id="atom-colormap-options" class="atom-colormap-options"></div>
+        `;
+        document.body.appendChild(menu);
+        menu.querySelector('#atom-colormap-menu-search')?.addEventListener('input', event => {
+            this.filterAtomColormapMenu(event.target.value);
+        });
+        menu.addEventListener('click', event => {
+            const option = event.target.closest('.atom-colormap-option');
+            if (!option) return;
+            const name = option.dataset.map;
+            this.closeAtomColormapMenu();
+            if (name === CUSTOM_ATOM_COLORMAP) {
+                this.openCustomAtomColormapEditor();
+                return;
+            }
+            const select = document.getElementById('atom-colorscale-map');
+            if (!select || select.value === name) return;
+            select.value = name;
+            select.dispatchEvent(new Event('change', { bubbles: true }));
+        });
+        menu.addEventListener('keydown', event => {
+            if (event.key === 'Escape') {
+                event.preventDefault();
+                this.closeAtomColormapMenu({ restoreFocus: true });
+                return;
+            }
+            if (!['ArrowDown', 'ArrowUp'].includes(event.key)) return;
+            const options = Array.from(menu.querySelectorAll('.atom-colormap-option:not(.hidden)'));
+            if (!options.length) return;
+            event.preventDefault();
+            const current = options.indexOf(document.activeElement);
+            const offset = event.key === 'ArrowDown' ? 1 : -1;
+            options[(current + offset + options.length) % options.length].focus();
+        });
+        this.atomColorScaleRuntime.colormapMenu = menu;
+        return menu;
+    }
+
+    renderAtomColormapMenu() {
+        const menu = this.ensureAtomColormapMenu();
+        const options = menu.querySelector('#atom-colormap-options');
+        if (!options) return;
+        options.replaceChildren();
+        const addGroup = (label, entries) => {
+            const heading = document.createElement('div');
+            heading.className = 'atom-colormap-group-label';
+            heading.dataset.group = label;
+            heading.textContent = label;
+            options.appendChild(heading);
+            entries.forEach(item => {
+                const button = document.createElement('button');
+                button.type = 'button';
+                button.className = 'atom-colormap-option';
+                button.dataset.map = item.name;
+                button.dataset.group = label;
+                button.setAttribute('role', 'option');
+                if (item.name === CUSTOM_ATOM_COLORMAP) {
+                    button.classList.add('atom-colormap-option-custom');
+                }
+                const preview = document.createElement('span');
+                preview.className = 'atom-colormap-swatch';
+                preview.style.background = item.name === CUSTOM_ATOM_COLORMAP
+                    ? this.customAtomColormapGradientCss()
+                    : this.atomColormapGradientCss(item.preview || []);
+                preview.setAttribute('aria-hidden', 'true');
+                const name = document.createElement('span');
+                name.className = 'atom-colormap-option-name';
+                name.textContent = item.name === CUSTOM_ATOM_COLORMAP ? 'Custom' : item.name;
+                button.append(preview, name);
+                options.appendChild(button);
+            });
+        };
+        addGroup('Custom', [{ name: CUSTOM_ATOM_COLORMAP }]);
+        const groups = new Map();
+        (this.atomColorScaleRuntime.colormapCatalog?.maps || []).forEach(item => {
+            const group = item.category || 'Other';
+            if (!groups.has(group)) groups.set(group, []);
+            groups.get(group).push(item);
+        });
+        this.orderedAtomColormapGroups(groups).forEach(([label, entries]) => {
+            addGroup(label, entries);
+        });
+        this.syncAtomColormapMenuSelection();
+    }
+
+    filterAtomColormapMenu(query = '') {
+        const menu = this.atomColorScaleRuntime.colormapMenu;
+        if (!menu) return;
+        const requested = String(query).trim().toLowerCase();
+        const visibleGroups = new Set();
+        menu.querySelectorAll('.atom-colormap-option').forEach(option => {
+            const visible = !requested || option.dataset.map.toLowerCase().includes(requested);
+            option.classList.toggle('hidden', !visible);
+            if (visible) visibleGroups.add(option.dataset.group);
+        });
+        menu.querySelectorAll('.atom-colormap-group-label').forEach(label => {
+            label.classList.toggle('hidden', !visibleGroups.has(label.dataset.group));
+        });
+    }
+
+    syncAtomColormapMenuSelection() {
+        const menu = this.atomColorScaleRuntime.colormapMenu;
+        if (!menu) return;
+        const selected = this.state.display.atomColorScaleMap || 'viridis';
+        menu.querySelectorAll('.atom-colormap-option').forEach(option => {
+            const active = option.dataset.map === selected;
+            option.setAttribute('aria-selected', active ? 'true' : 'false');
+        });
+        const customPreview = menu.querySelector(
+            `.atom-colormap-option[data-map="${CUSTOM_ATOM_COLORMAP}"] .atom-colormap-swatch`
+        );
+        if (customPreview) customPreview.style.background = this.customAtomColormapGradientCss();
+    }
+
+    positionAtomColormapMenu() {
+        const trigger = document.getElementById('atom-colormap-trigger');
+        const menu = this.atomColorScaleRuntime.colormapMenu;
+        if (!trigger || !menu || menu.classList.contains('hidden')) return;
+        const rect = trigger.getBoundingClientRect();
+        const width = Math.min(360, window.innerWidth - 24);
+        menu.style.width = `${width}px`;
+        const menuHeight = Math.min(menu.scrollHeight || 460, window.innerHeight - 24);
+        const left = Math.max(12, Math.min(window.innerWidth - width - 12, rect.right - width));
+        const roomBelow = window.innerHeight - rect.bottom - 12;
+        const top = roomBelow >= Math.min(360, menuHeight)
+            ? rect.bottom + 6
+            : Math.max(12, rect.top - menuHeight - 6);
+        menu.style.left = `${left}px`;
+        menu.style.top = `${top}px`;
+    }
+
+    openAtomColormapMenu() {
+        const menu = this.ensureAtomColormapMenu();
+        this.renderAtomColormapMenu();
+        menu.classList.remove('hidden');
+        const trigger = document.getElementById('atom-colormap-trigger');
+        trigger?.setAttribute('aria-expanded', 'true');
+        const search = menu.querySelector('#atom-colormap-menu-search');
+        if (search) search.value = '';
+        this.filterAtomColormapMenu('');
+        this.positionAtomColormapMenu();
+        requestAnimationFrame(() => search?.focus());
+    }
+
+    closeAtomColormapMenu({ restoreFocus = false } = {}) {
+        const menu = this.atomColorScaleRuntime.colormapMenu;
+        menu?.classList.add('hidden');
+        const trigger = document.getElementById('atom-colormap-trigger');
+        trigger?.setAttribute('aria-expanded', 'false');
+        if (restoreFocus) trigger?.focus();
+    }
+
+    setupAtomColormapPicker() {
+        const trigger = document.getElementById('atom-colormap-trigger');
+        trigger?.addEventListener('click', () => {
+            const menu = this.ensureAtomColormapMenu();
+            if (menu.classList.contains('hidden')) this.openAtomColormapMenu();
+            else this.closeAtomColormapMenu();
+        });
+        trigger?.addEventListener('keydown', event => {
+            if (!['Enter', ' ', 'ArrowDown'].includes(event.key)) return;
+            event.preventDefault();
+            this.openAtomColormapMenu();
+        });
+        const closeOutside = event => {
+            const menu = this.atomColorScaleRuntime.colormapMenu;
+            if (!menu || menu.classList.contains('hidden')) return;
+            if (menu.contains(event.target) || trigger?.contains(event.target)) return;
+            this.closeAtomColormapMenu();
+        };
+        const reposition = event => {
+            const menu = this.atomColorScaleRuntime.colormapMenu;
+            if (!menu || menu.classList.contains('hidden') || menu.contains(event.target)) return;
+            this.positionAtomColormapMenu();
+        };
+        window.addEventListener('pointerdown', closeOutside, true);
+        window.addEventListener('resize', reposition, { passive: true });
+        window.addEventListener('scroll', reposition, true);
+        this.cleanupCallbacks.push(() => {
+            window.removeEventListener('pointerdown', closeOutside, true);
+            window.removeEventListener('resize', reposition);
+            window.removeEventListener('scroll', reposition, true);
+            this.atomColorScaleRuntime.colormapMenu?.remove();
+            this.atomColorScaleRuntime.colormapMenu = null;
+        });
+    }
+
+    openCustomAtomColormapEditor() {
+        this.closeAtomColormapMenu();
+        let draft = this.normalizedCustomAtomColormap(
+            this.state.display.atomColorScaleCustomMap
+        );
+        this.showModal(`
+            <h2>Custom colormap</h2>
+            <p class="modal-intro">Choose at least two colors across the full 0-1 range.</p>
+            <div class="custom-colormap-editor">
+                <div class="custom-colormap-preview-card">
+                    <span>0</span>
+                    <div id="custom-colormap-preview" class="custom-colormap-preview" aria-label="Custom colormap preview"></div>
+                    <span>1</span>
+                </div>
+                <div class="custom-colormap-mode" role="group" aria-label="Colormap interpolation">
+                    <button type="button" data-custom-colormap-mode="continuous">Continuous</button>
+                    <button type="button" data-custom-colormap-mode="discrete">Discrete</button>
+                </div>
+                <div id="custom-colormap-stops" class="custom-colormap-stops"></div>
+                <button id="btn-add-custom-colormap-stop" class="custom-colormap-add-stop" type="button">+ Add color</button>
+                <p id="custom-colormap-error" class="custom-colormap-error" aria-live="polite"></p>
+            </div>
+        `, `
+            <button id="modal-close" class="btn">Cancel</button>
+            <button id="modal-apply-custom-colormap" class="btn primary">Apply colormap</button>
+        `);
+        document.querySelector('#modal-container .modal')?.classList.add('custom-colormap-modal');
+        const rows = document.getElementById('custom-colormap-stops');
+        const preview = document.getElementById('custom-colormap-preview');
+        const error = document.getElementById('custom-colormap-error');
+        const apply = document.getElementById('modal-apply-custom-colormap');
+
+        const readRows = ({ strict = false } = {}) => {
+            const stops = Array.from(rows?.querySelectorAll('.custom-colormap-stop') || []).map(row => ({
+                position: Number(row.querySelector('.custom-colormap-stop-position')?.value),
+                color: String(row.querySelector('.custom-colormap-stop-hex')?.value || '').toUpperCase()
+            }));
+            return this.normalizedCustomAtomColormap({ mode: draft.mode, stops }, { strict });
+        };
+        const updatePreview = () => {
+            try {
+                draft = readRows({ strict: true });
+                if (preview) preview.style.background = this.customAtomColormapGradientCss(draft);
+                if (error) error.textContent = '';
+                if (apply) apply.disabled = false;
+                return true;
+            } catch (exception) {
+                if (error) error.textContent = exception.message;
+                if (apply) apply.disabled = true;
+                return false;
+            }
+        };
+        const renderRows = () => {
+            if (!rows) return;
+            rows.replaceChildren();
+            draft.stops.forEach((stop, index) => {
+                const row = document.createElement('div');
+                row.className = 'custom-colormap-stop';
+                const position = document.createElement('input');
+                position.className = 'custom-colormap-stop-position';
+                position.type = 'number';
+                position.min = '0';
+                position.max = '1';
+                position.step = '0.01';
+                position.value = Number(stop.position.toFixed(4)).toString();
+                position.setAttribute('aria-label', `Color ${index + 1} position`);
+                position.readOnly = index === 0 || index === draft.stops.length - 1;
+                const picker = document.createElement('input');
+                picker.className = 'custom-colormap-stop-color';
+                picker.type = 'color';
+                picker.value = stop.color.toLowerCase();
+                picker.setAttribute('aria-label', `Color ${index + 1}`);
+                const hex = document.createElement('input');
+                hex.className = 'custom-colormap-stop-hex';
+                hex.type = 'text';
+                hex.value = stop.color;
+                hex.maxLength = 7;
+                hex.spellcheck = false;
+                hex.setAttribute('aria-label', `Color ${index + 1} hex value`);
+                const remove = document.createElement('button');
+                remove.className = 'custom-colormap-stop-remove';
+                remove.type = 'button';
+                remove.textContent = 'x';
+                remove.title = `Remove color ${index + 1}`;
+                remove.setAttribute('aria-label', `Remove color ${index + 1}`);
+                remove.disabled = draft.stops.length <= 2;
+                position.addEventListener('input', updatePreview);
+                position.addEventListener('change', () => {
+                    if (!updatePreview()) return;
+                    renderRows();
+                });
+                picker.addEventListener('input', () => {
+                    hex.value = picker.value.toUpperCase();
+                    updatePreview();
+                });
+                hex.addEventListener('input', () => {
+                    const color = hex.value.toUpperCase();
+                    if (this.validHexColor(color)) picker.value = color.toLowerCase();
+                    updatePreview();
+                });
+                remove.addEventListener('click', () => {
+                    draft.stops.splice(index, 1);
+                    renderRows();
+                });
+                row.append(position, picker, hex, remove);
+                rows.appendChild(row);
+            });
+            document.querySelectorAll('[data-custom-colormap-mode]').forEach(button => {
+                button.classList.toggle('is-active', button.dataset.customColormapMode === draft.mode);
+            });
+            updatePreview();
+        };
+        document.querySelectorAll('[data-custom-colormap-mode]').forEach(button => {
+            button.addEventListener('click', () => {
+                draft.mode = button.dataset.customColormapMode;
+                document.querySelectorAll('[data-custom-colormap-mode]').forEach(item => {
+                    item.classList.toggle('is-active', item === button);
+                });
+                updatePreview();
+            });
+        });
+        document.getElementById('btn-add-custom-colormap-stop')?.addEventListener('click', () => {
+            if (!updatePreview() || draft.stops.length >= MAX_CUSTOM_COLORMAP_STOPS) return;
+            let gapIndex = 0;
+            let gap = -1;
+            for (let index = 0; index < draft.stops.length - 1; index += 1) {
+                const candidate = draft.stops[index + 1].position - draft.stops[index].position;
+                if (candidate > gap) {
+                    gap = candidate;
+                    gapIndex = index;
+                }
+            }
+            const left = draft.stops[gapIndex];
+            const right = draft.stops[gapIndex + 1];
+            draft.stops.splice(gapIndex + 1, 0, {
+                position: (left.position + right.position) / 2,
+                color: this.interpolateAtomColormapColor(left.color, right.color, 0.5)
+            });
+            renderRows();
+        });
+        apply?.addEventListener('click', () => {
+            if (!updatePreview()) return;
+            this.state.display.atomColorScaleCustomMap = draft;
+            this.state.display.atomColorScaleMap = CUSTOM_ATOM_COLORMAP;
+            const select = document.getElementById('atom-colorscale-map');
+            if (select) select.value = CUSTOM_ATOM_COLORMAP;
+            Array.from(this.atomColorScaleRuntime.lutCaches.keys())
+                .filter(key => key.startsWith(`${CUSTOM_ATOM_COLORMAP}:`))
+                .forEach(key => this.atomColorScaleRuntime.lutCaches.delete(key));
+            this.closeModal();
+            this.syncAtomColorScaleControls();
+            this.updateAtomColorScale().catch(exception => this.handleAtomColorScaleError(exception));
+            this.scheduleVisualHistoryCommit('atom-colorscale-custom-map');
+        });
+        renderRows();
+    }
+
     setupAtomColorScaleControls() {
         const enabled = document.getElementById('chk-atom-colorscale');
         const field = document.getElementById('atom-colorscale-field');
@@ -700,6 +1246,8 @@ class VAseApp {
         const fitCurrent = document.getElementById('btn-atom-colorscale-fit-current');
         const fitTrajectory = document.getElementById('btn-atom-colorscale-fit-trajectory');
         const gamma = document.getElementById('atom-colorscale-gamma');
+
+        this.setupAtomColormapPicker();
 
         enabled?.addEventListener('change', () => {
             this.state.display.atomColorScaleEnabled = enabled.checked;
@@ -726,11 +1274,13 @@ class VAseApp {
         });
         map?.addEventListener('change', () => {
             this.state.display.atomColorScaleMap = map.value || 'viridis';
+            this.syncAtomColormapPicker();
             this.updateAtomColorScale().catch(error => this.handleAtomColorScaleError(error));
             this.scheduleVisualHistoryCommit('atom-colorscale-map');
         });
         reverse?.addEventListener('change', () => {
             this.state.display.atomColorScaleReverse = reverse.checked;
+            this.syncAtomColormapPicker();
             this.updateAtomColorScale().catch(error => this.handleAtomColorScaleError(error));
             this.scheduleVisualHistoryCommit('atom-colorscale-reverse');
         });
@@ -815,6 +1365,7 @@ class VAseApp {
         );
         const gamma = Math.max(0.1, Math.min(5, Number(display.atomColorScaleGamma) || 1));
         setValue('atom-colorscale-gamma', gamma);
+        this.syncAtomColormapPicker();
         const gammaValue = document.getElementById('atom-colorscale-gamma-value');
         if (gammaValue) gammaValue.textContent = gamma.toFixed(2);
         document.getElementById('atom-colorscale-controls')?.classList.toggle('hidden', !enabled);
@@ -917,7 +1468,11 @@ class VAseApp {
             groups.get(group).push(item.name);
         });
         select.replaceChildren();
-        groups.forEach((names, label) => {
+        const custom = document.createElement('option');
+        custom.value = CUSTOM_ATOM_COLORMAP;
+        custom.textContent = 'Custom';
+        select.appendChild(custom);
+        this.orderedAtomColormapGroups(groups).forEach(([label, names]) => {
             const optgroup = document.createElement('optgroup');
             optgroup.label = label;
             names.forEach(name => {
@@ -929,10 +1484,13 @@ class VAseApp {
             select.appendChild(optgroup);
         });
         const names = new Set((catalog.maps || []).map(item => item.name));
+        names.add(CUSTOM_ATOM_COLORMAP);
         this.state.display.atomColorScaleMap = names.has(requested)
             ? requested
             : (catalog.default || 'viridis');
         select.value = this.state.display.atomColorScaleMap;
+        this.syncAtomColormapPicker();
+        if (this.atomColorScaleRuntime.colormapMenu) this.renderAtomColormapMenu();
     }
 
     async ensureAtomColorScaleCatalog({ refresh = false } = {}) {
@@ -1113,9 +1671,22 @@ class VAseApp {
         const runtime = this.atomColorScaleRuntime;
         const name = this.state.display.atomColorScaleMap || 'viridis';
         const reverse = Boolean(this.state.display.atomColorScaleReverse);
-        const key = `${name}:${reverse ? 'reverse' : 'forward'}`;
+        const custom = name === CUSTOM_ATOM_COLORMAP
+            ? this.normalizedCustomAtomColormap(this.state.display.atomColorScaleCustomMap)
+            : null;
+        const key = custom
+            ? `${name}:${reverse ? 'reverse' : 'forward'}:${JSON.stringify(custom)}`
+            : `${name}:${reverse ? 'reverse' : 'forward'}`;
         if (!runtime.lutCaches.has(key)) {
-            runtime.lutCaches.set(key, await this.api.fetchColormapLut(name, reverse, 256));
+            runtime.lutCaches.set(key, custom
+                ? {
+                    provider: 'Custom',
+                    name,
+                    reverse,
+                    samples: 256,
+                    colors: this.customAtomColormapPalette(custom, 256, reverse)
+                }
+                : await this.api.fetchColormapLut(name, reverse, 256));
         }
         return runtime.lutCaches.get(key);
     }
@@ -15560,6 +16131,7 @@ class VAseApp {
                 : fallbackExports,
             atomColorScale: {
                 provider: 'Matplotlib',
+                providers: ['Matplotlib', 'Custom'],
                 scalarCatalogUrl: new URL(
                     `/api/analysis/atom-scalars/catalog/${this.sessionId}`,
                     window.location.origin
@@ -15574,7 +16146,13 @@ class VAseApp {
                 ).href,
                 rangeModes: ['current', 'trajectory', 'manual'],
                 gammaRange: [0.1, 5],
-                note: 'Catalogs and trajectory scans are lazy; every rendered frame shares one resolved vmin/vmax.'
+                customMap: {
+                    modes: ['continuous', 'discrete'],
+                    minimumStops: 2,
+                    maximumStops: MAX_CUSTOM_COLORMAP_STOPS,
+                    stop: { position: 'number in [0, 1]', color: '#RRGGBB' }
+                },
+                note: 'Preset previews and catalogs are lazy; custom maps are sampled locally. Every rendered frame shares one resolved vmin/vmax.'
             },
             atomProperties: {
                 baseUrl: new URL(
@@ -15881,7 +16459,10 @@ class VAseApp {
                 operation.field || this.state.display.atomColorScaleField || 'position:z'
             );
             const map = String(
-                operation.map || this.state.display.atomColorScaleMap || 'viridis'
+                operation.map
+                || (operation.customMap ? CUSTOM_ATOM_COLORMAP : '')
+                || this.state.display.atomColorScaleMap
+                || 'viridis'
             );
             const catalog = await this.ensureAtomColorScaleCatalog({ refresh: true });
             if (!(catalog?.fields || []).some(item => item.id === field)) {
@@ -15890,9 +16471,20 @@ class VAseApp {
                     + 'or inspect the scalar catalog before retrying.'
                 );
             }
-            if (!(this.atomColorScaleRuntime.colormapCatalog?.maps || []).some(item => item.name === map)) {
+            if (
+                map !== CUSTOM_ATOM_COLORMAP
+                && !(this.atomColorScaleRuntime.colormapCatalog?.maps || []).some(item => item.name === map)
+            ) {
                 throw new Error(`Matplotlib colormap '${map}' is unavailable.`);
             }
+            const customMap = map === CUSTOM_ATOM_COLORMAP
+                ? this.normalizedCustomAtomColormap(
+                    operation.customMap || this.state.display.atomColorScaleCustomMap,
+                    { strict: true }
+                )
+                : this.normalizedCustomAtomColormap(
+                    this.state.display.atomColorScaleCustomMap
+                );
             const scope = operation.scope === 'selected' ? 'selected' : 'all';
             const rangeMode = ['current', 'trajectory', 'manual'].includes(operation.rangeMode)
                 ? operation.rangeMode
@@ -15910,6 +16502,7 @@ class VAseApp {
                 atomColorScaleEnabled: true,
                 atomColorScaleField: field,
                 atomColorScaleMap: map,
+                atomColorScaleCustomMap: customMap,
                 atomColorScaleReverse: operation.reverse === true,
                 atomColorScaleScope: scope,
                 atomColorScaleAutoRange: rangeMode !== 'manual',
@@ -18028,6 +18621,9 @@ class VAseApp {
             atomColorScaleEnabled: Boolean(nextDisplay.atomColorScaleEnabled),
             atomColorScaleField: String(nextDisplay.atomColorScaleField || 'position:z'),
             atomColorScaleMap: String(nextDisplay.atomColorScaleMap || 'viridis'),
+            atomColorScaleCustomMap: this.normalizedCustomAtomColormap(
+                nextDisplay.atomColorScaleCustomMap
+            ),
             atomColorScaleReverse: Boolean(nextDisplay.atomColorScaleReverse),
             atomColorScaleScope: nextDisplay.atomColorScaleScope === 'selected' ? 'selected' : 'all',
             atomColorScaleAutoRange: ['current', 'trajectory'].includes(nextDisplay.atomColorScaleRangeMode)
@@ -20321,7 +20917,9 @@ class VAseApp {
         if (!container || !content || !actions) return;
         container.querySelector('.modal')?.classList.remove(
             'export-image-modal',
-            'html-export-modal'
+            'html-export-modal',
+            'project-save-modal',
+            'custom-colormap-modal'
         );
         content.innerHTML = contentHtml;
         actions.innerHTML = actionsHtml;

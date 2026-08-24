@@ -701,7 +701,7 @@ def _html_atom_color_scale_frames(
         return [None] * len(frame_objects)
 
     from .atom_scalars import atom_scalar_catalog, atom_scalar_values
-    from .colormaps import colormap_lut
+    from .colormaps import colormap_lut, custom_colormap_lut
 
     field_id = str(display.get("atomColorScaleField") or "position:z")
     map_name = str(display.get("atomColorScaleMap") or "viridis")
@@ -714,7 +714,20 @@ def _html_atom_color_scale_frames(
     if not math.isfinite(gamma) or gamma < 0.1 or gamma > 5.0:
         gamma = 1.0
     selected = set(selection)
-    palette = colormap_lut(map_name, samples=256, reverse=reverse)["colors"]
+    custom_map = None
+    if map_name == "custom":
+        custom_palette = custom_colormap_lut(
+            display.get("atomColorScaleCustomMap"),
+            samples=256,
+            reverse=reverse,
+        )
+        palette = custom_palette["colors"]
+        custom_map = {
+            "mode": custom_palette["mode"],
+            "stops": custom_palette["stops"],
+        }
+    else:
+        palette = colormap_lut(map_name, samples=256, reverse=reverse)["colors"]
     payloads: list[dict[str, Any] | None] = []
     descriptor: dict[str, Any] = {"id": field_id, "label": field_id, "unit": ""}
 
@@ -796,6 +809,7 @@ def _html_atom_color_scale_frames(
             "label": descriptor.get("label", field_id),
             "unit": descriptor.get("unit", ""),
             "map": map_name,
+            "custom_map": custom_map,
             "reverse": reverse,
             "gamma": gamma,
             "scope": scope,

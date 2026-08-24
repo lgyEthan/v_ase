@@ -959,6 +959,33 @@ AI_CONTROL_SCHEMA = {
                                     "enabled": {"type": "boolean"},
                                     "field": {"type": "string", "minLength": 1},
                                     "map": {"type": "string", "minLength": 1},
+                                    "customMap": {
+                                        "type": "object",
+                                        "required": ["mode", "stops"],
+                                        "properties": {
+                                            "mode": {"enum": ["continuous", "discrete"]},
+                                            "stops": {
+                                                "type": "array",
+                                                "minItems": 2,
+                                                "maxItems": 64,
+                                                "items": {
+                                                    "type": "object",
+                                                    "required": ["position", "color"],
+                                                    "properties": {
+                                                        "position": {
+                                                            "type": "number",
+                                                            "minimum": 0,
+                                                            "maximum": 1,
+                                                        },
+                                                        "color": {
+                                                            "type": "string",
+                                                            "pattern": "^#[0-9A-Fa-f]{6}$",
+                                                        },
+                                                    },
+                                                },
+                                            },
+                                        },
+                                    },
                                     "reverse": {"type": "boolean"},
                                     "scope": {"enum": ["all", "selected"]},
                                     "autoRange": {"type": "boolean"},
@@ -1452,15 +1479,17 @@ AI_OPERATION_PARAMETERS = {
         "mode": "view-or-edit",
         "required": [],
         "optional": [
-            "enabled", "field", "map", "reverse", "scope", "autoRange",
+            "enabled", "field", "map", "customMap", "reverse", "scope", "autoRange",
             "rangeMode", "minimum", "maximum", "gamma",
         ],
         "notes": (
             "Colors atoms by x/y/z, force norm, or a discovered numeric per-atom "
             "ASE array/calculator result. scope is all or selected. rangeMode is "
             "current, trajectory, or manual; every trajectory frame uses the same "
-            "resolved minimum and maximum. gamma controls contrast. Disabling it "
-            "immediately restores the saved label and element colors."
+            "resolved minimum and maximum. Use map=custom with a customMap containing "
+            "two or more ordered 0-1 color stops and continuous or discrete mode. "
+            "gamma controls contrast. Disabling it immediately restores the saved "
+            "label and element colors."
         ),
     },
     "set-interface-theme": {

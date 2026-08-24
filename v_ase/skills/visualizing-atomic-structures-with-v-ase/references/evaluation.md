@@ -326,6 +326,15 @@ Run all scenarios, not only static document checks:
    - discover and render coordinate, stored force-norm, scalar-array,
      vector-component, vector-norm, charge, magnetic-moment, and MLIP-specific
      per-atom colorscales; test all-atoms and selected-only scope;
+   - open the visual colormap menu and verify every preset has a complete 0-1
+     preview without a per-option network/LUT request; search and select one;
+   - build custom continuous and discrete maps with at least three positioned
+     colors, add/remove a stop, verify the live preview and rendered atoms,
+     reverse the map, then save/reopen settings, `.vase`, project HTML, and a
+     standalone HTML export without changing any stop;
+   - apply the same custom map through `set-atom-colorscale`, reject malformed,
+     duplicate, out-of-range, and over-limit stops, and verify the live schema
+     and capability metadata describe the custom contract;
    - fit the current frame, advance to a frame with a disjoint value range,
      and verify the resolved `vmin`/`vmax` remain locked;
    - scan the complete trajectory and compare its global extrema with an

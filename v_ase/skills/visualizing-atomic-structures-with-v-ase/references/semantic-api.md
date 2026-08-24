@@ -278,7 +278,7 @@ Pass `operation` as a name string or object:
 | `combine-volumetric` | `datasetIds`, `coefficients`, optional `name`, `precision` | Create a linear grid combination |
 | `remove-volumetric` | `datasetId` | Remove one grid from the document |
 | `calculate-rdf` | optional `cutoff`, `bins`, `pairMode`, `activePairs` | Calculate a bulk RDF for full 3D PBC, or an unordered-pair probability density for a finite no-PBC structure |
-| `set-atom-colorscale` | optional `enabled`, `field`, `map`, `reverse`, `scope`, `rangeMode`, `minimum`, `maximum`, `gamma` | Lazily color all or selected atoms by a discovered numeric per-atom value with a trajectory-consistent range |
+| `set-atom-colorscale` | optional `enabled`, `field`, `map`, `customMap`, `reverse`, `scope`, `rangeMode`, `minimum`, `maximum`, `gamma` | Lazily color all or selected atoms by a discovered numeric per-atom value with a trajectory-consistent range and preset or custom map |
 
 ### Repulsion Calculator Contract
 
@@ -587,8 +587,9 @@ never create one frame with a different atom count silently.
 Do not guess MLIP or calculator field names. Read
 `capabilities().atomColorScale.scalarCatalogUrl` to discover the current
 frame's field IDs, labels, reductions, components, and units. Read
-`colormapCatalogUrl` for every registered Matplotlib map. Catalog access is
-explicitly lazy so an ordinary view incurs no colorscale work.
+`colormapCatalogUrl` for every registered Matplotlib map. Each catalog entry
+contains a compact `preview` array sampling its complete 0-1 range. Catalog
+access is explicitly lazy so an ordinary view incurs no colorscale work.
 
 ```javascript
 const capabilities = await ai.capabilities();
@@ -611,6 +612,35 @@ await ai.apply({
   }
 });
 ```
+
+For a custom map, use exactly `map:"custom"` and include `customMap`. Stops
+must use unique positions in `[0,1]`, start at 0, end at 1 after normalization,
+and contain `#RRGGBB` colors. Continuous mode linearly interpolates neighboring
+colors; discrete mode holds the left color until the next stop:
+
+```javascript
+await ai.apply({
+  operation: {
+    name: "set-atom-colorscale",
+    enabled: true,
+    field: "force:norm",
+    map: "custom",
+    customMap: {
+      mode: "continuous",
+      stops: [
+        {position: 0.0, color: "#17324D"},
+        {position: 0.45, color: "#4FB6A6"},
+        {position: 1.0, color: "#F2C14E"}
+      ]
+    },
+    rangeMode: "trajectory"
+  }
+});
+```
+
+The browser samples custom maps locally and persists the definition in visual
+settings, `.vase`/project HTML, and exports. Do not call the Matplotlib LUT
+endpoint for `map:"custom"`.
 
 Coordinates use `position:x`, `position:y`, and `position:z`; stored force
 magnitude uses `force:norm`. Numeric multidimensional arrays expose a norm and,

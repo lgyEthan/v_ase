@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.2.33
+
+- Added full-range visual previews for every installed Matplotlib colormap in
+  the per-atom colorscale picker without per-option image or LUT requests.
+- Added persistent custom colormaps with 2-64 positioned colors, continuous
+  interpolation or discrete bands, live editing preview, reversal, and exact
+  playback/project/standalone-HTML export support.
+- Extended the semantic `set-atom-colorscale` operation, live schema, agent
+  capabilities, canonical Skill, and validation scenarios with the same
+  custom-map contract.
+
 ## 0.2.32
 
 - Unified complete project saving under one **Save Project** action. The dialog

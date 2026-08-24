@@ -443,6 +443,11 @@ and documentation use `view()`.
     valid offset range from the current `(hkl)` when `G` or `R` starts. A
     pending settled-resolution slice response cannot reintroduce stale plane
     geometry after an input edit.
+72. Per-atom colormap catalogs carry one cached 24-sample full-range preview
+    per installed Matplotlib map. Custom maps contain 2-64 positioned colors,
+    are sampled locally as continuous interpolation or discrete bands, and
+    persist through visual settings, projects, semantic commands, and HTML
+    export without adding work while atom colorscales are disabled.
 
 ## Canonical Names And Compatibility
 

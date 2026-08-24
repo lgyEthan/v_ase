@@ -14,7 +14,7 @@ All lengths are Angstrom and all angles are degrees unless stated otherwise.
 Install the tested release:
 
 ```bash
-python -m pip install "v_ase-gui==0.2.32"
+python -m pip install "v_ase-gui==0.2.33"
 ```
 
 Start the terminal-oriented API session yourself:
@@ -194,6 +194,9 @@ global scan across all frames, or `rangeMode:"manual"` with explicit
 `minimum`/`maximum`. A bounded trajectory scan is cached once for playback;
 larger scans remain backend-side. Set `gamma` in `0.1..5.0` (`1.0` is
 neutral), and never normalize trajectory colors independently per frame.
+Use a catalog map name exactly, or `map:"custom"` with a validated `customMap`
+containing 2-64 unique positioned `#RRGGBB` stops and `mode:"continuous"` or
+`"discrete"`; never approximate a requested custom palette with a preset.
 Numeric LAMMPS atom columns are valid catalog fields alongside coordinates,
 stored forces, ASE arrays, charges, magnetic moments, and calculator results.
 Stored Cartesian forces can also be shown directly with display fields

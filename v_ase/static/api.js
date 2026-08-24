@@ -323,11 +323,12 @@ export class ASEApi {
             return {
                 provider: 'Matplotlib',
                 default: 'viridis',
+                preview_samples: 3,
                 maps: [
-                    { name: 'viridis', category: 'Perceptually uniform sequential', reversed_variant: false },
-                    { name: 'plasma', category: 'Perceptually uniform sequential', reversed_variant: false },
-                    { name: 'coolwarm', category: 'Diverging', reversed_variant: false },
-                    { name: 'tab20', category: 'Qualitative', reversed_variant: false }
+                    { name: 'viridis', category: 'Perceptually uniform sequential', reversed_variant: false, preview: ['#440154', '#21918C', '#FDE725'] },
+                    { name: 'plasma', category: 'Perceptually uniform sequential', reversed_variant: false, preview: ['#0D0887', '#CC4778', '#F0F921'] },
+                    { name: 'coolwarm', category: 'Diverging', reversed_variant: false, preview: ['#3B4CC0', '#F7F7F7', '#B40426'] },
+                    { name: 'tab20', category: 'Qualitative', reversed_variant: false, preview: ['#1F77B4', '#98DF8A', '#9EDAE5'] }
                 ]
             };
         }

@@ -15,7 +15,12 @@ from v_ase.atom_scalars import (
     atom_scalar_catalog,
     atom_scalar_values,
 )
-from v_ase.colormaps import colormap_catalog, colormap_lut
+from v_ase.colormaps import (
+    colormap_catalog,
+    colormap_lut,
+    custom_colormap_lut,
+    normalize_custom_colormap,
+)
 from v_ase.export import _cad_scene_data
 from v_ase.server import (
     per_atom_force_vectors,
@@ -260,13 +265,58 @@ def test_colormap_registry_exposes_all_registered_maps_and_stable_luts():
     catalog = colormap_catalog()
     names = {entry["name"] for entry in catalog["maps"]}
     assert catalog["provider"] == "Matplotlib"
+    assert catalog["preview_samples"] == 24
     assert {"viridis", "coolwarm", "tab20", "viridis_r"}.issubset(names)
+    viridis = next(entry for entry in catalog["maps"] if entry["name"] == "viridis")
+    assert len(viridis["preview"]) == catalog["preview_samples"]
+    assert viridis["preview"][0] == colormap_lut("viridis", samples=24)["colors"][0]
+    assert viridis["preview"][-1] == colormap_lut("viridis", samples=24)["colors"][-1]
 
     forward = colormap_lut("viridis", samples=64)
     reverse = colormap_lut("viridis", samples=64, reverse=True)
     assert len(forward["colors"]) == 64
     assert forward["colors"][0] == reverse["colors"][-1]
     assert forward["colors"][-1] == reverse["colors"][0]
+
+
+def test_custom_colormap_supports_continuous_discrete_and_reverse_sampling():
+    specification = {
+        "mode": "continuous",
+        "stops": [
+            {"position": 0, "color": "#FF0000"},
+            {"position": 0.5, "color": "#00FF00"},
+            {"position": 1, "color": "#0000FF"},
+        ],
+    }
+    normalized = normalize_custom_colormap(specification)
+    assert normalized == specification
+
+    continuous = custom_colormap_lut(specification, samples=16)
+    reverse = custom_colormap_lut(specification, samples=16, reverse=True)
+    assert continuous["provider"] == "Custom"
+    assert continuous["colors"][0] == "#FF0000"
+    assert continuous["colors"][-1] == "#0000FF"
+    assert continuous["colors"] == list(reversed(reverse["colors"]))
+
+    discrete = custom_colormap_lut(
+        {**specification, "mode": "discrete"},
+        samples=16,
+    )
+    assert discrete["colors"][0] == "#FF0000"
+    assert discrete["colors"][7] == "#FF0000"
+    assert discrete["colors"][8] == "#00FF00"
+    assert discrete["colors"][-1] == "#0000FF"
+
+    with pytest.raises(ValueError, match="at least two"):
+        normalize_custom_colormap({"mode": "continuous", "stops": []})
+    with pytest.raises(ValueError, match="unique"):
+        normalize_custom_colormap({
+            "mode": "continuous",
+            "stops": [
+                {"position": 0.5, "color": "#000000"},
+                {"position": 0.5, "color": "#FFFFFF"},
+            ],
+        })
 
 
 def test_normal_server_import_does_not_load_matplotlib():
@@ -494,6 +544,77 @@ def test_browser_colorscale_is_lazy_selection_scoped_frame_aware_and_reversible(
             assert any(item["name"] == "mlip_uncertainty" for item in catalog)
             assert page.locator("#atom-colorscale-map option").count() > 100
 
+            page.click("#atom-colormap-trigger")
+            page.wait_for_selector("#atom-colormap-menu:not(.hidden)")
+            assert page.locator("#atom-colormap-menu .atom-colormap-option").count() > 100
+            preview_styles = page.locator(
+                "#atom-colormap-menu .atom-colormap-option:not([data-map='custom']) .atom-colormap-swatch"
+            ).evaluate_all("elements => elements.slice(0, 8).map(element => element.style.backgroundImage)")
+            assert preview_styles
+            assert all("linear-gradient" in value for value in preview_styles)
+
+            page.click(".atom-colormap-option[data-map='custom']")
+            page.wait_for_selector("#modal-container .custom-colormap-modal")
+            assert page.locator(".custom-colormap-stop").count() == 3
+            page.click("#btn-add-custom-colormap-stop")
+            assert page.locator(".custom-colormap-stop").count() == 4
+            page.locator(".custom-colormap-stop-hex").first.fill("#001122")
+            page.locator("[data-custom-colormap-mode='discrete']").click()
+            custom_preview = page.locator("#custom-colormap-preview").evaluate(
+                "element => element.style.backgroundImage"
+            )
+            assert "linear-gradient" in custom_preview
+            assert "rgb(0, 17, 34)" in custom_preview
+            page.click("#modal-apply-custom-colormap")
+            page.wait_for_function("""() => (
+                window.__ASE_APP__.state.display.atomColorScaleMap === 'custom'
+                && window.__ASE_APP__.renderer.atomColorScaleColors?.length === 3
+            )""")
+            custom_state = page.evaluate("window.__ASE_APP__.state.display.atomColorScaleCustomMap")
+            assert custom_state["mode"] == "discrete"
+            assert len(custom_state["stops"]) == 4
+            assert custom_state["stops"][0]["color"] == "#001122"
+            assert page.locator("#atom-colormap-trigger-name").inner_text() == "Custom"
+            assert page.evaluate("""() => (
+                window.__ASE_APP__.designSettingsSnapshot().display.atomColorScaleCustomMap
+            )""") == custom_state
+
+            custom_colors = page.evaluate(
+                "window.__ASE_APP__.renderer.atomColorScaleColors"
+            )
+            custom_preview_before_reverse = page.locator(
+                "#atom-colormap-trigger-preview"
+            ).evaluate("element => element.style.backgroundImage")
+            page.evaluate("""() => {
+                const reverse = document.getElementById('chk-atom-colorscale-reverse');
+                reverse.checked = true;
+                reverse.dispatchEvent(new Event('change', {bubbles: true}));
+            }""")
+            page.wait_for_function(
+                "window.__ASE_APP__.state.display.atomColorScaleReverse === true"
+            )
+            page.wait_for_timeout(50)
+            assert page.evaluate(
+                "window.__ASE_APP__.renderer.atomColorScaleColors"
+            ) != custom_colors
+            assert page.locator("#atom-colormap-trigger-preview").evaluate(
+                "element => element.style.backgroundImage"
+            ) != custom_preview_before_reverse
+
+            page.select_option("#atom-colorscale-map", "viridis")
+            page.locator("#atom-colorscale-map").dispatch_event("change")
+            page.evaluate("""() => {
+                const reverse = document.getElementById('chk-atom-colorscale-reverse');
+                reverse.checked = false;
+                reverse.dispatchEvent(new Event('change', {bubbles: true}));
+            }""")
+            page.wait_for_function(
+                """() => (
+                    window.__ASE_APP__.state.display.atomColorScaleMap === 'viridis'
+                    && window.__ASE_APP__.state.display.atomColorScaleReverse === false
+                )"""
+            )
+
             page.select_option("#atom-colorscale-field", "array::mlip_uncertainty::scalar")
             page.wait_for_function("""() => (
                 window.__ASE_APP__.state.display.atomColorScaleRangeMode === 'current'
@@ -644,6 +765,8 @@ def test_browser_colorscale_is_lazy_selection_scoped_frame_aware_and_reversible(
 
             capabilities = page.evaluate("window.v_aseAI.capabilities()")
             assert capabilities["atomColorScale"]["provider"] == "Matplotlib"
+            assert capabilities["atomColorScale"]["providers"] == ["Matplotlib", "Custom"]
+            assert capabilities["atomColorScale"]["customMap"]["minimumStops"] == 2
             assert capabilities["atomColorScale"]["scalarCatalogUrl"]
             assert capabilities["atomColorScale"]["colormapCatalogUrl"]
             assert capabilities["atomColorScale"]["rangeUrl"]
@@ -671,6 +794,29 @@ def test_browser_colorscale_is_lazy_selection_scoped_frame_aware_and_reversible(
             assert page.evaluate(
                 "window.__ASE_APP__.state.display.atomColorScaleGamma"
             ) == 1.5
+            page.evaluate("""async () => await window.v_aseAI.apply({
+                operation: {
+                    name: 'set-atom-colorscale',
+                    enabled: true,
+                    field: 'position:z',
+                    customMap: {
+                        mode: 'continuous',
+                        stops: [
+                            {position: 0, color: '#112233'},
+                            {position: 0.4, color: '#44AA88'},
+                            {position: 1, color: '#FFDD55'}
+                        ]
+                    },
+                    rangeMode: 'current'
+                }
+            })""")
+            page.wait_for_function("""() => (
+                window.__ASE_APP__.state.display.atomColorScaleMap === 'custom'
+                && window.__ASE_APP__.renderer.atomColorScaleColors?.every(Boolean)
+            )""")
+            assert page.evaluate(
+                "window.__ASE_APP__.state.display.atomColorScaleCustomMap.stops.length"
+            ) == 3
             page.evaluate("""async () => await window.v_aseAI.apply({
                 operation: {name: 'set-atom-colorscale', enabled: false}
             })""")

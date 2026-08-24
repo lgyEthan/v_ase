@@ -39,7 +39,10 @@ class _BodyRequest:
         return self._body
 
 
-def _html_export_fixture(*, embed_project=True, atom_colorscale=False, view_identity=False):
+def _html_export_fixture(
+    *, embed_project=True, atom_colorscale=False, custom_colormap=False,
+    view_identity=False,
+):
     first = Atoms(
         "CuO",
         positions=[[0.0, 0.0, 0.0], [1.8, 0.0, 0.0]],
@@ -149,6 +152,18 @@ def _html_export_fixture(*, embed_project=True, atom_colorscale=False, view_iden
             "atomColorScaleMax": 0.95,
             "atomColorScaleGamma": 2.0,
         })
+        if custom_colormap:
+            settings["display"].update({
+                "atomColorScaleMap": "custom",
+                "atomColorScaleCustomMap": {
+                    "mode": "discrete",
+                    "stops": [
+                        {"position": 0, "color": "#112233"},
+                        {"position": 0.5, "color": "#44AA88"},
+                        {"position": 1, "color": "#FFDD55"},
+                    ],
+                },
+            })
     if view_identity:
         settings["viewIdentityOverrides"] = {
             "schema": "v_ase.view_identity.v1",
@@ -330,6 +345,26 @@ def test_html_export_freezes_active_selected_atom_colorscale_for_offline_frames(
         assert re.fullmatch(r"#[0-9A-F]{6}", scale["colors"][1])
         frame_colors.append(scale["colors"][1])
     assert frame_colors[0] != frame_colors[1]
+
+
+def test_html_export_freezes_custom_colormap_definition_and_colors():
+    response, _, _ = _html_export_fixture(
+        embed_project=False,
+        atom_colorscale=True,
+        custom_colormap=True,
+    )
+    scene = json.loads(base64.b64decode(
+        _embedded_base64(response.body.decode("utf-8"), "v-ase-scene-data")
+    ).decode("utf-8"))
+    scale = scene["frames"][0]["metadata"]["atom_color_scale"]
+    assert scale["map"] == "custom"
+    assert scale["custom_map"]["mode"] == "discrete"
+    assert scale["custom_map"]["stops"][1] == {
+        "position": 0.5,
+        "color": "#44AA88",
+    }
+    assert scale["colors"][0] is None
+    assert scale["colors"][1] in {"#112233", "#44AA88", "#FFDD55"}
 
 
 def test_html_export_preserves_view_labels_without_changing_ase_elements(tmp_path):

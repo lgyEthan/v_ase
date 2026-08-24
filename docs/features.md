@@ -27,14 +27,17 @@ Appearance can color all atoms or only the current selection from Cartesian
 coordinates, stored force magnitude, numeric ASE per-atom arrays, and existing
 per-atom calculator results. Scalar arrays are used directly; vector and
 compact tensor arrays expose a norm and components. Every colormap registered
-by the installed Matplotlib version is available, with reverse and gamma
-contrast. The default current-frame fit resolves one vmin/vmax pair and locks
-it across trajectory playback. A deliberate full-trajectory scan accumulates
-global extrema frame by frame without allocating a complete value cube;
-manual vmin/vmax remains available. Image, video, standalone HTML, and geometry
-exports use the same resolved range. The catalog, values, and lookup table are
-loaded only while the option is enabled; disabling it immediately restores
-label, element, and per-atom appearance without per-frame colorscale work.
+by the installed Matplotlib version is available with a cached full-range menu
+preview, reverse, and gamma contrast. Custom maps contain 2-64 positioned
+`#RRGGBB` stops and use continuous interpolation or discrete bands; the browser
+previews and samples them locally. The default current-frame fit resolves one
+vmin/vmax pair and locks it across trajectory playback. A deliberate
+full-trajectory scan accumulates global extrema frame by frame without
+allocating a complete value cube; manual vmin/vmax remains available. Image,
+video, standalone HTML, and geometry exports use the same resolved range and
+custom definition. The catalog, values, and lookup table are loaded only while
+the option is enabled; disabling it immediately restores label, element, and
+per-atom appearance without per-frame colorscale work.
 
 ## Human-Agent Collaboration
 
