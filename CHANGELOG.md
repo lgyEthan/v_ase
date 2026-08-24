@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.2.32
+
+- Unified complete project saving under one **Save Project** action. The dialog
+  defaults to the smallest editable `.vase`, while **Include interactive
+  rendered view** visibly changes the extension, filename, controls, and final
+  action to a self-contained `.html` with full project recovery.
+- Kept the share-oriented **HTML View** export distinct: it remains lightweight
+  by default, while project HTML always contains its complete validated `.vase`
+  archive and exact Render Area composition.
+- Preserved the inclusive finite pair-distribution cutoff under compiled
+  matscipy searches, so all mathematically boundary-equal pairs contribute to
+  the final bin and a full-distance distribution integrates exactly to one.
+- Made Add Atoms/Molecules relaxation return a stable start acknowledgement
+  even when a very short optimization finishes before the HTTP response; the
+  final state continues to arrive through the normal event and describe paths.
+- Made semantic `describe()` drain pending human, agent, and system events
+  before returning `collaboration.revision`, so an immediately following
+  guarded mutation cannot conflict with a revision that was already visible
+  in the described state.
+- Prevented large-trajectory atom-color prefetch from racing a requested
+  full-trajectory vmin/vmax scan, eliminating redundant scalar I/O while
+  retaining next-frame prefetch during ordinary playback.
+
 ## 0.2.31
 
 - Restored reliable Python 3.10-3.12 installation after the compiled matscipy

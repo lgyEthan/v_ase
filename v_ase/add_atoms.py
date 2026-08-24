@@ -2791,5 +2791,6 @@ def start_atom_addition_relaxation(
         daemon=True,
         name=f"v_ase-add-atoms-{session.session_id[:8]}",
     )
+    started = addition.summary()
     thread.start()
-    return addition.summary()
+    return started

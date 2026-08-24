@@ -101,15 +101,16 @@ state:
 - **Set Current as Default** stores reusable visual choices for new structures
   and tabs under the current OS user. **Restore App Defaults** warns before
   deleting that preference and leaves structure data untouched.
-- **Save .vase** writes the complete structure or trajectory, current frame,
+- **Save Project** writes the complete structure or trajectory, current frame,
   edited coordinates, cell/PBC, constraints, labels, cached standard calculator
-  results, and visual setup. Reopen it with `v_ase gui FILE.vase`.
+  results, and visual setup. The default compact output is `.vase`; enable the
+  interactive rendered view to change the output to a restorable `.html`.
 - **Export HTML View** writes one offline view-only browser document with the
   exact Preview Area camera crop, scene, and trajectory controls. Grid
   defaults off; axes and unit cell default on. The default file is a smaller
   view-only handoff, with optional complete `.vase` embedding.
-- **Save .vase** writes the compact canonical project. **HTML Project** writes
-  a browser-ready project and enables complete `.vase` embedding by default.
+- The **Save Project** dialog clearly reports `.vase` or `.html` before writing;
+  HTML project output always includes complete `.vase` recovery.
 
 Start with `v_ase gui` to open an empty workspace, then use the top-bar **Open**
 command to launch the operating system file picker and load a structure,

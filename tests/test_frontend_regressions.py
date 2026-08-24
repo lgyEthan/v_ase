@@ -579,7 +579,12 @@ def test_frontend_renders_constraint_guides_and_blender_export_button():
     assert 'id="html-include-axes"' in main_js
     assert 'id="html-include-cell"' in main_js
     assert "embedProject === true" in main_js
-    assert "btn-save-project-html" in index_html
+    assert "btn-save-project-html" not in index_html
+    assert "project-include-interactive-viewer" in main_js
+    assert "Include interactive rendered view" in main_js
+    assert "output format changes to HTML" in main_js
+    assert "Interactive HTML project" in main_js
+    assert "Output format: HTML" in main_js
     assert 'data-inspector-group="export"' in index_html
     assert "renderer.supercellBridgeBondRecords" in main_js
     assert "selected-measure" in index_html
@@ -1056,6 +1061,8 @@ def test_frontend_reset_video_and_visual_settings_controls_are_wired():
     assert "loadVisualSettings" in api_js
     assert "v_ase_visual_settings.json" in main_js
     assert "btn-save-project" in index_html
+    assert index_html.count('id="btn-save-project"') == 1
+    assert ">Save Project</button>" in index_html
     assert "btn-load-project" in index_html
     assert "project-file" in index_html
     assert "projectFilename()" in main_js

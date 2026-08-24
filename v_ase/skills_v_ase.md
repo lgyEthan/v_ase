@@ -49,7 +49,9 @@ effective cutoffs, warnings, and curve names instead of reading plots or
 surfaces from screenshots.
 The canonical skill also documents standalone `html` export in lightweight
 view-only and project-embedded modes. Lightweight view-only is the ordinary
-export default; the human HTML Project action embeds `.vase` by default.
+export default. The human **Save Project** action writes compact `.vase` by
+default; enabling **Include interactive rendered view** changes the output to
+an `.html` document with the complete `.vase` project embedded.
 Embedded HTML can be reopened with `v_ase gui FILE.html`; lightweight HTML
 cannot restore editable state. Both begin with the exact Preview Area frame
 without application chrome and cross-fade to an adaptive live WebGL canvas

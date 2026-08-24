@@ -504,8 +504,10 @@ same implementation for compatibility.
   expected arrays and no executable pickle payload. The project does not
   reference the source file.
 - Standalone HTML export embeds browser-ready scene data and all runtime assets.
-  Lightweight HTML omits `.vase` by default; **HTML Project** embeds the
-  validated archive by default. Both use the exact image/video Preview Area
+  Lightweight HTML omits `.vase` by default. The unified **Save Project**
+  dialog writes compact `.vase` unless **Include interactive rendered view** is
+  enabled, which changes the output to HTML and embeds the validated archive.
+  Both use the exact image/video Preview Area
   camera crop, include an optimized high-resolution Finder/Quick Look poster,
   open from `file://`, provide view navigation and trajectory playback only,
   and make no network request. The poster is the complete initial preview

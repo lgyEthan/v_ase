@@ -310,6 +310,19 @@ def test_finite_pair_distribution_respects_explicit_cutoff_probability_mass():
     assert np.sum(result.total) * dr == pytest.approx(1.0 / 3.0, abs=1e-12)
 
 
+def test_finite_pair_distribution_includes_auto_cutoff_boundary_pairs():
+    positions = [
+        [0.02 * (index % 5), 0.02 * ((index // 5) % 4), 0.02 * (index // 20)]
+        for index in range(40)
+    ]
+    atoms = Atoms("H40", positions=positions, pbc=False)
+
+    result = calculate_rdf(atoms, bins=64, pair_mode="none")
+
+    dr = result.cutoff / result.bins
+    assert np.sum(result.total) * dr == pytest.approx(1.0, abs=1e-12)
+
+
 def test_finite_pair_distribution_matches_independent_unordered_pair_histogram():
     rng = np.random.default_rng(511)
     atoms = Atoms("H60", positions=rng.normal(size=(60, 3)) * 4.0, pbc=False)

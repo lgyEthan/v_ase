@@ -1,13 +1,13 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.2.31';
-import { ASERenderer } from './renderer.js?v=0.2.31';
-import { ASESelection } from './selection.js?v=0.2.31';
-import { ASETransform } from './transform.js?v=0.2.31';
+import { ASEApi } from './api.js?v=0.2.32';
+import { ASERenderer } from './renderer.js?v=0.2.32';
+import { ASESelection } from './selection.js?v=0.2.32';
+import { ASETransform } from './transform.js?v=0.2.32';
 import {
     interpolateTrajectoryFrames,
     interpolatedFrameCount,
     normalizeInterpolationMultiplier
-} from './trajectory.js?v=0.2.31';
+} from './trajectory.js?v=0.2.32';
 
 const CHEMICAL_ELEMENT_SYMBOLS = Object.freeze([
     'H','He','Li','Be','B','C','N','O','F','Ne',
@@ -867,8 +867,7 @@ class VAseApp {
             runtime.prefetchFrame = -1;
             runtime.prefetchPromise = null;
             if (runtime.prefetchTimer !== null) {
-                const cancel = window.cancelIdleCallback || clearTimeout;
-                cancel(runtime.prefetchTimer);
+                clearTimeout(runtime.prefetchTimer);
             }
             runtime.prefetchTimer = null;
             runtime.rangeCaches.clear();
@@ -1024,11 +1023,11 @@ class VAseApp {
             || runtime.prefetchTimer !== null
             || !this.state.display.atomColorScaleEnabled
         ) return;
-        const schedule = window.requestIdleCallback
-            || ((callback, _options) => setTimeout(callback, 160));
         runtime.prefetchField = fieldId;
         runtime.prefetchFrame = targetFrame;
-        runtime.prefetchTimer = schedule(() => {
+        // Leave a short foreground window for a full-trajectory range scan to
+        // supersede this optional next-frame request without duplicate I/O.
+        runtime.prefetchTimer = window.setTimeout(() => {
             runtime.prefetchTimer = null;
             if (
                 !this.state.display.atomColorScaleEnabled
@@ -1057,7 +1056,7 @@ class VAseApp {
                     runtime.prefetchFrame = -1;
                     runtime.prefetchPromise = null;
                 });
-        }, { timeout: 1200 });
+        }, 160);
     }
 
     async atomColorScaleValuesForCurrentFrame() {
@@ -1339,8 +1338,7 @@ class VAseApp {
         const fieldId = this.state.display.atomColorScaleField || 'position:z';
         if (fieldId.startsWith('position:') || runtime.valueCaches.has(fieldId)) return false;
         if (runtime.prefetchTimer !== null) {
-            const cancel = window.cancelIdleCallback || clearTimeout;
-            cancel(runtime.prefetchTimer);
+            clearTimeout(runtime.prefetchTimer);
             runtime.prefetchTimer = null;
             runtime.prefetchField = '';
             runtime.prefetchFrame = -1;
@@ -15042,26 +15040,29 @@ class VAseApp {
     }
 
     async flushCollaborationEvents(source = null) {
-        const actors = source
-            ? [source]
-            : [...this.collaborationPending.keys()];
-        for (const actor of actors) {
-            const pending = this.collaborationPending.get(actor);
-            if (!pending) continue;
-            if (pending.timer !== null) clearTimeout(pending.timer);
-            this.collaborationPending.delete(actor);
-            const categories = [...pending.categories];
-            await this.publishCollaborationEvent({
-                type: pending.type,
-                source: pending.source,
-                categories,
-                changedPaths: [...pending.changedPaths],
-                summary: this.collaborationSummary(
-                    pending.source,
+        while (true) {
+            const actors = source
+                ? (this.collaborationPending.has(source) ? [source] : [])
+                : [...this.collaborationPending.keys()];
+            if (!actors.length) break;
+            for (const actor of actors) {
+                const pending = this.collaborationPending.get(actor);
+                if (!pending) continue;
+                if (pending.timer !== null) clearTimeout(pending.timer);
+                this.collaborationPending.delete(actor);
+                const categories = [...pending.categories];
+                await this.publishCollaborationEvent({
+                    type: pending.type,
+                    source: pending.source,
                     categories,
-                    pending.summaries
-                )
-            });
+                    changedPaths: [...pending.changedPaths],
+                    summary: this.collaborationSummary(
+                        pending.source,
+                        categories,
+                        pending.summaries
+                    )
+                });
+            }
         }
         return this.collaborationRevision;
     }
@@ -17446,7 +17447,7 @@ class VAseApp {
             this.scheduleCollaborationEvent(this.collaborationCommandDetails(command));
         } finally {
             this.flushVisualHistoryCommit();
-            await this.flushCollaborationEvents('agent');
+            await this.flushCollaborationEvents();
             this.collaborationActorDepth = Math.max(0, this.collaborationActorDepth - 1);
         }
         return completed ? this.aiDescribe() : null;
@@ -17468,6 +17469,8 @@ class VAseApp {
             },
             describe: async options => {
                 await app.ready;
+                app.flushVisualHistoryCommit();
+                await app.flushCollaborationEvents();
                 return app.aiDescribe(options);
             },
             capabilities: async () => {
@@ -20377,72 +20380,123 @@ class VAseApp {
         };
     }
 
+    async saveCompactProject() {
+        try {
+            this.applyDisplayOptions();
+            const saved = await this.saveBlobFromAction(
+                () => this.api.saveProject(
+                    this.backendPositionsPayload(),
+                    this.designSettingsSnapshot({ includeIdentityOverrides: true }),
+                    this.state.applyConstraints
+                ),
+                this.projectFilename(),
+                'application/vnd.v-ase.project+zip',
+                'Saving compact v_ase project...'
+            );
+            if (saved) this.toast('Complete .vase project saved.', 'success');
+        } catch (err) {
+            this.toast(`Save project failed: ${err.message}`, 'error');
+        }
+    }
+
     showHtmlExportModal({ projectSave = false } = {}) {
-        const title = projectSave ? 'Save HTML Project' : 'Export HTML View';
+        const title = projectSave ? 'Save Project' : 'Export HTML View';
         const intro = projectSave
-            ? 'Save an interactive browser document and, by default, embed the complete editable v_ase project.'
+            ? 'Save the complete editable state as a compact v_ase project, or include an offline interactive rendered view in an HTML file.'
             : 'Export a lightweight, offline 3D view. It uses the same composition as Render Area and remains orbitable after opening.';
         const initialProfile = this.htmlExportProfile();
         this.showModal(`
             <h2>${title}</h2>
             <p class="modal-intro">${intro}</p>
-            <div class="html-export-layout">
-                <figure class="html-view-preview loading">
-                    <img id="html-export-preview" alt="Exact exported HTML structure frame">
-                    <figcaption id="html-export-preview-caption">Shared export frame</figcaption>
-                </figure>
-                <div class="html-export-controls">
-                    <div class="export-section-title">Framing</div>
-                    <div class="html-composition-readout">
-                        <span>Render Area crop</span>
-                        <strong>${initialProfile.width} x ${initialProfile.height}</strong>
+            ${projectSave ? `
+                <div class="project-save-format" id="project-save-format" data-format="vase">
+                    <div class="project-save-format-head">
+                        <div>
+                            <span>Output format</span>
+                            <strong id="project-output-format-name">Compact v_ase project</strong>
+                        </div>
+                        <span class="project-format-extension" id="project-output-extension">.vase</span>
                     </div>
-                    <p class="html-composition-note">
-                        HTML uses the exact Render Area camera and aspect ratio. Its live
-                        WebGL resolution adapts to the browser display; v_ase embeds an
-                        optimized high-resolution poster automatically.
-                    </p>
-                    <div class="export-section-title">Scene overlays</div>
-                    <label class="check-row" for="html-include-grid">
-                        <span>Include grid</span>
-                        <input id="html-include-grid" type="checkbox"
-                               ${initialProfile.options.includeGrid ? 'checked' : ''}>
-                    </label>
-                    <label class="check-row" for="html-include-axes">
-                        <span>Include axes</span>
-                        <input id="html-include-axes" type="checkbox"
-                               ${initialProfile.options.includeAxes ? 'checked' : ''}>
-                    </label>
-                    <label class="check-row" for="html-include-cell">
-                        <span>Include unit cell</span>
-                        <input id="html-include-cell" type="checkbox"
-                               ${initialProfile.options.includeCell ? 'checked' : ''}>
-                    </label>
+                    <code id="project-output-filename"></code>
+                    <p id="project-output-format-detail"></p>
                 </div>
+                <label class="project-viewer-option" for="project-include-interactive-viewer">
+                    <input id="project-include-interactive-viewer" type="checkbox">
+                    <span>
+                        <strong>Include interactive rendered view</strong>
+                        <small>Adds an offline rotatable 3D scene and rendered poster. The complete editable project remains embedded, and the output format changes to HTML.</small>
+                    </span>
+                </label>
+            ` : ''}
+            <div id="html-rendering-options" ${projectSave ? 'hidden' : ''}>
+                <div class="html-export-layout">
+                    <figure class="html-view-preview loading">
+                        <img id="html-export-preview" alt="Exact exported HTML structure frame">
+                        <figcaption id="html-export-preview-caption">Shared export frame</figcaption>
+                    </figure>
+                    <div class="html-export-controls">
+                        <div class="export-section-title">Framing</div>
+                        <div class="html-composition-readout">
+                            <span>Render Area crop</span>
+                            <strong>${initialProfile.width} x ${initialProfile.height}</strong>
+                        </div>
+                        <p class="html-composition-note">
+                            HTML uses the exact Render Area camera and aspect ratio. Its live
+                            WebGL resolution adapts to the browser display; v_ase embeds an
+                            optimized high-resolution poster automatically.
+                        </p>
+                        <div class="export-section-title">Scene overlays</div>
+                        <label class="check-row" for="html-include-grid">
+                            <span>Include grid</span>
+                            <input id="html-include-grid" type="checkbox"
+                                   ${initialProfile.options.includeGrid ? 'checked' : ''}>
+                        </label>
+                        <label class="check-row" for="html-include-axes">
+                            <span>Include axes</span>
+                            <input id="html-include-axes" type="checkbox"
+                                   ${initialProfile.options.includeAxes ? 'checked' : ''}>
+                        </label>
+                        <label class="check-row" for="html-include-cell">
+                            <span>Include unit cell</span>
+                            <input id="html-include-cell" type="checkbox"
+                                   ${initialProfile.options.includeCell ? 'checked' : ''}>
+                        </label>
+                    </div>
+                </div>
+                ${projectSave ? '' : `
+                    <label class="html-project-option" for="html-embed-project">
+                        <input id="html-embed-project" type="checkbox">
+                        <span>
+                            <strong>Embed editable .vase project</strong>
+                            <small id="html-embed-project-detail"></small>
+                        </span>
+                    </label>
+                `}
             </div>
-            <label class="html-project-option" for="html-embed-project">
-                <input id="html-embed-project" type="checkbox"
-                       ${projectSave ? 'checked' : ''}>
-                <span>
-                    <strong>Embed editable .vase project</strong>
-                    <small id="html-embed-project-detail"></small>
-                </span>
-            </label>
             <div class="html-export-summary" id="html-export-summary">
                 <strong></strong>
                 <span></span>
             </div>
         `, `
             <button id="html-export-cancel" class="btn">Cancel</button>
-            <button id="html-export-confirm" class="btn primary">Save HTML</button>
+            <button id="html-export-confirm" class="btn primary">${projectSave ? 'Save .vase' : 'Save HTML'}</button>
         `);
-        document.querySelector('#modal-container .modal')?.classList.add('html-export-modal');
+        const modal = document.querySelector('#modal-container .modal');
+        modal?.classList.add(projectSave ? 'project-save-modal' : 'html-export-modal');
         const previewImage = document.getElementById('html-export-preview');
         const previewFigure = previewImage?.closest('.html-view-preview');
         const previewCaption = document.getElementById('html-export-preview-caption');
+        const htmlOptions = document.getElementById('html-rendering-options');
+        const interactiveViewer = document.getElementById('project-include-interactive-viewer');
+        const projectFormat = document.getElementById('project-save-format');
+        const formatName = document.getElementById('project-output-format-name');
+        const formatExtension = document.getElementById('project-output-extension');
+        const formatFilename = document.getElementById('project-output-filename');
+        const formatDetail = document.getElementById('project-output-format-detail');
         const embed = document.getElementById('html-embed-project');
         const detail = document.getElementById('html-embed-project-detail');
         const summary = document.getElementById('html-export-summary');
+        const confirmButton = document.getElementById('html-export-confirm');
         let previewGeneration = 0;
         let previewTimer = null;
 
@@ -20460,7 +20514,42 @@ class VAseApp {
             });
         };
 
-        const syncProjectOption = () => {
+        const syncProjectOption = ({ refresh = false } = {}) => {
+            if (projectSave) {
+                const includeViewer = interactiveViewer?.checked === true;
+                if (htmlOptions) htmlOptions.hidden = !includeViewer;
+                modal?.classList.toggle('html-export-modal', includeViewer);
+                if (projectFormat) projectFormat.dataset.format = includeViewer ? 'html' : 'vase';
+                if (formatName) {
+                    formatName.textContent = includeViewer
+                        ? 'Interactive HTML project'
+                        : 'Compact v_ase project';
+                }
+                if (formatExtension) formatExtension.textContent = includeViewer ? '.html' : '.vase';
+                if (formatFilename) {
+                    formatFilename.textContent = includeViewer
+                        ? this.htmlProjectFilename()
+                        : this.projectFilename();
+                }
+                if (formatDetail) {
+                    formatDetail.textContent = includeViewer
+                        ? 'Browser-ready and fully restorable in v_ase. Larger because it contains the viewer, rendered poster, scene data, and the complete project.'
+                        : 'Smallest complete editable project. Opens in v_ase and contains no browser renderer or rendered poster.';
+                }
+                if (confirmButton) confirmButton.textContent = includeViewer ? 'Save .html' : 'Save .vase';
+                if (summary) {
+                    summary.innerHTML = includeViewer
+                        ? '<strong>Interactive rendered view included</strong><span>Output format: HTML. Opens directly in a browser and restores the complete editable project in v_ase.</span>'
+                        : '<strong>Compact project</strong><span>Output format: .vase. Recommended as the smallest editable source of truth.</span>';
+                }
+                if (!includeViewer) {
+                    previewGeneration += 1;
+                    if (previewTimer !== null) window.clearTimeout(previewTimer);
+                } else if (refresh) {
+                    refreshPreview();
+                }
+                return;
+            }
             const enabled = embed?.checked === true;
             if (detail) {
                 detail.textContent = enabled
@@ -20475,6 +20564,7 @@ class VAseApp {
         };
 
         const refreshPreview = async () => {
+            if (htmlOptions?.hidden) return;
             const generation = ++previewGeneration;
             const profile = this.setImageExportProfile(readProfile());
             if (this.state.exportPreviewEnabled) this.syncImageExportPreview();
@@ -20498,15 +20588,19 @@ class VAseApp {
         };
 
         const schedulePreview = () => {
+            if (htmlOptions?.hidden) return;
             if (previewTimer !== null) window.clearTimeout(previewTimer);
             previewTimer = window.setTimeout(refreshPreview, 120);
         };
         embed?.addEventListener('change', syncProjectOption);
+        interactiveViewer?.addEventListener('change', () => {
+            syncProjectOption({ refresh: true });
+        });
         ['html-include-grid', 'html-include-axes', 'html-include-cell'].forEach(id => {
             document.getElementById(id)?.addEventListener('change', schedulePreview);
         });
         syncProjectOption();
-        refreshPreview();
+        if (!projectSave) refreshPreview();
 
         document.getElementById('html-export-cancel')?.addEventListener(
             'click',
@@ -20518,7 +20612,15 @@ class VAseApp {
             { once: true }
         );
         document.getElementById('html-export-confirm')?.addEventListener('click', async () => {
-            const embedProject = embed?.checked === true;
+            const includeViewer = !projectSave || interactiveViewer?.checked === true;
+            if (projectSave && !includeViewer) {
+                previewGeneration += 1;
+                if (previewTimer !== null) window.clearTimeout(previewTimer);
+                this.closeModal();
+                await this.saveCompactProject();
+                return;
+            }
+            const embedProject = projectSave || embed?.checked === true;
             const profile = this.setImageExportProfile(readProfile());
             previewGeneration += 1;
             if (previewTimer !== null) window.clearTimeout(previewTimer);
@@ -22616,25 +22718,7 @@ class VAseApp {
         document.getElementById('btn-export-video').onclick = () => {
             this.showExportVideoModal();
         };
-        document.getElementById('btn-save-project').onclick = async () => {
-            try {
-                this.applyDisplayOptions();
-                const saved = await this.saveBlobFromAction(
-                    () => this.api.saveProject(
-                        this.backendPositionsPayload(),
-                        this.designSettingsSnapshot({ includeIdentityOverrides: true }),
-                        this.state.applyConstraints
-                    ),
-                    this.projectFilename(),
-                    'application/vnd.v-ase.project+zip',
-                    'Saving complete v_ase project...'
-                );
-                if (saved) this.toast('Complete .vase project saved.', 'success');
-            } catch (err) {
-                this.toast(`Save project failed: ${err.message}`, 'error');
-            }
-        };
-        document.getElementById('btn-save-project-html').onclick = () => {
+        document.getElementById('btn-save-project').onclick = () => {
             this.showHtmlExportModal({ projectSave: true });
         };
         document.getElementById('btn-load-project').onclick = () => {

@@ -817,3 +817,6 @@ def test_legacy_guide_is_a_resolving_compatibility_link():
     target = re.search(r"\]\((skills/[^)]+/SKILL\.md)\)", text)
     assert target
     assert (legacy.parent / target.group(1)).resolve() == SKILL.resolve()
+    assert "Save Project" in text
+    assert "Include interactive rendered view" in text
+    assert "human HTML Project action" not in text

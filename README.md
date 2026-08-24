@@ -35,9 +35,10 @@ completed structure is inspected from above and below.
 
 ![A self-contained v_ase HTML project in macOS Quick Look and an offline browser](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_html_quicklook.gif)
 
-An **HTML Project** is both a shareable offline 3D document and a complete
-save file. macOS Quick Look reads its optimized poster without installing
-v_ase, while opening the same file in a browser enables orbit, pan, zoom, and
+In **Save Project**, enable **Include interactive rendered view** to create one
+HTML file that is both a shareable offline 3D document and a complete save
+file. macOS Quick Look reads its optimized poster without installing v_ase,
+while opening the same file in a browser enables orbit, pan, zoom, and
 trajectory playback. Loading it with `v_ase gui FILE.html` restores the
 embedded structure or trajectory and all saved visualization settings.
 
@@ -905,7 +906,8 @@ radius: v_ase includes every periodic image whose distance falls inside the
 sphere and reports the image span used. The finite pair distribution uses
 direct Cartesian distances from the same accelerated pair engine without
 inventing a bulk density; at a cutoff containing all pairs, its probability
-density integrates to one. Partial-PBC slab and wire systems remain rejected
+density integrates to one, including pairs exactly on the displayed cutoff.
+Partial-PBC slab and wire systems remain rejected
 because they require a geometry-specific boundary correction.
 
 The dotted `g(r) = 1` reference makes the bulk limit explicit. In the
@@ -1156,8 +1158,7 @@ preset between users or computers.
 | Export 3DM | Instanced Rhino geometry, metadata, and saved camera views |
 | Export OBJ | OBJ/MTL, camera, and metadata in a ZIP |
 | Export HTML View | Offline, view-only 3D document; lightweight by default, with optional `.vase` recovery |
-| Save `.vase` | Compact project with structure/trajectory and complete visual state |
-| HTML Project | Browser-ready project with complete embedded `.vase` recovery by default |
+| Save Project | Compact `.vase` by default; enable the interactive rendered view for a browser-ready `.html` containing complete project recovery |
 | Export/Import Preset | Portable visual settings file without coordinates |
 
 Image, video, and HTML use one shared persistent **Render Area**. The gray
@@ -1187,15 +1188,20 @@ overlays are recalculated for each rendered frame.
 
 ### Project Or Shareable HTML
 
-Under **Export > v_ase Project**, use **Save .vase** for the smallest complete
-project. It contains every loaded frame, coordinates, cells, PBC, labels,
-constraints, safe calculator results, camera, appearance, bonds, lighting,
-analysis, and export settings. It is self-contained and never references the
-original input file.
+Under **Export > v_ase Project**, choose the single **Save Project** action.
+The dialog defaults to the smallest complete project, clearly displays the
+`.vase` output format and filename, and keeps **Include interactive rendered
+view** off. The saved project contains every loaded frame, coordinates, cells,
+PBC, labels, constraints, safe calculator results, camera, appearance, bonds,
+lighting, analysis, and export settings. It is self-contained and never
+references the original input file.
 
-Use **HTML Project** or **HTML View** when the result should open directly in a
-browser. The save dialog shows the exact shared Render Area crop and lets you
-choose grid, axes, and unit-cell visibility. Every generated HTML:
+Enable **Include interactive rendered view** when the saved project should open
+directly in a browser. The dialog immediately changes the displayed extension,
+filename, and save action to `.html`, then reveals the exact shared Render Area
+crop and grid, axes, and unit-cell choices. This HTML is larger because it
+contains the offline viewer, rendered poster, scene data, and complete `.vase`
+project. Every generated HTML:
 
 - opens offline without v_ase, Python, a server, or a CDN;
 - restores the saved camera, viewport styling, bonds, constraint overlays,
@@ -1203,10 +1209,11 @@ choose grid, axes, and unit-cell visibility. Every generated HTML:
 - allows orbit, pan, zoom, frame stepping, and movie playback;
 - exposes no atom, structure, appearance, or project editing controls.
 
-**HTML View** leaves **Embed editable .vase project** off by default and creates
-the smaller view-only handoff. **HTML Project** enables it by default and stores
-the complete `.vase` inside the same HTML. Embedded documents expose
-**Download .vase**, and either command restores the full editable project:
+The separate **HTML View** export leaves **Embed editable .vase project** off by
+default and creates the smaller view-only handoff. **Save Project** with the
+interactive rendered view enabled always stores the complete `.vase` inside
+the same HTML. Embedded documents expose **Download .vase**, and either command
+restores the full editable project:
 
 ```bash
 v_ase gui project.vase

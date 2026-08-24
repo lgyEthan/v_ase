@@ -693,10 +693,50 @@ def test_html_export_button_downloads_an_offline_document_that_reopens(tmp_path)
                 "window.__ASE_APP__.state.display.supercell.join(',')"
             ) == "1,1,1"
 
-            page.click("#btn-save-project-html")
-            assert page.locator("#modal-content h2").inner_text() == "Save HTML Project"
-            assert page.locator("#html-embed-project").is_checked()
-            page.click("#html-export-cancel")
+            page.click("#btn-save-project")
+            assert page.locator("#modal-content h2").inner_text() == "Save Project"
+            assert not page.locator("#project-include-interactive-viewer").is_checked()
+            assert page.locator("#project-output-extension").inner_text() == ".vase"
+            assert page.locator("#project-output-filename").inner_text().endswith(".vase")
+            assert page.locator("#html-rendering-options").is_hidden()
+            assert page.locator("#html-export-confirm").inner_text() == "Save .vase"
+
+            with page.expect_download() as compact_download_info:
+                page.click("#html-export-confirm")
+            compact_download = compact_download_info.value
+            compact_project = tmp_path / "unified-save-project.vase"
+            compact_download.save_as(compact_project)
+            assert compact_download.suggested_filename.endswith(".vase")
+            assert compact_project.read_bytes().startswith(b"PK")
+
+            page.click("#btn-save-project")
+
+            page.check("#project-include-interactive-viewer")
+            assert page.locator("#project-output-extension").inner_text() == ".html"
+            assert page.locator("#project-output-filename").inner_text().endswith(".html")
+            assert page.locator("#html-rendering-options").is_visible()
+            assert page.locator("#html-embed-project").count() == 0
+            assert page.locator("#html-export-confirm").inner_text() == "Save .html"
+            page.wait_for_function("""() => {
+                const figure = document.querySelector('.html-view-preview');
+                const image = document.getElementById('html-export-preview');
+                return figure && !figure.classList.contains('loading')
+                    && image?.src?.startsWith('data:image/png;base64,');
+            }""")
+            with page.expect_download() as html_project_download_info:
+                page.click("#html-export-confirm")
+            html_project_download = html_project_download_info.value
+            html_project = tmp_path / "unified-save-project.html"
+            html_project_download.save_as(html_project)
+            assert html_project_download.suggested_filename.endswith(".html")
+            assert html_project.stat().st_size > compact_project.stat().st_size
+
+            saved_html = browser.new_page(viewport={"width": 960, "height": 640})
+            saved_html.goto(html_project.as_uri(), wait_until="load")
+            saved_html.locator("html[data-v-ase-ready='true']").wait_for(state="attached")
+            assert saved_html.evaluate("window.v_aseStandalone.hasEmbeddedProject") is True
+            assert saved_html.evaluate("window.v_aseStandalone.projectBytes().length") > 0
+            saved_html.close()
             browser.close()
     finally:
         editor.close()

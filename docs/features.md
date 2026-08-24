@@ -733,9 +733,9 @@ the View/Edit visual translation saved in display settings.
   margin, border, or layout jump appears. The default output is lightweight; a
   save-time option embeds the complete validated `.vase` archive for lossless
   reopening.
-- Project save: **Save .vase** writes the compact canonical project, while
-  **HTML Project** defaults to embedding the complete project in a
-  browser-ready copy.
+- Project save: one **Save Project** dialog writes compact `.vase` by default.
+  Enabling **Include interactive rendered view** visibly changes the output to
+  a browser-ready `.html` with the complete project embedded.
 - Blender: optimized label-group point meshes, Geometry Nodes spheres,
   trajectory shape keys, bonds, optional cell, camera, and Sun.
 - Rhino 3DM: block-instanced atoms/bonds with metadata and saved views; optional

@@ -14,7 +14,7 @@ All lengths are Angstrom and all angles are degrees unless stated otherwise.
 Install the tested release:
 
 ```bash
-python -m pip install "v_ase-gui==0.2.31"
+python -m pip install "v_ase-gui==0.2.32"
 ```
 
 Start the terminal-oriented API session yourself:
@@ -110,7 +110,8 @@ Use this sequence for every task:
 3. **Validate**: confirm atom count and topology before reusing indices. Confirm
    Edit mode before physical changes.
 4. **Execute**: apply one semantic change at a time with the latest
-   `collaboration.revision` as `expectedRevision`.
+   settled `collaboration.revision` returned by `describe` as
+   `expectedRevision`.
 5. **Synchronize**: on a human event, pause mutations, activate its document,
    call `describe`, and preserve the newer human change.
 6. **Verify**: call `describe` after every structure, trajectory, constraint,
@@ -153,7 +154,7 @@ reference before executing a multi-step workflow:
 | Analyze trajectories | frame selection, displacement, RDF, colorscale, stored force vectors |
 | Analyze scalar fields | volumetric datasets, isosurfaces, planes, field combinations |
 | Style and render | `display`, `quality`, `camera`, persistent `renderArea`, `render` |
-| Save or share | `export`, compact `.vase`, portable HTML projects, media, and geometry formats |
+| Save or share | `export`, compact `.vase`, portable HTML projects, media, and geometry formats; the GUI uses one Save Project dialog whose rendered-view option changes output to HTML |
 
 ### Live Methods
 

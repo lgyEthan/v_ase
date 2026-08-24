@@ -154,19 +154,32 @@ def _finite_pair_distribution(
         pair_mode,
         active_pairs,
     )
-    # Request the next representable float so a pair exactly on the public
-    # cutoff retains NumPy histogram's inclusive final-edge behavior.
-    search_cutoff = np.nextafter(requested, np.inf)
+    # matscipy's compiled search uses a strict cutoff comparison. Allow the
+    # rounding accumulated while subtracting Cartesian coordinates so pairs
+    # mathematically on the public cutoff retain NumPy's inclusive final edge.
+    coordinate_scale = max(
+        1.0,
+        abs(float(requested)),
+        float(np.max(np.abs(np.asarray(atoms.positions, dtype=float)))),
+    )
+    cutoff_tolerance = 64.0 * np.finfo(float).eps * coordinate_scale
+    search_cutoff = requested + cutoff_tolerance
     indices_i, indices_j, distances = neighbour_list(
         "ijd",
         atoms,
         search_cutoff,
         self_interaction=False,
     )
-    unordered = (indices_i < indices_j) & (distances <= requested)
+    unordered = (
+        (indices_i < indices_j)
+        & (distances <= requested + cutoff_tolerance)
+    )
     indices_i = np.asarray(indices_i[unordered], dtype=int)
     indices_j = np.asarray(indices_j[unordered], dtype=int)
-    distances = np.asarray(distances[unordered], dtype=float)
+    distances = np.minimum(
+        np.asarray(distances[unordered], dtype=float),
+        requested,
+    )
     total_histogram = np.histogram(distances, bins=edges)[0].astype(float)
 
     partial_histograms: dict[str, np.ndarray] = {}

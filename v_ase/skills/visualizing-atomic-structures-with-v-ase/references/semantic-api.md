@@ -71,6 +71,10 @@ profile, persistent `renderArea`, `preferences.interfaceTheme`,
 `preferences.personalVisualDefaults`, `analysis.volumetricDatasets`, the
 current RDF summary, and `collaboration.revision`.
 
+Before returning, `describe()` drains pending human, agent, and system change
+events. Its `collaboration.revision` therefore covers the state in that same
+response and can be used immediately as `expectedRevision`.
+
 Use `includePositions: false` for metadata-only inspection of a very large
 frame. Re-enable positions before coordinate-dependent work.
 
@@ -1310,8 +1314,9 @@ For periodic RDF, the GUI adds a dotted `g(r) = 1` reference for the
 homogeneous bulk limit. For a sufficiently large amorphous periodic model,
 verify that the long-distance total curve fluctuates around one rather than
 decaying with radius. For a finite pair distribution, verify that integrating
-the total density over a full-distance cutoff gives one and that an explicit
-shorter cutoff integrates to the fraction of unordered pairs inside it.
+the total density over a full-distance cutoff gives one, including unordered
+pairs exactly on the displayed cutoff, and that an explicit shorter cutoff
+integrates to the fraction of unordered pairs inside it.
 
 Export the calculated values without reading Plotly pixels:
 
@@ -1453,8 +1458,9 @@ allows camera navigation and trajectory playback but exposes no editing or
 settings controls. HTML uses the same export-camera composition as image and
 video. Grid defaults off; axes and unit cell default on. `embedProject`
 defaults to `false` for a smaller view-only file. Set it to `true` only when
-lossless `.vase` recovery is required; the human **HTML Project** action uses
-that embedded mode by default.
+lossless `.vase` recovery is required. In the human **Save Project** dialog,
+the default compact output is `.vase`; enabling **Include interactive rendered
+view** changes the output to `.html` and always uses embedded-project mode.
 Decode the data URL, open it from `file://`, wait for
 `window.v_aseStandalone.ready`, verify `document.body.dataset.viewOnly` is
 `"true"`, and reject any HTTP/HTTPS request before reporting success. For

@@ -409,8 +409,9 @@ One view-only browser document containing:
 It opens from `file://` without a server or network request and supports only
 camera navigation and trajectory playback. `embed_project` defaults to
 `false` for a smaller view-only handoff. Set it to `true` for a downloadable
-`.vase` and lossless reopening through `v_ase gui FILE.html`. The human
-**HTML Project** action enables project embedding by default.
+`.vase` and lossless reopening through `v_ase gui FILE.html`. In the human
+**Save Project** dialog, enabling **Include interactive rendered view** changes
+the output to HTML and always embeds the complete project.
 
 HTML, image, and video share the same Preview Area camera crop and aspect
 ratio. HTML dimensions are inherited from Preview Area and are not exposed as

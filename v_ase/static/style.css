@@ -5606,6 +5606,103 @@ body.resizing-pairwise-column * {
     width: min(860px, calc(100vw - 32px));
 }
 
+.modal.project-save-modal:not(.html-export-modal) {
+    width: min(620px, calc(100vw - 32px));
+}
+
+.project-save-format {
+    display: grid;
+    gap: 9px;
+    padding: 14px;
+    border: 1px solid var(--line-strong);
+    border-left: 3px solid var(--teal);
+    border-radius: 6px;
+    background: var(--surface-subtle);
+}
+
+.project-save-format[data-format="html"] {
+    background: var(--teal-soft);
+}
+
+.project-save-format-head {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 14px;
+    align-items: center;
+}
+
+.project-save-format-head > div {
+    min-width: 0;
+    display: grid;
+    gap: 3px;
+}
+
+.project-save-format-head span,
+.project-save-format p,
+.project-viewer-option small {
+    color: var(--text-soft);
+    font-size: var(--type-control);
+    line-height: 1.45;
+}
+
+.project-save-format-head strong,
+.project-viewer-option strong {
+    color: var(--text);
+    font-size: var(--type-body);
+    font-weight: var(--weight-semibold);
+}
+
+.project-format-extension {
+    min-width: 58px;
+    padding: 6px 9px;
+    border: 1px solid var(--line-strong);
+    border-radius: 4px;
+    background: var(--panel-raised);
+    color: var(--teal) !important;
+    font-family: var(--font-mono);
+    font-size: var(--type-body) !important;
+    font-weight: var(--weight-bold);
+    text-align: center;
+    text-transform: lowercase;
+}
+
+.project-save-format code {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: var(--type-control);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.project-save-format p {
+    margin: 0;
+}
+
+.project-viewer-option {
+    display: grid;
+    grid-template-columns: 18px minmax(0, 1fr);
+    gap: 11px;
+    align-items: start;
+    margin: 12px 0;
+    padding: 13px 14px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--panel-raised);
+    cursor: pointer;
+}
+
+.project-viewer-option input {
+    margin: 2px 0 0;
+}
+
+.project-viewer-option > span {
+    min-width: 0;
+    display: grid;
+    gap: 4px;
+}
+
 .html-export-layout {
     display: grid;
     grid-template-columns: minmax(0, 1.35fr) minmax(220px, 0.65fr);

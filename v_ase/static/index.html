@@ -52,12 +52,12 @@
             });
         })();
     </script>
-    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.2.31">
+    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.2.32">
     <script>
         window.__V_ASE_MOCK__ = new URLSearchParams(window.location.search).has('v_ase_mock');
         const threeModulePath = window.location.protocol === 'file:'
             ? './vendor/three.module.js'
-            : '/static/vendor/three.module.js?v=0.2.31';
+            : '/static/vendor/three.module.js?v=0.2.32';
         const importMap = document.createElement('script');
         importMap.type = 'importmap';
         importMap.textContent = JSON.stringify({
@@ -123,7 +123,7 @@
     <header id="top-bar" class="glass-panel">
         <div class="logo">
             <img class="brand-logo-asset" src="static/v_ase-logo.png" alt="v_ase">
-            <span class="version">0.2.31</span>
+            <span class="version">0.2.32</span>
         </div>
         <div id="runtime-mode-switch" class="runtime-mode-switch" role="group" aria-label="Workspace mode">
             <button type="button" data-runtime-mode="view" aria-pressed="true"
@@ -1813,10 +1813,7 @@
         <section class="panel-section utility-section" data-panel="project" data-panel-group="export">
             <div class="section-header static-header">v_ase Project</div>
             <p class="panel-note">Save the complete editable structure, trajectory, constraints, labels, camera, and visual setup.</p>
-            <div class="btn-stack-row two">
-                <button id="btn-save-project" data-requires-atoms>Save .vase</button>
-                <button id="btn-save-project-html" data-requires-atoms>HTML Project</button>
-            </div>
+            <button id="btn-save-project" class="btn-block" data-requires-atoms>Save Project</button>
             <button id="btn-load-project" class="btn-block">Open Project</button>
             <input type="file" id="project-file" class="hidden" accept=".vase,.html,.htm,application/vnd.v-ase.project+zip,text/html">
         </section>
@@ -1865,7 +1862,7 @@
             </div>
             <div>
                 <strong>v_ase Project</strong>
-                <span>Save the complete working state as compact .vase, or as an HTML Project with embedded .vase recovery enabled by default.</span>
+                <span>One Save Project dialog creates compact .vase by default. Include the interactive rendered view to switch the output visibly to a complete HTML project.</span>
             </div>
             <div>
                 <strong>Visual Settings</strong>
@@ -1994,9 +1991,9 @@
                     <strong>Personal default</strong>
                     <span>Automatic starting style for new structures and tabs on this OS account. It excludes coordinates, trajectory data, absolute camera placement, and per-atom overrides.</span>
                     <strong>v_ase Project (.vase)</strong>
-                    <span>Complete working state: structures or trajectory, current frame, coordinates, cell, constraints, labels, cached results, and visual setup.</span>
-                    <strong>HTML View / HTML Project</strong>
-                    <span>Both use the image/video Render Area crop. HTML View is lightweight by default; HTML Project embeds complete .vase recovery by default.</span>
+                    <span>Choose Save Project for the complete working state. It saves compact .vase by default; including the interactive rendered view changes the output to a restorable HTML project.</span>
+                    <strong>HTML View</strong>
+                    <span>Shared offline 3D view using the image/video Render Area crop. Editable .vase recovery remains optional.</span>
                 </div>
                 <h3 class="help-section-title">License</h3>
                 <div class="help-save-grid">
@@ -2022,7 +2019,7 @@
         }
         const modulePath = (window.location.protocol === 'file:' || window.location.pathname.endsWith('/static/index.html'))
             ? './main.js'
-            : './static/main.js?v=0.2.31';
+            : './static/main.js?v=0.2.32';
         import(modulePath).catch(error => {
             console.error('v_ase failed to initialize:', error?.stack || error);
         });
