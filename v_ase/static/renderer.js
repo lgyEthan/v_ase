@@ -90,6 +90,7 @@ function cloneBondStyleRecord(source = {}) {
                 material: ['standard', 'metal', 'rubber', 'unlit'].includes(style.material)
                     ? style.material
                     : 'standard',
+                thickness: Math.max(0.02, Math.min(0.6, Number(style.thickness) || 0.25)),
                 colorMode: style.colorMode === 'custom' ? 'custom' : 'split',
                 color: typeof style.color === 'string' ? style.color : '#c8ccd0',
                 opacity: Math.max(0.05, Math.min(1, Number(style.opacity) || 1))
@@ -110,12 +111,44 @@ function bondStyleRecordEqual(first = {}, second = {}) {
             !b
             || a.style !== b.style
             || a.material !== b.material
+            || Number(a.thickness) !== Number(b.thickness)
             || a.colorMode !== b.colorMode
             || a.color !== b.color
             || Number(a.opacity) !== Number(b.opacity)
         ) return false;
     }
     return true;
+}
+
+function cloneAtomBondStyleRecord(source = {}) {
+    return Object.fromEntries(Object.entries(source).flatMap(([key, style]) => {
+        if (!style || typeof style !== 'object') return [];
+        const next = {};
+        if (['standard', 'metal', 'rubber', 'unlit'].includes(style.material)) {
+            next.material = style.material;
+        }
+        const opacity = Number(style.opacity);
+        if (Number.isFinite(opacity)) next.opacity = Math.max(0, Math.min(1, opacity));
+        if (typeof style.color === 'string' && /^#[0-9A-Fa-f]{6}$/.test(style.color)) {
+            next.color = style.color.toLowerCase();
+        }
+        return Object.keys(next).length ? [[String(key), next]] : [];
+    }));
+}
+
+function atomBondStyleRecordEqual(first = {}, second = {}) {
+    if (first === second) return true;
+    const firstKeys = Object.keys(first);
+    const secondKeys = Object.keys(second);
+    if (firstKeys.length !== secondKeys.length) return false;
+    return firstKeys.every(key => {
+        const a = first[key] || {};
+        const b = second[key];
+        return b
+            && a.material === b.material
+            && Number(a.opacity) === Number(b.opacity)
+            && a.color === b.color;
+    });
 }
 
 class BlenderTumbleControls {
@@ -730,7 +763,11 @@ export class ASERenderer {
             labelOpacities: {},
             labelVisible: {},
             labelMaterials: {},
+            atomRadiusScales: {},
+            atomColors: {},
+            atomOpacities: {},
             atomMaterials: {},
+            atomBondStyles: {},
             hiddenAtomReferences: [],
             rotatePivot: 'selection',
             commensurateGuide: false,
@@ -1650,8 +1687,15 @@ export class ASERenderer {
             ? labelRadius
             : Number(this.atomsData?.visual?.radii?.[index]);
         const scale = Number(this.displayOptions?.atomRadiusScale || 0.6);
+        const atomScaleValue = Number(
+            this.displayOptions?.atomRadiusScales?.[index]
+            ?? this.displayOptions?.atomRadiusScales?.[String(index)]
+        );
+        const atomScale = Number.isFinite(atomScaleValue) && atomScaleValue > 0
+            ? atomScaleValue
+            : 1;
         const radius = Number.isFinite(sourceRadius) && sourceRadius > 0 ? sourceRadius : FALLBACK_ATOM_RADIUS;
-        return radius * (Number.isFinite(scale) && scale > 0 ? scale : 0.6);
+        return radius * (Number.isFinite(scale) && scale > 0 ? scale : 0.6) * atomScale;
     }
 
     atomCovalentRadius(index) {
@@ -1675,6 +1719,9 @@ export class ASERenderer {
     atomVisualColor(index, explicitColor = null) {
         const scaleColor = this.atomColorScaleColors?.[index];
         if (this.validHexColor(scaleColor)) return scaleColor;
+        const atomColor = this.displayOptions?.atomColors?.[index]
+            ?? this.displayOptions?.atomColors?.[String(index)];
+        if (this.validHexColor(atomColor)) return atomColor;
         const label = this.atomsData?.symbols?.[index];
         const labelColor = this.displayOptions?.labelColors?.[label];
         if (this.validHexColor(labelColor)) return labelColor;
@@ -1684,6 +1731,11 @@ export class ASERenderer {
     }
 
     atomVisualOpacity(index) {
+        const atomOpacity = Number(
+            this.displayOptions?.atomOpacities?.[index]
+            ?? this.displayOptions?.atomOpacities?.[String(index)]
+        );
+        if (Number.isFinite(atomOpacity)) return Math.max(0, Math.min(1, atomOpacity));
         const label = this.atomsData?.symbols?.[index];
         const configured = Number(this.displayOptions?.labelOpacities?.[label]);
         return Math.max(0, Math.min(1, Number.isFinite(configured) ? configured : 1));
@@ -4080,7 +4132,13 @@ export class ASERenderer {
             labelOpacities: { ...(options.labelOpacities || this.displayOptions.labelOpacities || {}) },
             labelVisible: { ...(options.labelVisible || this.displayOptions.labelVisible || {}) },
             labelMaterials: { ...(options.labelMaterials || this.displayOptions.labelMaterials || {}) },
+            atomRadiusScales: { ...(options.atomRadiusScales || this.displayOptions.atomRadiusScales || {}) },
+            atomColors: { ...(options.atomColors || this.displayOptions.atomColors || {}) },
+            atomOpacities: { ...(options.atomOpacities || this.displayOptions.atomOpacities || {}) },
             atomMaterials: { ...(options.atomMaterials || this.displayOptions.atomMaterials || {}) },
+            atomBondStyles: cloneAtomBondStyleRecord(
+                options.atomBondStyles || this.displayOptions.atomBondStyles || {}
+            ),
             hiddenAtomReferences: [...(options.hiddenAtomReferences || this.displayOptions.hiddenAtomReferences || [])],
             supercell: [...(options.supercell || this.displayOptions.supercell || [1, 1, 1])],
             translation: [...(options.translation || this.displayOptions.translation || [0, 0, 0])],
@@ -4104,12 +4162,14 @@ export class ASERenderer {
             || pairUsesFlatBonds(this.displayOptions.pairwiseBondStyles)
         );
         const radiusChanged = previous.atomRadiusScale !== this.displayOptions.atomRadiusScale ||
-            !scalarRecordEqual(previous.labelRadii, this.displayOptions.labelRadii);
-        const colorChanged = !scalarRecordEqual(previous.labelColors, this.displayOptions.labelColors);
+            !scalarRecordEqual(previous.labelRadii, this.displayOptions.labelRadii) ||
+            !scalarRecordEqual(previous.atomRadiusScales, this.displayOptions.atomRadiusScales);
+        const colorChanged = !scalarRecordEqual(previous.labelColors, this.displayOptions.labelColors) ||
+            !scalarRecordEqual(previous.atomColors, this.displayOptions.atomColors);
         const opacityChanged = !scalarRecordEqual(
             previous.labelOpacities,
             this.displayOptions.labelOpacities
-        );
+        ) || !scalarRecordEqual(previous.atomOpacities, this.displayOptions.atomOpacities);
         const materialChanged = !scalarRecordEqual(previous.labelMaterials, this.displayOptions.labelMaterials) ||
             !scalarRecordEqual(previous.atomMaterials, this.displayOptions.atomMaterials);
         const overlayChanged = previous.showOverlays !== this.displayOptions.showOverlays;
@@ -4218,6 +4278,7 @@ export class ASERenderer {
             previous.bondCustomColor !== this.displayOptions.bondCustomColor ||
             previous.bondOpacity !== this.displayOptions.bondOpacity ||
             !bondStyleRecordEqual(previous.pairwiseBondStyles, this.displayOptions.pairwiseBondStyles) ||
+            !atomBondStyleRecordEqual(previous.atomBondStyles, this.displayOptions.atomBondStyles) ||
             (colorChanged && this.displayOptions.bondColorMode === 'split') ||
             !flatPairArrayEqual(previous.manualBondPairs, this.displayOptions.manualBondPairs) ||
             !scalarRecordEqual(previous.pairwiseBondCutoffs, this.displayOptions.pairwiseBondCutoffs) ||
@@ -4313,7 +4374,13 @@ export class ASERenderer {
                 labelOpacities: { ...(displayOptions.labelOpacities || this.displayOptions.labelOpacities || {}) },
                 labelVisible: { ...(displayOptions.labelVisible || this.displayOptions.labelVisible || {}) },
                 labelMaterials: { ...(displayOptions.labelMaterials || this.displayOptions.labelMaterials || {}) },
+                atomRadiusScales: { ...(displayOptions.atomRadiusScales || this.displayOptions.atomRadiusScales || {}) },
+                atomColors: { ...(displayOptions.atomColors || this.displayOptions.atomColors || {}) },
+                atomOpacities: { ...(displayOptions.atomOpacities || this.displayOptions.atomOpacities || {}) },
                 atomMaterials: { ...(displayOptions.atomMaterials || this.displayOptions.atomMaterials || {}) },
+                atomBondStyles: cloneAtomBondStyleRecord(
+                    displayOptions.atomBondStyles || this.displayOptions.atomBondStyles || {}
+                ),
                 supercell: [...(displayOptions.supercell || this.displayOptions.supercell || [1, 1, 1])]
             };
         }
@@ -5876,7 +5943,6 @@ export class ASERenderer {
                 sharedGeometry: true,
                 sharedMaterial: true
             };
-            const thickness = this.bondThickness();
             colorSegments.forEach((segment, instanceId) => {
                 this.positionBondInstance(
                     mesh,
@@ -5887,7 +5953,7 @@ export class ASERenderer {
                     segment.t1,
                     null,
                     null,
-                    thickness,
+                    segment.appearance?.thickness ?? this.bondThickness(),
                     null,
                     appearance.style
                 );
@@ -5903,7 +5969,6 @@ export class ASERenderer {
     updateBondPositions() {
         if (!this.displayOptions.showBonds || !this.bondPairs?.length) return;
         if (this.bondGroup.children.length) {
-            const thickness = this.bondThickness();
             this.bondGroup.children.forEach(bond => {
                 if (bond.userData.instancedBonds) {
                     (bond.userData.bondSegments || []).forEach((segment, instanceId) => {
@@ -5916,7 +5981,7 @@ export class ASERenderer {
                             segment.t1,
                             null,
                             null,
-                            thickness,
+                            segment.appearance?.thickness ?? this.bondThickness(),
                             null,
                             segment.appearance?.style
                         );
@@ -7069,35 +7134,69 @@ export class ASERenderer {
             : 'standard';
     }
 
-    bondAppearance(i, j) {
+    bondAppearance(i, j, endpointIndex = null) {
         const left = this.atomsData?.symbols?.[i] || '';
         const right = this.atomsData?.symbols?.[j] || '';
         const override = this.displayOptions.pairwiseBondStyles?.[this.labelPairKey(left, right)];
         const source = override && typeof override === 'object' ? override : {};
-        const opacity = Number(source.opacity ?? this.displayOptions.bondOpacity);
-        return {
-            style: this.effectiveBondStyle(source.style ?? this.displayOptions.bondStyle),
-            material: this.normalizedBondMaterial(source.material ?? this.displayOptions.bondMaterial),
-            colorMode: (source.colorMode ?? this.displayOptions.bondColorMode) === 'custom'
-                ? 'custom'
-                : 'split',
-            customColor: this.validHexColor(source.color)
+        const endpoint = endpointIndex === null
+            ? null
+            : (
+                this.displayOptions.atomBondStyles?.[endpointIndex]
+                ?? this.displayOptions.atomBondStyles?.[String(endpointIndex)]
+            );
+        const endpointSource = endpoint && typeof endpoint === 'object' ? endpoint : {};
+        const opacity = Number(endpointSource.opacity ?? source.opacity ?? this.displayOptions.bondOpacity);
+        const thickness = Number(source.thickness ?? this.displayOptions.bondThickness);
+        const customColor = this.validHexColor(endpointSource.color)
+            ? endpointSource.color.toLowerCase()
+            : (this.validHexColor(source.color)
                 ? source.color.toLowerCase()
                 : (this.validHexColor(this.displayOptions.bondCustomColor)
                     ? this.displayOptions.bondCustomColor.toLowerCase()
-                    : '#c8ccd0'),
-            opacity: Math.max(0.05, Math.min(1, Number.isFinite(opacity) ? opacity : 1))
+                    : '#c8ccd0'));
+        return {
+            style: this.effectiveBondStyle(source.style ?? this.displayOptions.bondStyle),
+            material: this.normalizedBondMaterial(
+                endpointSource.material ?? source.material ?? this.displayOptions.bondMaterial
+            ),
+            thickness: Math.max(0.02, Math.min(0.6, Number.isFinite(thickness)
+                ? thickness
+                : this.bondThickness())),
+            colorMode: (source.colorMode ?? this.displayOptions.bondColorMode) === 'custom'
+                ? 'custom'
+                : 'split',
+            customColor,
+            opacity: Math.max(0, Math.min(1, Number.isFinite(opacity) ? opacity : 1))
         };
     }
 
     bondSegmentsForPair(i, j) {
-        const appearance = this.bondAppearance(i, j);
-        return appearance.colorMode === 'custom'
-            ? [{ i, j, t0: 0, t1: 1, colorIndex: null, appearance }]
-            : [
-                { i, j, t0: 0, t1: 0.5, colorIndex: i, appearance },
-                { i, j, t0: 0.5, t1: 1, colorIndex: j, appearance }
-            ];
+        const base = this.bondAppearance(i, j);
+        const leftAppearance = this.bondAppearance(i, j, i);
+        const rightAppearance = this.bondAppearance(i, j, j);
+        const endpointStyles = this.displayOptions.atomBondStyles || {};
+        const leftOverride = endpointStyles[i] ?? endpointStyles[String(i)];
+        const rightOverride = endpointStyles[j] ?? endpointStyles[String(j)];
+        if (
+            base.colorMode === 'custom'
+            && !leftOverride
+            && !rightOverride
+        ) {
+            return [{ i, j, t0: 0, t1: 1, colorIndex: null, appearance: base }];
+        }
+        return [
+            {
+                i, j, t0: 0, t1: 0.5,
+                colorIndex: base.colorMode === 'custom' ? null : i,
+                appearance: leftAppearance
+            },
+            {
+                i, j, t0: 0.5, t1: 1,
+                colorIndex: base.colorMode === 'custom' ? null : j,
+                appearance: rightAppearance
+            }
+        ];
     }
 
     bondAppearanceKey(segment) {
@@ -7106,6 +7205,7 @@ export class ASERenderer {
         return [
             appearance.style,
             appearance.material,
+            appearance.thickness.toFixed(4),
             appearance.opacity.toFixed(4),
             color
         ].join(':');
@@ -7120,7 +7220,10 @@ export class ASERenderer {
 
     bondMaterial(style, color, presetName = 'standard', opacity = 1) {
         const preset = this.normalizedBondMaterial(presetName);
-        const normalizedOpacity = Math.max(0.05, Math.min(1, Number(opacity) || 1));
+        const parsedOpacity = Number(opacity);
+        const normalizedOpacity = Math.max(0, Math.min(1, Number.isFinite(parsedOpacity)
+            ? parsedOpacity
+            : 1));
         const transparent = normalizedOpacity < 0.999;
         const key = [
             'bond', style, preset,
@@ -7755,7 +7858,6 @@ export class ASERenderer {
         const translations = this.supercellTranslations(basis, repeats);
         if (!translations.length) return;
 
-        const thickness = this.bondThickness();
         const instancesByAppearance = new Map();
         const addInstance = (
             segment,
@@ -7840,7 +7942,7 @@ export class ASERenderer {
                     segment.t1,
                     instance.shift,
                     instance.imageOffset,
-                    thickness,
+                    segment.appearance?.thickness ?? this.bondThickness(),
                     instance.cellOffset,
                     appearance.style
                 );
@@ -7851,7 +7953,6 @@ export class ASERenderer {
     }
 
     updateSupercellBondPositions() {
-        const thickness = this.bondThickness();
         this.supercellGroup.children.forEach(mesh => {
             if (!mesh.userData?.supercellBonds) return;
             (mesh.userData.bondInstances || []).forEach((instance, instanceId) => {
@@ -7865,7 +7966,7 @@ export class ASERenderer {
                     segment.t1,
                     instance.shift,
                     instance.imageOffset,
-                    thickness,
+                    segment.appearance?.thickness ?? this.bondThickness(),
                     instance.cellOffset,
                     segment.appearance?.style
                 );

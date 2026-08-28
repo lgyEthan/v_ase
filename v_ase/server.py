@@ -447,8 +447,10 @@ AI_CONTROL_SCHEMA = {
                 "Partial visual settings. Common keys include showBonds, "
                 "showCell, showAxes, showGrid, viewportBackground, "
                 "atomDisplayMode, atomRadiusScale, labelRadii, labelColors, "
-                "labelOpacities, labelMaterials, bondThickness, "
-                "bondMaterial, bondOpacity, pairwiseBondStyles, supercell, "
+                "labelOpacities, labelMaterials, atomRadiusScales, atomColors, "
+                "atomOpacities, atomMaterials, atomBondStyles, bondThickness, "
+                "bondMaterial, bondOpacity, pairwiseBondStyles (including "
+                "pair thickness), supercell, "
                 "translation, translationMode, lightingMode, "
                 "sunIntensity, sunPosition, and sunTarget."
             ),

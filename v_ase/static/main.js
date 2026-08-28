@@ -1,13 +1,13 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.2.33';
-import { ASERenderer } from './renderer.js?v=0.2.33';
-import { ASESelection } from './selection.js?v=0.2.33';
-import { ASETransform } from './transform.js?v=0.2.33';
+import { ASEApi } from './api.js?v=0.2.34';
+import { ASERenderer } from './renderer.js?v=0.2.34';
+import { ASESelection } from './selection.js?v=0.2.34';
+import { ASETransform } from './transform.js?v=0.2.34';
 import {
     interpolateTrajectoryFrames,
     interpolatedFrameCount,
     normalizeInterpolationMultiplier
-} from './trajectory.js?v=0.2.33';
+} from './trajectory.js?v=0.2.34';
 
 const CHEMICAL_ELEMENT_SYMBOLS = Object.freeze([
     'H','He','Li','Be','B','C','N','O','F','Ne',
@@ -146,6 +146,7 @@ class VAseApp {
             transformStartPointer: new THREE.Vector2(window.innerWidth / 2, window.innerHeight / 2),
             suppressNextPointerUp: false,
             clipboard: null,
+            selectedAppearanceDirty: new Set(),
             display: {
                 showBonds: true,
                 showCell: true,
@@ -175,7 +176,12 @@ class VAseApp {
                 labelOpacities: {},
                 labelVisible: {},
                 labelMaterials: {},
+                atomRadiusScales: {},
+                atomColors: {},
+                atomOpacities: {},
                 atomMaterials: {},
+                atomBondStyles: {},
+                selectedAppearanceAffectsBonds: true,
                 hiddenAtomReferences: [],
                 atomColorScaleEnabled: false,
                 atomColorScaleField: 'position:z',
@@ -673,12 +679,24 @@ class VAseApp {
 
     setupSelectedAppearanceControls() {
         const labelInput = document.getElementById('selected-atom-label');
-        const applyLabel = document.getElementById('btn-apply-selected-label');
-        applyLabel?.addEventListener('click', () => {
+        const materialInput = document.getElementById('selected-atom-material');
+        const colorInput = document.getElementById('selected-atom-color');
+        const opacityInput = document.getElementById('selected-atom-opacity');
+        const radiusScaleInput = document.getElementById('selected-atom-radius-scale');
+        const radiusScaleOutput = document.getElementById('selected-atom-radius-scale-value');
+        const bondToggle = document.getElementById('selected-atom-update-bonds');
+        const applyButton = document.getElementById('btn-apply-selected-label');
+        const markDirty = field => {
+            if (!this.selectedAtomIndices().length) return;
+            this.state.selectedAppearanceDirty.add(field);
+            applyButton?.classList.add('is-dirty');
+        };
+        applyButton?.addEventListener('click', () => {
             this.applySelectedAppearanceEdit().catch(err => {
                 this.toast(`Appearance update failed: ${err.message}`, 'error');
             });
         });
+        labelInput?.addEventListener('input', () => markDirty('label'));
         labelInput?.addEventListener('keydown', event => {
             if (event.key !== 'Enter') return;
             event.preventDefault();
@@ -686,29 +704,52 @@ class VAseApp {
                 this.toast(`Appearance update failed: ${err.message}`, 'error');
             });
         });
+        materialInput?.addEventListener('change', () => markDirty('material'));
+        colorInput?.addEventListener('input', () => markDirty('color'));
+        opacityInput?.addEventListener('input', () => markDirty('opacity'));
+        opacityInput?.addEventListener('keydown', event => {
+            if (event.key !== 'Enter') return;
+            event.preventDefault();
+            this.applySelectedAppearanceEdit().catch(err => {
+                this.toast(`Appearance update failed: ${err.message}`, 'error');
+            });
+        });
+        radiusScaleInput?.addEventListener('input', () => {
+            const value = Number(radiusScaleInput.value);
+            if (radiusScaleOutput && Number.isFinite(value)) {
+                radiusScaleOutput.textContent = `${value.toFixed(2)}x`;
+            }
+            markDirty('radiusScale');
+        });
+        bondToggle?.addEventListener('change', () => {
+            this.state.display.selectedAppearanceAffectsBonds = bondToggle.checked;
+            this.scheduleVisualHistoryCommit('selected-appearance-bond-link');
+        });
     }
 
     async applySelectedAppearanceEdit() {
-        const indices = this.selectedAtomIndices();
+        let indices = this.selectedAtomIndices();
         if (!indices.length) {
             this.toast('Select atoms before changing their appearance.', 'warning');
             return;
         }
+        const dirty = new Set(this.state.selectedAppearanceDirty || []);
         const labelInput = document.getElementById('selected-atom-label');
-        const materialInput = document.getElementById('selected-atom-material');
         const label = this.normalizedTypeLabel(labelInput?.value);
-        // Capture both pending fields before a label update refreshes the
-        // controls. The backend response may otherwise restore the material
-        // select to its previous inherited value before it is committed.
-        const material = materialInput?.value;
         const labels = [...new Set(indices.map(index => this.state.atoms?.symbols?.[index]))];
-        if (label && (labels.length !== 1 || labels[0] !== label)) {
+        if (dirty.has('label') && label && (labels.length !== 1 || labels[0] !== label)) {
             const applied = await this.applySelectedLabelEdit({ reportErrors: false });
             if (!applied) return;
+            indices = this.selectedAtomIndices();
         }
-        if (material && material !== 'mixed') {
-            this.applySelectedMaterial(material, indices);
+        const appearanceFields = new Set(
+            [...dirty].filter(field => ['material', 'color', 'opacity', 'radiusScale'].includes(field))
+        );
+        if (appearanceFields.size) {
+            this.applySelectedIndexAppearance(indices, appearanceFields);
         }
+        this.state.selectedAppearanceDirty.clear();
+        document.getElementById('btn-apply-selected-label')?.classList.remove('is-dirty');
         this.updateSelectedAppearanceControls();
     }
 
@@ -2045,6 +2086,38 @@ class VAseApp {
         return this.normalizedAtomMaterialPreset(display.labelMaterials?.[label]);
     }
 
+    atomRadiusScaleOverride(index, display = this.state.display) {
+        const value = Number(
+            display.atomRadiusScales?.[index] ?? display.atomRadiusScales?.[String(index)]
+        );
+        return Number.isFinite(value) && value > 0 ? value : 1;
+    }
+
+    atomManualColor(index, display = this.state.display) {
+        const override = display.atomColors?.[index] ?? display.atomColors?.[String(index)];
+        if (this.validHexColor(override)) return override.toLowerCase();
+        const label = this.state.atoms?.symbols?.[index];
+        return this.labelVisualColor(label).toLowerCase();
+    }
+
+    atomManualOpacity(index, display = this.state.display) {
+        const override = Number(
+            display.atomOpacities?.[index] ?? display.atomOpacities?.[String(index)]
+        );
+        if (Number.isFinite(override)) return Math.max(0, Math.min(1, override));
+        const label = this.state.atoms?.symbols?.[index];
+        const inherited = Number(display.labelOpacities?.[label]);
+        return Math.max(0, Math.min(1, Number.isFinite(inherited) ? inherited : 1));
+    }
+
+    commonSelectedAppearanceValue(indices, getter) {
+        if (!indices.length) return { mixed: false, value: null };
+        const values = indices.map(getter);
+        const first = values[0];
+        const mixed = values.some(value => value !== first);
+        return { mixed, value: mixed ? null : first, first };
+    }
+
     selectedAtomIndices() {
         const atomCount = this.state.atoms?.positions?.length || 0;
         const selected = new Set(this.state.selected);
@@ -2058,29 +2131,174 @@ class VAseApp {
 
     updateSelectedAppearanceControls() {
         const labelInput = document.getElementById('selected-atom-label');
-        const applyLabel = document.getElementById('btn-apply-selected-label');
+        const applyButton = document.getElementById('btn-apply-selected-label');
         const material = document.getElementById('selected-atom-material');
+        const color = document.getElementById('selected-atom-color');
+        const opacity = document.getElementById('selected-atom-opacity');
+        const radiusScale = document.getElementById('selected-atom-radius-scale');
+        const radiusOutput = document.getElementById('selected-atom-radius-scale-value');
+        const bondToggle = document.getElementById('selected-atom-update-bonds');
         const count = document.getElementById('selected-appearance-count');
-        if (!labelInput || !applyLabel || !material || !count) return;
+        if (
+            !labelInput || !applyButton || !material || !color || !opacity
+            || !radiusScale || !radiusOutput || !bondToggle || !count
+        ) return;
 
         const indices = this.selectedAtomIndices();
+        const selectionKey = indices.join(',');
+        if (this.state.selectedAppearanceSelectionKey !== selectionKey) {
+            this.state.selectedAppearanceSelectionKey = selectionKey;
+            this.state.selectedAppearanceDirty.clear();
+            applyButton.classList.remove('is-dirty');
+        }
+        const dirty = this.state.selectedAppearanceDirty;
         const enabled = indices.length > 0 && !this.state.modeSwitchInFlight;
         count.textContent = indices.length
             ? `${indices.length} atom${indices.length === 1 ? '' : 's'}`
             : 'None';
         labelInput.disabled = !enabled;
-        applyLabel.disabled = !enabled;
+        applyButton.disabled = !enabled;
         material.disabled = !enabled;
+        color.disabled = !enabled;
+        opacity.disabled = !enabled;
+        radiusScale.disabled = !enabled;
+        bondToggle.disabled = !enabled;
 
         const labels = [...new Set(indices.map(index => this.state.atoms?.symbols?.[index]).filter(Boolean))];
-        if (document.activeElement !== labelInput) {
+        if (!dirty.has('label') && document.activeElement !== labelInput) {
             labelInput.value = labels.length === 1 ? labels[0] : '';
             labelInput.placeholder = indices.length
                 ? (labels.length > 1 ? 'Mixed labels' : 'Label')
                 : 'Select atoms';
         }
-        const materials = [...new Set(indices.map(index => this.atomMaterialPreset(index)))];
-        material.value = materials.length === 1 ? materials[0] : 'mixed';
+        if (!dirty.has('material')) {
+            const materials = [...new Set(indices.map(index => this.atomMaterialPreset(index)))];
+            material.value = materials.length === 1 ? materials[0] : 'mixed';
+        }
+        if (!dirty.has('color')) {
+            if (!indices.length) {
+                color.value = '#808080';
+                color.dataset.mixed = 'false';
+                color.title = 'Select atoms to set their color';
+            } else {
+                const colors = this.commonSelectedAppearanceValue(
+                    indices, index => this.atomManualColor(index)
+                );
+                color.value = this.validHexColor(colors.value)
+                    ? colors.value
+                    : (this.validHexColor(colors.first) ? colors.first : '#808080');
+                color.dataset.mixed = colors.mixed ? 'true' : 'false';
+                color.title = colors.mixed
+                    ? 'Mixed colors; choose a color to override only the selected atom indices'
+                    : 'Color for the selected atom indices';
+            }
+        }
+        if (!dirty.has('opacity') && document.activeElement !== opacity) {
+            if (!indices.length) {
+                opacity.value = '';
+                opacity.placeholder = '—';
+            } else {
+                const opacities = this.commonSelectedAppearanceValue(
+                    indices, index => Number(this.atomManualOpacity(index).toFixed(6))
+                );
+                opacity.value = opacities.mixed ? '' : Number(opacities.value).toFixed(2);
+                opacity.placeholder = opacities.mixed ? 'Mixed' : '';
+            }
+        }
+        if (!dirty.has('radiusScale')) {
+            if (!indices.length) {
+                radiusScale.value = '1';
+                radiusOutput.textContent = '—';
+            } else {
+                const scales = this.commonSelectedAppearanceValue(
+                    indices, index => Number(this.atomRadiusScaleOverride(index).toFixed(6))
+                );
+                radiusScale.value = scales.mixed ? '1' : String(scales.value ?? 1);
+                radiusOutput.textContent = scales.mixed
+                    ? 'Mixed'
+                    : `${Number(scales.value ?? 1).toFixed(2)}x`;
+            }
+        }
+        bondToggle.checked = this.state.display.selectedAppearanceAffectsBonds !== false;
+    }
+
+    applySelectedIndexAppearance(indices, dirtyFields) {
+        if (!indices.length || !dirtyFields.size) return;
+        const materialInput = document.getElementById('selected-atom-material');
+        const colorInput = document.getElementById('selected-atom-color');
+        const opacityInput = document.getElementById('selected-atom-opacity');
+        const radiusInput = document.getElementById('selected-atom-radius-scale');
+        const followBonds = document.getElementById('selected-atom-update-bonds')?.checked !== false;
+        const material = dirtyFields.has('material')
+            ? this.normalizedAtomMaterialPreset(materialInput?.value)
+            : null;
+        const color = dirtyFields.has('color') ? String(colorInput?.value || '').toLowerCase() : null;
+        if (dirtyFields.has('color') && !this.validHexColor(color)) {
+            throw new Error('Selected atom color must use #RRGGBB notation.');
+        }
+        const parsedOpacity = dirtyFields.has('opacity') ? Number(opacityInput?.value) : null;
+        if (dirtyFields.has('opacity') && (!Number.isFinite(parsedOpacity) || parsedOpacity < 0 || parsedOpacity > 1)) {
+            throw new Error('Selected atom opacity must be between 0 and 1.');
+        }
+        const parsedRadiusScale = dirtyFields.has('radiusScale') ? Number(radiusInput?.value) : null;
+        if (
+            dirtyFields.has('radiusScale')
+            && (!Number.isFinite(parsedRadiusScale) || parsedRadiusScale < 0.25 || parsedRadiusScale > 2.5)
+        ) {
+            throw new Error('Selected atom radius scale must be between 0.25 and 2.5.');
+        }
+
+        const atomMaterials = { ...(this.state.display.atomMaterials || {}) };
+        const atomColors = { ...(this.state.display.atomColors || {}) };
+        const atomOpacities = { ...(this.state.display.atomOpacities || {}) };
+        const atomRadiusScales = { ...(this.state.display.atomRadiusScales || {}) };
+        const atomBondStyles = this.clonePlain(this.state.display.atomBondStyles || {});
+        indices.forEach(index => {
+            const label = this.state.atoms?.symbols?.[index];
+            if (dirtyFields.has('material')) {
+                const inherited = this.normalizedAtomMaterialPreset(
+                    this.state.display.labelMaterials?.[label]
+                );
+                if (material === inherited) delete atomMaterials[index];
+                else atomMaterials[index] = material;
+            }
+            if (dirtyFields.has('color')) {
+                const inherited = this.labelVisualColor(label).toLowerCase();
+                if (color === inherited) delete atomColors[index];
+                else atomColors[index] = color;
+            }
+            if (dirtyFields.has('opacity')) {
+                const inheritedValue = Number(this.state.display.labelOpacities?.[label]);
+                const inherited = Number.isFinite(inheritedValue)
+                    ? Math.max(0, Math.min(1, inheritedValue))
+                    : 1;
+                if (Math.abs(parsedOpacity - inherited) <= 1e-9) delete atomOpacities[index];
+                else atomOpacities[index] = parsedOpacity;
+            }
+            if (dirtyFields.has('radiusScale')) {
+                if (Math.abs(parsedRadiusScale - 1) <= 1e-9) delete atomRadiusScales[index];
+                else atomRadiusScales[index] = parsedRadiusScale;
+            }
+            if (followBonds) {
+                const style = { ...(atomBondStyles[index] || atomBondStyles[String(index)] || {}) };
+                if (dirtyFields.has('material')) style.material = material;
+                if (dirtyFields.has('opacity')) style.opacity = parsedOpacity;
+                if (Object.keys(style).length) atomBondStyles[index] = style;
+            }
+        });
+        this.state.display.atomMaterials = atomMaterials;
+        this.state.display.atomColors = atomColors;
+        this.state.display.atomOpacities = atomOpacities;
+        this.state.display.atomRadiusScales = atomRadiusScales;
+        this.state.display.atomBondStyles = atomBondStyles;
+        this.state.display.selectedAppearanceAffectsBonds = followBonds;
+        this.applyDisplayOptions();
+        this.renderAppearanceRows();
+        this.scheduleVisualHistoryCommit('selected-appearance');
+        this.toast(
+            `Updated ${indices.length} selected atom${indices.length === 1 ? '' : 's'} by index.`,
+            'success'
+        );
     }
 
     applySelectedMaterial(value, indices = this.selectedAtomIndices()) {
@@ -2099,7 +2317,17 @@ class VAseApp {
             else atomMaterials[index] = preset;
         });
         this.state.display.atomMaterials = atomMaterials;
-        this.safeApplyDisplayOptions();
+        if (this.state.display.selectedAppearanceAffectsBonds !== false) {
+            const atomBondStyles = this.clonePlain(this.state.display.atomBondStyles || {});
+            indices.forEach(index => {
+                atomBondStyles[index] = {
+                    ...(atomBondStyles[index] || atomBondStyles[String(index)] || {}),
+                    material: preset
+                };
+            });
+            this.state.display.atomBondStyles = atomBondStyles;
+        }
+        this.applyDisplayOptions();
         this.renderAppearanceRows();
         this.updateSelectedAppearanceControls();
         this.scheduleVisualHistoryCommit('selected-material');
@@ -2891,6 +3119,11 @@ class VAseApp {
 
     addAddAtomsRegion(role = 'allow') {
         if (!this.addAtomsUI || this.addAtomsUI?.active?.is_relaxing) return;
+        const shouldFrameScratchRegion = (
+            !this.hasLoadedAtoms()
+            && !this.hasUsableCell()
+            && this.addAtomsRegions().length === 0
+        );
         const normalizedRole = role === 'reject' ? 'reject' : 'allow';
         const number = this.addAtomsRegions().filter(region => region.role === normalizedRole).length + 1;
         const generated = globalThis.crypto?.randomUUID?.()
@@ -2904,7 +3137,23 @@ class VAseApp {
         this.addAtomsUI.regions = [...this.addAtomsRegions(), region];
         this.setAddAtomsRegionSelection([region.id], { update: false });
         this.updateAddAtomsRegionPreview();
+        if (shouldFrameScratchRegion) {
+            this.frameScratchInsertionRegion(region.bounds);
+        }
         void this.commitAddAtomsRegionControls();
+    }
+
+    frameScratchInsertionRegion(bounds) {
+        if (!Array.isArray(bounds) || bounds.length !== 6) return;
+        const values = bounds.map(Number);
+        if (!values.every(Number.isFinite)) return;
+        const box = new THREE.Box3(
+            new THREE.Vector3(values[0], values[2], values[4]),
+            new THREE.Vector3(values[1], values[3], values[5])
+        );
+        if (box.isEmpty()) return;
+        this.renderer.fitCameraToStructure(box);
+        this.syncAtomicScaleFromCamera({ forceInput: true });
     }
 
     deleteSelectedAddAtomsRegions() {
@@ -10655,7 +10904,12 @@ class VAseApp {
         this.state.display.labelOpacities = config.label_opacities || {};
         this.state.display.labelVisible = config.element_visible || {};
         this.state.display.labelMaterials = config.label_materials || {};
+        this.state.display.atomRadiusScales = config.atom_radius_scales || {};
+        this.state.display.atomColors = config.atom_colors || {};
+        this.state.display.atomOpacities = config.atom_opacities || {};
         this.state.display.atomMaterials = config.atom_materials || {};
+        this.state.display.atomBondStyles = config.atom_bond_styles || {};
+        this.state.display.selectedAppearanceAffectsBonds = config.selected_appearance_affects_bonds !== false;
         this.state.display.rotatePivot = config.rotate_pivot || this.state.display.rotatePivot;
         this.state.display.commensurateGuide = Boolean(
             config.commensurate_guide ?? config.unit_cell_aware_rotate ?? this.state.display.commensurateGuide
@@ -11451,6 +11705,17 @@ class VAseApp {
     toggleSelectionReference(reference) {
         if (this.hasSelectionReference(reference)) this.removeSelectionReference(reference);
         else this.addSelectionReference(reference);
+    }
+
+    toggleSelectionReferences(references) {
+        const unique = new Map();
+        (references || []).forEach(reference => {
+            const normalized = this.editableSelectionReference(reference);
+            if (normalized && this.isSelectionReferenceVisible(normalized)) {
+                unique.set(normalized.key, normalized);
+            }
+        });
+        unique.forEach(reference => this.toggleSelectionReference(reference));
     }
 
     selectionReferencePosition(reference) {
@@ -13697,9 +13962,13 @@ class VAseApp {
     }
 
     normalizedBondPairStyle(value = {}) {
+        const thickness = Number(value.thickness);
         return {
             style: value.style === 'flat' ? 'flat' : 'cylinder',
             material: this.normalizedBondMaterial(value.material),
+            thickness: Math.max(0.02, Math.min(0.6, Number.isFinite(thickness)
+                ? thickness
+                : Number(this.state.display.bondThickness) || 0.25)),
             colorMode: value.colorMode === 'custom' ? 'custom' : 'split',
             color: this.validHexColor(value.color) ? value.color : '#c8ccd0',
             opacity: Math.max(0.05, Math.min(1, Number.isFinite(Number(value.opacity))
@@ -13737,6 +14006,7 @@ class VAseApp {
         const fallback = this.normalizedBondPairStyle({
             style: this.state.display.bondStyle,
             material: this.state.display.bondMaterial,
+            thickness: this.state.display.bondThickness,
             colorMode: this.state.display.bondColorMode,
             color: this.state.display.bondCustomColor,
             opacity: this.state.display.bondOpacity
@@ -13755,6 +14025,7 @@ class VAseApp {
         };
         setValue('bond-pair-style', style.style);
         setValue('bond-pair-material', style.material);
+        setValue('bond-pair-thickness', style.thickness);
         setValue('bond-pair-color-mode', style.colorMode);
         setValue('bond-pair-custom-color', style.color);
         setValue('bond-pair-opacity', style.opacity);
@@ -13763,12 +14034,15 @@ class VAseApp {
         );
         const opacityOutput = document.getElementById('bond-pair-opacity-value');
         if (opacityOutput) opacityOutput.textContent = `${Math.round(style.opacity * 100)}%`;
+        const thicknessOutput = document.getElementById('bond-pair-thickness-value');
+        if (thicknessOutput) thicknessOutput.textContent = `${style.thickness.toFixed(2)} A`;
     }
 
     bondPairStyleFromEditor() {
         return this.normalizedBondPairStyle({
             style: document.getElementById('bond-pair-style')?.value,
             material: document.getElementById('bond-pair-material')?.value,
+            thickness: document.getElementById('bond-pair-thickness')?.value,
             colorMode: document.getElementById('bond-pair-color-mode')?.value,
             color: document.getElementById('bond-pair-custom-color')?.value,
             opacity: document.getElementById('bond-pair-opacity')?.value
@@ -14556,8 +14830,22 @@ class VAseApp {
             opacity.step = '0.05';
             opacity.value = Number(this.state.display.labelOpacities[symbol]).toFixed(2);
             opacity.title = `Opacity for ${symbol} (0 transparent, 1 opaque)`;
-            opacity.addEventListener('change', () => this.safeApplyDisplayOptions());
-            opacity.addEventListener('input', () => this.safeApplyDisplayOptions());
+            const commitOpacity = () => {
+                const value = Number(opacity.value);
+                if (!Number.isFinite(value)) {
+                    opacity.value = Number(this.state.display.labelOpacities[symbol] ?? 1).toFixed(2);
+                    return;
+                }
+                opacity.value = Math.max(0, Math.min(1, value)).toFixed(2);
+                this.safeApplyDisplayOptions();
+            };
+            opacity.addEventListener('change', commitOpacity);
+            opacity.addEventListener('keydown', event => {
+                if (event.key !== 'Enter') return;
+                event.preventDefault();
+                commitOpacity();
+                opacity.blur();
+            });
 
             const material = document.createElement('select');
             material.className = 'appearance-material-select';
@@ -16206,7 +16494,11 @@ class VAseApp {
                     'bondColorMode', 'bondCustomColor'
                 ],
                 pairDisplayKey: 'pairwiseBondStyles',
-                pairFields: ['style', 'material', 'colorMode', 'color', 'opacity'],
+                pairFields: ['style', 'material', 'thickness', 'colorMode', 'color', 'opacity'],
+                atomDisplayKeys: [
+                    'atomRadiusScales', 'atomColors', 'atomOpacities',
+                    'atomMaterials', 'atomBondStyles'
+                ],
                 styles: ['cylinder', 'flat'],
                 materials: ['standard', 'metal', 'rubber', 'unlit']
             }
@@ -18245,7 +18537,11 @@ class VAseApp {
         this.syncAtomicScaleFromCamera({ forceInput: true, syncPreview: false });
         const display = this.clonePlain(this.state.display);
         if (!includeAtomOverrides) {
+            display.atomRadiusScales = {};
+            display.atomColors = {};
+            display.atomOpacities = {};
             display.atomMaterials = {};
+            display.atomBondStyles = {};
             display.hiddenAtomReferences = [];
         }
         const snapshot = {
@@ -18375,6 +18671,10 @@ class VAseApp {
         setValue('bond-opacity', Math.max(0.05, Math.min(1, Number(display.bondOpacity) || 1)));
         setValue('blender-export-mode', display.blenderExportMode || 'instanced');
         setValue('atom-radius-scale', display.atomRadiusScale || 0.6);
+        setChecked(
+            'selected-atom-update-bonds',
+            display.selectedAppearanceAffectsBonds !== false
+        );
         setValue('move-increment', this.state.moveIncrement || 0);
         setValue('rotate-increment', this.state.rotateIncrementDeg || 0);
         this.syncDisplacementControls(display);
@@ -18484,6 +18784,27 @@ class VAseApp {
         labels.forEach(label => {
             labelMaterials[label] = this.normalizedAtomMaterialPreset(labelMaterials[label]);
         });
+        const pickAtomMap = (source, normalize) => {
+            const result = {};
+            Object.entries(source || {}).forEach(([rawIndex, value]) => {
+                const index = Number(rawIndex);
+                if (!Number.isInteger(index) || index < 0 || index >= atomCount) return;
+                const normalized = normalize(value);
+                if (normalized !== null && normalized !== undefined) result[index] = normalized;
+            });
+            return result;
+        };
+        const atomRadiusScales = pickAtomMap(nextDisplay.atomRadiusScales, value => {
+            const scale = Number(value);
+            return Number.isFinite(scale) && scale >= 0.25 && scale <= 2.5 ? scale : null;
+        });
+        const atomColors = pickAtomMap(nextDisplay.atomColors, value => (
+            this.validHexColor(value) ? String(value).toLowerCase() : null
+        ));
+        const atomOpacities = pickAtomMap(nextDisplay.atomOpacities, value => {
+            const opacity = Number(value);
+            return Number.isFinite(opacity) ? Math.max(0, Math.min(1, opacity)) : null;
+        });
         const atomMaterials = {};
         Object.entries(nextDisplay.atomMaterials || {}).forEach(([rawIndex, preset]) => {
             const index = Number(rawIndex);
@@ -18495,6 +18816,17 @@ class VAseApp {
             ) {
                 atomMaterials[index] = preset;
             }
+        });
+        const atomBondStyles = pickAtomMap(nextDisplay.atomBondStyles, value => {
+            if (!value || typeof value !== 'object') return null;
+            const style = {};
+            if (ATOM_MATERIAL_PRESETS.includes(value.material) || value.material === 'unlit') {
+                style.material = value.material;
+            }
+            const opacity = Number(value.opacity);
+            if (Number.isFinite(opacity)) style.opacity = Math.max(0, Math.min(1, opacity));
+            if (this.validHexColor(value.color)) style.color = String(value.color).toLowerCase();
+            return Object.keys(style).length ? style : null;
         });
         const hiddenAtomReferences = [...new Set(
             (Array.isArray(nextDisplay.hiddenAtomReferences)
@@ -18616,7 +18948,12 @@ class VAseApp {
             labelOpacities,
             labelVisible,
             labelMaterials,
+            atomRadiusScales,
+            atomColors,
+            atomOpacities,
             atomMaterials,
+            atomBondStyles,
+            selectedAppearanceAffectsBonds: nextDisplay.selectedAppearanceAffectsBonds !== false,
             hiddenAtomReferences,
             atomColorScaleEnabled: Boolean(nextDisplay.atomColorScaleEnabled),
             atomColorScaleField: String(nextDisplay.atomColorScaleField || 'position:z'),
@@ -18804,7 +19141,11 @@ class VAseApp {
             labelOpacities: this.clonePlain(nextDisplay.labelOpacities),
             labelVisible: this.clonePlain(nextDisplay.labelVisible),
             labelMaterials: this.clonePlain(nextDisplay.labelMaterials),
+            atomRadiusScales: this.clonePlain(nextDisplay.atomRadiusScales),
+            atomColors: this.clonePlain(nextDisplay.atomColors),
+            atomOpacities: this.clonePlain(nextDisplay.atomOpacities),
             atomMaterials: this.clonePlain(nextDisplay.atomMaterials),
+            atomBondStyles: this.clonePlain(nextDisplay.atomBondStyles),
             supercell: this.clonePlain(nextDisplay.supercell),
             translation: this.clonePlain(nextDisplay.translation),
             volumetricPlanes: this.clonePlain(nextDisplay.volumetricPlanes)
@@ -19361,9 +19702,12 @@ class VAseApp {
         }
         this.state.clipboard = {
             indices,
-            atomMaterials: Object.fromEntries(indices
-                .filter(index => Object.prototype.hasOwnProperty.call(this.state.display.atomMaterials || {}, index))
-                .map(index => [index, this.state.display.atomMaterials[index]]))
+            appearanceOverrides: Object.fromEntries(
+                ['atomRadiusScales', 'atomColors', 'atomOpacities', 'atomMaterials', 'atomBondStyles']
+                    .map(key => [key, Object.fromEntries(indices
+                        .filter(index => Object.prototype.hasOwnProperty.call(this.state.display[key] || {}, index))
+                        .map(index => [index, this.clonePlain(this.state.display[key][index])]))])
+            )
         };
         this.toast(`Copied ${indices.length} atom${indices.length > 1 ? 's' : ''}.`, 'success');
     }
@@ -19381,15 +19725,18 @@ class VAseApp {
             const sourceIndices = [...this.state.clipboard.indices];
             const data = await this.api.duplicateAtoms(sourceIndices);
             const newIndices = (data.duplicated_indices || []).map(Number);
-            const atomMaterials = { ...(this.state.display.atomMaterials || {}) };
-            sourceIndices.forEach((sourceIndex, offset) => {
-                const newIndex = newIndices[offset];
-                if (!Number.isInteger(newIndex)) return;
-                if (Object.prototype.hasOwnProperty.call(this.state.clipboard.atomMaterials || {}, sourceIndex)) {
-                    atomMaterials[newIndex] = this.state.clipboard.atomMaterials[sourceIndex];
-                }
+            ['atomRadiusScales', 'atomColors', 'atomOpacities', 'atomMaterials', 'atomBondStyles'].forEach(key => {
+                const next = this.clonePlain(this.state.display[key] || {});
+                const copied = this.state.clipboard.appearanceOverrides?.[key] || {};
+                sourceIndices.forEach((sourceIndex, offset) => {
+                    const newIndex = newIndices[offset];
+                    if (!Number.isInteger(newIndex)) return;
+                    if (Object.prototype.hasOwnProperty.call(copied, sourceIndex)) {
+                        next[newIndex] = this.clonePlain(copied[sourceIndex]);
+                    }
+                });
+                this.state.display[key] = next;
             });
-            this.state.display.atomMaterials = atomMaterials;
             this.setAtomsData(data, { clearSelection: true });
             newIndices.forEach(index => this.addSelectionReference(index));
             this.updateSelectionVisuals();
@@ -20919,9 +21266,12 @@ class VAseApp {
             'export-image-modal',
             'html-export-modal',
             'project-save-modal',
-            'custom-colormap-modal'
+            'custom-colormap-modal',
+            'help-modal'
         );
         content.innerHTML = contentHtml;
+        content.scrollTop = 0;
+        content.tabIndex = 0;
         actions.innerHTML = actionsHtml;
         container.classList.remove('hidden');
         actions.querySelector('#modal-close')?.addEventListener('click', () => this.closeModal());
@@ -21587,8 +21937,10 @@ class VAseApp {
             <h2>Shortcuts</h2>
             <div class="shortcut-grid">
                 <span>Left click</span><label>Select / confirm transform</label>
-                <span>Shift + click</span><label>Add or remove selection</label>
+                <span>Shift + click / drag</span><label>Invert selection for clicked atoms or every atom inside the box</label>
                 <span>Left drag</span><label>Box select</label>
+                <span>Ctrl+A</span><label>Select all visible atoms</label>
+                <span>Shift+Ctrl+A</span><label>Invert selection for all visible atoms</label>
                 <span>Middle drag</span><label>Orbit viewport</label>
                 <span>Shift + middle drag</span><label>Pan viewport</label>
                 <span>Space</span><label>Play or pause the selected timeline</label>
@@ -21642,6 +21994,8 @@ class VAseApp {
                 <span>Copyright (C) 2026 v_ase contributors. This software is provided without warranty. <a href="/license" target="_blank" rel="noopener">View license</a> · <a href="https://github.com/lgyEthan/v_ase" target="_blank" rel="noopener">Get source</a></span>
             </div>
         `);
+        document.querySelector('#modal-container .modal')?.classList.add('help-modal');
+        requestAnimationFrame(() => document.getElementById('modal-content')?.focus());
     }
 
     imageOutputDimensions() {
@@ -23552,6 +23906,11 @@ class VAseApp {
                 'hidden', event.target.value !== 'custom'
             );
         };
+        document.getElementById('bond-pair-thickness').oninput = () => {
+            const value = Number(document.getElementById('bond-pair-thickness').value);
+            const output = document.getElementById('bond-pair-thickness-value');
+            if (output) output.textContent = `${Math.max(0.02, Math.min(0.6, value)).toFixed(2)} A`;
+        };
         document.getElementById('bond-pair-opacity').oninput = () => {
             const value = Number(document.getElementById('bond-pair-opacity').value);
             const output = document.getElementById('bond-pair-opacity-value');
@@ -23615,9 +23974,8 @@ class VAseApp {
             modalContainer?.addEventListener(type, (e) => {
                 if (!modalContainer.classList.contains('hidden')) {
                     e.stopPropagation();
-                    if (type === 'wheel') e.preventDefault();
                 }
-            }, { passive: false });
+            }, { passive: type === 'wheel' });
         });
         document.getElementById('timeline-source-select')?.addEventListener('change', event => {
             this.setTimelineSource(event.target.value)
@@ -23949,7 +24307,8 @@ class VAseApp {
                         this.setVolumetricPlaneSelection([], { update: false });
                     }
                 }
-                newSelected.forEach(reference => this.addSelectionReference(reference));
+                if (e.shiftKey) this.toggleSelectionReferences(newSelected);
+                else newSelected.forEach(reference => this.addSelectionReference(reference));
                 this.updateSelectionVisuals();
                 this.updateUI();
             }
@@ -24126,6 +24485,12 @@ class VAseApp {
                     this.setSunSelected(false, { update: false });
                     if (e.altKey) {
                         this.clearAtomSelection();
+                    } else if (e.shiftKey) {
+                        const references = this.state.atoms.positions.map((_, index) => index);
+                        if (this.state.vizOnly) {
+                            references.push(...this.renderer.supercellSelectionReferences());
+                        }
+                        this.toggleSelectionReferences(references);
                     } else {
                         this.clearAtomSelection();
                         this.state.atoms.positions.forEach((_, idx) => this.addSelectionReference(idx));

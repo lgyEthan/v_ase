@@ -52,12 +52,12 @@
             });
         })();
     </script>
-    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.2.33">
+    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.2.34">
     <script>
         window.__V_ASE_MOCK__ = new URLSearchParams(window.location.search).has('v_ase_mock');
         const threeModulePath = window.location.protocol === 'file:'
             ? './vendor/three.module.js'
-            : '/static/vendor/three.module.js?v=0.2.33';
+            : '/static/vendor/three.module.js?v=0.2.34';
         const importMap = document.createElement('script');
         importMap.type = 'importmap';
         importMap.textContent = JSON.stringify({
@@ -123,7 +123,7 @@
     <header id="top-bar" class="glass-panel">
         <div class="logo">
             <img class="brand-logo-asset" src="static/v_ase-logo.png" alt="v_ase">
-            <span class="version">0.2.33</span>
+            <span class="version">0.2.34</span>
         </div>
         <div id="runtime-mode-switch" class="runtime-mode-switch" role="group" aria-label="Workspace mode">
             <button type="button" data-runtime-mode="view" aria-pressed="true"
@@ -1269,20 +1269,41 @@
                     <strong>Selected atoms</strong>
                     <span id="selected-appearance-count">None</span>
                 </div>
-                <div class="selected-appearance-grid">
-                    <label for="selected-atom-label">Label</label>
-                    <div class="selected-label-control">
+                <div class="selected-appearance-fields">
+                    <label class="selected-appearance-field" for="selected-atom-label">
+                        <span>Label</span>
                         <input id="selected-atom-label" type="text" placeholder="Select atoms">
-                        <button id="btn-apply-selected-label" type="button">Apply</button>
-                    </div>
-                    <label for="selected-atom-material">Material</label>
-                    <select id="selected-atom-material">
-                        <option value="mixed" disabled>Mixed</option>
-                        <option value="standard">Standard</option>
-                        <option value="metal">Metal</option>
-                        <option value="rubber">Rubber</option>
-                    </select>
+                    </label>
+                    <label class="selected-appearance-field" for="selected-atom-material">
+                        <span>Material</span>
+                        <select id="selected-atom-material">
+                            <option value="mixed" disabled>Mixed</option>
+                            <option value="standard">Standard</option>
+                            <option value="metal">Metal</option>
+                            <option value="rubber">Rubber</option>
+                        </select>
+                    </label>
+                    <label class="selected-appearance-field selected-color-field" for="selected-atom-color">
+                        <span>Color</span>
+                        <input id="selected-atom-color" type="color" value="#808080">
+                    </label>
+                    <label class="selected-appearance-field" for="selected-atom-opacity">
+                        <span>Opacity</span>
+                        <input id="selected-atom-opacity" type="number" min="0" max="1" step="0.05" placeholder="Mixed">
+                    </label>
                 </div>
+                <div class="range-row selected-radius-scale-row">
+                    <div class="range-head">
+                        <label for="selected-atom-radius-scale">Radius scale</label>
+                        <output id="selected-atom-radius-scale-value">1.00x</output>
+                    </div>
+                    <input id="selected-atom-radius-scale" type="range" value="1" min="0.25" max="2.5" step="0.05">
+                </div>
+                <label class="check-row selected-bond-inherit-row" for="selected-atom-update-bonds">
+                    <span>Match bond material &amp; opacity</span>
+                    <input id="selected-atom-update-bonds" type="checkbox" checked>
+                </label>
+                <button id="btn-apply-selected-label" class="btn-block" type="button">Apply Selected Appearance</button>
             </div>
             <div id="appearance-table" class="appearance-table">
                 <div class="mini-table-head appearance-table-head">
@@ -1642,6 +1663,13 @@
                             <option value="unlit">Unlit</option>
                         </select>
                     </div>
+                    <div class="range-row bond-pair-thickness-control">
+                        <div class="range-head">
+                            <label for="bond-pair-thickness">Thickness</label>
+                            <output id="bond-pair-thickness-value">0.25 A</output>
+                        </div>
+                        <input id="bond-pair-thickness" type="range" value="0.25" min="0.02" max="0.60" step="0.01">
+                    </div>
                     <div class="prop-row">
                         <label for="bond-pair-color-mode">Color</label>
                         <select id="bond-pair-color-mode">
@@ -1959,8 +1987,10 @@
                 <h2>Shortcuts</h2>
                 <div class="shortcut-grid">
                     <span>Left click</span><label>Select / confirm transform</label>
-                    <span>Shift + click</span><label>Add or remove selection</label>
+                    <span>Shift + click / drag</span><label>Invert selection for clicked atoms or every atom inside the box</label>
                     <span>Left drag</span><label>Box select</label>
+                    <span>Ctrl+A</span><label>Select all visible atoms</label>
+                    <span>Shift+Ctrl+A</span><label>Invert selection for all visible atoms</label>
                     <span>Middle drag</span><label>Orbit viewport</label>
                     <span>Shift + middle drag</span><label>Pan viewport</label>
                     <span>Space</span><label>Play or pause the selected timeline</label>
@@ -2025,7 +2055,7 @@
         }
         const modulePath = (window.location.protocol === 'file:' || window.location.pathname.endsWith('/static/index.html'))
             ? './main.js'
-            : './static/main.js?v=0.2.33';
+            : './static/main.js?v=0.2.34';
         import(modulePath).catch(error => {
             console.error('v_ase failed to initialize:', error?.stack || error);
         });

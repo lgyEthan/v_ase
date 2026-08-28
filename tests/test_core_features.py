@@ -1437,6 +1437,14 @@ def test_visual_settings_save_and_load_json_roundtrip_and_legacy_pickle():
             "atomRadiusScale": 1.4,
             "labelRadii": {"O": 0.72},
             "labelOpacities": {"O": 0.35, "H": 1.4, "invalid": "opaque"},
+            "atomRadiusScales": {"0": 1.4, "bad": 2.0},
+            "atomColors": {"0": "#12AB34", "1": "invalid"},
+            "atomOpacities": {"0": 0.2, "1": 1.7},
+            "atomBondStyles": {
+                "0": {"material": "metal", "opacity": 0.2},
+                "1": {"material": "invalid", "color": "#445566"},
+            },
+            "selectedAppearanceAffectsBonds": False,
             "supercell": [2, 1, 1],
             "translation": [0.25, -0.5, 0.75],
             "translationMode": "fractional",
@@ -1462,6 +1470,14 @@ def test_visual_settings_save_and_load_json_roundtrip_and_legacy_pickle():
         "O": 0.35,
         "H": 1.0,
     }
+    assert payload["settings"]["display"]["atomRadiusScales"] == {"0": 1.4}
+    assert payload["settings"]["display"]["atomColors"] == {"0": "#12ab34"}
+    assert payload["settings"]["display"]["atomOpacities"] == {"0": 0.2, "1": 1.0}
+    assert payload["settings"]["display"]["atomBondStyles"] == {
+        "0": {"material": "metal", "opacity": 0.2},
+        "1": {"color": "#445566"},
+    }
+    assert payload["settings"]["display"]["selectedAppearanceAffectsBonds"] is False
 
     loaded = asyncio.run(load_visual_settings(session.session_id, BytesRequest(response.body)))
     assert loaded["settings"]["display"]["atomRadiusScale"] == 1.4
@@ -1571,7 +1587,11 @@ def test_vase_project_roundtrip_restores_trajectory_edits_constraints_and_settin
                 "H_b": "standard",
             },
             "labelOpacities": {"O_surface": 0.42},
+            "atomRadiusScales": {"2": 1.35},
+            "atomColors": {"2": "#33aa77"},
+            "atomOpacities": {"2": 0.55},
             "atomMaterials": {"2": "rubber"},
+            "atomBondStyles": {"2": {"material": "metal", "opacity": 0.55}},
         },
     }
 
@@ -1600,7 +1620,13 @@ def test_vase_project_roundtrip_restores_trajectory_edits_constraints_and_settin
     assert loaded["project"]["settings"]["display"]["translationMode"] == "cartesian"
     assert loaded["project"]["settings"]["display"]["labelMaterials"]["O_surface"] == "metal"
     assert loaded["project"]["settings"]["display"]["labelOpacities"]["O_surface"] == pytest.approx(0.42)
+    assert loaded["project"]["settings"]["display"]["atomRadiusScales"] == {"2": 1.35}
+    assert loaded["project"]["settings"]["display"]["atomColors"] == {"2": "#33aa77"}
+    assert loaded["project"]["settings"]["display"]["atomOpacities"] == {"2": 0.55}
     assert loaded["project"]["settings"]["display"]["atomMaterials"] == {"2": "rubber"}
+    assert loaded["project"]["settings"]["display"]["atomBondStyles"] == {
+        "2": {"material": "metal", "opacity": 0.55}
+    }
     asyncio.run(response.background())
 
 

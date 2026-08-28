@@ -679,8 +679,16 @@ def test_frontend_has_radius_controls_loading_overlay_and_modern_panel_styles():
     assert "labelMaterials" in main_js
     assert "labelOpacities" in main_js
     assert "atomMaterials" in main_js
+    assert "atomRadiusScales" in main_js
+    assert "atomColors" in main_js
+    assert "atomOpacities" in main_js
+    assert "atomBondStyles" in main_js
     assert 'data-runtime-mode="view"' in index_html
     assert 'id="selected-atom-material"' in index_html
+    assert 'id="selected-atom-color"' in index_html
+    assert 'id="selected-atom-opacity"' in index_html
+    assert 'id="selected-atom-radius-scale"' in index_html
+    assert 'id="selected-atom-update-bonds"' in index_html
     assert "appearance-material-select" in main_js
     assert "label-opacity-input" in main_js
     assert "selectLabel(symbol)" in main_js
@@ -768,8 +776,9 @@ def test_frontend_has_radius_controls_loading_overlay_and_modern_panel_styles():
     assert ".label-check:indeterminate" in style_css
     assert ".appearance-row" in style_css
     assert "--inspector-width" in style_css
-    assert "container-name: appearance-table" in style_css
-    assert "@container appearance-table (min-width: 680px)" in style_css
+    assert "min-width: 820px" in style_css
+    assert "#inspector .appearance-row > :first-child" in style_css
+    assert "position: sticky" in style_css
     assert 'body[data-viz-only="true"] [data-edit-only]' in style_css
     assert ".busy-spinner" in style_css
     assert ".orientation-widget" in style_css
@@ -1264,11 +1273,25 @@ def test_blender_export_includes_bonds_unit_cell_smooth_atoms_and_camera_project
             "bondStyle": "flat",
             "bondThickness": 0.24,
             "bondColorMode": "split",
+            "pairwiseBondStyles": {
+                "H-H": {
+                    "style": "flat",
+                    "material": "metal",
+                    "thickness": 0.18,
+                    "colorMode": "split",
+                    "color": "#c8ccd0",
+                    "opacity": 0.75,
+                }
+            },
             "translation": [1.0, -0.5, 0.25],
             "translationMode": "cartesian",
             "labelMaterials": {"H": "metal"},
             "labelOpacities": {"H": 0.4},
+            "atomRadiusScales": {"1": 1.25},
+            "atomColors": {"1": "#33aa77"},
+            "atomOpacities": {"1": 0.65},
             "atomMaterials": {"1": "rubber"},
+            "atomBondStyles": {"1": {"material": "rubber", "opacity": 0.65}},
         },
         "bond_pairs": [[0, 1]],
         "camera": {
@@ -1296,7 +1319,10 @@ def test_blender_export_includes_bonds_unit_cell_smooth_atoms_and_camera_project
     assert 'BOND_COLOR_MODE = DISPLAY.get("bondColorMode", "split")' in script
     assert "BOND_THICKNESS" in script
     assert "add_flat_between" in script
-    assert 'if BOND_COLOR_MODE == "split"' in script
+    assert "def get_bond_appearance(i, j, endpoint=None):" in script
+    assert "def bond_pieces(i, j, start, end):" in script
+    assert 'DISPLAY_PAIR_BOND_STYLES = DISPLAY.get("pairwiseBondStyles", {})' in script
+    assert 'DISPLAY_ATOM_BOND_STYLES = DISPLAY.get("atomBondStyles", {})' in script
     assert "add_unit_cell(CELL)" in script
     assert "ATOM_MESHES" in script
     assert "bpy.data.objects.new" in script
@@ -1324,12 +1350,20 @@ def test_blender_export_includes_bonds_unit_cell_smooth_atoms_and_camera_project
     assert 'base_color.default_value = rgba' in script
     assert 'DISPLAY_LABEL_MATERIALS = DISPLAY.get("labelMaterials", {})' in script
     assert 'DISPLAY_LABEL_OPACITIES = DISPLAY.get("labelOpacities", {})' in script
+    assert 'DISPLAY_ATOM_RADIUS_SCALES = DISPLAY.get("atomRadiusScales", {})' in script
+    assert 'DISPLAY_ATOM_COLORS = DISPLAY.get("atomColors", {})' in script
+    assert 'DISPLAY_ATOM_OPACITIES = DISPLAY.get("atomOpacities", {})' in script
     assert 'DISPLAY_ATOM_MATERIALS = DISPLAY.get("atomMaterials", {})' in script
     assert '"rubber": {"roughness": 0.88' in script
     assert 'metallic.default_value = surface["metalness"]' in script
     assert "'labelMaterials': {'H': 'metal'}" in script
     assert "'labelOpacities': {'H': 0.4}" in script
+    assert "'atomRadiusScales': {'1': 1.25}" in script
+    assert "'atomColors': {'1': '#33aa77'}" in script
+    assert "'atomOpacities': {'1': 0.65}" in script
     assert "'atomMaterials': {'1': 'rubber'}" in script
+    assert "'thickness': 0.18" in script
+    assert "'atomBondStyles': {'1': {'material': 'rubber', 'opacity': 0.65}}" in script
     assert exported_data["visual_translation"] == pytest.approx([1.0, -0.5, 0.25])
     np.testing.assert_allclose(
         exported_data["positions"],

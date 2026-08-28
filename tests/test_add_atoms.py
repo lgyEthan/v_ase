@@ -2066,6 +2066,41 @@ def test_browser_scratch_relaxation_lifecycle_and_physical_scale():
             page.click("#add-atoms-tab-batch")
             page.click("#btn-add-atoms-allow-region")
             assert page.locator("#empty-workspace").is_hidden()
+            scratch_camera = page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                const target = app.renderer.controls.target.toArray();
+                const center = app.renderer.projectWorldToClient(
+                    new app.renderer.camera.position.constructor(0, 0, 0)
+                );
+                const canvas = document.querySelector('#app-viewport canvas').getBoundingClientRect();
+                const camera = app.renderer.camera;
+                const corners = [-3, 3].flatMap(x => [-3, 3].flatMap(y => [-3, 3].map(z => (
+                    app.renderer.projectWorldToClient(
+                        new app.renderer.camera.position.constructor(x, y, z)
+                    )
+                ))));
+                return {
+                    target,
+                    center: [center.x, center.y],
+                    canvasCenter: [canvas.left + canvas.width / 2, canvas.top + canvas.height / 2],
+                    verticalSpan: camera.isOrthographicCamera
+                        ? (camera.top - camera.bottom) / camera.zoom
+                        : null,
+                    distance: camera.position.distanceTo(app.renderer.controls.target),
+                    inside: corners.every(point => (
+                        point.x >= canvas.left && point.x <= canvas.right
+                        && point.y >= canvas.top && point.y <= canvas.bottom
+                        && point.z >= -1 && point.z <= 1
+                    )),
+                };
+            }""")
+            assert scratch_camera["target"] == pytest.approx([0.0, 0.0, 0.0], abs=1e-8)
+            assert scratch_camera["center"] == pytest.approx(
+                scratch_camera["canvasCenter"], abs=2
+            )
+            assert scratch_camera["inside"] is True
+            if scratch_camera["verticalSpan"] is not None:
+                assert 6.0 <= scratch_camera["verticalSpan"] <= 12.0
             page.click("#btn-add-atoms-delete-region")
             assert page.locator("#empty-workspace").is_visible()
             page.click("#btn-create-atom-close")

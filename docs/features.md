@@ -347,7 +347,12 @@ group instead of creating a suffix. If that target group has one chemical TYPE,
 it is authoritative for the merged atoms.
 
 Standard, Metal, and Rubber material presets are supported. View stores
-materials and opacity by label. Edit can override material per selected atom.
+materials and opacity by label. Selected atoms can add index-scoped color,
+relative radius scale, opacity, and material overrides in either runtime mode;
+compatible trajectory frames reuse the same indices. The selected editor
+tracks dirty fields so changing opacity alone never rewrites radius, color, or
+material. Its bond-link toggle is on by default and copies only changed
+material/opacity fields to connected bond halves.
 Label opacity is clamped to `0..1`, participates in visual history, and remains
 separate from visibility. Materials and label opacity are part of visual
 presets, `.vase` projects, HTML, and geometry export payloads; reusable settings
@@ -404,6 +409,12 @@ Bond appearance is independent of topology: cylinder or flat style, diameter,
 custom color, or midpoint-split endpoint colors. The new-document bond diameter
 is `0.25 A`, and bonds are visible by default. Saved explicit values and
 `--hide-bonds` remain authoritative.
+
+Each label pair may independently override geometry, diameter, material,
+custom/split color, and opacity. Narrow Appearance tables stay single-row and
+scroll their detail columns horizontally while the chemical TYPE column remains
+fixed. `Shift` changes click, box-drag, and `Ctrl+A` selection from additive to
+set inversion.
 
 ## Commensurate Cells And Planar Translation
 

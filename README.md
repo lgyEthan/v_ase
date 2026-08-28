@@ -1047,9 +1047,16 @@ every frame. If topology differs, v_ase opens a modal and applies the label to
 the current frame only. The chemical TYPE field remains disabled until Edit.
 These visual identities are included in complete `.vase` and HTML project
 saves. Label color, radius, opacity, visibility, and material are also retained
-by reusable visual presets and supported geometry exports. Edit mode can keep
-additional per-atom material overrides. Relabeling does not reorder the table
-or merge otherwise distinct atom types accidentally.
+by reusable visual presets and supported geometry exports. **Selected atoms**
+adds an atom-index layer for color, relative radius scale, opacity, and
+material without changing every atom sharing the label. Only fields changed
+before **Apply Selected Appearance** are written, and the same atom indices
+retain those overrides across a compatible trajectory. **Match bond material &
+opacity** applies those two changed fields to the connected bond halves and is
+enabled by default. Relabeling does not reorder the table or merge otherwise
+distinct atom types accidentally. The label table remains one row per label;
+on a narrow panel its detail columns scroll horizontally while TYPE stays
+fixed.
 
 ![View-mode label and appearance editing on Cu5O4](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_cu5o4_view_appearance.gif)
 
@@ -1086,7 +1093,8 @@ Changes apply immediately. Bonds support:
 - custom color or two half-bonds using the atom colors;
 - configurable diameter, opacity, and Standard, Metal, Rubber, or Unlit material;
 - independent label-pair appearance overrides, including per-pair flat 2D
-  geometry while the rest of the scene remains 3D, plus one-click Apply All;
+  geometry, diameter, color, material, and opacity while the rest of the scene
+  remains on the global style, plus one-click Apply All;
 - live formation and breaking during Edit transforms.
 
 Periodic bond export uses ASE's exact minimum-image search, including strongly
@@ -1517,8 +1525,11 @@ Custom labels retain their complete text when they are renamed.
 
 | Input | Action |
 | --- | --- |
-| Left click / Shift + click | Select / extend selection |
-| Left drag | Box select |
+| Left click | Select one atom |
+| `Shift` + click / drag | Invert selection for the clicked atom or every atom inside the box |
+| Left drag | Replace selection with atoms inside the box |
+| `Ctrl+A` | Select all visible atoms |
+| `Shift+Ctrl+A` | Invert selection for all visible atoms; if all are selected, clear all |
 | Middle drag | Orbit without inertia |
 | Shift + middle drag | Pan |
 | Wheel | Zoom |

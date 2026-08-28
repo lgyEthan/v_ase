@@ -973,7 +973,12 @@ Atom settings:
 | `labelOpacities` | `{label: opacity}` with each value clamped to `0..1` |
 | `labelVisible` | `{label: boolean}` |
 | `labelMaterials` | `{label: "standard"|"metal"|"rubber"}` |
-| `atomMaterials` | `{atomIndex: material}` in Edit |
+| `atomRadiusScales` | `{atomIndex: multiplier}`; `1` preserves each label's established radius |
+| `atomColors` | `{atomIndex: "#rrggbb"}` |
+| `atomOpacities` | `{atomIndex: opacity}` clamped to `0..1` |
+| `atomMaterials` | `{atomIndex: material}` |
+| `atomBondStyles` | `{atomIndex: {material?, opacity?, color?}}` endpoint overrides |
+| `selectedAppearanceAffectsBonds` | boolean GUI default for copying changed material/opacity to connected bond halves |
 | `atomDisplayMode` | `"3d"` materials or complete `"2d"` flat scene |
 
 In `"2d"`, atom colors/radii and depth ordering remain authoritative, but
@@ -981,7 +986,10 @@ lighting and material response are disabled. Background-aware outlines are
 applied to atoms/bonds, FixAtoms receives an X, and vectors, cell edges, and
 insertion-region edges use flat camera-facing geometry. Switching back to
 `"3d"` restores the stored material and lighting settings without a backend
-structure mutation. Per-label opacity is a visual setting only. It persists in
+structure mutation. Per-label and atom-index opacity are visual settings only.
+Index overrides are evaluated after label defaults, remain tied to stable atom
+indices across compatible trajectory frames, and are not included in personal
+defaults intended for unrelated structures. They persist in
 visual presets, `.vase`/project HTML, standalone HTML, Blender, OBJ, and 3DM
 exports without changing ASE atoms or per-atom arrays.
 
@@ -1002,13 +1010,15 @@ Bond settings:
 | `bondOpacity` | global opacity clamped to `0.05..1` |
 | `bondColorMode` | `"split"` or `"custom"` |
 | `bondCustomColor` | `"#rrggbb"` |
-| `pairwiseBondStyles` | label-pair appearance records with `style`, `material`, `colorMode`, `color`, and `opacity` |
+| `pairwiseBondStyles` | label-pair appearance records with `style`, `thickness`, `material`, `colorMode`, `color`, and `opacity` |
 
 Pairwise bond keys use visual labels. A pair with `enabled: false` and `max: 0`
 is disabled. Appearance overrides use sorted `labelA-labelB` keys and do not
-change pair connectivity. A pair may use `style:"flat"` while the global scene
-and all other bonds remain 3D. Bonds update per frame and during interactive
-edits.
+change pair connectivity. `thickness` is the displayed bond diameter in
+Angstrom. A pair may use `style:"flat"` while the global scene and all other
+bonds remain 3D. Atom-index endpoint material/opacity overrides split a custom
+single-color bond only when needed, so each connected half preserves its
+selected-atom appearance. Bonds update per frame and during interactive edits.
 
 ## Cell, View, Lighting, And Constraints
 

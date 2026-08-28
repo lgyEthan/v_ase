@@ -323,6 +323,15 @@ Run all scenarios, not only static document checks:
 6. **Appearance**
    - change radius, color, opacity, visibility, and material; verify opacity
      `0..1` in ordinary, instanced, repeated-supercell, and flat-2D rendering;
+   - type label opacity character by character and commit with Tab/Enter;
+     verify the typed value is retained rather than requiring spinner arrows;
+   - select atoms sharing one label and apply index-scoped color, relative
+     radius scale, opacity, and material; then change opacity alone and verify
+     every untouched field remains byte-for-byte unchanged across trajectory
+     frames, `.vase`, project HTML, standalone HTML, Blender, OBJ, and 3DM;
+   - with connected-bond matching enabled, verify only changed material/opacity
+     fields update each selected endpoint half; disable it and verify a later
+     atom material edit leaves the prior bond override unchanged;
    - discover and render coordinate, stored force-norm, scalar-array,
      vector-component, vector-norm, charge, magnetic-moment, and MLIP-specific
      per-atom colorscales; test all-atoms and selected-only scope;
@@ -356,8 +365,16 @@ Run all scenarios, not only static document checks:
      completed field edit;
    - verify bonds, pairwise cutoffs, MIC toggle, cell styling, and lighting;
      set global bond material/opacity, then override one label pair with flat
-     2D geometry, custom color, material, and opacity while every other pair
-     remains on the global 3D style; repeat with Apply All and restore global.
+     2D geometry, thickness, custom color, material, and opacity while every
+     other pair remains on the global 3D style; repeat with Apply All and
+     restore global;
+   - at narrow desktop and mobile widths, verify Appearance rows never wrap,
+     detail columns scroll horizontally, TYPE remains fixed, and no input is
+     clipped; verify Help and every long modal scroll while actions remain
+     visible;
+   - select a molecule, Shift-box the full structure, and require the molecule
+     to become the only deselected subset; verify `Ctrl+A` selects all and
+     `Shift+Ctrl+A` inverts all, including the all-selected to none case.
 7. **Constraints rendering**
    - inspect FixAtoms, FixScaled, FixedLine, FixedPlane, and Hookean;
    - verify persistent FixedPlane markers remain depth-tested while its

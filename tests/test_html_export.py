@@ -106,6 +106,11 @@ def _html_export_fixture(
             "labelColors": {"Cu_surface": "#c98a43", "O_ads": "#e1262f"},
             "labelOpacities": {"Cu_surface": 0.45, "O_ads": 1.0},
             "labelMaterials": {"Cu_surface": "metal", "O_ads": "standard"},
+            "atomRadiusScales": {"1": 1.3},
+            "atomColors": {"1": "#44aa88"},
+            "atomOpacities": {"1": 0.7},
+            "atomMaterials": {"1": "rubber"},
+            "atomBondStyles": {"1": {"material": "rubber", "opacity": 0.7}},
             "supercell": [2, 1, 1],
             "translation": [0.2, 0.0, 0.0],
             "translationMode": "cartesian",
@@ -246,6 +251,13 @@ def test_html_export_is_self_contained_and_embeds_lossless_vase(tmp_path):
     assert len(scene["frames"]) == 2
     assert scene["settings"]["display"]["labelMaterials"]["Cu_surface"] == "metal"
     assert scene["settings"]["display"]["labelOpacities"]["Cu_surface"] == pytest.approx(0.45)
+    assert scene["settings"]["display"]["atomRadiusScales"] == {"1": 1.3}
+    assert scene["settings"]["display"]["atomColors"] == {"1": "#44aa88"}
+    assert scene["settings"]["display"]["atomOpacities"] == {"1": 0.7}
+    assert scene["settings"]["display"]["atomMaterials"] == {"1": "rubber"}
+    assert scene["settings"]["display"]["atomBondStyles"] == {
+        "1": {"material": "rubber", "opacity": 0.7}
+    }
     assert scene["settings"]["camera"]["position"] == settings["camera"]["position"]
     assert scene["hasPoster"] is True
     assert scene["exportProfile"]["width"] == 1920

@@ -88,6 +88,7 @@ def test_repulsion_bond_theme_toolbar_and_add_atoms_history_are_independent():
             page.check("#bond-pair-style-enabled")
             page.select_option("#bond-pair-style", "flat")
             page.select_option("#bond-pair-material", "metal")
+            page.fill("#bond-pair-thickness", "0.18")
             page.select_option("#bond-pair-color-mode", "custom")
             page.fill("#bond-pair-custom-color", "#27a6d1")
             page.fill("#bond-pair-opacity", "0.35")
@@ -101,6 +102,7 @@ def test_repulsion_bond_theme_toolbar_and_add_atoms_history_are_independent():
             assert appearance == {
                 "style": "flat",
                 "material": "metal",
+                "thickness": pytest.approx(0.18),
                 "colorMode": "custom",
                 "customColor": "#27a6d1",
                 "opacity": pytest.approx(0.35),

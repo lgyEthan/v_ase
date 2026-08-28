@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 import json
 import mmap
 from pathlib import Path
+import re
 import tempfile
 from typing import Any, Iterable
 import zipfile
@@ -128,6 +129,59 @@ def normalize_visual_settings(settings: Any) -> dict[str, Any]:
         display["labelOpacities"] = normalized_opacities
     else:
         display.pop("labelOpacities", None)
+    atom_record_specs = {
+        "atomRadiusScales": (0.25, 2.5),
+        "atomOpacities": (0.0, 1.0),
+    }
+    for key, (minimum, maximum) in atom_record_specs.items():
+        source = display.get(key)
+        if not isinstance(source, dict):
+            display.pop(key, None)
+            continue
+        normalized = {}
+        for raw_index, raw_value in source.items():
+            try:
+                index = int(raw_index)
+                value = float(raw_value)
+            except (TypeError, ValueError):
+                continue
+            if index >= 0 and np.isfinite(value):
+                normalized[str(index)] = max(minimum, min(maximum, value))
+        display[key] = normalized
+    if isinstance(display.get("atomColors"), dict):
+        display["atomColors"] = {
+            str(index): str(color).lower()
+            for index, color in display["atomColors"].items()
+            if str(index).isdigit()
+            and re.fullmatch(r"#[0-9A-Fa-f]{6}", str(color))
+        }
+    else:
+        display.pop("atomColors", None)
+    if isinstance(display.get("atomBondStyles"), dict):
+        normalized_bond_styles = {}
+        for raw_index, raw_style in display["atomBondStyles"].items():
+            if not str(raw_index).isdigit() or not isinstance(raw_style, dict):
+                continue
+            style = {}
+            if raw_style.get("material") in {"standard", "metal", "rubber", "unlit"}:
+                style["material"] = raw_style["material"]
+            try:
+                opacity = float(raw_style.get("opacity"))
+            except (TypeError, ValueError):
+                opacity = None
+            if opacity is not None and np.isfinite(opacity):
+                style["opacity"] = max(0.0, min(1.0, opacity))
+            color = raw_style.get("color")
+            if re.fullmatch(r"#[0-9A-Fa-f]{6}", str(color or "")):
+                style["color"] = str(color).lower()
+            if style:
+                normalized_bond_styles[str(raw_index)] = style
+        display["atomBondStyles"] = normalized_bond_styles
+    else:
+        display.pop("atomBondStyles", None)
+    display["selectedAppearanceAffectsBonds"] = (
+        display.get("selectedAppearanceAffectsBonds") is not False
+    )
     if display.get("bondMode") == "element":
         display["bondMode"] = "pairwise"
     clean["schema"] = SETTINGS_SCHEMA

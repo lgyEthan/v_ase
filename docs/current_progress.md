@@ -448,6 +448,12 @@ and documentation use `view()`.
     are sampled locally as continuous interpolation or discrete bands, and
     persist through visual settings, projects, semantic commands, and HTML
     export without adding work while atom colorscales are disabled.
+73. Appearance uses label defaults followed by atom-index radius-scale, color,
+    opacity, and material overrides. Optional atom-index bond endpoint records
+    copy only changed material/opacity fields. Pair appearance also owns an
+    independent diameter. Long dialogs scroll within viewport bounds, narrow
+    label tables keep one row with a frozen TYPE column, and Shift selection is
+    set inversion for click, box, and select-all paths.
 
 ## Canonical Names And Compatibility
 
@@ -462,7 +468,11 @@ Canonical display keys:
 - `labelOpacities`
 - `labelVisible`
 - `labelMaterials`
+- `atomRadiusScales`
+- `atomColors`
+- `atomOpacities`
 - `atomMaterials`
+- `atomBondStyles`
 - bond mode `pairwise`
 
 `pairwiseBondCutoffs` remains a maximum-distance compatibility mirror for

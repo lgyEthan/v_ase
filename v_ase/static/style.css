@@ -3172,21 +3172,34 @@ body.inspector-collapsed .analysis-drawer {
 }
 
 #inspector #appearance-table {
-    container-name: appearance-table;
-    container-type: inline-size;
     overflow-x: auto;
     overflow-y: hidden;
     scrollbar-width: thin;
+    scrollbar-gutter: stable;
+}
+
+#inspector #appearance-table::-webkit-scrollbar {
+    height: 10px;
+}
+
+#inspector #appearance-table::-webkit-scrollbar-track {
+    background: var(--surface-subtle);
+}
+
+#inspector #appearance-table::-webkit-scrollbar-thumb {
+    border: 2px solid transparent;
+    border-radius: 999px;
+    background: var(--scroll-thumb);
+    background-clip: padding-box;
 }
 
 #inspector #appearance-table .mini-table-head,
 #inspector .appearance-row {
-    min-width: 0;
+    min-width: 820px;
     display: grid;
-    grid-template-columns: 44px 54px 54px minmax(112px, 1fr);
-    grid-template-rows: auto auto;
+    grid-template-columns: 62px 62px 62px minmax(156px, 1fr) 58px 92px 88px 124px;
+    grid-template-rows: auto;
     column-gap: 8px;
-    row-gap: 6px;
     align-items: center;
 }
 
@@ -3222,6 +3235,22 @@ body.inspector-collapsed .analysis-drawer {
     background: var(--surface-subtle);
 }
 
+#inspector #appearance-table .mini-table-head > :first-child,
+#inspector .appearance-row > :first-child {
+    position: sticky;
+    left: 0;
+    z-index: 3;
+    box-shadow: 9px 0 12px -12px var(--overlay-strong);
+}
+
+#inspector #appearance-table .mini-table-head > :first-child {
+    background: var(--panel-raised);
+}
+
+#inspector .appearance-row > :first-child {
+    background: var(--field);
+}
+
 #inspector .chemical-type-select,
 #inspector .atom-label-input,
 #inspector .label-radius-input,
@@ -3243,14 +3272,6 @@ body.inspector-collapsed .analysis-drawer {
 #inspector .label-radius-input,
 #inspector .label-opacity-input {
     text-align: right;
-}
-
-@container appearance-table (min-width: 680px) {
-    #inspector #appearance-table .mini-table-head,
-    #inspector .appearance-row {
-        grid-template-columns: 44px 54px 54px minmax(112px, 1fr) 48px 88px 72px 108px;
-        grid-template-rows: auto;
-    }
 }
 
 .selected-appearance {
@@ -3722,39 +3743,53 @@ body.inspector-collapsed .analysis-drawer {
     font-size: var(--type-label);
 }
 
-.selected-appearance-grid {
+.selected-appearance-fields {
     display: grid;
-    grid-template-columns: 62px minmax(0, 1fr);
-    gap: 7px 10px;
-    align-items: center;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
 }
 
-.selected-appearance-grid > label {
-    color: var(--text-soft);
-    font-size: var(--type-control);
-}
-
-.selected-label-control {
+.selected-appearance-field {
     min-width: 0;
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 58px;
-    gap: 6px;
+    gap: 4px;
 }
 
-.selected-label-control input,
-.selected-label-control button,
-#selected-atom-material {
+.selected-appearance-field > span {
+    color: var(--text-soft);
+    font-size: var(--type-label);
+}
+
+.selected-appearance-field input,
+.selected-appearance-field select {
     width: 100%;
     min-width: 0;
 }
 
+.selected-color-field input {
+    height: var(--control-height-compact);
+}
+
+.selected-radius-scale-row {
+    margin-top: 10px;
+}
+
+.selected-bond-inherit-row {
+    margin-top: 8px;
+}
+
 #btn-apply-selected-label {
-    min-height: 32px;
-    padding: 0 9px;
+    margin-top: 9px;
+    min-height: var(--control-height);
     font-family: inherit;
     font-size: var(--type-control);
     font-weight: var(--weight-semibold);
-    line-height: 1;
+}
+
+@media (max-width: 430px) {
+    .selected-appearance-fields {
+        grid-template-columns: 1fr;
+    }
 }
 
 .appearance-material-select {
@@ -5839,6 +5874,7 @@ body.resizing-pairwise-column * {
     display: grid;
     place-items: center;
     padding: 20px;
+    overflow: auto;
     background: var(--overlay);
     backdrop-filter: blur(6px);
     -webkit-backdrop-filter: blur(6px);
@@ -5859,10 +5895,32 @@ body.resizing-pairwise-column * {
 
 #modal-content {
     min-height: 0;
-    overflow: auto;
+    overflow-x: hidden;
+    overflow-y: auto;
     overscroll-behavior: contain;
     padding: 20px;
+    outline: none;
+    scrollbar-color: var(--scroll-thumb) transparent;
     scrollbar-gutter: stable;
+}
+
+#modal-content::-webkit-scrollbar {
+    width: 11px;
+}
+
+#modal-content::-webkit-scrollbar-thumb {
+    border: 3px solid transparent;
+    border-radius: 999px;
+    background: var(--scroll-thumb);
+    background-clip: padding-box;
+}
+
+.modal.help-modal {
+    width: min(760px, calc(100vw - 32px));
+}
+
+.modal.help-modal #modal-content {
+    scroll-padding-block: 16px;
 }
 
 .modal h2 {
@@ -6752,8 +6810,12 @@ body.resizing-pairwise-column * {
 
 @media (max-width: 1050px) {
     #top-bar {
-        grid-template-columns: 136px auto minmax(0, 1fr);
+        grid-template-columns: 146px auto minmax(0, 1fr);
         gap: 8px;
+    }
+
+    .logo .brand-logo-asset {
+        width: 96px;
     }
 
     .status-group {

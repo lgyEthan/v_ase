@@ -36,12 +36,26 @@ def cad_payload():
             "bondColorMode": "split",
             "bondStyle": "cylinder",
             "bondThickness": 0.12,
+            "pairwiseBondStyles": {
+                "H_water-O_surface": {
+                    "style": "cylinder",
+                    "material": "metal",
+                    "thickness": 0.18,
+                    "colorMode": "split",
+                    "color": "#c8ccd0",
+                    "opacity": 0.8,
+                }
+            },
             "atomRadiusScale": 1.1,
             "labelColors": {"O_surface": "#12ab34"},
             "labelRadii": {"O_surface": 0.72},
             "labelOpacities": {"O_surface": 0.35},
             "labelMaterials": {"O_surface": "metal", "H_water": "standard"},
+            "atomRadiusScales": {"1": 1.5},
+            "atomColors": {"1": "#4455aa"},
+            "atomOpacities": {"1": 0.6},
             "atomMaterials": {"1": "rubber"},
+            "atomBondStyles": {"1": {"material": "rubber", "opacity": 0.4}},
         },
         "bond_pairs": [[0, 1], [0, 2]],
         "camera": {
@@ -75,9 +89,16 @@ def test_cad_scene_preserves_display_overrides_supercell_and_bridge_bonds():
     assert oxygen[0]["opacity"] == pytest.approx(0.35)
     hydrogen = [item for item in scene["atoms"] if item["index"] == 1]
     assert {item["material"] for item in hydrogen} == {"rubber"}
+    assert {item["color"] for item in hydrogen} == {"#4455aa"}
+    assert all(item["opacity"] == pytest.approx(0.6) for item in hydrogen)
+    reference_hydrogen = [item for item in scene["atoms"] if item["index"] == 2]
+    assert hydrogen[0]["radius"] / reference_hydrogen[0]["radius"] == pytest.approx(1.5)
     assert any("bridge" in item["name"] for item in scene["bonds"])
-    assert all(item["diameter"] == pytest.approx(0.12) for item in scene["bonds"])
-    assert all(item["radius"] == pytest.approx(0.06) for item in scene["bonds"])
+    assert all(item["diameter"] == pytest.approx(0.18) for item in scene["bonds"])
+    assert all(item["radius"] == pytest.approx(0.09) for item in scene["bonds"])
+    selected_bond = [item for item in scene["bonds"] if item["i"] == 0 and item["j"] == 1]
+    assert {item["material"] for item in selected_bond} == {"metal", "rubber"}
+    assert {round(item["opacity"], 6) for item in selected_bond} == {0.4, 0.8}
     assert len(scene["cell_edges"]) == 20
     assert scene["cell_color"] == "#d6bd67"
     assert scene["camera"]["projection"] == "orthographic"
@@ -166,8 +187,10 @@ def test_obj_export_is_dependency_free_and_bundles_materials():
             if item["label"] == "O_surface"
         ]
         assert oxygen_opacities == pytest.approx([0.35, 0.35])
-        assert all(item["diameter"] == pytest.approx(0.12) for item in metadata["bonds"])
-        assert all(item["radius"] == pytest.approx(0.06) for item in metadata["bonds"])
+        assert all(item["diameter"] == pytest.approx(0.18) for item in metadata["bonds"])
+        assert all(item["radius"] == pytest.approx(0.09) for item in metadata["bonds"])
+        assert {item["material"] for item in metadata["bonds"]} == {"metal", "rubber"}
+        assert {round(item["opacity"], 6) for item in metadata["bonds"]} == {0.4, 0.8}
     finally:
         archive_path.unlink(missing_ok=True)
 

@@ -231,14 +231,22 @@ def test_skill_version_install_and_environment_contract_are_current():
         assert required in skill_text + cli_text
 
 
-def test_skill_and_live_schema_document_per_label_opacity():
+def test_skill_and_live_schema_document_label_and_index_appearance_layers():
     documented = _documented_skill_text()
     live_schema = asyncio.run(ai_control_schema())["control_schema"]
     display_description = live_schema["properties"]["display"]["description"]
 
     assert "`labelOpacities`" in documented
+    assert "`atomRadiusScales`" in documented
+    assert "`atomColors`" in documented
+    assert "`atomOpacities`" in documented
+    assert "`atomBondStyles`" in documented
+    assert "`selectedAppearanceAffectsBonds`" in documented
+    assert "`thickness`" in documented
     assert "0..1" in documented
     assert "labelOpacities" in display_description
+    assert "atomRadiusScales" in display_description
+    assert "atomBondStyles" in display_description
 
 
 def test_skill_distinguishes_temporary_add_atoms_overlay_from_ase_constraints():

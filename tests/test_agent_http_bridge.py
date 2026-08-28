@@ -570,6 +570,14 @@ def test_http_bridge_controls_the_same_live_workspace_without_page_evaluation(
             }.issubset(capabilities["operations"])
             assert capabilities["repulsion"]["defaultMode"] == "absolute"
             assert capabilities["bondAppearance"]["pairDisplayKey"] == "pairwiseBondStyles"
+            assert "thickness" in capabilities["bondAppearance"]["pairFields"]
+            assert {
+                "atomRadiusScales",
+                "atomColors",
+                "atomOpacities",
+                "atomMaterials",
+                "atomBondStyles",
+            }.issubset(capabilities["bondAppearance"]["atomDisplayKeys"])
             assert "preferences" in capabilities["state"]
             assert {
                 "image",

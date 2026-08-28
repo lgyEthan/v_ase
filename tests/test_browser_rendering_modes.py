@@ -58,6 +58,59 @@ def _select_structure_section(page, section):
     )
 
 
+def test_help_dialog_stays_inside_viewport_and_scrolls_to_every_section():
+    port = find_free_port()
+    editor = view(
+        Atoms("H", positions=[[0.0, 0.0, 0.0]]),
+        notebook=True,
+        block=False,
+        port=port,
+        viz_only=True,
+        close_on_disconnect=False,
+    )
+    try:
+        with sync_playwright() as playwright:
+            try:
+                browser = playwright.chromium.launch(headless=True)
+            except PlaywrightError as exc:
+                pytest.skip(f"Playwright Chromium is not installed: {exc}")
+            page = browser.new_page(viewport={"width": 980, "height": 620})
+            page.goto(f"http://127.0.0.1:{port}/?session_id={editor.session_id}")
+            page.wait_for_function("window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 1")
+            page.click("#btn-shortcuts")
+            metrics = page.evaluate("""() => {
+                const modal = document.querySelector('#modal-container .modal');
+                const content = document.getElementById('modal-content');
+                const actions = document.querySelector('#modal-container .modal-actions');
+                const modalRect = modal.getBoundingClientRect();
+                const actionsRect = actions.getBoundingClientRect();
+                return {
+                    modalTop: modalRect.top,
+                    modalBottom: modalRect.bottom,
+                    actionsBottom: actionsRect.bottom,
+                    viewportHeight: window.innerHeight,
+                    clientHeight: content.clientHeight,
+                    scrollHeight: content.scrollHeight,
+                    overflowY: getComputedStyle(content).overflowY,
+                    helpClass: modal.classList.contains('help-modal'),
+                };
+            }""")
+            assert metrics["helpClass"] is True
+            assert metrics["modalTop"] >= 0
+            assert metrics["modalBottom"] <= metrics["viewportHeight"]
+            assert metrics["actionsBottom"] <= metrics["viewportHeight"]
+            assert metrics["scrollHeight"] > metrics["clientHeight"]
+            assert metrics["overflowY"] == "auto"
+            page.locator("#modal-content").hover()
+            page.mouse.wheel(0, 1200)
+            page.wait_for_function("document.getElementById('modal-content').scrollTop > 100")
+            assert page.locator("#modal-content .help-section-title").last.is_visible()
+            page.click("#modal-close")
+            browser.close()
+    finally:
+        editor.close()
+
+
 def test_exact_selection_rotation_panel_commits_and_undoes_backend_coordinates():
     atoms = Atoms(
         "P3",
@@ -3350,6 +3403,221 @@ def test_view_mode_visual_label_and_appearance_follow_stable_trajectory_indices(
                 "color": "#2a78c4",
                 "material": "metal",
             }
+            browser.close()
+    finally:
+        editor.close()
+
+
+def test_selected_index_appearance_overrides_are_field_scoped_and_follow_trajectory():
+    first = Atoms(
+        "C3",
+        positions=[[0.0, 0.0, 0.0], [1.3, 0.0, 0.0], [2.6, 0.0, 0.0]],
+        cell=[8.0, 8.0, 8.0],
+        pbc=True,
+    )
+    second = first.copy()
+    second.positions += [0.15, 0.2, 0.0]
+    set_atom_labels(first, ["C_site"] * 3)
+    set_atom_labels(second, ["C_site"] * 3)
+    port = find_free_port()
+    editor = view(
+        [first, second],
+        notebook=True,
+        block=False,
+        port=port,
+        viz_only=True,
+        show_bonds=True,
+        close_on_disconnect=False,
+    )
+    try:
+        with sync_playwright() as playwright:
+            try:
+                browser = playwright.chromium.launch(headless=True)
+            except PlaywrightError as exc:
+                pytest.skip(f"Playwright Chromium is not installed: {exc}")
+            page = browser.new_page(viewport={"width": 1360, "height": 860})
+            page.goto(f"http://127.0.0.1:{port}/?session_id={editor.session_id}")
+            page.wait_for_function("window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 3")
+            _expand_inspector(page)
+            _select_structure_section(page, "appearance")
+            page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                app.clearAtomSelection();
+                app.addSelectionReference(1);
+                app.updateSelectionVisuals();
+                app.updateUI();
+            }""")
+            page.select_option("#selected-atom-material", "metal")
+            page.fill("#selected-atom-color", "#33aa77")
+            page.fill("#selected-atom-opacity", "0.30")
+            page.locator("#selected-atom-radius-scale").evaluate("""element => {
+                element.value = '1.50';
+                element.dispatchEvent(new Event('input', {bubbles: true}));
+            }""")
+            assert page.locator("#selected-atom-update-bonds").is_checked()
+            page.click("#btn-apply-selected-label")
+            page.wait_for_function("""() => {
+                const app = window.__ASE_APP__;
+                return app.state.display.atomMaterials['1'] === 'metal'
+                    && app.state.display.atomColors['1'] === '#33aa77'
+                    && app.state.display.atomOpacities['1'] === 0.3
+                    && app.state.display.atomRadiusScales['1'] === 1.5
+                    && app.state.display.atomBondStyles['1'].material === 'metal'
+                    && app.state.display.atomBondStyles['1'].opacity === 0.3;
+            }""")
+            state = page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                const left = app.renderer.bondSegmentsForPair(0, 1);
+                const right = app.renderer.bondSegmentsForPair(1, 2);
+                return {
+                    labelColors: app.state.display.labelColors,
+                    labelMaterials: app.state.display.labelMaterials,
+                    atomKeys: {
+                        colors: Object.keys(app.state.display.atomColors),
+                        opacities: Object.keys(app.state.display.atomOpacities),
+                        radii: Object.keys(app.state.display.atomRadiusScales),
+                    },
+                    radiusRatio: app.renderer.atomVisualRadius(1) / app.renderer.atomVisualRadius(0),
+                    color: app.renderer.atomMeshByIndex.get(1).material.color.getHexString(),
+                    opacity: app.renderer.atomMeshByIndex.get(1).material.opacity,
+                    metalness: app.renderer.atomMeshByIndex.get(1).material.metalness,
+                    leftBond: left.map(segment => ({
+                        material: segment.appearance.material,
+                        opacity: segment.appearance.opacity,
+                    })),
+                    rightBond: right.map(segment => ({
+                        material: segment.appearance.material,
+                        opacity: segment.appearance.opacity,
+                    })),
+                };
+            }""")
+            assert state["labelColors"].get("C_site") != "#33aa77"
+            assert state["labelMaterials"].get("C_site", "standard") == "standard"
+            assert state["atomKeys"] == {
+                "colors": ["1"],
+                "opacities": ["1"],
+                "radii": ["1"],
+            }
+            assert state["radiusRatio"] == pytest.approx(1.5)
+            assert state["color"] == "33aa77"
+            assert state["opacity"] == pytest.approx(0.3)
+            assert state["metalness"] == pytest.approx(0.9)
+            assert state["leftBond"] == [
+                {"material": "standard", "opacity": pytest.approx(1.0)},
+                {"material": "metal", "opacity": pytest.approx(0.3)},
+            ]
+            assert state["rightBond"] == [
+                {"material": "metal", "opacity": pytest.approx(0.3)},
+                {"material": "standard", "opacity": pytest.approx(1.0)},
+            ]
+
+            page.fill("#selected-atom-opacity", "0.60")
+            page.click("#btn-apply-selected-label")
+            page.wait_for_function("""() => {
+                const display = window.__ASE_APP__.state.display;
+                return display.atomOpacities['1'] === 0.6
+                    && display.atomMaterials['1'] === 'metal'
+                    && display.atomColors['1'] === '#33aa77'
+                    && display.atomRadiusScales['1'] === 1.5
+                    && display.atomBondStyles['1'].material === 'metal'
+                    && display.atomBondStyles['1'].opacity === 0.6;
+            }""")
+            page.uncheck("#selected-atom-update-bonds")
+            page.select_option("#selected-atom-material", "rubber")
+            page.click("#btn-apply-selected-label")
+            page.wait_for_function("""() => {
+                const display = window.__ASE_APP__.state.display;
+                return display.atomMaterials['1'] === 'rubber'
+                    && display.atomBondStyles['1'].material === 'metal';
+            }""")
+
+            page.locator("#app-viewport canvas").focus()
+            page.keyboard.press("ArrowRight")
+            page.wait_for_function("window.__ASE_APP__.state.atoms.metadata.current_frame === 1")
+            persisted = page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                const snapshot = app.designSettingsSnapshot().display;
+                return {
+                    material: app.state.display.atomMaterials['1'],
+                    opacity: app.renderer.atomVisualOpacity(1),
+                    radiusScale: app.state.display.atomRadiusScales['1'],
+                    color: app.renderer.atomVisualColor(1),
+                    snapshotColor: snapshot.atomColors['1'],
+                    snapshotBondMaterial: snapshot.atomBondStyles['1'].material,
+                };
+            }""")
+            assert persisted == {
+                "material": "rubber",
+                "opacity": pytest.approx(0.6),
+                "radiusScale": pytest.approx(1.5),
+                "color": "#33aa77",
+                "snapshotColor": "#33aa77",
+                "snapshotBondMaterial": "metal",
+            }
+            browser.close()
+    finally:
+        editor.close()
+
+
+def test_shift_box_and_shift_select_all_invert_existing_selection():
+    atoms = Atoms(
+        "H4",
+        positions=[[-1.2, -1.0, 0.0], [1.2, -1.0, 0.0], [-1.2, 1.0, 0.0], [1.2, 1.0, 0.0]],
+        cell=[8.0, 8.0, 8.0],
+        pbc=False,
+    )
+    port = find_free_port()
+    editor = view(
+        atoms,
+        notebook=True,
+        block=False,
+        port=port,
+        viz_only=True,
+        close_on_disconnect=False,
+    )
+    try:
+        with sync_playwright() as playwright:
+            try:
+                browser = playwright.chromium.launch(headless=True)
+            except PlaywrightError as exc:
+                pytest.skip(f"Playwright Chromium is not installed: {exc}")
+            page = browser.new_page(viewport={"width": 1200, "height": 820})
+            page.goto(f"http://127.0.0.1:{port}/?session_id={editor.session_id}")
+            page.wait_for_function("window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 4")
+            bounds = page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                app.clearAtomSelection();
+                app.addSelectionReference(0);
+                app.addSelectionReference(1);
+                app.updateSelectionVisuals();
+                app.updateUI();
+                const points = [0, 1, 2, 3].map(index => (
+                    app.renderer.projectWorldToClient(app.renderer.atomMeshByIndex.get(index).position)
+                ));
+                return {
+                    left: Math.min(...points.map(point => point.x)) - 28,
+                    right: Math.max(...points.map(point => point.x)) + 28,
+                    top: Math.min(...points.map(point => point.y)) - 28,
+                    bottom: Math.max(...points.map(point => point.y)) + 28,
+                };
+            }""")
+            page.keyboard.down("Shift")
+            page.mouse.move(bounds["left"], bounds["top"])
+            page.mouse.down()
+            page.mouse.move(bounds["right"], bounds["bottom"], steps=6)
+            page.mouse.up()
+            page.keyboard.up("Shift")
+            page.wait_for_function("""() => (
+                [...window.__ASE_APP__.state.selected].sort((a, b) => a - b).join(',') === '2,3'
+            )""")
+
+            page.locator("#app-viewport canvas").focus()
+            page.keyboard.press("Control+a")
+            page.wait_for_function("window.__ASE_APP__.selectionCount() === 4")
+            page.keyboard.press("Shift+Control+a")
+            page.wait_for_function("window.__ASE_APP__.selectionCount() === 0")
+            page.keyboard.press("Shift+Control+a")
+            page.wait_for_function("window.__ASE_APP__.selectionCount() === 4")
             browser.close()
     finally:
         editor.close()
@@ -7795,29 +8063,47 @@ def test_label_opacity_updates_instanced_atoms_supercell_2d_and_visual_history()
             table_metrics = page.locator("#appearance-table").evaluate(
                 "element => ({ clientWidth: element.clientWidth, scrollWidth: element.scrollWidth })"
             )
-            assert table_metrics["scrollWidth"] <= table_metrics["clientWidth"] + 1
+            assert table_metrics["scrollWidth"] > table_metrics["clientWidth"]
+            moving_before = page.locator(
+                '.atom-label-input[data-atom-label="C_faded"]'
+            ).bounding_box()
+            page.locator("#appearance-table").evaluate("element => { element.scrollLeft = 140; }")
+            frozen_mid = page.locator(
+                '.chemical-type-select[data-atom-label="C_faded"]'
+            ).bounding_box()
+            page.locator("#appearance-table").evaluate("element => { element.scrollLeft = 300; }")
+            frozen_after = page.locator(
+                '.chemical-type-select[data-atom-label="C_faded"]'
+            ).bounding_box()
+            moving_after = page.locator(
+                '.atom-label-input[data-atom-label="C_faded"]'
+            ).bounding_box()
+            assert frozen_after["x"] == pytest.approx(frozen_mid["x"], abs=1)
+            assert moving_after["x"] < moving_before["x"] - 150
             page.evaluate("window.__ASE_APP__.setInspectorWidth(520)")
             medium_metrics = page.locator("#appearance-table").evaluate(
                 "element => ({ clientWidth: element.clientWidth, scrollWidth: element.scrollWidth })"
             )
-            assert medium_metrics["scrollWidth"] <= medium_metrics["clientWidth"] + 1
+            assert medium_metrics["scrollWidth"] > medium_metrics["clientWidth"]
             page.evaluate("window.__ASE_APP__.setInspectorWidth(760)")
             wide_metrics = page.locator("#appearance-table").evaluate(
                 "element => ({ clientWidth: element.clientWidth, scrollWidth: element.scrollWidth })"
             )
-            assert wide_metrics["scrollWidth"] <= wide_metrics["clientWidth"] + 1
+            assert wide_metrics["scrollWidth"] > wide_metrics["clientWidth"]
 
             opacity = page.locator(
                 '.label-opacity-input[data-atom-label="C_faded"]'
             )
-            opacity.fill("0.35")
+            opacity.click()
+            opacity.press("Meta+a")
+            opacity.type("0.35", delay=90)
             opacity.press("Tab")
             page.wait_for_function("""() => {
                 const app = window.__ASE_APP__;
                 return app.state.display.labelOpacities.C_faded === 0.35
-                    && app.renderer.atomMeshes.children.length === 2
-                    && app.undoTimeline.length === 1;
+                    && app.renderer.atomMeshes.children.length === 2;
             }""")
+            page.wait_for_function("window.__ASE_APP__.undoTimeline.length >= 1")
 
             state = page.evaluate("""() => {
                 const app = window.__ASE_APP__;

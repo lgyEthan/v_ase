@@ -1362,6 +1362,9 @@ def _cad_scene_data(session, payload: Dict[str, Any]):
     radius_map = display.get("labelRadii") or display.get("elementRadii") or {}
     opacity_map = display.get("labelOpacities") or {}
     label_materials = display.get("labelMaterials") or {}
+    atom_radius_scales = display.get("atomRadiusScales") or {}
+    atom_colors = display.get("atomColors") or {}
+    atom_opacities = display.get("atomOpacities") or {}
     atom_materials = display.get("atomMaterials") or {}
     scale_colors = (
         display.get("atomColorScaleColors")
@@ -1381,11 +1384,16 @@ def _cad_scene_data(session, payload: Dict[str, Any]):
         established = _valid_hex_color(color_map.get(label), _valid_hex_color(fallback))
         if index < len(scale_colors):
             return _valid_hex_color(scale_colors[index], established)
+        override = atom_colors.get(str(index), atom_colors.get(index))
+        if override is not None:
+            return _valid_hex_color(override, established)
         return established
 
-    def atom_opacity(label):
+    def atom_opacity(index, label):
         try:
-            value = float(opacity_map.get(label, 1.0))
+            value = float(atom_opacities.get(
+                str(index), atom_opacities.get(index, opacity_map.get(label, 1.0))
+            ))
         except (TypeError, ValueError):
             value = 1.0
         if not np.isfinite(value):
@@ -1405,6 +1413,10 @@ def _cad_scene_data(session, payload: Dict[str, Any]):
         except (IndexError, TypeError, ValueError):
             source_radius = 0.5
         radius = source_radius * radius_scale
+        try:
+            radius *= float(atom_radius_scales.get(str(index), atom_radius_scales.get(index, 1.0)))
+        except (TypeError, ValueError):
+            pass
         if not np.isfinite(radius) or radius <= 0:
             radius = 0.5 * radius_scale
         material_preset = _atom_material_preset(
@@ -1419,13 +1431,15 @@ def _cad_scene_data(session, payload: Dict[str, Any]):
                 "position": shifted.tolist(),
                 "radius": float(radius),
                 "color": color,
-                "opacity": atom_opacity(label),
+                "opacity": atom_opacity(index, label),
                 "material": material_preset,
                 "cell_offset": list(offset),
             })
 
     color_mode = display.get("bondColorMode", "split")
     custom_bond_color = _valid_hex_color(display.get("bondCustomColor"), "#c8ccd0")
+    pair_bond_styles = display.get("pairwiseBondStyles") or {}
+    atom_bond_styles = display.get("atomBondStyles") or {}
     try:
         bond_diameter = float(display.get("bondThickness", 0.25))
     except (TypeError, ValueError):
@@ -1433,10 +1447,48 @@ def _cad_scene_data(session, payload: Dict[str, Any]):
     bond_diameter = max(0.02, min(0.6, bond_diameter))
     bond_radius = bond_diameter * 0.5
     bond_style = "flat" if display.get("bondStyle") == "flat" else "cylinder"
+    bond_material = _atom_material_preset(display.get("bondMaterial"))
+    try:
+        bond_opacity = max(0.0, min(1.0, float(display.get("bondOpacity", 1.0))))
+    except (TypeError, ValueError):
+        bond_opacity = 1.0
 
     def bond_atom_color(index):
         label = labels[index] if index < len(labels) else symbols[index]
         return atom_color(index, label)
+
+    def bond_appearance(i, j, endpoint=None):
+        left = labels[i] if i < len(labels) else symbols[i]
+        right = labels[j] if j < len(labels) else symbols[j]
+        pair_key = "-".join(sorted((str(left), str(right))))
+        pair = pair_bond_styles.get(pair_key)
+        pair = pair if isinstance(pair, dict) else {}
+        endpoint_style = atom_bond_styles.get(str(endpoint), atom_bond_styles.get(endpoint, {})) \
+            if endpoint is not None else {}
+        endpoint_style = endpoint_style if isinstance(endpoint_style, dict) else {}
+        try:
+            diameter = max(0.02, min(0.6, float(pair.get("thickness", bond_diameter))))
+        except (TypeError, ValueError):
+            diameter = bond_diameter
+        try:
+            opacity = max(0.0, min(1.0, float(endpoint_style.get(
+                "opacity", pair.get("opacity", bond_opacity)
+            ))))
+        except (TypeError, ValueError):
+            opacity = bond_opacity
+        requested_color = endpoint_style.get("color", pair.get("color", custom_bond_color))
+        return {
+            "style": "flat" if pair.get("style", bond_style) == "flat" else "cylinder",
+            "material": _atom_material_preset(endpoint_style.get(
+                "material", pair.get("material", bond_material)
+            )),
+            "diameter": diameter,
+            "radius": diameter * 0.5,
+            "color_mode": "custom" if pair.get("colorMode", color_mode) == "custom" else "split",
+            "custom_color": _valid_hex_color(requested_color, custom_bond_color),
+            "opacity": opacity,
+            "endpoint_override": bool(endpoint_style),
+        }
 
     bond_specs = []
 
@@ -1445,25 +1497,44 @@ def _cad_scene_data(session, payload: Dict[str, Any]):
         end = np.asarray(end, dtype=float)
         if float(np.linalg.norm(end - start)) < 1e-9:
             return
-        if color_mode == "custom":
-            segments = ((0.0, 1.0, custom_bond_color, "full"),)
+        base_appearance = bond_appearance(i, j)
+        left_appearance = bond_appearance(i, j, i)
+        right_appearance = bond_appearance(i, j, j)
+        if (
+            base_appearance["color_mode"] == "custom"
+            and not left_appearance["endpoint_override"]
+            and not right_appearance["endpoint_override"]
+        ):
+            segments = ((0.0, 1.0, base_appearance["custom_color"], "full", base_appearance),)
         else:
             segments = (
-                (0.0, 0.5, bond_atom_color(i), "a"),
-                (0.5, 1.0, bond_atom_color(j), "b"),
+                (
+                    0.0, 0.5,
+                    left_appearance["custom_color"]
+                    if base_appearance["color_mode"] == "custom" else bond_atom_color(i),
+                    "a", left_appearance,
+                ),
+                (
+                    0.5, 1.0,
+                    right_appearance["custom_color"]
+                    if base_appearance["color_mode"] == "custom" else bond_atom_color(j),
+                    "b", right_appearance,
+                ),
             )
         delta = end - start
         logical_name = f"bond_{i}_{j}_{suffix}"
-        for t0, t1, color, half in segments:
+        for t0, t1, color, half, appearance in segments:
             bond_specs.append({
                 "i": int(i),
                 "j": int(j),
                 "start": (start + delta * t0).tolist(),
                 "end": (start + delta * t1).tolist(),
-                "radius": bond_radius,
-                "diameter": bond_diameter,
-                "style": bond_style,
+                "radius": appearance["radius"],
+                "diameter": appearance["diameter"],
+                "style": appearance["style"],
                 "color": color,
+                "material": appearance["material"],
+                "opacity": appearance["opacity"],
                 "name": f"{logical_name}_{half}",
                 "logical_name": logical_name,
                 "segment": half,
@@ -1738,14 +1809,17 @@ def export_3dm_response(session, payload: Dict[str, Any]):
         )
     bond_definition_ids = {}
 
-    def bond_definition(style, colors):
-        key = (style, tuple(colors))
+    def bond_definition(style, segment_materials):
+        key = (style, tuple(segment_materials))
         if key in bond_definition_ids:
             return bond_definition_ids[key]
-        fractions = [(0.0, 1.0)] if len(colors) == 1 else [(0.0, 0.5), (0.5, 1.0)]
+        fractions = [(0.0, 1.0)] if len(segment_materials) == 1 else [(0.0, 0.5), (0.5, 1.0)]
         geometry = []
         attributes = []
-        for index, ((start_fraction, end_fraction), color) in enumerate(zip(fractions, colors)):
+        for index, ((start_fraction, end_fraction), specification) in enumerate(
+            zip(fractions, segment_materials)
+        ):
+            color, preset, opacity = specification
             if style == "flat":
                 primitive = rhino3dm.Mesh()
                 for point in (
@@ -1769,11 +1843,11 @@ def export_3dm_response(session, payload: Dict[str, Any]):
                 rhino3dm,
                 f"bond_segment_{index}",
                 layer_indices["Bonds"],
-                material_index(color),
+                material_index(color, preset, opacity),
                 color,
             ))
         definition_name = _safe_name(
-            f"v_ase_bond_{style}_{'_'.join(color.lstrip('#') for color in colors)}"
+            f"v_ase_bond_{style}_{'_'.join(color.lstrip('#') for color, _, _ in segment_materials)}"
         )
         definition_index = model.InstanceDefinitions.Add(
             definition_name,
@@ -1833,17 +1907,24 @@ def export_3dm_response(session, payload: Dict[str, Any]):
             continue
         axis, side, normal, length = basis
         colors = tuple(segment["color"] for segment in segments)
+        segment_materials = tuple((
+            segment["color"],
+            _atom_material_preset(segment.get("material")),
+            round(float(segment.get("opacity", 1.0)), 6),
+        ) for segment in segments)
         attributes = _cad_object_attributes(
             rhino3dm,
             logical_name,
             layer_indices["Bonds"],
-            material_index(colors[0]),
+            material_index(*segment_materials[0]),
             colors[0],
             {
                 "v_ase.kind": "bond",
                 "v_ase.atom_i": bond["i"],
                 "v_ase.atom_j": bond["j"],
                 "v_ase.style": bond["style"],
+                "v_ase.materials": ",".join(specification[1] for specification in segment_materials),
+                "v_ase.opacities": ",".join(str(specification[2]) for specification in segment_materials),
                 "v_ase.colors": ",".join(colors),
                 "v_ase.units": "angstrom",
             },
@@ -1856,7 +1937,9 @@ def export_3dm_response(session, payload: Dict[str, Any]):
             axis * length,
             start,
         )
-        reference = rhino3dm.InstanceReference(bond_definition(bond["style"], colors), transform)
+        reference = rhino3dm.InstanceReference(
+            bond_definition(bond["style"], segment_materials), transform
+        )
         model.Objects.AddInstanceObject(reference, attributes)
 
     cell_color = scene["cell_color"]
@@ -2082,7 +2165,11 @@ def export_obj_response(session, payload: Dict[str, Any]):
         )
         for atom in scene["atoms"]
     }
-    material_specs.update((bond["color"], "standard", 1.0) for bond in scene["bonds"])
+    material_specs.update((
+        bond["color"],
+        _atom_material_preset(bond.get("material")),
+        round(float(bond.get("opacity", 1.0)), 6),
+    ) for bond in scene["bonds"])
     if scene["cell_edges"]:
         cell_preset = "metal" if scene["cell_material"] == "metal" else "standard"
         material_specs.add((scene["cell_color"], cell_preset, 1.0))
@@ -2142,15 +2229,20 @@ def export_obj_response(session, payload: Dict[str, Any]):
                 stacks,
             )
         for bond in scene["bonds"]:
+            bond_material_key = (
+                bond["color"],
+                _atom_material_preset(bond.get("material")),
+                round(float(bond.get("opacity", 1.0)), 6),
+            )
             if bond["style"] == "flat":
                 writer.ribbon(
                     bond["name"], bond["start"], bond["end"], bond["radius"],
-                    materials[(bond["color"], "standard", 1.0)]
+                    materials[bond_material_key]
                 )
             else:
                 writer.cylinder(
                     bond["name"], bond["start"], bond["end"], bond["radius"],
-                    materials[(bond["color"], "standard", 1.0)]
+                    materials[bond_material_key]
                 )
         for index, edge in enumerate(scene["cell_edges"]):
             cell_preset = "metal" if scene["cell_material"] == "metal" else "standard"
@@ -2217,6 +2309,9 @@ LIGHTING = DATA.get("lighting", {{}})
 BOND_STYLE = DISPLAY.get("bondStyle", "cylinder")
 BOND_COLOR_MODE = DISPLAY.get("bondColorMode", "split")
 BOND_CUSTOM_COLOR = DISPLAY.get("bondCustomColor", "#c8ccd0")
+BOND_MATERIAL = DISPLAY.get("bondMaterial", "standard")
+DISPLAY_PAIR_BOND_STYLES = DISPLAY.get("pairwiseBondStyles", {{}})
+DISPLAY_ATOM_BOND_STYLES = DISPLAY.get("atomBondStyles", {{}})
 BLENDER_OBJECT_MODE = DISPLAY.get("blenderExportMode", "instanced")
 CELL_COLOR = DISPLAY.get("cellColor", "#d6bd67")
 CELL_MATERIAL = DISPLAY.get("cellMaterial", "unlit")
@@ -2224,6 +2319,10 @@ try:
     BOND_THICKNESS = max(0.02, min(0.6, float(DISPLAY.get("bondThickness", 0.25))))
 except (TypeError, ValueError):
     BOND_THICKNESS = 0.25
+try:
+    BOND_OPACITY = max(0.0, min(1.0, float(DISPLAY.get("bondOpacity", 1.0))))
+except (TypeError, ValueError):
+    BOND_OPACITY = 1.0
 try:
     CELL_THICKNESS = max(0.01, min(0.30, float(DISPLAY.get("cellThickness", 0.04))))
 except (TypeError, ValueError):
@@ -2238,6 +2337,9 @@ DISPLAY_LABEL_RADII = DISPLAY.get("labelRadii", DISPLAY.get("elementRadii", {{}}
 DISPLAY_LABEL_OPACITIES = DISPLAY.get("labelOpacities", {{}})
 DISPLAY_LABEL_VISIBLE = DISPLAY.get("labelVisible", DISPLAY.get("elementVisible", {{}}))
 DISPLAY_LABEL_MATERIALS = DISPLAY.get("labelMaterials", {{}})
+DISPLAY_ATOM_RADIUS_SCALES = DISPLAY.get("atomRadiusScales", {{}})
+DISPLAY_ATOM_COLORS = DISPLAY.get("atomColors", {{}})
+DISPLAY_ATOM_OPACITIES = DISPLAY.get("atomOpacities", {{}})
 DISPLAY_ATOM_MATERIALS = DISPLAY.get("atomMaterials", {{}})
 DISPLAY_ATOM_COLOR_SCALE_COLORS = DISPLAY.get("atomColorScaleColors", []) \
     if DISPLAY.get("atomColorScaleEnabled") else []
@@ -2245,6 +2347,7 @@ MATERIAL_PRESETS = {{
     "standard": {{"roughness": 0.28, "metalness": 0.0, "specular": 1.0, "clearcoat": 0.04, "clearcoat_roughness": 0.22}},
     "metal": {{"roughness": 0.11, "metalness": 0.96, "specular": 1.0, "clearcoat": 0.03, "clearcoat_roughness": 0.08}},
     "rubber": {{"roughness": 0.88, "metalness": 0.0, "specular": 0.16, "clearcoat": 0.0, "clearcoat_roughness": 0.8}},
+    "unlit": {{"roughness": 1.0, "metalness": 0.0, "specular": 0.0, "clearcoat": 0.0, "clearcoat_roughness": 1.0}},
 }}
 try:
     ATOM_RADIUS_SCALE = max(0.01, float(DISPLAY.get("atomRadiusScale", 0.6)))
@@ -2278,6 +2381,9 @@ def get_atom_color(index):
         color = DISPLAY_ATOM_COLOR_SCALE_COLORS[index]
         if color:
             return hex_to_rgba(color)
+    atom_color = DISPLAY_ATOM_COLORS.get(str(index), DISPLAY_ATOM_COLORS.get(index))
+    if atom_color:
+        return hex_to_rgba(atom_color)
     if 0 <= index < len(ATOM_LABELS):
         display_color = DISPLAY_LABEL_COLORS.get(ATOM_LABELS[index])
         if display_color:
@@ -2287,23 +2393,35 @@ def get_atom_color(index):
     return FALLBACK_COLOR
 
 def get_atom_radius(index, fallback=FALLBACK_RADIUS):
+    try:
+        atom_scale = max(0.01, float(DISPLAY_ATOM_RADIUS_SCALES.get(
+            str(index), DISPLAY_ATOM_RADIUS_SCALES.get(index, 1.0)
+        )))
+    except (TypeError, ValueError):
+        atom_scale = 1.0
     if 0 <= index < len(ATOM_LABELS):
         try:
             display_radius = float(DISPLAY_LABEL_RADII.get(ATOM_LABELS[index], 0.0))
             if display_radius > 0:
-                return display_radius * ATOM_RADIUS_SCALE
+                return display_radius * ATOM_RADIUS_SCALE * atom_scale
         except (TypeError, ValueError):
             pass
     if 0 <= index < len(ATOM_RADII):
         try:
             radius = float(ATOM_RADII[index])
             if radius > 0:
-                return radius * ATOM_RADIUS_SCALE
+                return radius * ATOM_RADIUS_SCALE * atom_scale
         except (TypeError, ValueError):
             pass
-    return fallback * ATOM_RADIUS_SCALE
+    return fallback * ATOM_RADIUS_SCALE * atom_scale
 
 def get_atom_opacity(index):
+    try:
+        override = DISPLAY_ATOM_OPACITIES.get(str(index), DISPLAY_ATOM_OPACITIES.get(index))
+        if override is not None:
+            return clamp01(override)
+    except (TypeError, ValueError):
+        pass
     if 0 <= index < len(ATOM_LABELS):
         try:
             return clamp01(DISPLAY_LABEL_OPACITIES.get(ATOM_LABELS[index], 1.0))
@@ -2383,12 +2501,66 @@ MAT_CELL = material(
     "metal" if CELL_MATERIAL == "metal" else "standard",
 )
 
-def get_bond_mat(index):
-    color = get_atom_color(index)
-    key = f"{{color[0]:.4f}}_{{color[1]:.4f}}_{{color[2]:.4f}}"
+def get_bond_mat(color, preset="standard", opacity=1.0):
+    color = hex_to_rgba(color) if isinstance(color, str) else color
+    preset = preset if preset in MATERIAL_PRESETS else "standard"
+    opacity = clamp01(opacity)
+    key = f"{{preset}}_{{color[0]:.4f}}_{{color[1]:.4f}}_{{color[2]:.4f}}_a{{opacity:.4f}}"
     if key not in BOND_MATS:
-        BOND_MATS[key] = material(f"v_ase atom-colored bond {{key}}", color, 1.0)
+        BOND_MATS[key] = material(f"v_ase bond {{key}}", color, opacity, preset)
     return BOND_MATS[key]
+
+def get_bond_appearance(i, j, endpoint=None):
+    left = ATOM_LABELS[i] if 0 <= i < len(ATOM_LABELS) else str(i)
+    right = ATOM_LABELS[j] if 0 <= j < len(ATOM_LABELS) else str(j)
+    pair = DISPLAY_PAIR_BOND_STYLES.get("-".join(sorted((left, right))), {{}})
+    pair = pair if isinstance(pair, dict) else {{}}
+    endpoint_style = DISPLAY_ATOM_BOND_STYLES.get(
+        str(endpoint), DISPLAY_ATOM_BOND_STYLES.get(endpoint, {{}})
+    ) if endpoint is not None else {{}}
+    endpoint_style = endpoint_style if isinstance(endpoint_style, dict) else {{}}
+    try:
+        thickness = max(0.02, min(0.6, float(pair.get("thickness", BOND_THICKNESS))))
+    except (TypeError, ValueError):
+        thickness = BOND_THICKNESS
+    try:
+        opacity = clamp01(endpoint_style.get("opacity", pair.get("opacity", BOND_OPACITY)))
+    except (TypeError, ValueError):
+        opacity = BOND_OPACITY
+    preset = endpoint_style.get("material", pair.get("material", BOND_MATERIAL))
+    preset = preset if preset in MATERIAL_PRESETS else "standard"
+    color_mode = "custom" if pair.get("colorMode", BOND_COLOR_MODE) == "custom" else "split"
+    color = endpoint_style.get("color", pair.get("color", BOND_CUSTOM_COLOR))
+    return {{
+        "style": "flat" if pair.get("style", BOND_STYLE) == "flat" else "cylinder",
+        "thickness": thickness,
+        "material": preset,
+        "opacity": opacity,
+        "color_mode": color_mode,
+        "custom_color": color,
+        "endpoint_override": bool(endpoint_style),
+    }}
+
+def bond_pieces(i, j, start, end):
+    base = get_bond_appearance(i, j)
+    left = get_bond_appearance(i, j, i)
+    right = get_bond_appearance(i, j, j)
+    if base["color_mode"] == "custom" and not left["endpoint_override"] and not right["endpoint_override"]:
+        return [(start, end, get_bond_mat(base["custom_color"], base["material"], base["opacity"]), base)]
+    midpoint = (start + end) * 0.5
+    pieces = []
+    for endpoint, appearance, piece_start, piece_end in (
+        (i, left, start, midpoint),
+        (j, right, midpoint, end),
+    ):
+        color = appearance["custom_color"] if base["color_mode"] == "custom" else get_atom_color(endpoint)
+        pieces.append((
+            piece_start,
+            piece_end,
+            get_bond_mat(color, appearance["material"], appearance["opacity"]),
+            appearance,
+        ))
+    return pieces
 
 def get_atom_mat(index, symbol):
     color = get_atom_color(index)
@@ -2698,10 +2870,10 @@ def add_flat_between(name, start, end, width, mat):
     obj.data.materials.append(mat)
     return obj
 
-def add_bond_piece(name, start, end, mat):
-    if BOND_STYLE == "flat":
-        return add_flat_between(name, start, end, BOND_THICKNESS, mat)
-    return add_cylinder_between(name, start, end, BOND_THICKNESS * 0.5, mat)
+def add_bond_piece(name, start, end, mat, appearance):
+    if appearance["style"] == "flat":
+        return add_flat_between(name, start, end, appearance["thickness"], mat)
+    return add_cylinder_between(name, start, end, appearance["thickness"] * 0.5, mat)
 
 def add_curve_segments(name, segments, radius, mat):
     if not segments:
@@ -2760,20 +2932,20 @@ def add_bond_groups(bonds):
     for bond_index, bond in enumerate(bonds):
         i = int(bond.get("i", 0)); j = int(bond.get("j", 0))
         start = Vector(bond.get("start")); end = Vector(bond.get("end"))
-        pieces = []
-        if BOND_COLOR_MODE == "split":
-            midpoint = (start + end) * 0.5
-            pieces = [(start, midpoint, get_bond_mat(i)), (midpoint, end, get_bond_mat(j))]
-        else:
-            pieces = [(start, end, MAT_BOND)]
-        for piece_start, piece_end, mat in pieces:
-            grouped.setdefault(mat.name, {{"material": mat, "segments": []}})["segments"].append((piece_start, piece_end))
+        for piece_start, piece_end, mat, appearance in bond_pieces(i, j, start, end):
+            key = (mat.name, appearance["style"], round(appearance["thickness"], 6))
+            grouped.setdefault(key, {{
+                "material": mat,
+                "segments": [],
+                "style": appearance["style"],
+                "thickness": appearance["thickness"],
+            }})["segments"].append((piece_start, piece_end))
     for group_index, item in enumerate(grouped.values()):
         name = f"bond_group_{{group_index:03d}}"
-        if BOND_STYLE == "flat":
-            add_flat_segments(name, item["segments"], BOND_THICKNESS, item["material"])
+        if item["style"] == "flat":
+            add_flat_segments(name, item["segments"], item["thickness"], item["material"])
         else:
-            add_curve_segments(name, item["segments"], BOND_THICKNESS * 0.5, item["material"])
+            add_curve_segments(name, item["segments"], item["thickness"] * 0.5, item["material"])
 
 def add_unit_cell(cell):
     if not isinstance(cell, (list, tuple)) or len(cell) != 3:
@@ -2966,12 +3138,10 @@ if BLENDER_OBJECT_MODE == "objects":
         i = int(bond.get("i", 0)); j = int(bond.get("j", 0))
         start = Vector(bond.get("start")); end = Vector(bond.get("end"))
         name = f"bond_{{i}}_{{j}}_{{bond_index:04d}}"
-        if BOND_COLOR_MODE == "split":
-            midpoint = (start + end) * 0.5
-            add_bond_piece(name + "_start", start, midpoint, get_bond_mat(i))
-            add_bond_piece(name + "_end", midpoint, end, get_bond_mat(j))
-        else:
-            add_bond_piece(name, start, end, MAT_BOND)
+        pieces = bond_pieces(i, j, start, end)
+        for piece_index, (piece_start, piece_end, mat, appearance) in enumerate(pieces):
+            suffix = "" if len(pieces) == 1 else ("_start" if piece_index == 0 else "_end")
+            add_bond_piece(name + suffix, piece_start, piece_end, mat, appearance)
 else:
     add_bond_groups(BONDS)
 

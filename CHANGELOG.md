@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.2.34
+
+- Made long dialogs genuinely scrollable while keeping their actions visible,
+  centered the first scratch insertion region, and replaced wrapped Appearance
+  rows with a single horizontal table whose TYPE column remains fixed.
+- Added persistent atom-index color, relative-radius, opacity, and material
+  overrides with field-scoped Apply behavior across compatible trajectories.
+  Connected bond material/opacity can follow those selected indices and is on
+  by default.
+- Added independent label-pair bond thickness alongside pair style, material,
+  color, and opacity, including project, HTML, Blender, OBJ, and 3DM export.
+- Fixed typed label opacity commits and made Shift-click, Shift-box, and
+  Shift+Ctrl+A consistently invert selection instead of only adding atoms.
+
 ## 0.2.33
 
 - Added full-range visual previews for every installed Matplotlib colormap in
