@@ -21,7 +21,15 @@ viewer_result = view(
     viz_only=True,
     theme="auto",
     return_mode="atoms",
+    trajectory_source=None,
+    initial_frame=0,
+    initial_design_settings=None,
+    document_name=None,
     close_on_disconnect=True,
+    open_browser=True,
+    stream_trajectory=False,
+    volumetric_datasets=None,
+    volumetric_precision="fp32",
 )
 ```
 
@@ -29,7 +37,9 @@ Accepted input:
 
 - one ASE `Atoms`;
 - a sequence of `Atoms` frames;
-- a supported structure, trajectory, or `.vase` path.
+- a supported structure or trajectory path;
+- a `.vase` or project-embedded HTML path; or
+- a supported CHG/CHGCAR, PARCHG, LOCPOT, ELFCAR, Cube, or XSF path.
 
 Important options:
 
@@ -61,6 +71,11 @@ Important options:
 - `close_on_disconnect=False` keeps the API session and its local server alive
   across workspace-tab disconnects until the session is finalized explicitly.
 - `show_bonds=True` is the default; pass `False` for an atom-only initial view.
+- `open_browser=False` keeps the loopback session available without invoking
+  the operating-system browser launcher.
+- `stream_trajectory=True` requests per-frame browser transfer rather than a
+  complete inline coordinate cache.
+- `volumetric_precision` is `fp32` (the lower-memory default) or `fp64`.
 
 The caller's input object is copied and is never mutated.
 
@@ -182,16 +197,20 @@ atom count or a structured `missing_fields` list. Apply is Edit-only and
 replaces the active structure with one periodic frame. A nonempty document
 requires `replace_existing: true`; clients must obtain user confirmation first.
 
-The semantic equivalent is `build-bulk`:
+The semantic equivalent is a revision-guarded `build-bulk` operation:
 
 ```json
 {
-  "name": "build-bulk",
-  "formula": "CuO",
-  "crystalStructure": "rocksalt",
-  "cellMode": "cubic",
-  "a": 4.27,
-  "confirmReplace": true
+  "expectedRevision": 12,
+  "mode": "edit",
+  "operation": {
+    "name": "build-bulk",
+    "formula": "CuO",
+    "crystalStructure": "rocksalt",
+    "cellMode": "cubic",
+    "a": 4.27,
+    "confirmReplace": true
+  }
 }
 ```
 
@@ -205,8 +224,10 @@ live document and revision contract:
 
 ```bash
 v_ase api "$COMMAND_URL" apply --params '{
-  "name": "scatter-atoms",
-  "parameters": {
+  "expectedRevision": 12,
+  "mode": "edit",
+  "operation": {
+    "name": "scatter-atoms",
     "entries": [
       {"element": "Li", "label": "Li_mobile", "count": 12},
       {"element": "H", "label": "H_probe", "count": 8}
@@ -226,8 +247,9 @@ v_ase api "$COMMAND_URL" apply --params '{
   }
 }'
 v_ase api "$COMMAND_URL" apply --params '{
-  "name": "relax-added-atoms",
-  "parameters": {
+  "expectedRevision": 13,
+  "operation": {
+    "name": "relax-added-atoms",
     "strength": 2.5,
     "fmax": 0.01,
     "steps": 180,
@@ -235,10 +257,14 @@ v_ase api "$COMMAND_URL" apply --params '{
   }
 }'
 v_ase api "$COMMAND_URL" apply --params '{
-  "name": "finish-add-atoms",
-  "parameters": {}
+  "expectedRevision": 14,
+  "operation": {"name": "finish-add-atoms"}
 }'
 ```
+
+The revision numbers above are illustrative. Call `describe` after each
+mutation and use its latest `collaboration.revision` in the next
+`expectedRevision`; never assume sequential values in a shared GUI.
 
 `stop-added-atoms` interrupts the optimizer but leaves the insertion workspace
 open. `cancel-add-atoms` removes every inserted atom and restores the exact
@@ -592,10 +618,12 @@ upload, server encoding, response download, and destination write. Estimated
 remaining time is derived from completed pipeline work; 100% is emitted once,
 after the output file is complete.
 
-The live HTTP bridge exposes `ready`, `capabilities`, `describe`, `apply`,
-`render`, and `export`; workspace scope also exposes `documents`, `activate`,
-and `newDocument`. The optional `window.v_aseAI` object mirrors these methods
-for page-main-world controllers. `capabilities()` advertises
+The command bridge exposes `schema`, `ready`, `capabilities`, `describe`,
+`apply`, `render`, and `export`; workspace scope also exposes `documents`,
+`activate`, and `newDocument`. The optional document-level
+`window.v_aseAI` object mirrors the live document methods but does not define
+`schema()`; use `v_ase api ... schema` or `GET /api/ai/schema` for the schema.
+`capabilities()` advertises
 `expectedRevision` in its `apply` fields, and `describe()` reports the current
 document collaboration revision. `apply()` accepts that revision as an
 optimistic-concurrency guard and rejects stale commands before they can
@@ -614,8 +642,8 @@ mode state, volumetric dataset descriptors, and the current RDF summary without
 serializing large numerical fields into agent context.
 `export()` covers image, video, POSCAR,
 ASE Pickle, Blender, Rhino 3DM, OBJ, standalone HTML, `.vase`, and visual
-settings, plus RDF CSV. Rendering and image export use the same capture path
-as the human Export workspace.
+settings, plus RDF, commensurate, and registry CSV. Rendering and image export
+use the same capture path as the human Export workspace.
 
 `describe()` is the primary machine-readable output and includes document,
 mode, frame, atom identity, positions when requested, cell/PBC, constraints,

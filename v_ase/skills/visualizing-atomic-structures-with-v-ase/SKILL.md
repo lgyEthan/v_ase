@@ -14,7 +14,7 @@ All lengths are Angstrom and all angles are degrees unless stated otherwise.
 Install the tested release:
 
 ```bash
-python -m pip install "v_ase-gui==0.2.34"
+python -m pip install "v_ase-gui==0.2.35"
 ```
 
 Start the terminal-oriented API session yourself:
@@ -197,6 +197,10 @@ neutral), and never normalize trajectory colors independently per frame.
 Use a catalog map name exactly, or `map:"custom"` with a validated `customMap`
 containing 2-64 unique positioned `#RRGGBB` stops and `mode:"continuous"` or
 `"discrete"`; never approximate a requested custom palette with a preset.
+For a stable subset, send `scope:"selected"` and explicit `indices`; this
+freezes that index set even after the human clears or changes the GUI
+selection. Omit `indices` only when the colorscale should intentionally follow
+the live selection.
 Numeric LAMMPS atom columns are valid catalog fields alongside coordinates,
 stored forces, ASE arrays, charges, magnetic moments, and calculator results.
 Stored Cartesian forces can also be shown directly with display fields
@@ -206,6 +210,10 @@ stored vector direction and arrow length is `forceVectorScale * |F|`; never
 evaluate an attached calculator merely to create an arrow. On trajectories,
 reload both scalar colors and Cartesian vectors from the same active frame;
 never reuse a force-vector buffer from another frame.
+When enabling or disabling bond pairs, send the complete authoritative
+`display.pairwiseBondCutoffs` map and use `0` for every disabled pair. Do not
+send `pairwiseBondRanges` alone; ranges describe the UI interval and do not
+replace the active cutoff map.
 For a rotation around one atom, pass that atom last in the explicit `indices`
 array and set `pivot: "active"`; verify that its coordinate is unchanged.
 For an ASE bulk crystal, the human UI path is **+ Add atoms > Build with ASE**.

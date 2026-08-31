@@ -494,160 +494,61 @@ def test_brand_logo_generation_uses_approved_palette_and_separated_letter_atoms(
 
 def test_readme_presents_real_manipulation_and_analysis_workflows():
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
-    structure = readme.index("## Edit Structures")
-    select = readme.index("### Select", structure)
-    move = readme.index("### Move", select)
-    add_atoms = readme.index("### Add Atoms", move)
-    rotate = readme.index("### Rotate Selected Atoms", add_atoms)
-    ferrocene = readme.index("#### Ferrocene: Use Fe As The Active Pivot", rotate)
-    phosphorene = readme.index("#### Phosphorene: Build The Twist One Edit At A Time", ferrocene)
-    periodic = readme.index("## Periodic Cells And Interfaces", phosphorene)
-    commensurate = readme.index(
-        "### Commensurate Atoms: Match Periodic 2D Cells",
-        periodic,
-    )
-    measurement = readme.index("## Analyze Structures And Fields", commensurate)
-    ai = readme.index("## Work With An AI Agent", measurement)
-
-    assert structure < select < move < add_atoms < rotate < ferrocene < phosphorene
-    assert "#### Add Molecules" in readme[add_atoms:rotate]
-    assert "Available Since" not in readme[add_atoms:rotate]
-    assert phosphorene < periodic < commensurate < measurement < ai
-    normalized_readme = " ".join(
-        line.lstrip("> ").strip() for line in readme.lower().splitlines()
-    )
-    assert "from pristine 6 × 6 graphene, create a pyridinic n3 vacancy" in normalized_readme
-    assert "`N_pyridinic`" in readme
-    assert "`Li_site`" in readme
-    assert "Li 2.15 Å" in readme
-    assert "render a 4K +Z view with +Y up" in readme
-    assert "1." in readme[ai:]
-    assert "2." in readme[ai:]
-    assert "3." in readme[ai:]
-    assert "external ai agent" in normalized_readme
-    assert "same document stays open in one live gui" in normalized_readme
-    assert "does not contain an llm or interpret natural language" in normalized_readme
-    assert "structured cli/api" in normalized_readme
-    assert "a manual gui edit becomes the next document revision" in normalized_readme
-    assert "reduce repeated image interpretation" in normalized_readme
-    assert "Standard Metal and Rubber atom materials" in readme
-    assert "Cu_substrate-Cu_substrate" in readme
-    assert "Cu_oxide-O_oxide" in readme
-    assert "Materials affect rendering only." in readme
-    assert "reaches 100% once" in readme
-    assert "structure and visualization-setting changes" in readme
-    assert "camera navigation is excluded" in readme
-    assert "Try the exact assets" not in readme
-    assert "playback of a finished model" not in readme
-    assert "long sequence of repetitive steps" not in readme
-    assert "production `left-drag`" not in readme
-    assert "visible amber box" in readme
-    assert "from the **second ridge through the end**" in normalized_readme
-    assert "from the **third ridge through the end**" in normalized_readme
-    assert "**Rotate Selection**" in readme
-    assert "**Active atom (last selected)**" in readme
-    assert "Shift-select Fe last" in readme
-    assert "`5 x 6` model contains 10 puckered ridges" in readme
-    assert "12 atoms per ridge" in normalized_readme
-    assert "backend commits" not in readme
-    assert "final ridge is rotated by exactly 13.85 degrees" in readme
-    assert "from above to below" in normalized_readme
-    assert "green and purple distinguish" in normalized_readme
-    assert "the upper and lower p sublayers" in normalized_readme
-    assert "`6 x 6 Cu2O(111)` film on `7 x 7 Cu(111)`" in readme
-    assert "substrate Cu top site" in readme
-    assert "in-plane compression" not in readme
-    assert "10.1021/acs.jpcc.0c04453" not in readme
-    assert "**Axes** and **Unit Cell** switches update the working viewport" in readme
-    assert "**Field smearing σ**" in readme
-    assert "**Mesh smoothing passes**" in readme
-    assert "source scalar field" in readme
-    assert "eighteen `o_subsurface` atoms start" in normalized_readme
-    assert "three bulk-like interior layers" in normalized_readme
-    assert "entering `o` chooses oxygen immediately" in normalized_readme
-    assert "Cu(111)/O placement example" in readme
-    assert "separate Reject-region example" not in readme
-    assert "half-open primary periodic cell" in readme
-    assert "every pre-existing coordinate, array" in readme
-    assert "ASE G2" in readme
-    assert "Randomize molecular orientation" in readme
-    assert "Preserve molecular geometry" in readme
-    assert "native coordinate origin" in readme
-    assert "64 rigid h2o molecules" in normalized_readme
-    assert "1926.683 å³" in normalized_readme
-    assert "`2 å`-thick" in normalized_readme
-    assert "distinct left and right solvent chambers" in normalized_readme
-    assert "viewport box-selection around the 32 substrate cu atoms" in normalized_readme
-    assert "rectangular graphene `(√7 × √21) R±19.11°` host" in readme
-    assert "MoS2 `2 × 2` guest" in readme
-    assert "192-atom Cu(111) slab" in readme
-    assert "second, and third lateral neighbor shells" in readme
-    assert "one `AdditionRepulsionCalculator` attached to the complete staged" in readme
-    assert "same controls used for ordinary structure relaxation" in readme
-    assert "place another batch, and relax again without pressing **finish**" in normalized_readme
-    assert "every FIRE optimizer step" in readme
-
-    for filename in (
-        "readme_phosphorene_twist.gif",
-        "readme_ferrocene_pivot.gif",
-        "readme_commensurate.gif",
-        "readme_ai_edit.gif",
-        "readme_ai_collaboration.gif",
-        "readme_ai_collaboration.png",
-        "readme_ai_collaboration_live.png",
-        "readme_materials.png",
-        "readme_measurement.gif",
-        "readme_displacement.png",
-        "readme_volumetric.png",
-        "readme_rdf.png",
-        "readme_add_atoms.gif",
-        "readme_add_atoms_allowed.gif",
-        "readme_add_atoms.png",
-        "readme_add_molecules.gif",
-        "readme_add_molecules.png",
-        "readme_cu5o4_view_appearance.gif",
-        "readme_cu5o4_view_appearance.png",
-        "readme_commensurate_host_guest.gif",
+    documentation = {
+        name: (ROOT / "docs" / name).read_text(encoding="utf-8")
+        for name in (
+            "editing.md",
+            "worked-examples.md",
+            "constraints-relaxation.md",
+            "trajectories-analysis.md",
+            "volumetric-guide.md",
+            "periodic-interfaces.md",
+            "ai-agents.md",
+            "projects-export.md",
+        )
+    }
+    assert len(readme.splitlines()) < 320
+    for heading in (
+        "## Quick start",
+        "## Why v_ase?",
+        "## Python and notebooks",
+        "## Remote data",
+        "## Work with an external AI agent",
+        "## Save, export, and share",
+        "## Documentation map",
     ):
-        assert (ROOT / "docs" / "assets" / filename).is_file()
-        assert (ROOT / "docs" / "assets" / "github" / filename).is_file()
+        assert heading in readme
+    for target in documentation:
+        assert f"docs/{target}" in readme
 
-    with Image.open(ROOT / "docs" / "assets" / "readme_ai_collaboration.png") as figure:
-        assert figure.size == (1800, 1080)
-
-    figure_source = (
-        ROOT / "docs" / "design" / "ai_collaboration_figure.html"
-    ).read_text(encoding="utf-8")
+    worked = " ".join(documentation["worked-examples.md"].split())
     for required in (
-        "You direct the work. The AI Agent operates v_ase. The GUI stays live.",
-        '<div class="actor-kicker">Human</div><h2>You</h2>',
-        '<div class="actor-kicker">Interprets the request</div><h2>AI Agent</h2>',
-        '<div class="actor-kicker">One shared structure</div><h2>Live v_ase GUI</h2>',
-        "Natural language",
-        ">CLI<",
-        ">GUI<",
-        "Natural-language intent",
-        "CLI operations",
-        "agent-reply",
-        "human-edit",
-        "element-legend",
-        "natural-reply",
-        "from +Z with +Y up",
-        "delete 42 · 29,41,30 → N",
-        "add Li · z = center + 2.15 Å",
-        "view +Z · screen up +Y",
-        "You refine the result directly in the GUI",
-        "GUI revision received · radius 0.64 · bond 0.20 Å",
+        "Active atom (last selected)",
+        "second ridge through the end",
+        "final ridge is rotated by exactly 13.85 degrees",
+        "18 atoms with TYPE `O`, LABEL `O_subsurface`",
+        "64 rigid H2O molecules",
+        "Cu_oxide-O_oxide",
+        "rectangular graphene `(√7 × √21) R±19.11°`",
+        "pristine 6 × 6 graphene",
+        "`N_pyridinic`",
+        "`Li_site` 2.15 Å",
     ):
-        assert required in figure_source
-    assert figure_source.count('class="flow-path ') == 6
-    for flow in ("natural", "cli", "gui"):
-        assert f'class="channel-label label-{flow}"' in figure_source
-        assert figure_source.count(f'class="flow-path channel-{flow}"') == 2
-        assert f'marker-end="url(#arrow-{flow})"' in figure_source
-    assert 'class="vase-logo"' in figure_source
-    assert "LIVE FEEDBACK LOOP" not in figure_source
-    assert 'class="feedback"' not in figure_source
+        assert required in worked
+
+    combined = " ".join("\n".join(documentation.values()).split())
+    for required in (
+        "Standard, Metal, and Rubber",
+        "Field smearing",
+        "Mesh smoothing",
+        "source grid",
+        "structure and visual-setting actions",
+        "Camera navigation is excluded",
+        "same live GUI",
+        "expectedRevision",
+        "reaches 100%",
+    ):
+        assert required.lower() in combined.lower(), required
 
 
 def test_phosphorene_capture_drives_the_production_selection_and_rotation_ui():

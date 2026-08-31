@@ -278,7 +278,7 @@ Pass `operation` as a name string or object:
 | `combine-volumetric` | `datasetIds`, `coefficients`, optional `name`, `precision` | Create a linear grid combination |
 | `remove-volumetric` | `datasetId` | Remove one grid from the document |
 | `calculate-rdf` | optional `cutoff`, `bins`, `pairMode`, `activePairs` | Calculate a bulk RDF for full 3D PBC, or an unordered-pair probability density for a finite no-PBC structure |
-| `set-atom-colorscale` | optional `enabled`, `field`, `map`, `customMap`, `reverse`, `scope`, `rangeMode`, `minimum`, `maximum`, `gamma` | Lazily color all or selected atoms by a discovered numeric per-atom value with a trajectory-consistent range and preset or custom map |
+| `set-atom-colorscale` | optional `enabled`, `field`, `map`, `customMap`, `reverse`, `scope`, `indices`, `rangeMode`, `minimum`, `maximum`, `gamma` | Lazily color all or selected atoms by a discovered numeric per-atom value with a trajectory-consistent range and preset or custom map; explicit indices freeze a selected subset |
 
 ### Repulsion Calculator Contract
 
@@ -599,13 +599,13 @@ const uncertainty = scalarCatalog.fields.find(field => (
   field.source === "array" && field.name === "mlip_uncertainty"
 ));
 await ai.apply({
-  selection: {clear: true, indices: [0, 1, 2, 3]},
   operation: {
     name: "set-atom-colorscale",
     enabled: true,
     field: uncertainty.id,
     map: "viridis",
     scope: "selected",
+    indices: [0, 1, 2, 3],
     rangeMode: "trajectory",
     gamma: 1.0,
     reverse: false
@@ -662,8 +662,10 @@ atom appearance immediately.
   `maximum > minimum`.
 
 Use `capabilities().atomColorScale.rangeUrl` to inspect a current-frame or
-full-trajectory range before applying it. A selected-only scan uses the current
-selection on every frame and fails if it contains no finite value. `gamma` is a
+full-trajectory range before applying it. A selected-only scan uses explicit
+`indices` when supplied; that fixed subset survives later GUI selection
+changes and project save/reopen. Without `indices`, it follows the current
+selection on every frame and fails if that selection contains no finite value. `gamma` is a
 contrast transform in the valid range `0.1..5.0`; `1.0` is unchanged. Once a
 range is resolved, viewport playback and image, video, HTML, and geometry
 exports use that same range. Do not refit each frame during playback.

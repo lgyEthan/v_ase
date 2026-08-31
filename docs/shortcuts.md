@@ -10,7 +10,7 @@ that exact label.
 
 ## Mouse Controls
 - **Left Click**: Select an atom or the visible Sun light object.
-- **Left Click during G/R transform**: Confirm the current transform.
+- **Left Click during G/R/S transform**: Confirm the current transform.
 - **Shift + Left Click**: Add/Remove from selection.
 - **Left Drag**: Box select; the yellow marquee shows the active selection area.
 - **Middle Mouse**: Orbit camera.
@@ -26,17 +26,18 @@ Press these keys to enter transformation mode:
 | Key | Action | Description |
 |-----|--------|-------------|
 | **G** | **Grab** | Move selected atoms or the selected Sun object relative to the view plane. |
-| **R** | **Rotate** | Rotate selected atoms around their collective center, or rotate the selected Sun direction. |
-| **X** | **Align / Lock X** | In select mode, restore the canonical +X pose, including screen-up orientation. Press X again only from that exact pose to flip to -X. During G/R, lock movement/rotation to X. |
-| **Y** | **Align / Lock Y** | In select mode, restore the canonical +Y pose, including screen-up orientation. Press Y again only from that exact pose to flip to -Y. During G/R, lock movement/rotation to Y. |
-| **Z** | **Align / Lock Z** | In select mode, restore the canonical +Z pose, including screen-up orientation. Press Z again only from that exact pose to flip to -Z. During G/R, lock movement/rotation to Z. |
+| **R** | **Rotate** | Rotate selected atoms around the configured pivot, or rotate the selected Sun direction. |
+| **S** | **Scale spacing** | Physically scale selected atom spacing around the configured pivot without changing drawn radii or the unit cell. |
+| **X** | **Align / Lock X** | In select mode, restore the canonical +X pose, including screen-up orientation. Press X again only from that exact pose to flip to -X. During G/R/S, lock the transform to X. |
+| **Y** | **Align / Lock Y** | In select mode, restore the canonical +Y pose, including screen-up orientation. Press Y again only from that exact pose to flip to -Y. During G/R/S, lock the transform to Y. |
+| **Z** | **Align / Lock Z** | In select mode, restore the canonical +Z pose, including screen-up orientation. Press Z again only from that exact pose to flip to -Z. During G/R/S, lock the transform to Z. |
 | **Esc** | **Cancel / Inspector** | Revert an active transform or close a modal. Otherwise, open a collapsed control panel; when the panel is open, commit its active field, close it, and return keyboard focus to the viewport. |
 | **Enter / Left Click** | **Confirm** | Confirm the current atom or Sun transform. |
 | **Ctrl+C** | **Copy** | Copy selected atoms to the editor clipboard. |
 | **Ctrl+V** | **Paste** | Paste copied atoms near the selected center. |
 | **Ctrl+Z** | **Undo** | Restore the previous structure or visualization-setting action. Camera navigation is intentionally excluded. |
 | **Ctrl+Shift+Z** | **Redo** | Reapply the next structure or visualization-setting action after undo. |
-| **Delete / Backspace** | **Delete** | Delete selected atoms through the backend and remap supported constraints. |
+| **Delete / Backspace** | **Hide / Delete** | Hide exact visual instances in View; physically delete base atoms and remap supported constraints in Edit. |
 | **Space** | **Play/Pause** | Toggle playback for the timeline selected below the viewport. |
 | **Left / Right Arrow** | **Previous / Next Frame** | Move one frame in the selected source or relaxation timeline. |
 | **Tab** | **Inspector** | Open the control panel while it is collapsed. `Esc` can also open it. Once open, Tab remains normal form navigation and never closes the panel. |

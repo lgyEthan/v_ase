@@ -3,14 +3,35 @@ include AGENTS.md
 include CHANGELOG.md
 include LICENSE
 include requirements.txt
+include .readthedocs.yaml
+include docs/Makefile
+include docs/conf.py
+include docs/requirements.txt
 recursive-include v_ase/static *.html *.css *.js *.png
 recursive-include v_ase/static/vendor *
 recursive-include v_ase/skills *.md *.yaml
 recursive-include docs *.md *.html
+recursive-include docs/_static *
+prune docs/_build
 prune docs/assets
+include docs/assets/readme_add_atoms.png
+include docs/assets/readme_atom_colorscale.png
+include docs/assets/readme_commensurate_host_guest.png
+include docs/assets/readme_constraints.png
+include docs/assets/readme_displacement.png
+include docs/assets/readme_hookean.png
+include docs/assets/readme_measurement.png
+include docs/assets/readme_overview.png
+include docs/assets/readme_rdf.png
+include docs/assets/readme_registry_map.png
+include docs/assets/readme_relaxation.png
+include docs/assets/readme_volumetric.png
+include docs/assets/readme_volumetric_plane.png
+include docs/assets/v_ase-logo.png
 exclude docs/design/ai_collaboration_concepts.html
 exclude docs/design/ai_collaboration_recording.html
 recursive-include examples *.py *.traj *.extxyz *.json *.md
 recursive-include scripts *.py
 exclude scripts/capture_ai_collaboration_concepts.py
+exclude scripts/plot_agent_guidance_evaluation.py
 prune tests

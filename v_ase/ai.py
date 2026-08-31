@@ -70,9 +70,11 @@ def ai_handshake(url: str) -> dict[str, object]:
             "schema",
             "describe",
             "capabilities",
-            "documents",
-            "activate",
-            "newDocument",
+            *(
+                ["documents", "activate", "newDocument"]
+                if workspace_id
+                else []
+            ),
             "apply",
             "render",
             "export",

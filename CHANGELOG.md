@@ -1,7 +1,14 @@
 # Changelog
 
-## 0.2.34
+## 0.2.35
 
+- Added a release-matched Sphinx/MyST manual configured for Read the Docs,
+  strict HTML/link/PDF/ePub builds, responsive navigation, and a concise
+  quick-start README whose former detailed workflows now live in versioned
+  guides and worked examples.
+- Hardened the external-agent contract by rejecting unknown top-level apply
+  fields and synchronizing selected-scope colorscale indices, staged-relaxation
+  parameters, registry schemas/CSV `(hkl)`, and document/workspace discovery.
 - Made long dialogs genuinely scrollable while keeping their actions visible,
   centered the first scratch insertion region, and replaced wrapped Appearance
   rows with a single horizontal table whose TYPE column remains fixed.

@@ -1,0 +1,60 @@
+:root {
+  --vase-teal: #157f79;
+  --vase-teal-dark: #0f615d;
+  --vase-ink: #182230;
+  --vase-soft: #edf7f6;
+}
+
+.wy-side-nav-search {
+  background: var(--vase-teal-dark);
+}
+
+.wy-nav-top {
+  background: var(--vase-teal-dark);
+}
+
+.wy-side-nav-search > a img.logo,
+.wy-side-nav-search .wy-dropdown > a img.logo {
+  max-height: 84px;
+  width: auto;
+}
+
+.wy-menu-vertical header,
+.wy-menu-vertical p.caption {
+  color: #62d1c8;
+}
+
+.rst-content a:not(.headerlink) {
+  color: var(--vase-teal-dark);
+}
+
+.rst-content code.literal,
+.rst-content tt.literal {
+  color: #9d2f59;
+}
+
+.rst-content .admonition.tip,
+.rst-content .admonition.note {
+  border-left: 4px solid var(--vase-teal);
+}
+
+.rst-content table.docutils td,
+.rst-content table.docutils th {
+  white-space: normal;
+  vertical-align: top;
+}
+
+.vase-version-card {
+  background: var(--vase-soft);
+  border: 1px solid #b9dfdc;
+  border-radius: 6px;
+  color: var(--vase-ink);
+  margin: 1rem 0 1.5rem;
+  padding: 0.9rem 1rem;
+}
+
+@media screen and (min-width: 1100px) {
+  .wy-nav-content {
+    max-width: 1040px;
+  }
+}

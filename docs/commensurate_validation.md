@@ -84,7 +84,7 @@ The test suite checks every `(m, m + 1)` point through `(31, 32)`, including
 ### Separate graphene/Cu(111) fixture
 
 The user-facing fixture in
-[`examples/commensurate_host_guest`](../examples/commensurate_host_guest/README.md)
+[periodic host/guest workflow](periodic-interfaces.md)
 uses separate graphene and ideal Cu(111) primitive cells. Under a one-percent
 guest-strain cutoff and area limit 16, its smallest match is:
 
