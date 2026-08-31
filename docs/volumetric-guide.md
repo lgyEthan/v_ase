@@ -92,11 +92,7 @@ A newly loaded nonconstant dataset is selected and displayed at an in-range
 default level. Replace that preview value with the scientifically requested
 threshold before publishing a result.
 
-```{vase-demo} volumetric
-:alt: Signed volumetric isosurfaces
-:fallback: assets/readme_volumetric.png
-:height: 560
-```
+![Signed volumetric isosurfaces](assets/readme_volumetric.png)
 
 ### Single and signed levels
 
@@ -183,11 +179,7 @@ cell and samples it with periodic trilinear interpolation. Only the compact 2D
 raster and clipping polygon reach the browser; displayed supercells do not
 materialize a repeated 3D grid.
 
-```{vase-demo} volumetric-plane
-:alt: Cell-clipped hkl scalar-field plane
-:fallback: assets/readme_volumetric_plane.png
-:height: 560
-```
+![Cell-clipped hkl scalar-field plane](assets/readme_volumetric_plane.png)
 
 ### Edit one or several planes
 

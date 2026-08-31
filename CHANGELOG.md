@@ -3,10 +3,10 @@
 ## 0.2.35
 
 - Added a release-matched Sphinx/MyST manual configured for Read the Docs,
-  strict HTML/link/PDF/ePub builds, a compact four-hub sidebar, interactive
-  WebGL examples with static document fallbacks, responsive navigation, and a
-  concise quick-start README whose former detailed workflows now live in
-  versioned guides and worked examples.
+  strict HTML/link/PDF/ePub builds, a compact four-hub sidebar, an interactive
+  +Z-aligned atomistic logo, exact PNG/GIF scientific examples, responsive
+  navigation, and a concise quick-start README whose former detailed workflows
+  now live in versioned guides and worked examples.
 - Hardened the external-agent contract by rejecting unknown top-level apply
   fields and synchronizing selected-scope colorscale indices, staged-relaxation
   parameters, registry schemas/CSV `(hkl)`, and document/workspace discovery.

@@ -7,11 +7,13 @@ more usable dense scientific controls.
 
 The complete user, integration, semantic-agent, scientific-validation, and
 maintainer manual now builds with Sphinx/MyST on Read the Docs. Its sidebar is
-organized into four task-oriented hubs, and captured application views render
-as real interactive WebGL scenes in HTML while retaining matching static
-fallbacks for PDF and ePub. HTML, external links, PDF, and ePub are validated
-from the same sources. The repository README is a concise starting page;
-detailed workflows and reproducible fixtures live in this versioned guide.
+organized into four task-oriented hubs. The atomistic home-page logo is an
+interactive WebGL scene aligned exactly along +Z, while scientific application
+examples use their exact PNG/GIF captures so isosurfaces, plots, constraints,
+and GUI overlays cannot disappear in a lightweight viewer. HTML, external
+links, PDF, and ePub are validated from the same sources. The repository
+README is a concise starting page; detailed workflows and reproducible
+fixtures live in this versioned guide.
 
 The semantic bridge also rejects unknown top-level apply fields and keeps its
 colorscale, staged-relaxation, registry, export, and workspace/document

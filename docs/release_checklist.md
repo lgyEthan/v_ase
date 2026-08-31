@@ -32,15 +32,17 @@ and rendered examples in sync.
    reference, troubleshooting, and developer navigation at desktop and narrow
    widths. Confirm the four-hub sidebar, search, code blocks, tables,
    previous/next links, version label, and Edit-on-GitHub target. Exercise the
-   home-page logo, a trajectory timeline, and the Live 3D/Exact capture switch;
-   also verify that PDF/ePub use the matching static fallbacks. Verify that
+   home-page logo and its exact +Z, zero-roll initial camera. Confirm that all
+   scientific examples—including isosurfaces, analysis plots, constraints,
+   and trajectories—use their captured PNG/GIF rather than a live standalone
+   scene; also verify that PDF/ePub use the same assets. Verify that
    every toctree entry and internal link resolves and that excluded
    `docs/design/` artifacts are not published.
 7. When rendering or constraint visuals change, run
    `scripts/capture_readme_screenshots.py` and replace every README image and
-   animation in both `docs/assets/` and `docs/assets/github/`, plus the scene
-   payloads under `docs/_interactive/scenes/`.
-   Open the logo, constraint images, animation frames, and interactive scenes
+   animation in both `docs/assets/` and `docs/assets/github/`, plus the logo
+   payload at `docs/_interactive/scenes/logo.json`.
+   Open the logo, constraint images, animation frames, and interactive logo
    to verify actual geometry, camera, lighting, clipping, and visibility.
 8. Run the complete browser AI workflows listed in the skill evaluation
    reference. Verify state, selection, edits, constraints, trajectory, camera

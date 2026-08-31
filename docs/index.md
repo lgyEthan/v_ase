@@ -54,11 +54,7 @@ Running `v_ase gui` without a file opens an empty editable document.
 | Output | Structures, `.vase`, project HTML, view-only HTML, images, video, Blender, OBJ, and optional Rhino 3DM |
 | Collaboration | Revisioned semantic state and commands shared by the live GUI, terminal automation, and external AI agents |
 
-```{vase-demo} overview
-:alt: Interactive v_ase structure-editing overview
-:fallback: assets/readme_overview.png
-:height: 560
-```
+![v_ase structure-editing overview](assets/readme_overview.png)
 
 ## Choose a path
 

@@ -191,8 +191,9 @@ and [Supported formats](https://v-ase.readthedocs.io/en/latest/formats.html).
 | Look up commands and shortcuts | [CLI](https://v-ase.readthedocs.io/en/latest/cli-reference.html) · [Shortcuts](https://v-ase.readthedocs.io/en/latest/shortcuts.html) |
 | Diagnose an error | [Troubleshooting](https://v-ase.readthedocs.io/en/latest/troubleshooting.html) |
 
-The documentation uses Sphinx, MyST Markdown, and the Read the Docs theme. Build
-the exact strict site locally:
+The documentation uses Sphinx, MyST Markdown, and the Read the Docs theme.
+Scientific examples use exact PNG/GIF captures; only the atomistic home-page
+logo is a live 3D scene. Build the exact strict site locally:
 
 ```bash
 python -m pip install -r docs/requirements.txt

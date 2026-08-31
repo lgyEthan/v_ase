@@ -106,38 +106,31 @@ Follow these rules:
 The strict build is the final authority for parser and reference behavior;
 GitHub's Markdown preview is not equivalent to Sphinx/MyST.
 
-## Interactive demonstrations and image fallbacks
+## Captured figures and the interactive logo
 
 Reference local, versioned assets rather than
 `raw.githubusercontent.com/.../main/...` URLs. A `main` URL makes an older
 tagged manual display a newer image and can force a documentation build or
 reader to download a large animation remotely.
 
-Every application capture shown inside the documentation uses the local
-`vase-demo` directive. HTML readers receive a real, rotatable v_ase WebGL
-scene. PDF and ePub readers receive the matching PNG fallback from the same
-capture run:
+Scientific application examples use the exact PNG or GIF produced by the
+canonical capture run. Do not replace an analysis, isosurface, constraint,
+trajectory, or GUI screenshot with a lightweight standalone scene: that scene
+does not serialize every scientific overlay and can therefore misrepresent the
+documented result.
+
+Use ordinary Markdown with accurate alt text:
 
 ````markdown
-```{vase-demo} overview
-:alt: Interactive v_ase structure-editing overview
-:fallback: assets/readme_overview.png
-:height: 560
-```
+![Signed volumetric isosurfaces](assets/readme_volumetric.png)
 ````
 
-Do not embed those screenshots directly with Markdown image syntax. Scene
-payloads live under `docs/_interactive/scenes/`, outside `html_static_path`;
-the Sphinx extension copies only the HTML runtime and scenes needed by the
-HTML build. The shared renderer is copied once rather than duplicated in every
-example. A fallback remains mandatory because JavaScript cannot run in PDF or
-ePub. The theme logo and favicon are deliberately static browser chrome; the
-large logo on the home page is interactive.
-
-Some analysis layers are not serialized by the lightweight standalone scene.
-Those demonstrations open on **Exact capture** and expose a **Live 3D** switch,
-so the scientifically complete captured overlay and the rotatable structure
-remain available together.
+The sole live documentation scene is the large atomistic logo on the home
+page. It uses the local `vase-demo` directive, starts exactly along +Z with
+zero camera roll, and retains `assets/v_ase-logo.png` for PDF/ePub. Its payload
+lives at `docs/_interactive/scenes/logo.json`; the Sphinx extension copies the
+shared renderer only for HTML output. The theme logo and favicon remain static
+browser chrome.
 
 When application rendering or constraint visuals change, run the canonical
 capture script:
@@ -146,10 +139,10 @@ capture script:
 python scripts/capture_readme_screenshots.py
 ```
 
-The script refreshes the interactive scene JSON alongside the PNG/GIF output.
+The script refreshes the logo scene JSON alongside the PNG/GIF output.
 Synchronize the generated files in `docs/assets/` and
 `docs/assets/github/`, then inspect the real image and animation frames plus
-every live scene. An HTTP success or file-existence check is not visual
+the live logo. An HTTP success or file-existence check is not visual
 validation.
 
 The source distribution intentionally excludes the full duplicated media

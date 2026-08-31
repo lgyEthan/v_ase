@@ -92,11 +92,7 @@ Select atoms in the intended order:
 The retained Measure overlay follows the selected source or optimizer frame
 and committed `G`/`R`/`S` edits without relying on hover state.
 
-```{vase-demo} measurement
-:alt: Ordered distance, angle, and torsion measurement
-:fallback: assets/readme_measurement.png
-:height: 520
-```
+![Ordered distance, angle, and torsion measurement](assets/readme_measurement.png)
 
 ## Displacement analysis
 
@@ -119,11 +115,7 @@ current visible positions, repeats them with displayed supercells, and applies
 the same visual translation to both endpoints. Scaling changes arrow length,
 not the stored displacement.
 
-```{vase-demo} displacement
-:alt: Trajectory displacement vectors
-:fallback: assets/readme_displacement.png
-:height: 540
-```
+![Trajectory displacement vectors](assets/readme_displacement.png)
 
 ## Stored force vectors
 
@@ -211,11 +203,7 @@ in visual settings, projects, HTML, and exports. Disabling the colorscale
 immediately restores the saved label/element appearance and stops per-frame
 colorscale work.
 
-```{vase-demo} colorscale
-:alt: Trajectory-consistent per-atom colors and forces
-:fallback: assets/readme_atom_colorscale.png
-:height: 560
-```
+![Trajectory-consistent per-atom colors and forces](assets/readme_atom_colorscale.png)
 
 ## Radial and finite pair distributions
 
@@ -264,11 +252,7 @@ Set a cutoff and 8–5000 bins, then choose **Calculate & Plot**. The graph
 follows the displayed source/optimizer frame and committed coordinate edits.
 Its save action exports the plotted total and partial columns as CSV.
 
-```{vase-demo} rdf
-:alt: Periodic total and partial RDF curves
-:fallback: assets/readme_rdf.png
-:height: 560
-```
+![Periodic total and partial RDF curves](assets/readme_rdf.png)
 
 ## Analysis frame synchronization
 

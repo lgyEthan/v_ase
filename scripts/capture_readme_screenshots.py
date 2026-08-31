@@ -73,7 +73,7 @@ def configured_asset_dir() -> Path:
 def configured_interactive_scene_dir() -> Path:
     value = os.environ.get("V_ASE_DOCS_INTERACTIVE_DIR")
     if not value:
-        return ROOT / "docs" / "_static" / "interactive" / "scenes"
+        return ROOT / "docs" / "_interactive" / "scenes"
     path = Path(value)
     return path if path.is_absolute() else ROOT / path
 
@@ -569,15 +569,18 @@ def capture_logo(browser):
                 renderer.setProjectionMode('orthographic');
                 renderer.controls.target.set(0, 0, 0);
                 renderer.camera.up.set(0, 1, 0);
-                renderer.camera.position.set(5.5, -10.5, 70);
+                renderer.camera.position.set(0, 0, 70);
                 renderer.camera.lookAt(renderer.controls.target);
+                renderer.controls.update();
                 renderer.fitCameraToStructure();
-                const centeredOffset = renderer.camera.position.clone().sub(renderer.controls.target);
+                const distance = renderer.camera.position.distanceTo(renderer.controls.target);
                 renderer.controls.target.set(0, 0, 0);
-                renderer.camera.position.copy(centeredOffset);
+                renderer.camera.position.set(0, 0, distance);
+                renderer.camera.up.set(0, 1, 0);
                 renderer.camera.lookAt(renderer.controls.target);
                 renderer.camera.zoom *= 1.02;
                 renderer.camera.updateProjectionMatrix();
+                renderer.controls.update();
             }"""
         )
         set_readme_lighting(page, [0, 0, 0], intensity=2.65, position_offset=(-26, -30, 46))
@@ -1253,12 +1256,6 @@ def capture_phosphorene_media(browser) -> None:
             duration=115,
         )
         rendered_frames[-1].save(ASSET_DIR / "readme_overview.png", optimize=True)
-        save_docs_interactive_scene(
-            page,
-            "overview",
-            title="Phosphorene structure editing",
-            reference_image="readme_overview.png",
-        )
     finally:
         page.close()
         editor.close()
@@ -2064,13 +2061,6 @@ def capture_commensurate_media(browser) -> None:
             ASSET_DIR / "readme_commensurate_host_guest.png",
             optimize=True,
         )
-        save_docs_interactive_scene(
-            page,
-            "commensurate",
-            title="Host and guest common-cell workflow",
-            reference_image="readme_commensurate_host_guest.png",
-            prefer_reference=True,
-        )
     finally:
         page.close()
         editor.close()
@@ -2194,13 +2184,6 @@ def capture_registry_media(browser) -> None:
         screenshot_frame(page).save(
             ASSET_DIR / "readme_registry_map.png",
             optimize=True,
-        )
-        save_docs_interactive_scene(
-            page,
-            "registry",
-            title="Registry map and rigid translation",
-            reference_image="readme_registry_map.png",
-            prefer_reference=True,
         )
 
         baseline_positions = np.asarray(
@@ -3378,12 +3361,6 @@ def capture_constraint_media(browser) -> None:
         set_view_toggles(page, grid=False, axes=False, cell=False)
         set_selection(page, [])
         page.screenshot(path=ASSET_DIR / "readme_constraints.png")
-        save_docs_interactive_scene(
-            page,
-            "constraints",
-            title="Atomic constraint guides",
-            reference_image="readme_constraints.png",
-        )
         fixedline_frames: list[Image.Image] = []
         append_hold(fixedline_frames, page, 6)
         set_selection(page, [line_idx["ion"]])
@@ -3531,12 +3508,6 @@ def capture_constraint_media(browser) -> None:
         if expected_force <= 0:
             raise AssertionError("README Hookean active force must be positive beyond rt.")
         page.screenshot(path=ASSET_DIR / "readme_hookean.png")
-        save_docs_interactive_scene(
-            page,
-            "hookean",
-            title="Hookean threshold and active spring",
-            reference_image="readme_hookean.png",
-        )
         end = carbon_pos + direction * (threshold + 1.50)
         delta = end - oxygen_pos
         capture_animation(
@@ -3890,15 +3861,6 @@ def _capture_add_atoms_variant(
             raise AssertionError("README Add Atoms repulsion did not move any inserted atom visibly.")
         append_hold(frames, page, 8)
         placement_frame = frames[-1].copy()
-        if save_static:
-            save_docs_interactive_scene(
-                page,
-                "add-atoms",
-                title="Batch insertion and relaxation",
-                reference_image="readme_add_atoms.png",
-                prefer_reference=True,
-            )
-
         page.click("#btn-add-atoms-finish")
         page.wait_for_function(
             "window.__V_ASE_APP__.state.atoms.metadata.atom_addition === null"
@@ -4551,12 +4513,6 @@ def capture_measurement_media(browser) -> None:
             ASSET_DIR / "readme_measurement.png",
             optimize=True,
         )
-        save_docs_interactive_scene(
-            page,
-            "measurement",
-            title="Ordered geometry measurement",
-            reference_image="readme_measurement.png",
-        )
     finally:
         page.close()
         editor.close()
@@ -4614,12 +4570,6 @@ def capture_measurement_media(browser) -> None:
             ASSET_DIR / "readme_displacement.png",
             optimize=True,
         )
-        save_docs_interactive_scene(
-            page,
-            "displacement",
-            title="Trajectory displacement vectors",
-            reference_image="readme_displacement.png",
-        )
     finally:
         page.close()
         editor.close()
@@ -4650,12 +4600,6 @@ def capture_relaxation_media(browser) -> None:
         )
         update_positions(page, relaxed.positions)
         page.screenshot(path=ASSET_DIR / "readme_relaxation.png")
-        save_docs_interactive_scene(
-            page,
-            "relaxation",
-            title="Repulsive relaxation trajectory",
-            reference_image="readme_relaxation.png",
-        )
     finally:
         page.close()
         editor.close()
@@ -4813,14 +4757,6 @@ def capture_volumetric_media(browser) -> None:
             ASSET_DIR / "readme_volumetric.png",
             optimize=True,
         )
-        save_docs_interactive_scene(
-            page,
-            "volumetric",
-            title="Signed volumetric isosurfaces",
-            reference_image="readme_volumetric.png",
-            prefer_reference=True,
-        )
-
         plane_result = run_external_ai_apply(command_url, {
             "operation": {
                 "name": "add-volumetric-plane",
@@ -4913,13 +4849,6 @@ def capture_volumetric_media(browser) -> None:
         plane_frames[len(plane_frames) // 2].save(
             ASSET_DIR / "readme_volumetric_plane.png",
             optimize=True,
-        )
-        save_docs_interactive_scene(
-            page,
-            "volumetric-plane",
-            title="Cell-clipped scalar-field plane",
-            reference_image="readme_volumetric_plane.png",
-            prefer_reference=True,
         )
     finally:
         page.close()
@@ -5090,12 +5019,6 @@ def capture_atom_colorscale_media(browser) -> None:
             len(frames) // 2,
         )
         page.wait_for_timeout(80)
-        save_docs_interactive_scene(
-            page,
-            "colorscale",
-            title="Trajectory colorscale and force vectors",
-            reference_image="readme_atom_colorscale.png",
-        )
     finally:
         page.close()
         editor.close()
@@ -5187,13 +5110,6 @@ def capture_rdf_media(browser) -> None:
         screenshot_frame(page).save(
             ASSET_DIR / "readme_rdf.png",
             optimize=True,
-        )
-        save_docs_interactive_scene(
-            page,
-            "rdf",
-            title="Periodic total and partial RDF",
-            reference_image="readme_rdf.png",
-            prefer_reference=True,
         )
     finally:
         page.close()

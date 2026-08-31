@@ -90,11 +90,7 @@ The region is intersected with the half-open primary periodic cell, and
 periodic images use the full triclinic lattice. Region bounds define initial
 sampling unless confinement is explicitly enabled.
 
-```{vase-demo} add-atoms
-:alt: Batch atom insertion in a bounded region
-:fallback: assets/readme_add_atoms.png
-:height: 560
-```
+![Batch atom insertion in a bounded region](assets/readme_add_atoms.png)
 
 ## Fill two solvent chambers with rigid water
 
@@ -159,11 +155,7 @@ neighbor shells.
    shell before materialization.
 6. Apply only the accepted candidate, then verify the physical cell and PBC.
 
-```{vase-demo} commensurate
-:alt: Separate host and guest common-cell workflow
-:fallback: assets/readme_commensurate_host_guest.png
-:height: 560
-```
+![Separate host and guest common-cell workflow](assets/readme_commensurate_host_guest.png)
 
 The search matches periodic cell boundaries. It does not calculate adsorption
 energy or electronic stability.
@@ -179,11 +171,7 @@ shows direct distance, angle, and signed torsion. For a trajectory, move between
 frames without reselecting and confirm the measurement follows current
 coordinates.
 
-```{vase-demo} measurement
-:alt: Ordered geometry measurement
-:fallback: assets/readme_measurement.png
-:height: 520
-```
+![Ordered geometry measurement](assets/readme_measurement.png)
 
 Stored forces and ASE arrays can be drawn or mapped with a trajectory-consistent
 colorscale. These views never evaluate a calculator as an inspection side

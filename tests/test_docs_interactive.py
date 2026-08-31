@@ -1,4 +1,4 @@
-"""Contracts for the compact Read the Docs navigation and live examples."""
+"""Contracts for compact navigation, exact captures, and the live logo."""
 
 from __future__ import annotations
 
@@ -6,6 +6,8 @@ import json
 import re
 import tomllib
 from pathlib import Path
+
+import pytest
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -40,47 +42,72 @@ def test_sidebar_starts_with_four_task_hubs():
         assert entries, f"{hub}.md must own at least one navigation child"
 
 
-def test_all_documentation_captures_use_live_demo_with_fallback():
+def test_only_logo_is_live_and_scientific_captures_are_static():
     demo_blocks = []
-    direct_images = []
+    direct_images: list[tuple[Path, str, str]] = []
     for path in sorted(DOCS.glob("*.md")):
         text = path.read_text(encoding="utf-8")
-        direct_images.extend(
-            f"{path.name}:{line_number}"
-            for line_number, line in enumerate(text.splitlines(), start=1)
-            if line.startswith("![")
-        )
+        for line in text.splitlines():
+            image = re.fullmatch(r"!\[(.+)]\(([^)]+)\)", line)
+            if image:
+                direct_images.append((path, image.group(1), image.group(2)))
         demo_blocks.extend((path, match) for match in DEMO_BLOCK.finditer(text))
 
-    assert not direct_images, "Documentation captures must use vase-demo: " + ", ".join(
-        direct_images
-    )
-    assert demo_blocks
+    assert [(page.name, match.group("scene")) for page, match in demo_blocks] == [
+        ("index.md", "logo")
+    ]
+    assert len(direct_images) >= 18
 
-    referenced_scenes = set()
-    for page, match in demo_blocks:
-        scene = match.group("scene")
-        body = match.group("body")
-        referenced_scenes.add(scene)
-        fallback = re.search(r"^:fallback:\s*(.+?)\s*$", body, re.MULTILINE)
-        assert fallback is not None, f"{page.name}:{scene} has no fallback"
-        assert re.search(r"^:alt:\s*\S.+$", body, re.MULTILINE), (
-            f"{page.name}:{scene} has no useful alt text"
-        )
-        assert (DOCS / fallback.group(1)).is_file(), f"Missing fallback for {scene}"
+    for page, alt, target in direct_images:
+        assert alt.strip(), f"{page.name} has an image without alt text"
+        assert target.startswith("assets/"), f"{page.name} uses a non-versioned image"
+        assert (DOCS / target).is_file(), f"{page.name} references missing {target}"
+
+    scientific_pages = {
+        "index.md": "readme_overview.png",
+        "editing.md": "readme_add_atoms.png",
+        "constraints-relaxation.md": "readme_constraints.png",
+        "trajectories-analysis.md": "readme_atom_colorscale.png",
+        "volumetric-guide.md": "readme_volumetric.png",
+        "periodic-interfaces.md": "readme_registry_map.png",
+        "worked-examples.md": "readme_measurement.png",
+    }
+    for filename, asset in scientific_pages.items():
+        text = (DOCS / filename).read_text(encoding="utf-8")
+        assert f"](assets/{asset})" in text
+        assert "```{vase-demo}" not in text or filename == "index.md"
 
     scene_dir = DOCS / "_interactive" / "scenes"
     scene_files = {path.stem for path in scene_dir.glob("*.json")}
-    assert scene_files == referenced_scenes
+    assert scene_files == {"logo"}
 
 
 def test_interactive_scene_payloads_and_distribution_contract():
     scene_dir = DOCS / "_interactive" / "scenes"
-    for path in sorted(scene_dir.glob("*.json")):
-        payload = json.loads(path.read_text(encoding="utf-8"))
-        assert payload["schema"] == "v_ase.html-view.v1"
-        assert payload["frames"]
-        assert payload["referenceImage"]
+    payload = json.loads((scene_dir / "logo.json").read_text(encoding="utf-8"))
+    assert payload["schema"] == "v_ase.html-view.v1"
+    assert payload["frames"]
+    assert payload["referenceImage"] == "v_ase-logo.png"
+
+    cameras = []
+
+    def collect_cameras(value):
+        if isinstance(value, dict):
+            for key, child in value.items():
+                if key == "camera" and isinstance(child, dict):
+                    cameras.append(child)
+                collect_cameras(child)
+        elif isinstance(value, list):
+            for child in value:
+                collect_cameras(child)
+
+    collect_cameras(payload)
+    assert cameras
+    for camera in cameras:
+        assert camera["position"][:2] == pytest.approx([0.0, 0.0], abs=1e-12)
+        assert camera["position"][2] > 0
+        assert camera["target"] == pytest.approx([0.0, 0.0, 0.0], abs=1e-12)
+        assert camera["up"] == pytest.approx([0.0, 1.0, 0.0], abs=1e-12)
 
     extension = (DOCS / "_ext" / "vase_demo.py").read_text(encoding="utf-8")
     assert 'HTML_BUILDERS = {"html", "dirhtml", "singlehtml"}' in extension
@@ -89,6 +116,11 @@ def test_interactive_scene_payloads_and_distribution_contract():
     manifest = (ROOT / "MANIFEST.in").read_text(encoding="utf-8")
     assert "recursive-include docs/_ext *.py" in manifest
     assert "recursive-include docs/_interactive *.html *.json" in manifest
+
+    capture = (ROOT / "scripts" / "capture_readme_screenshots.py").read_text(
+        encoding="utf-8"
+    )
+    assert capture.count("save_docs_interactive_scene(") == 2
 
 
 def test_public_docs_links_use_latest_until_stable_exists():

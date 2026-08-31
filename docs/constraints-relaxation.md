@@ -56,11 +56,7 @@ To create it:
 5. move the atom and verify that only the vector-parallel displacement
    survives the backend commit.
 
-```{vase-demo} constraints
-:alt: Constraint direction and plane guides
-:fallback: assets/readme_constraints.png
-:height: 540
-```
+![Constraint direction and plane guides](assets/readme_constraints.png)
 
 ### FixedPlane
 
@@ -75,11 +71,7 @@ normal vector, and choosing **Apply Direction**. Confirm a test move with both
 in-plane and normal components and verify that the normal component was
 removed.
 
-```{vase-demo} constraints
-:alt: Constraint direction and plane guides
-:fallback: assets/readme_constraints.png
-:height: 540
-```
+![Constraint direction and plane guides](assets/readme_constraints.png)
 
 ### FixScaled and FixCartesian
 
@@ -110,11 +102,7 @@ when the displayed distance is beyond the threshold and follows every
 trajectory frame. It adds no numerical annotation that could obscure a dense
 structure and does not modify ASE's force calculation.
 
-```{vase-demo} hookean
-:alt: Hookean threshold and active spring
-:fallback: assets/readme_hookean.png
-:height: 540
-```
+![Hookean threshold and active spring](assets/readme_hookean.png)
 
 ### Clear a directional constraint
 
@@ -233,11 +221,7 @@ scientifically distinct outcomes:
 
 The source trajectory is not deleted.
 
-```{vase-demo} relaxation
-:alt: Dedicated repulsive-relaxation timeline
-:fallback: assets/readme_relaxation.png
-:height: 540
-```
+![Dedicated repulsive-relaxation timeline](assets/readme_relaxation.png)
 
 ## Batch-placement relaxation
 
