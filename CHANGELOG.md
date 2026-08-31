@@ -9,6 +9,9 @@
 - Hardened the external-agent contract by rejecting unknown top-level apply
   fields and synchronizing selected-scope colorscale indices, staged-relaxation
   parameters, registry schemas/CSV `(hkl)`, and document/workspace discovery.
+- Kept render/export Base64 payloads out of `v_ase api` stdout by default;
+  `--save` writes the artifact while `--print-data-url` remains an explicit
+  opt-in for integrations that require the raw URL.
 - Made long dialogs genuinely scrollable while keeping their actions visible,
   centered the first scratch insertion region, and replaced wrapped Appearance
   rows with a single horizontal table whose TYPE column remains fixed.

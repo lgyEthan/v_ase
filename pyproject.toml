@@ -52,8 +52,10 @@ dependencies = [
 
 [project.urls]
 Homepage = "https://github.com/lgyEthan/v_ase"
+Documentation = "https://v-ase.readthedocs.io/"
 Repository = "https://github.com/lgyEthan/v_ase"
 Issues = "https://github.com/lgyEthan/v_ase/issues"
+Changelog = "https://v-ase.readthedocs.io/en/stable/whats-new.html"
 
 [project.scripts]
 v_ase = "v_ase.cli:main"

@@ -500,6 +500,11 @@ Verify the returned MIME type, width, height, effective options, byte count,
 camera, and saved bytes. Decode the image and confirm that meaningful
 non-background pixels occupy the expected frame.
 
+`v_ase api` omits render/export `dataUrl` strings from stdout by default.
+This keeps Base64 pixels out of the Agent context. Use `--save` for normal
+artifact work; `--print-data-url` is available only for integrations that
+explicitly require the raw URL.
+
 Export only after semantic state and camera verification:
 
 ```bash

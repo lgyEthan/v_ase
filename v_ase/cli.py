@@ -245,6 +245,14 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="allow --save to replace an existing file",
     )
+    api.add_argument(
+        "--print-data-url",
+        action="store_true",
+        help=(
+            "print render/export dataUrl payloads instead of the compact metadata-only "
+            "default; normally use --save to avoid sending Base64 through an AI context"
+        ),
+    )
     api.set_defaults(func=run_api_command)
 
     return parser
@@ -341,6 +349,18 @@ def run_api_command(args: argparse.Namespace) -> int:
         result.pop("dataUrl", None)
         result["saved_to"] = str(output_path.resolve())
         result["saved_bytes"] = len(encoded)
+        payload["result"] = result
+    elif (
+        isinstance(result, dict)
+        and isinstance(result.get("dataUrl"), str)
+        and not args.print_data_url
+    ):
+        data_url = result["dataUrl"]
+        result = dict(result)
+        result.pop("dataUrl", None)
+        result["data_url_omitted"] = True
+        result["data_url_characters"] = len(data_url)
+        result["save_hint"] = "Repeat this command with --save OUTPUT to decode the artifact."
         payload["result"] = result
     print(json.dumps(payload, separators=(",", ":")), flush=True)
     return 0

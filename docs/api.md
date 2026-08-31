@@ -294,6 +294,10 @@ v_ase api "$COMMAND_URL" apply --params-file command.json
 v_ase api "$COMMAND_URL" render --params-file render.json --save figure.png
 ```
 
+The terminal client redacts render/export `dataUrl` values unless
+`--print-data-url` is explicitly requested. Prefer `--save` so encoded
+pixels never enter an AI context.
+
 The browser **Open** dialog can replace the active document, append selected
 frames to its trajectory, or open an independent workspace tab. `.vase`
 settings are restored for replace/new-tab operations and intentionally ignored

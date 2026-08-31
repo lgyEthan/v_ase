@@ -519,7 +519,8 @@ def test_readme_presents_real_manipulation_and_analysis_workflows():
     ):
         assert heading in readme
     for target in documentation:
-        assert f"docs/{target}" in readme
+        page = target.removesuffix(".md")
+        assert f"https://v-ase.readthedocs.io/en/stable/{page}.html" in readme
 
     worked = " ".join(documentation["worked-examples.md"].split())
     for required in (

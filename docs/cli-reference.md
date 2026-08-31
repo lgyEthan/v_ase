@@ -169,6 +169,10 @@ v_ase api "$COMMAND_URL" render \
 `--save` refuses to replace an existing file. Add `--force` only after the
 destination is verified and replacement is intended.
 
+Without `--save`, render/export `dataUrl` values are omitted from stdout by
+default so Base64 does not enter terminal or AI context. Use
+`--print-data-url` only when an integration explicitly requires the raw URL.
+
 ### Revision-safe mutation
 
 Read `describe`, take its current collaboration revision, and include that as

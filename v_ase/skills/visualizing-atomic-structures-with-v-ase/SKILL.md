@@ -5,7 +5,7 @@ description: Controls v_ase to inspect, edit, analyze, style, animate, and expor
 
 # Visualizing Atomic Structures With v_ase
 
-Use semantic structure data and deterministic HTTP JSON commands. Do not infer scientific state from screenshots when `describe` provides it.
+Use semantic structure data and deterministic HTTP JSON commands; do not infer scientific state from screenshots when `describe` provides it.
 
 All lengths are Angstrom and all angles are degrees unless stated otherwise.
 
@@ -25,8 +25,7 @@ v_ase gui STRUCTURE --cli
 v_ase gui STRUCTURE --interactive --cli
 ```
 
-The filename-free form opens a scratch document directly in Edit. Use the combined
-file form for physical atom edits while retaining the structured CLI/API bridge and the same human GUI.
+The filename-free form opens a scratch document directly in Edit. Use the combined file form for physical atom edits while retaining the structured CLI/API bridge and the same human GUI.
 
 This is a persistent server/event-stream process, not a finite command. Start
 it with the agent runtime's long-running process facility. As soon as the
@@ -40,8 +39,7 @@ v_ase. `--cli` does not contain an LLM, parse natural language, or accept
 commands from stdin. It launches the normal local v_ase application without
 opening a browser and exposes a structured loopback API.
 
-Read the first stdout line as JSON. Keep the process running in its persistent
-session and continue reading stdout as NDJSON without blocking other commands.
+Read the first stdout line as JSON. Keep the process running in its persistent session and continue reading stdout as NDJSON without blocking other commands.
 The handshake contains:
 
 - `human_url`: the same regular GUI for human watching and refinement;
@@ -125,6 +123,11 @@ Use this sequence for every task:
 
 Do not report completion when only an HTTP response succeeded. Verify the
 resulting semantic state and rendered output.
+
+The CLI omits render/export `dataUrl` strings from stdout by default so Base64
+does not consume the Agent context. Use `--save OUTPUT` for normal work.
+`--print-data-url` is an explicit opt-in for callers that truly require the
+raw payload.
 
 ## Degrees Of Freedom
 

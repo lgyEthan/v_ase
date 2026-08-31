@@ -193,6 +193,65 @@ def test_v_ase_api_saves_binary_data_urls(monkeypatch, tmp_path, capsys):
     assert captured["json"]["params"] == {"width": 64, "height": 64}
 
 
+def test_v_ase_api_omits_unsaved_data_urls_by_default(monkeypatch, capsys):
+    parser = build_parser()
+    args = parser.parse_args([
+        "api",
+        "http://127.0.0.1:49152/api/ai/command/session/session",
+        "render",
+        "--params",
+        '{"width":64,"height":64}',
+    ])
+
+    class Response:
+        ok = True
+
+        @staticmethod
+        def json():
+            return {
+                "protocol": "v_ase.ai.v1",
+                "result": {
+                    "filename": "render.png",
+                    "dataUrl": "data:image/png;base64,iVBORw0KGgo=",
+                },
+            }
+
+    monkeypatch.setattr("requests.post", lambda *_args, **_kwargs: Response())
+
+    assert run_api_command(args) == 0
+    result = json.loads(capsys.readouterr().out)["result"]
+    assert "dataUrl" not in result
+    assert result["data_url_omitted"] is True
+    assert result["data_url_characters"] > 0
+    assert "--save OUTPUT" in result["save_hint"]
+
+
+def test_v_ase_api_can_print_data_urls_explicitly(monkeypatch, capsys):
+    parser = build_parser()
+    args = parser.parse_args([
+        "api",
+        "http://127.0.0.1:49152/api/ai/command/session/session",
+        "render",
+        "--print-data-url",
+    ])
+
+    class Response:
+        ok = True
+
+        @staticmethod
+        def json():
+            return {
+                "protocol": "v_ase.ai.v1",
+                "result": {"dataUrl": "data:image/png;base64,iVBORw0KGgo="},
+            }
+
+    monkeypatch.setattr("requests.post", lambda *_args, **_kwargs: Response())
+
+    assert run_api_command(args) == 0
+    result = json.loads(capsys.readouterr().out)["result"]
+    assert result["dataUrl"].startswith("data:image/png;base64,")
+
+
 def test_scp_style_remote_target_is_detected_without_a_port_argument():
     target = parse_remote_target("physics:/data/trajectory.extxyz")
 

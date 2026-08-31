@@ -143,7 +143,9 @@ v_ase api "$COMMAND_URL" render --params-file render.json --save preview.png
 ```
 
 Use `--save` for render/export data URLs. It refuses to replace an existing
-file unless `--force` is explicitly passed. The user may speak natural
+file unless `--force` is explicitly passed. Without `--save`, the CLI omits
+the Base64 payload and returns compact metadata by default; use
+`--print-data-url` only when a caller explicitly needs the raw URL. The user may speak natural
 language to the external agent and refine the same GUI; v_ase itself receives
 file/CLI arguments and semantic API objects only.
 
