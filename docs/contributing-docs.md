@@ -113,6 +113,10 @@ Reference local, versioned assets rather than
 tagged manual display a newer image and can force a documentation build or
 reader to download a large animation remotely.
 
+The GitHub README is a separate, visual workflow tour and deliberately keeps
+its generated GIFs through `docs/assets/github/`. The Read the Docs manual is
+the searchable reference and uses compact exact captures in its own pages.
+
 Scientific application examples use the exact PNG or GIF produced by the
 canonical capture run. Do not replace an analysis, isosurface, constraint,
 trajectory, or GUI screenshot with a lightweight standalone scene: that scene

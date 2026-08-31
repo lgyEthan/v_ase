@@ -507,20 +507,50 @@ def test_readme_presents_real_manipulation_and_analysis_workflows():
             "projects-export.md",
         )
     }
-    assert len(readme.splitlines()) < 320
+    assert len(readme.splitlines()) > 1_500
     for heading in (
-        "## Quick start",
-        "## Why v_ase?",
-        "## Python and notebooks",
-        "## Remote data",
-        "## Work with an external AI agent",
-        "## Save, export, and share",
-        "## Documentation map",
+        "## Installation And Launch",
+        "## Find A Workflow",
+        "## Edit Structures",
+        "## Periodic Cells And Interfaces",
+        "## Analyze Structures And Fields",
+        "## Constraints And Relaxation",
+        "## Style Atoms, Bonds, And Rendering",
+        "## Export And Save",
+        "## Work With An AI Agent",
+        "## Python",
+        "## Remote Servers",
     ):
         assert heading in readme
-    for target in documentation:
-        page = target.removesuffix(".md")
-        assert f"https://v-ase.readthedocs.io/en/latest/{page}.html" in readme
+
+    assert "https://v-ase.readthedocs.io/en/latest/" in readme
+    assert "version=latest" in readme
+    assert readme.count(".gif)") >= 15
+    for asset in (
+        "readme_phosphorene_twist.gif",
+        "readme_html_quicklook.gif",
+        "readme_scratch_amorphous.gif",
+        "readme_add_atoms_allowed.gif",
+        "readme_add_molecules.gif",
+        "readme_commensurate.gif",
+        "readme_commensurate_host_guest.gif",
+        "readme_registry_relax.gif",
+        "readme_measurement.gif",
+        "readme_atom_colorscale.gif",
+        "readme_volumetric.gif",
+        "readme_volumetric_plane.gif",
+        "readme_fixedline.gif",
+        "readme_fixedplane.gif",
+        "readme_hookean.gif",
+        "readme_relaxation.gif",
+        "readme_ai_collaboration.gif",
+        "readme_ai_edit.gif",
+    ):
+        assert f"docs/assets/github/{asset}" in readme
+        asset_path = ROOT / "docs" / "assets" / "github" / asset
+        assert asset_path.is_file()
+        with Image.open(asset_path) as animation:
+            assert animation.n_frames > 1, asset
 
     worked = " ".join(documentation["worked-examples.md"].split())
     for required in (

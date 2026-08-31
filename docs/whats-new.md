@@ -12,8 +12,9 @@ interactive WebGL scene aligned exactly along +Z, while scientific application
 examples use their exact PNG/GIF captures so isosurfaces, plots, constraints,
 and GUI overlays cannot disappear in a lightweight viewer. HTML, external
 links, PDF, and ePub are validated from the same sources. The repository
-README is a concise starting page; detailed workflows and reproducible
-fixtures live in this versioned guide.
+README retains the GIF-rich visual workflow tour, while this versioned guide
+remains the separate searchable reference for detailed workflows and
+reproducible fixtures.
 
 The semantic bridge also rejects unknown top-level apply fields and keeps its
 colorscale, staged-relaxation, registry, export, and workspace/document
