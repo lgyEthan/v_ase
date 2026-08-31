@@ -11,6 +11,8 @@ recursive-include v_ase/static *.html *.css *.js *.png
 recursive-include v_ase/static/vendor *
 recursive-include v_ase/skills *.md *.yaml
 recursive-include docs *.md *.html
+recursive-include docs/_ext *.py
+recursive-include docs/_interactive *.html *.json
 recursive-include docs/_static *
 prune docs/_build
 prune docs/assets

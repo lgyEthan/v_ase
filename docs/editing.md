@@ -295,7 +295,11 @@ Relaxation**, then start placement relaxation. After it becomes inactive:
 See [Constraints and relaxation](constraints-relaxation.md) for the calculator
 and optimizer contract.
 
-![Batch insertion and relaxation](assets/readme_add_atoms.png)
+```{vase-demo} add-atoms
+:alt: Batch insertion and relaxation
+:fallback: assets/readme_add_atoms.png
+:height: 560
+```
 
 ## Cell operations: choose the correct one
 

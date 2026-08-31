@@ -81,7 +81,11 @@ The detailed mathematics, notation, and reference series are in
 Numerical fixtures and search bounds are documented in
 [Commensurate scientific validation](commensurate_validation.md).
 
-![host and guest commensurate-cell workflow](assets/readme_commensurate_host_guest.png)
+```{vase-demo} commensurate
+:alt: Host and guest commensurate-cell workflow
+:fallback: assets/readme_commensurate_host_guest.png
+:height: 560
+```
 
 ## Registry maps
 
@@ -112,7 +116,11 @@ Use **Finish** to commit the selected result. **Cancel** restores the exact
 pre-workflow structure. Stopping leaves the workspace and current result open
 for inspection.
 
-![registry map and rigid translation](assets/readme_registry_map.png)
+```{vase-demo} registry
+:alt: Registry map and rigid translation
+:fallback: assets/readme_registry_map.png
+:height: 560
+```
 
 ## Measurement across replicas
 

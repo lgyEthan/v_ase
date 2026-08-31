@@ -11,7 +11,9 @@ The site uses:
 
 - Sphinx for document structure, cross-references, search and output;
 - MyST-Parser for Markdown sources;
-- the Read the Docs Sphinx theme; and
+- the Read the Docs Sphinx theme;
+- the local `vase-demo` extension for live WebGL examples with print-safe
+  fallbacks; and
 - `.readthedocs.yaml` for the hosted Python and build configuration.
 
 The pinned documentation dependencies live in `docs/requirements.txt`.
@@ -58,9 +60,10 @@ make -C docs clean
 1. Put user and maintainer Markdown under `docs/` with a descriptive,
    lower-case filename.
 2. Give the page exactly one level-one heading.
-3. Add it to the appropriate MyST `toctree` in `docs/index.md`. A page omitted
-   from every toctree produces a strict-build warning unless it is
-   deliberately marked orphaned.
+3. Add it to the appropriate hub toctree: `start.md`, `workflows.md`,
+   `automation.md`, or `reference.md`. Keep `index.md` limited to those four
+   hubs so the sidebar remains compact. A page omitted from every toctree
+   produces a strict-build warning unless it is deliberately marked orphaned.
 4. Use relative links between documentation pages, including the `.md`
    suffix in source.
 5. Build HTML with warnings as errors and inspect the rendered page, sidebar,
@@ -103,18 +106,38 @@ Follow these rules:
 The strict build is the final authority for parser and reference behavior;
 GitHub's Markdown preview is not equivalent to Sphinx/MyST.
 
-## Images and animations
+## Interactive demonstrations and image fallbacks
 
 Reference local, versioned assets rather than
 `raw.githubusercontent.com/.../main/...` URLs. A `main` URL makes an older
 tagged manual display a newer image and can force a documentation build or
 reader to download a large animation remotely.
 
-Use a static PNG or other optimized still when motion is not essential. Keep
-large GIFs only for workflows where the sequence communicates behavior that a
-still cannot. Never add the complete `docs/assets/` tree to Sphinx's
-`html_static_path`; Sphinx should copy only assets actually referenced by
-pages.
+Every application capture shown inside the documentation uses the local
+`vase-demo` directive. HTML readers receive a real, rotatable v_ase WebGL
+scene. PDF and ePub readers receive the matching PNG fallback from the same
+capture run:
+
+````markdown
+```{vase-demo} overview
+:alt: Interactive v_ase structure-editing overview
+:fallback: assets/readme_overview.png
+:height: 560
+```
+````
+
+Do not embed those screenshots directly with Markdown image syntax. Scene
+payloads live under `docs/_interactive/scenes/`, outside `html_static_path`;
+the Sphinx extension copies only the HTML runtime and scenes needed by the
+HTML build. The shared renderer is copied once rather than duplicated in every
+example. A fallback remains mandatory because JavaScript cannot run in PDF or
+ePub. The theme logo and favicon are deliberately static browser chrome; the
+large logo on the home page is interactive.
+
+Some analysis layers are not serialized by the lightweight standalone scene.
+Those demonstrations open on **Exact capture** and expose a **Live 3D** switch,
+so the scientifically complete captured overlay and the rotatable structure
+remain available together.
 
 When application rendering or constraint visuals change, run the canonical
 capture script:
@@ -123,9 +146,11 @@ capture script:
 python scripts/capture_readme_screenshots.py
 ```
 
+The script refreshes the interactive scene JSON alongside the PNG/GIF output.
 Synchronize the generated files in `docs/assets/` and
-`docs/assets/github/`, then inspect the real image and animation frames. An
-HTTP success or file-existence check is not visual validation.
+`docs/assets/github/`, then inspect the real image and animation frames plus
+every live scene. An HTTP success or file-existence check is not visual
+validation.
 
 The source distribution intentionally excludes the full duplicated media
 tree. Any asset required to build the Sphinx site from an sdist must be listed
@@ -200,7 +225,8 @@ Read the Docs builds from `.readthedocs.yaml` using the pinned requirements.
 Pull-request builds should pass before merge. After a release tag is published:
 
 1. confirm the tag-specific documentation build succeeds;
-2. confirm the `stable` and `latest` selectors point to the intended releases;
+2. confirm `latest` points to the intended commit; do not enable or make a
+   `stable` alias the default until the project adopts a stable-channel policy;
 3. inspect the deployed navigation, search and representative images;
 4. confirm source/edit links point to the version being read rather than
    always to `main`; and
@@ -215,6 +241,7 @@ remains mandatory. See [Release checklist](release_checklist.md).
 - [ ] Commands were checked against v_ase 0.2.35 or the version being released.
 - [ ] Local links, anchors and image paths resolve.
 - [ ] HTML builds with warnings as errors.
+- [ ] Live WebGL demos load, interact, and retain static PDF/ePub fallbacks.
 - [ ] Linkcheck has no repeatable broken URL.
 - [ ] Rendered HTML was inspected, not only the Markdown source.
 - [ ] README, Skill, changelog, metadata and tests were updated where required.

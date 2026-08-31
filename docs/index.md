@@ -1,8 +1,9 @@
-:::{image} assets/v_ase-logo.png
-:alt: v_ase
-:width: 720px
-:align: center
-:::
+```{vase-demo} logo
+:alt: Interactive v_ase atom logo
+:fallback: assets/v_ase-logo.png
+:height: 360
+:caption: The logo is a real atomistic scene. Drag it to rotate the structure.
+```
 
 # v_ase documentation
 
@@ -53,83 +54,27 @@ Running `v_ase gui` without a file opens an empty editable document.
 | Output | Structures, `.vase`, project HTML, view-only HTML, images, video, Blender, OBJ, and optional Rhino 3DM |
 | Collaboration | Revisioned semantic state and commands shared by the live GUI, terminal automation, and external AI agents |
 
-![v_ase structure-editing overview](assets/readme_overview.png)
+```{vase-demo} overview
+:alt: Interactive v_ase structure-editing overview
+:fallback: assets/readme_overview.png
+:height: 560
+```
 
 ## Choose a path
 
-- New users should follow [Installation](installation.md),
-  [First session](quickstart.md), and [Workspace model](workspace.md).
-- Users preparing figures should read [Visualization and styling](visualization.md)
-  and [Projects, rendering, and export](projects-export.md).
-- Atomistic workflow users can jump to [Editing structures](editing.md),
-  [Constraints and relaxation](constraints-relaxation.md), or
-  [Trajectories and analysis](trajectories-analysis.md).
-- Python and automation users should start with the [Python API](python-api.md),
-  [CLI reference](cli-reference.md), or [AI-agent integration](ai-agents.md).
-- Maintainers can use the implementation contracts and release checklist under
-  **Developer documentation** in the navigation.
+- [Start](start.md) with installation, a first session, and the workspace model.
+- Follow a task under [Workflows](workflows.md) to edit, analyze, style, or export.
+- Use [Automation and APIs](automation.md) for Python, notebooks, CLI, remote, or AI work.
+- Open [Reference](reference.md) for formats, shortcuts, troubleshooting, and development.
 
 ```{toctree}
 :maxdepth: 2
-:caption: Getting started
 :hidden:
 
-installation
-quickstart
-workspace
-whats-new
-```
-
-```{toctree}
-:maxdepth: 2
-:caption: User guide
-:hidden:
-
-data-input
-visualization
-editing
-worked-examples
-constraints-relaxation
-trajectories-analysis
-volumetric-guide
-periodic-interfaces
-projects-export
-```
-
-```{toctree}
-:maxdepth: 2
-:caption: Interfaces and automation
-:hidden:
-
-python-api
-cli-reference
-notebooks-remote
-ai-agents
-```
-
-```{toctree}
-:maxdepth: 2
-:caption: Reference
-:hidden:
-
-formats
-shortcuts
-api
-troubleshooting
-```
-
-```{toctree}
-:maxdepth: 2
-:caption: Developer documentation
-:hidden:
-
-features
-current_progress
-performance
-unit_cell_aware_rotate
-commensurate_validation
-contributing-docs
-release_checklist
+start
+workflows
+automation
+reference
 ```
 
 ## Project links

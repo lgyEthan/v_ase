@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import os
 import runpy
+import sys
 from pathlib import Path
 
 
 DOCS_DIR = Path(__file__).resolve().parent
 REPOSITORY_ROOT = DOCS_DIR.parent
+sys.path.insert(0, str(DOCS_DIR / "_ext"))
 release = runpy.run_path(REPOSITORY_ROOT / "v_ase" / "_version.py")["__version__"]
 
 project = "v_ase"
@@ -19,6 +21,7 @@ version = release
 extensions = [
     "myst_parser",
     "sphinx_rtd_theme",
+    "vase_demo",
 ]
 
 source_suffix = {
@@ -28,6 +31,7 @@ source_suffix = {
 root_doc = "index"
 exclude_patterns = [
     "_build",
+    "_interactive",
     "design",
     "Thumbs.db",
     ".DS_Store",
@@ -51,10 +55,11 @@ html_favicon = "assets/v_ase-logo.png"
 html_static_path = ["_static"]
 html_css_files = ["custom.css"]
 html_theme_options = {
-    "collapse_navigation": False,
-    "navigation_depth": 4,
+    "collapse_navigation": True,
+    "navigation_depth": 3,
     "prev_next_buttons_location": "both",
     "sticky_navigation": True,
+    "titles_only": True,
 }
 html_context = {
     "display_github": True,

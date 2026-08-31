@@ -7,6 +7,7 @@ import base64
 import json
 import math
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -65,6 +66,14 @@ def configured_asset_dir() -> Path:
     value = os.environ.get("V_ASE_README_ASSET_DIR")
     if not value:
         return ROOT / "docs" / "assets"
+    path = Path(value)
+    return path if path.is_absolute() else ROOT / path
+
+
+def configured_interactive_scene_dir() -> Path:
+    value = os.environ.get("V_ASE_DOCS_INTERACTIVE_DIR")
+    if not value:
+        return ROOT / "docs" / "_static" / "interactive" / "scenes"
     path = Path(value)
     return path if path.is_absolute() else ROOT / path
 
@@ -182,6 +191,7 @@ def write_ai_collaboration_recording_html(
 
 
 ASSET_DIR = configured_asset_dir()
+INTERACTIVE_SCENE_DIR = configured_interactive_scene_dir()
 MEDIA_SIZE = parse_media_size(os.environ.get("V_ASE_README_MEDIA_SIZE"), (1920, 1080))
 LOGO_SIZE = parse_media_size(os.environ.get("V_ASE_LOGO_SIZE"), (6144, 1890))
 LOGO_RENDER_SIZE = parse_media_size(os.environ.get("V_ASE_LOGO_RENDER_SIZE"), (7680, 2362))
@@ -189,6 +199,71 @@ LOGO_SUBSTRATE_COLOR = os.environ.get("V_ASE_LOGO_SUBSTRATE_COLOR", "#71493f")
 LOGO_LETTER_COLOR = os.environ.get("V_ASE_LOGO_LETTER_COLOR", "#d7f26f")
 LOGO_LETTER_RADIUS = float(os.environ.get("V_ASE_LOGO_LETTER_RADIUS", "0.67"))
 LOGO_PIXELS_PER_ANGSTROM = float(os.environ.get("V_ASE_LOGO_PIXELS_PER_ANGSTROM", "92"))
+
+
+def save_docs_interactive_scene(
+    page,
+    scene_id: str,
+    *,
+    title: str,
+    reference_image: str,
+    prefer_reference: bool = False,
+) -> None:
+    """Extract compact scene JSON from the tested standalone HTML exporter."""
+
+    if not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", scene_id):
+        raise ValueError(f"Invalid documentation scene id: {scene_id!r}")
+    result = page.evaluate(
+        """async ({width, height}) => {
+            const app = window.__V_ASE_APP__;
+            return await app.aiExport({
+                format: 'html',
+                width,
+                height,
+                embedProject: false,
+                options: {
+                    includeGrid: app.state.display.showGrid === true,
+                    includeAxes: app.state.display.showAxes !== false,
+                    includeCell: app.state.display.showCell !== false,
+                    transparentBackground: false,
+                    backgroundColor: app.state.display.viewportBackground === 'dark'
+                        ? '#2d3333'
+                        : '#ffffff',
+                    scaleMode: 'viewport',
+                    renderMode: app.state.display.lightingMode || 'modeling'
+                }
+            });
+        }""",
+        {"width": 1280, "height": 720},
+    )
+    data_url = str(result.get("dataUrl") or "")
+    if not data_url.startswith("data:text/html") or "," not in data_url:
+        raise AssertionError(f"Interactive scene {scene_id} did not export HTML data.")
+    header, encoded = data_url.split(",", 1)
+    if ";base64" not in header:
+        raise AssertionError(f"Interactive scene {scene_id} HTML was not Base64 encoded.")
+    document = base64.b64decode(encoded).decode("utf-8")
+    match = re.search(
+        r'<script id="v-ase-scene-data"[^>]*>([^<]+)</script>',
+        document,
+        flags=re.DOTALL,
+    )
+    if match is None:
+        raise AssertionError(f"Interactive scene {scene_id} omitted its scene payload.")
+    scene = json.loads(base64.b64decode(match.group(1).strip()).decode("utf-8"))
+    if scene.get("schema") != "v_ase.html-view.v1" or not scene.get("frames"):
+        raise AssertionError(f"Interactive scene {scene_id} has an invalid viewer contract.")
+    scene["documentName"] = title
+    scene["referenceImage"] = Path(reference_image).name
+    scene["preferReference"] = bool(prefer_reference)
+    scene["docsSceneId"] = scene_id
+
+    INTERACTIVE_SCENE_DIR.mkdir(parents=True, exist_ok=True)
+    output = INTERACTIVE_SCENE_DIR / f"{scene_id}.json"
+    output.write_text(
+        json.dumps(scene, ensure_ascii=False, allow_nan=False, separators=(",", ":")) + "\n",
+        encoding="utf-8",
+    )
 
 LOGO_GLYPHS = {
     "V": {"width": 6.0, "paths": (((0.0, 8.0), (3.0, 0.0), (6.0, 8.0)),)},
@@ -506,6 +581,12 @@ def capture_logo(browser):
             }"""
         )
         set_readme_lighting(page, [0, 0, 0], intensity=2.65, position_offset=(-26, -30, 46))
+        save_docs_interactive_scene(
+            page,
+            "logo",
+            title="v_ase atom logo",
+            reference_image="v_ase-logo.png",
+        )
         output_override = os.environ.get("V_ASE_LOGO_OUTPUT")
         logo_output = Path(output_override).expanduser() if output_override else (
             ROOT / "docs" / "assets" / "v_ase-logo.png"
@@ -1172,6 +1253,12 @@ def capture_phosphorene_media(browser) -> None:
             duration=115,
         )
         rendered_frames[-1].save(ASSET_DIR / "readme_overview.png", optimize=True)
+        save_docs_interactive_scene(
+            page,
+            "overview",
+            title="Phosphorene structure editing",
+            reference_image="readme_overview.png",
+        )
     finally:
         page.close()
         editor.close()
@@ -1977,6 +2064,13 @@ def capture_commensurate_media(browser) -> None:
             ASSET_DIR / "readme_commensurate_host_guest.png",
             optimize=True,
         )
+        save_docs_interactive_scene(
+            page,
+            "commensurate",
+            title="Host and guest common-cell workflow",
+            reference_image="readme_commensurate_host_guest.png",
+            prefer_reference=True,
+        )
     finally:
         page.close()
         editor.close()
@@ -2100,6 +2194,13 @@ def capture_registry_media(browser) -> None:
         screenshot_frame(page).save(
             ASSET_DIR / "readme_registry_map.png",
             optimize=True,
+        )
+        save_docs_interactive_scene(
+            page,
+            "registry",
+            title="Registry map and rigid translation",
+            reference_image="readme_registry_map.png",
+            prefer_reference=True,
         )
 
         baseline_positions = np.asarray(
@@ -3277,6 +3378,12 @@ def capture_constraint_media(browser) -> None:
         set_view_toggles(page, grid=False, axes=False, cell=False)
         set_selection(page, [])
         page.screenshot(path=ASSET_DIR / "readme_constraints.png")
+        save_docs_interactive_scene(
+            page,
+            "constraints",
+            title="Atomic constraint guides",
+            reference_image="readme_constraints.png",
+        )
         fixedline_frames: list[Image.Image] = []
         append_hold(fixedline_frames, page, 6)
         set_selection(page, [line_idx["ion"]])
@@ -3424,6 +3531,12 @@ def capture_constraint_media(browser) -> None:
         if expected_force <= 0:
             raise AssertionError("README Hookean active force must be positive beyond rt.")
         page.screenshot(path=ASSET_DIR / "readme_hookean.png")
+        save_docs_interactive_scene(
+            page,
+            "hookean",
+            title="Hookean threshold and active spring",
+            reference_image="readme_hookean.png",
+        )
         end = carbon_pos + direction * (threshold + 1.50)
         delta = end - oxygen_pos
         capture_animation(
@@ -3777,6 +3890,14 @@ def _capture_add_atoms_variant(
             raise AssertionError("README Add Atoms repulsion did not move any inserted atom visibly.")
         append_hold(frames, page, 8)
         placement_frame = frames[-1].copy()
+        if save_static:
+            save_docs_interactive_scene(
+                page,
+                "add-atoms",
+                title="Batch insertion and relaxation",
+                reference_image="readme_add_atoms.png",
+                prefer_reference=True,
+            )
 
         page.click("#btn-add-atoms-finish")
         page.wait_for_function(
@@ -4430,6 +4551,12 @@ def capture_measurement_media(browser) -> None:
             ASSET_DIR / "readme_measurement.png",
             optimize=True,
         )
+        save_docs_interactive_scene(
+            page,
+            "measurement",
+            title="Ordered geometry measurement",
+            reference_image="readme_measurement.png",
+        )
     finally:
         page.close()
         editor.close()
@@ -4487,6 +4614,12 @@ def capture_measurement_media(browser) -> None:
             ASSET_DIR / "readme_displacement.png",
             optimize=True,
         )
+        save_docs_interactive_scene(
+            page,
+            "displacement",
+            title="Trajectory displacement vectors",
+            reference_image="readme_displacement.png",
+        )
     finally:
         page.close()
         editor.close()
@@ -4517,6 +4650,12 @@ def capture_relaxation_media(browser) -> None:
         )
         update_positions(page, relaxed.positions)
         page.screenshot(path=ASSET_DIR / "readme_relaxation.png")
+        save_docs_interactive_scene(
+            page,
+            "relaxation",
+            title="Repulsive relaxation trajectory",
+            reference_image="readme_relaxation.png",
+        )
     finally:
         page.close()
         editor.close()
@@ -4674,6 +4813,13 @@ def capture_volumetric_media(browser) -> None:
             ASSET_DIR / "readme_volumetric.png",
             optimize=True,
         )
+        save_docs_interactive_scene(
+            page,
+            "volumetric",
+            title="Signed volumetric isosurfaces",
+            reference_image="readme_volumetric.png",
+            prefer_reference=True,
+        )
 
         plane_result = run_external_ai_apply(command_url, {
             "operation": {
@@ -4767,6 +4913,13 @@ def capture_volumetric_media(browser) -> None:
         plane_frames[len(plane_frames) // 2].save(
             ASSET_DIR / "readme_volumetric_plane.png",
             optimize=True,
+        )
+        save_docs_interactive_scene(
+            page,
+            "volumetric-plane",
+            title="Cell-clipped scalar-field plane",
+            reference_image="readme_volumetric_plane.png",
+            prefer_reference=True,
         )
     finally:
         page.close()
@@ -4932,6 +5085,17 @@ def capture_atom_colorscale_media(browser) -> None:
             ASSET_DIR / "readme_atom_colorscale.png",
             optimize=True,
         )
+        page.evaluate(
+            "async (index) => await window.__V_ASE_APP__.loadFrame(index)",
+            len(frames) // 2,
+        )
+        page.wait_for_timeout(80)
+        save_docs_interactive_scene(
+            page,
+            "colorscale",
+            title="Trajectory colorscale and force vectors",
+            reference_image="readme_atom_colorscale.png",
+        )
     finally:
         page.close()
         editor.close()
@@ -5023,6 +5187,13 @@ def capture_rdf_media(browser) -> None:
         screenshot_frame(page).save(
             ASSET_DIR / "readme_rdf.png",
             optimize=True,
+        )
+        save_docs_interactive_scene(
+            page,
+            "rdf",
+            title="Periodic total and partial RDF",
+            reference_image="readme_rdf.png",
+            prefer_reference=True,
         )
     finally:
         page.close()

@@ -6,7 +6,7 @@
 
 [![PyPI version](https://img.shields.io/pypi/v/v_ase-gui.svg)](https://pypi.org/project/v-ase-gui/)
 [![Python versions](https://img.shields.io/pypi/pyversions/v_ase-gui.svg)](https://pypi.org/project/v-ase-gui/)
-[![Documentation Status](https://readthedocs.org/projects/v-ase/badge/?version=stable)](https://v-ase.readthedocs.io/en/stable/?badge=stable)
+[![Documentation Status](https://readthedocs.org/projects/v-ase/badge/?version=latest)](https://v-ase.readthedocs.io/en/latest/?badge=latest)
 [![License: AGPL v3+](https://img.shields.io/badge/license-AGPL--3.0--or--later-2f855a.svg)](LICENSE)
 
 **v_ase is a local, ASE-native 3D workspace for structures, trajectories, and
@@ -16,7 +16,7 @@ offline HTML, or reusable 3D scenes.
 
 [Documentation](https://v-ase.readthedocs.io/) ·
 [PyPI](https://pypi.org/project/v-ase-gui/) ·
-[Changelog](https://v-ase.readthedocs.io/en/stable/whats-new.html) ·
+[Changelog](https://v-ase.readthedocs.io/en/latest/whats-new.html) ·
 [Issues](https://github.com/lgyEthan/v_ase/issues)
 
 ![v_ase structure-editing overview](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_overview.png)
@@ -59,8 +59,8 @@ the final v_ase page releases the default blocking process.
 5. Use **Export > Save Project** for a complete `.vase`, or include the
    interactive rendered view to create a restorable offline HTML project.
 
-Continue with [Installation](https://v-ase.readthedocs.io/en/stable/installation.html)
-and [First session](https://v-ase.readthedocs.io/en/stable/quickstart.html).
+Continue with [Installation](https://v-ase.readthedocs.io/en/latest/installation.html)
+and [First session](https://v-ase.readthedocs.io/en/latest/quickstart.html).
 
 ## Why v_ase?
 
@@ -106,8 +106,8 @@ Jupyter automatically uses an inline view. Switch subsequent calls with:
 %v_ase auto
 ```
 
-See the [Python API](https://v-ase.readthedocs.io/en/stable/python-api.html)
-and [notebook guide](https://v-ase.readthedocs.io/en/stable/notebooks-remote.html).
+See the [Python API](https://v-ase.readthedocs.io/en/latest/python-api.html)
+and [notebook guide](https://v-ase.readthedocs.io/en/latest/notebooks-remote.html).
 
 ## Remote data
 
@@ -120,7 +120,7 @@ v_ase gui USER@SERVER:/absolute/path/to/trajectory.extxyz
 
 v_ase creates and cleans the private tunnel automatically. Exact remote Python
 selection, jump hosts, lazy trajectories, and failure recovery are covered in
-[Notebooks and remote systems](https://v-ase.readthedocs.io/en/stable/notebooks-remote.html).
+[Notebooks and remote systems](https://v-ase.readthedocs.io/en/latest/notebooks-remote.html).
 
 ## Work with an external AI agent
 
@@ -147,7 +147,7 @@ of truth. Render and export commands omit Base64 data from terminal output by
 default; agents use `--save OUTPUT` to write the artifact without spending
 context on encoded pixels.
 
-Read [AI-agent integration](https://v-ase.readthedocs.io/en/stable/ai-agents.html)
+Read [AI-agent integration](https://v-ase.readthedocs.io/en/latest/ai-agents.html)
 and the bundled canonical
 [`SKILL.md`](v_ase/skills/visualizing-atomic-structures-with-v-ase/SKILL.md)
 before automation.
@@ -173,23 +173,23 @@ Rhino export requires one optional extra:
 python -m pip install "v_ase-gui[rhino]"
 ```
 
-See [Projects, rendering, and export](https://v-ase.readthedocs.io/en/stable/projects-export.html)
-and [Supported formats](https://v-ase.readthedocs.io/en/stable/formats.html).
+See [Projects, rendering, and export](https://v-ase.readthedocs.io/en/latest/projects-export.html)
+and [Supported formats](https://v-ase.readthedocs.io/en/latest/formats.html).
 
 ## Documentation map
 
 | Need | Guide |
 | --- | --- |
-| Install and open the first structure | [Installation](https://v-ase.readthedocs.io/en/stable/installation.html) · [First session](https://v-ase.readthedocs.io/en/stable/quickstart.html) |
-| Understand tabs, View/Edit, and state | [Workspace model](https://v-ase.readthedocs.io/en/stable/workspace.html) |
-| Select, transform, build, and add atoms/molecules | [Editing structures](https://v-ase.readthedocs.io/en/stable/editing.html) |
-| Follow reproducible fixtures | [Worked examples](https://v-ase.readthedocs.io/en/stable/worked-examples.html) |
-| Use constraints and relaxation | [Constraints and relaxation](https://v-ase.readthedocs.io/en/stable/constraints-relaxation.html) |
-| Analyze trajectories, properties, and RDF | [Trajectories and analysis](https://v-ase.readthedocs.io/en/stable/trajectories-analysis.html) |
-| Inspect density, potential, ELF, Cube, or XSF | [Volumetric fields](https://v-ase.readthedocs.io/en/stable/volumetric-guide.html) |
-| Match interfaces and registry | [Periodic cells and interfaces](https://v-ase.readthedocs.io/en/stable/periodic-interfaces.html) |
-| Look up commands and shortcuts | [CLI](https://v-ase.readthedocs.io/en/stable/cli-reference.html) · [Shortcuts](https://v-ase.readthedocs.io/en/stable/shortcuts.html) |
-| Diagnose an error | [Troubleshooting](https://v-ase.readthedocs.io/en/stable/troubleshooting.html) |
+| Install and open the first structure | [Installation](https://v-ase.readthedocs.io/en/latest/installation.html) · [First session](https://v-ase.readthedocs.io/en/latest/quickstart.html) |
+| Understand tabs, View/Edit, and state | [Workspace model](https://v-ase.readthedocs.io/en/latest/workspace.html) |
+| Select, transform, build, and add atoms/molecules | [Editing structures](https://v-ase.readthedocs.io/en/latest/editing.html) |
+| Follow reproducible fixtures | [Worked examples](https://v-ase.readthedocs.io/en/latest/worked-examples.html) |
+| Use constraints and relaxation | [Constraints and relaxation](https://v-ase.readthedocs.io/en/latest/constraints-relaxation.html) |
+| Analyze trajectories, properties, and RDF | [Trajectories and analysis](https://v-ase.readthedocs.io/en/latest/trajectories-analysis.html) |
+| Inspect density, potential, ELF, Cube, or XSF | [Volumetric fields](https://v-ase.readthedocs.io/en/latest/volumetric-guide.html) |
+| Match interfaces and registry | [Periodic cells and interfaces](https://v-ase.readthedocs.io/en/latest/periodic-interfaces.html) |
+| Look up commands and shortcuts | [CLI](https://v-ase.readthedocs.io/en/latest/cli-reference.html) · [Shortcuts](https://v-ase.readthedocs.io/en/latest/shortcuts.html) |
+| Diagnose an error | [Troubleshooting](https://v-ase.readthedocs.io/en/latest/troubleshooting.html) |
 
 The documentation uses Sphinx, MyST Markdown, and the Read the Docs theme. Build
 the exact strict site locally:
@@ -212,8 +212,8 @@ pytest
 ```
 
 Documentation and release requirements are in
-[Contributing documentation](https://v-ase.readthedocs.io/en/stable/contributing-docs.html)
-and the [Release Checklist](https://v-ase.readthedocs.io/en/stable/release_checklist.html).
+[Contributing documentation](https://v-ase.readthedocs.io/en/latest/contributing-docs.html)
+and the [Release Checklist](https://v-ase.readthedocs.io/en/latest/release_checklist.html).
 
 ## Citation
 

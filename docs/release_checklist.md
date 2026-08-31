@@ -30,15 +30,18 @@ and rendered examples in sync.
 
    Open the generated home, quick start, one long workflow page, API/CLI
    reference, troubleshooting, and developer navigation at desktop and narrow
-   widths. Confirm search, code blocks, tables, images, previous/next links,
-   version label, and Edit-on-GitHub target. Verify that every toctree entry and
-   internal link resolves and that excluded `docs/design/` artifacts are not
-   published.
+   widths. Confirm the four-hub sidebar, search, code blocks, tables,
+   previous/next links, version label, and Edit-on-GitHub target. Exercise the
+   home-page logo, a trajectory timeline, and the Live 3D/Exact capture switch;
+   also verify that PDF/ePub use the matching static fallbacks. Verify that
+   every toctree entry and internal link resolves and that excluded
+   `docs/design/` artifacts are not published.
 7. When rendering or constraint visuals change, run
    `scripts/capture_readme_screenshots.py` and replace every README image and
-   animation in both `docs/assets/` and `docs/assets/github/`.
-   Open the logo, constraint images, and animation frames to verify actual
-   geometry, camera, lighting, clipping, and visibility.
+   animation in both `docs/assets/` and `docs/assets/github/`, plus the scene
+   payloads under `docs/_interactive/scenes/`.
+   Open the logo, constraint images, animation frames, and interactive scenes
+   to verify actual geometry, camera, lighting, clipping, and visibility.
 8. Run the complete browser AI workflows listed in the skill evaluation
    reference. Verify state, selection, edits, constraints, trajectory, camera
    directions, nonblank exact-size renders, exports, GUI-to-CLI collaboration
@@ -60,9 +63,10 @@ and rendered examples in sync.
    Markdown sources, selected documentation assets, and canonical Skill are
    present.
 10. Push the release commit to GitHub and upload the same version to PyPI.
-11. Wait for Read the Docs to finish the tag build. Verify the release version,
-    `stable`, and `latest` aliases resolve to the intended commits, the search
-    index is current, and downloadable PDF/ePub artifacts build when enabled.
+11. Wait for Read the Docs to finish the tag build. Verify the release version
+    and `latest` resolve to the intended commits, the search index is current,
+    and downloadable PDF/ePub artifacts build when enabled. Keep `stable`
+    inactive until the project explicitly adopts a stable-channel policy.
 12. Install the published wheel in a clean environment and verify
    `v_ase --version`, `v_ase gui`, canonical skill serving, and the documented
    end-to-end semantic workflow.
