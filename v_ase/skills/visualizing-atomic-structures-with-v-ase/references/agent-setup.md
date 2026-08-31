@@ -25,7 +25,9 @@ If the client accepts only individual files, always provide:
 
 Choose task references as follows:
 
-- live state, selection, edits, camera, materials, render, or export:
+- live state, selection, edits, camera, materials, volumetric grids,
+  isosurfaces, hkl planar sections, RDF,
+  render, or export:
   `references/semantic-api.md`;
 - a human watching or modifying the same GUI while the agent works:
   `references/collaboration.md`;
@@ -57,16 +59,17 @@ cp -R v_ase/skills/visualizing-atomic-structures-with-v-ase \
   .claude/skills/
 ```
 
-For another client with a `SKILL.md` loader, copy the complete directory to
-that client's documented local skill directory. Do not invent a vendor
-directory name when the client does not document one.
+GitHub Copilot agents that support Agent Skills can use the same complete
+directory through the client's documented skill location. For any other client
+with a `SKILL.md` loader, copy the directory only to that client's documented
+location. Do not invent a vendor directory name.
 
 ## Any Other AI Agent
 
 ChatGPT desktop agents, Gemini-based agents, agentic IDEs, and other local
-models can use the same contract without native skill installation:
+models can use the same contract without claiming native skill discovery:
 
-1. attach or expose `SKILL.md` and the relevant references;
+1. attach or explicitly reference `SKILL.md` and the relevant references;
 2. ensure the agent can run local shell commands and can open a loopback URL;
 3. give it the bootstrap instruction below;
 4. let the agent start and parse the CLI/API session itself.
@@ -158,6 +161,10 @@ The command returns one JSON object. Its semantic value is under `result`.
 Call `schema` before planning a broad workflow; it exposes exact operation and
 export parameter maps as `operation_parameters` and `export_parameters`, even
 before a document command is sent to the browser.
+Compare their keys with `capabilities.operations` and
+`capabilities.exports`. Both sets must match exactly. A difference means the
+installed browser assets and Python package are out of sync; do not mutate the
+document until the installation is repaired.
 For a complex request, write the parameters to a JSON file and use
 `--params-file`. For render/export results, use `--save OUTPUT`; this decodes
 the returned data URL without printing it. Existing files are protected unless
@@ -168,15 +175,26 @@ reference. `state_url` is backend/bootstrap state, not a complete snapshot of
 the live camera and visual settings. The `describe` command is authoritative.
 Prefer `{"includePositions":false}` for initial metadata inspection of large
 structures, then request positions only for coordinate-dependent work.
+Volumetric dataset IDs and RDF summaries are under `describe().analysis`.
+Resolve DFT grid paths inside the GUI launch directory and never derive an
+isosurface or RDF result from screenshot pixels.
 
 If no live browser is connected, commands fail with HTTP 409 and tell the
 agent to open `human_url`. If the browser controller cannot evaluate
 `window.v_aseAI`, do not treat that as a blocker; `v_ase api` is the
 vendor-neutral control path.
 
+The public bridge is also the release-test path. Send at least one structured
+selection plus physical or visual change from a separate `v_ase api` process,
+confirm the corresponding mode/control/readout changes in `human_url`, and
+read the same semantic state and revision back with `describe`. In-page
+evaluation alone is not sufficient evidence of external-agent compatibility.
+
 For a remote server, keep the structure and v_ase process on the server. Use
 the automatic SSH tunnel command documented in `cli-and-environments.md`; the
-browser receives rendered/session data, not the original structure file.
+single managed SSH connection pins the backend and forward to the same login
+node. The browser receives requested frame or derived rendering data, not the
+original structure file.
 
 ## Live Human Collaboration
 

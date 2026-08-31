@@ -508,12 +508,12 @@ def capture_physical_mode(browser, examples: dict[str, object]) -> None:
                     const app = window.__V_ASE_APP__;
                     Object.assign(app.state.display, {
                         showDisplacements: true,
-                        displacementReferenceMode: 'frame',
-                        displacementReferenceFrame: 12,
+                        displacementReferenceMode: 'phonon',
+                        displacementReferenceFrame: 0,
                         displacementMic: true,
                         displacementStyle: '3d',
-                        displacementScale: 8.0,
-                        displacementThickness: 0.12,
+                        displacementScale: 18.0,
+                        displacementThickness: 0.10,
                         displacementColor: color
                     });
                     app.syncDisplacementControls();
@@ -526,21 +526,27 @@ def capture_physical_mode(browser, examples: dict[str, object]) -> None:
             page.wait_for_function(
                 "Number(window.__V_ASE_APP__.renderer.domElement.dataset.displacementCount || 0) > 0"
             )
-            set_display(
-                page,
-                {
-                    "atomRadiusScale": 0.48,
-                    "showBonds": True,
-                    "showPeriodicBonds": False,
-                    "bondMode": "pairwise",
-                    "pairwiseBondRanges": {
-                        al_pair: {"enabled": True, "min": 0, "max": 3.05},
-                    },
-                    "pairwiseBondCutoffs": {al_pair: 3.05},
-                    "bondThickness": 0.11,
-                    "bondColorMode": "custom",
-                    "bondCustomColor": "#746d69",
-                },
+            page.evaluate(
+                """() => {
+                    const app = window.__V_ASE_APP__;
+                    const label = app.state.atoms.symbols[0];
+                    const key = app.labelPairKey(label, label);
+                    Object.assign(app.state.display, {
+                        atomRadiusScale: 0.42,
+                        showBonds: true,
+                        showPeriodicBonds: false,
+                        bondMode: 'pairwise',
+                        pairwiseBondRanges: {
+                            [key]: { enabled: true, min: 0, max: 3.05 }
+                        },
+                        pairwiseBondCutoffs: { [key]: 3.05 },
+                        bondThickness: 0.07,
+                        bondColorMode: 'custom',
+                        bondCustomColor: '#746d69'
+                    });
+                    app.renderer.setDisplayOptions(app.state.display);
+                    app.renderer.renderNow();
+                }"""
             )
             page.wait_for_function(
                 "Number(window.__V_ASE_APP__.renderer.domElement.dataset.bondCount || 0) > 0"

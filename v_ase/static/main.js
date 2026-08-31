@@ -1,15 +1,16 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.0.120a7%2Bsymmetry&rev=7';
-import { ASERenderer } from './renderer.js?v=0.0.120a7%2Bsymmetry&rev=7';
-import { ASESelection } from './selection.js?v=0.0.120a7%2Bsymmetry&rev=7';
-import { ASETransform } from './transform.js?v=0.0.120a7%2Bsymmetry&rev=7';
+import { ASEApi } from './api.js?v=0.2.34a1%2Bsymmetry';
+import { ASERenderer } from './renderer.js?v=0.2.34a1%2Bsymmetry';
+import { ASESelection } from './selection.js?v=0.2.34a1%2Bsymmetry';
+import { ASETransform } from './transform.js?v=0.2.34a1%2Bsymmetry';
 import {
     interpolateTrajectoryFrames,
     interpolatedFrameCount,
     normalizeInterpolationMultiplier
-} from './trajectory.js?v=0.0.120a7%2Bsymmetry&rev=7';
+} from './trajectory.js?v=0.2.34a1%2Bsymmetry';
+import { installSymmetryPhononMethods } from './symmetry-ui.js?v=0.2.34a1%2Bsymmetry';
 
-const V_ASE_BUILD_VERSION = '0.0.120a7+symmetry';
+const V_ASE_BUILD_VERSION = '0.2.34a1+symmetry';
 
 const CHEMICAL_ELEMENT_SYMBOLS = Object.freeze([
     'H','He','Li','Be','B','C','N','O','F','Ne',
@@ -33,6 +34,30 @@ const LEGACY_LABEL_DISPLAY_KEYS = Object.freeze({
     elementVisible: 'labelVisible'
 });
 const ATOM_MATERIAL_PRESETS = Object.freeze(['standard', 'metal', 'rubber']);
+const MAX_COMMENSURATE_AREA_RATIO = 128;
+const MIN_ATOM_COLORSCALE_TRAJECTORY_CACHE_VALUES = 10_000;
+const MAX_ATOM_COLORSCALE_TRAJECTORY_CACHE_VALUES = 2_000_000;
+const MAX_FORCE_VECTOR_TRAJECTORY_CACHE_VALUES = 6_000_000;
+const MAX_RDF_TRAJECTORY_CACHE_VALUES = 4_000_000;
+const MAX_RDF_ROLLING_CACHE_FRAMES = 41;
+const CUSTOM_ATOM_COLORMAP = 'custom';
+const MAX_CUSTOM_COLORMAP_STOPS = 64;
+const ATOM_COLORMAP_CATEGORY_ORDER = Object.freeze([
+    'Perceptually uniform sequential',
+    'Sequential',
+    'Diverging',
+    'Cyclic',
+    'Qualitative',
+    'Other'
+]);
+const DEFAULT_CUSTOM_COLORMAP = Object.freeze({
+    mode: 'continuous',
+    stops: Object.freeze([
+        Object.freeze({ position: 0, color: '#2A6FBB' }),
+        Object.freeze({ position: 0.5, color: '#F4F1DE' }),
+        Object.freeze({ position: 1, color: '#C43F5E' })
+    ])
+});
 
 class VAseApp {
     constructor() {
@@ -44,8 +69,11 @@ class VAseApp {
         this.workspaceNeedsRefresh = false;
         this.workspaceOpenRequests = new Map();
         this.workspaceRequestSequence = 0;
+        this.disposed = false;
+        this.cleanupCallbacks = [];
         this.undoTimeline = [];
         this.redoTimeline = [];
+        this.addAtomsHistoryToken = null;
         this.historyReplay = false;
         this.visualHistoryBaseline = null;
         this.visualHistoryPending = null;
@@ -60,7 +88,7 @@ class VAseApp {
         this.collaborationFrame = null;
         this.api = new ASEApi(this.sessionId);
         this.api.onUndoableMutation = ({ path } = {}) => {
-            this.recordStructureHistoryAction();
+            this.recordStructureHistoryAction(path);
             const details = this.collaborationMutationDetails(path);
             this.scheduleCollaborationEvent({
                 ...details,
@@ -81,10 +109,13 @@ class VAseApp {
         this.selection = new ASESelection(this.renderer);
         this.transform = new ASETransform(this.renderer.scene);
         this.initialDesignSettings = null;
+        this.personalVisualDefaults = null;
+        this.hasPersonalVisualDefaults = false;
         this.frameLoadInFlight = false;
         this.pendingFrameIndex = null;
         this.timelineStepQueue = Promise.resolve();
         this.controlCommitState = new WeakMap();
+        this.filePickerSuppressUntil = 0;
         this.renderer.onFrame = () => {
             this.updateOrientationWidget();
             this.updateSelectionMeasurementOverlay();
@@ -93,6 +124,11 @@ class VAseApp {
             this.syncAtomicScaleFromCamera({
                 forceInput: event?.source !== 'scale-input'
             });
+            if (this.state?.exportPreviewFollowViewport) {
+                this.captureRenderAreaCamera({
+                    syncPreview: Boolean(this.state.exportPreviewEnabled)
+                });
+            }
             this.observeCollaborationCamera(event?.source || 'camera');
         };
         this.renderer.controls.onGestureStart = () => this.flushVisualHistoryCommit();
@@ -113,6 +149,7 @@ class VAseApp {
             transformStartPointer: new THREE.Vector2(window.innerWidth / 2, window.innerHeight / 2),
             suppressNextPointerUp: false,
             clipboard: null,
+            selectedAppearanceDirty: new Set(),
             display: {
                 showBonds: true,
                 showCell: true,
@@ -129,21 +166,52 @@ class VAseApp {
                 pairwiseBondCutoffs: {},
                 pairwiseBondRanges: {},
                 pairwiseLabelColumnWidth: 210,
+                pairwiseBondStyles: {},
                 bondStyle: 'cylinder',
+                bondMaterial: 'standard',
                 bondThickness: 0.25,
                 bondColorMode: 'split',
                 bondCustomColor: '#c8ccd0',
+                bondOpacity: 1,
                 atomRadiusScale: 0.6,
                 labelRadii: {},
                 labelColors: {},
+                labelOpacities: {},
                 labelVisible: {},
                 labelMaterials: {},
+                atomRadiusScales: {},
+                atomColors: {},
+                atomOpacities: {},
                 atomMaterials: {},
+                atomBondStyles: {},
+                selectedAppearanceAffectsBonds: true,
+                hiddenAtomReferences: [],
+                atomColorScaleEnabled: false,
+                atomColorScaleField: 'position:z',
+                atomColorScaleMap: 'viridis',
+                atomColorScaleCustomMap: {
+                    mode: DEFAULT_CUSTOM_COLORMAP.mode,
+                    stops: DEFAULT_CUSTOM_COLORMAP.stops.map(stop => ({ ...stop }))
+                },
+                atomColorScaleReverse: false,
+                atomColorScaleScope: 'all',
+                atomColorScaleAutoRange: true,
+                atomColorScaleRangeMode: 'current',
+                atomColorScaleMin: 0,
+                atomColorScaleMax: 1,
+                atomColorScaleGamma: 1,
                 rotatePivot: 'selection',
-                commensurateGuide: true,
+                commensurateGuide: false,
                 commensurateSnap: false,
+                commensurateMode: 'same-lattice',
+                commensurateStrainTarget: 'guest',
+                commensurateShowAtoms: false,
+                commensurateGuestGap: 3.0,
+                commensurateGuestOffset: [0, 0, 3.0],
+                commensurateGuestAngleDeg: 0,
                 commensurateStrainTolerance: 0.01,
                 commensurateMaxIndex: 32,
+                commensurateMaxAreaRatio: 16,
                 commensurateSnapRangeDeg: 2.0,
                 supercell: [1, 1, 1],
                 translation: [0, 0, 0],
@@ -174,7 +242,31 @@ class VAseApp {
                 displacementStyle: '3d',
                 displacementScale: 1,
                 displacementThickness: 0.08,
-                displacementColor: '#e58b2a'
+                displacementColor: '#e58b2a',
+                showForceVectors: false,
+                forceVectorStyle: '3d',
+                forceVectorScale: 1,
+                forceVectorThickness: 0.08,
+                forceVectorColor: '#c43f5e',
+                showVolumetric: false,
+                volumetricPrecision: 'float32',
+                volumetricDatasetId: '',
+                volumetricLevel: null,
+                volumetricSurfaceMode: 'single',
+                volumetricStepSize: 1,
+                volumetricSmearingSigma: 0,
+                volumetricSmoothingIterations: 4,
+                volumetricOpacity: 0.72,
+                volumetricPositiveColor: '#2f8fdb',
+                volumetricNegativeColor: '#e05b78',
+                volumetricPlanes: [],
+                rdfCutoff: null,
+                rdfBins: 200,
+                rdfPairMode: 'active',
+                registryMetric: 'short-contact',
+                registryGridX: 32,
+                registryGridY: 32,
+                registryHkl: [0, 0, 1]
             },
             antiAliasing: true,
             sphereQuality: 'auto',
@@ -187,6 +279,10 @@ class VAseApp {
             hoveredIndex: null,
             hoveredReference: null,
             displayConfigLoaded: false,
+            repulsionPairRanges: {},
+            repulsionPairBasis: 'covalent',
+            repulsionPairSourceSignature: '',
+            calculatorApplyTimer: null,
             rotationScreenPivot: new THREE.Vector2(window.innerWidth / 2, window.innerHeight / 2),
             rotationLastAngle: 0,
             rotationPointerActive: false,
@@ -199,24 +295,42 @@ class VAseApp {
             commensurateReferenceDirection: null,
             commensurateGuideRadius: 4,
             commensurateSnappedCandidate: null,
+            commensurateLastAngle: null,
+            commensurateProposal: null,
+            commensurateProposalToken: 0,
+            commensurateJobId: null,
+            commensuratePreviewTimer: null,
+            commensuratePreviewAngle: 0,
+            commensurateSuggestionArmed: false,
             transformSubject: null,
+            addAtomsRegionSelectedIds: new Set(),
+            addAtomsRegionTransformOriginal: null,
             sunSelected: null,
             sunTransformOriginal: null,
             trajectoryTimer: null,
+            trajectoryPlaybackTask: null,
+            trajectoryStopPromise: null,
             trajectoryPlaybackSource: null,
             timelineSource: 'loaded',
+            displayedTimelineSource: 'loaded',
             trajectoryBinaryCache: null,
             trajectoryBinaryPromise: null,
+            trajectoryBinaryGeneration: 0,
+            relaxTrajectoryGeneration: 0,
             relaxTrajectory: {
                 frames: [],
                 frame: 0,
                 sourceFrame: 0,
                 active: false,
-                finished: false
+                finished: false,
+                kind: null,
+                label: ''
             },
             labelOrder: [],
             trajectoryLabels: [],
             trajectoryLabelElements: {},
+            viewIdentityGlobalLabels: null,
+            viewIdentityFrameLabels: new Map(),
             labelIndexCache: new Map(),
             pendingLabelRenames: new Set(),
             modeSwitchInFlight: false,
@@ -224,6 +338,10 @@ class VAseApp {
             displayApplyRequest: null,
             bondApplyRequest: null,
             exportPreviewEnabled: false,
+            exportPreviewFollowViewport: true,
+            exportPreviewCamera: null,
+            renderAreaSelected: false,
+            renderAreaTransformOriginal: null,
             imageExportProfile: null,
             exportPreviewProfile: null,
             hoverPickTimer: null,
@@ -243,8 +361,95 @@ class VAseApp {
             phononBandCalculationPending: false,
             phononModes: null,
             phononTrajectoryMetadata: null,
+            volumetricRequestToken: 0,
+            volumetricSurfaceSummary: null,
+            selectedVolumetricPlanes: new Set(),
+            volumetricPlaneRequestTokens: new Map(),
+            volumetricPlanePayloads: new Map(),
+            volumetricPlanePreviewTimer: null,
+            volumetricPlaneSettledTimer: null,
+            volumetricPlaneTransformOriginal: null,
+            volumetricFrameHiddenPlaneIds: new Set(),
+            volumetricToolView: 'surface',
+            rdfResult: null,
+            rdfRequestToken: 0,
+            rdfAutoRefresh: false,
+            rdfSelectionSignature: '',
+            rdfSelectionPendingSignature: '',
+            rdfSelectionRefreshTimer: null,
+            rdfFrameCache: new Map(),
+            rdfFrameCacheSignature: '',
+            rdfFrameCacheComplete: false,
+            rdfPrefetchPromise: null,
+            rdfPrefetchToken: 0,
+            frameAnalysisRefreshTimer: null,
+            frameAnalysisRequestToken: 0,
+            volumetricFrameSignature: '',
+            registryResult: null,
+            registryRequestToken: 0,
+            registryJobId: null,
+            registrySelectionSignature: '',
+            registryTranslationFractional: [0, 0],
+            registryTranslationCoordinates: [0, 0],
+            registryTransformStartCoordinates: null,
+            registryRelaxation: null,
+            activeAnalysisPlot: null,
+            hiddenAnalysisWarningSignature: '',
+            plotlyPromise: null,
             videoExportId: null,
             videoExportStartedAt: null
+        };
+        this.atomColorScaleRuntime = {
+            catalog: null,
+            catalogPromise: null,
+            colormapCatalog: null,
+            colormapCatalogPromise: null,
+            valueCaches: new Map(),
+            frameValueCaches: new Map(),
+            rangeCaches: new Map(),
+            lutCaches: new Map(),
+            requestToken: 0,
+            refreshRequest: null,
+            selectionSignature: '',
+            rangeSignature: '',
+            prefetchField: '',
+            prefetchFrame: -1,
+            prefetchPromise: null,
+            prefetchTimer: null,
+            renderedFrame: -1,
+            colormapMenu: null
+        };
+        this.selectionPropertyRuntime = {
+            cache: new Map(),
+            pending: new Map(),
+            requestToken: 0
+        };
+        this.forceVectorRuntime = {
+            requestToken: 0,
+            trajectoryCache: null,
+            frameCaches: new Map(),
+            pending: null,
+            renderedFrame: -1
+        };
+        this.calculatorConfigQueue = Promise.resolve();
+        this.calculatorConfigRevision = 0;
+        this.bulkBuilderRuntime = {
+            catalog: null,
+            catalogPromise: null,
+            previewToken: 0,
+            previewTimer: null,
+            lastPreview: null,
+            lastPreviewSignature: ''
+        };
+        this.factoryDesignSettings = {
+            schema: 'v_ase.visual_settings.v3',
+            display: this.clonePlain(this.state.display),
+            applyConstraints: true,
+            antiAliasing: true,
+            sphereQuality: 'auto',
+            moveIncrement: 0,
+            rotateIncrementDeg: 0,
+            imageExportProfile: null
         };
         this.api.currentFrameProvider = () => Number(
             this.state.atoms?.metadata?.current_frame ?? 0
@@ -255,6 +460,9 @@ class VAseApp {
         if (this.workspaceChild) {
             window.addEventListener('message', this.handleWorkspaceMessage);
         }
+        this.handlePageTeardown = () => this.dispose();
+        window.addEventListener('pagehide', this.handlePageTeardown, { once: true });
+        window.addEventListener('beforeunload', this.handlePageTeardown, { once: true });
 
         this.ready = this.init();
     }
@@ -267,19 +475,28 @@ class VAseApp {
                 this.sessionId = active.session_id;
                 this.api.sessionId = this.sessionId;
             }
+            this.setupThemeControls();
             this.setupWebSocket();
             this.setupInspectorResizer();
             this.setupInspectorNavigation();
             this.setupDisplacementAnalysis();
             this.setupSymmetryPhononAnalysis();
+            this.setupForceAnalysis();
+            this.setupVolumetricAnalysis();
+            this.setupRdfAnalysis();
+            this.setupRegistryAnalysis();
             this.setupViewControls();
             this.setupRuntimeModeControls();
             this.setupSelectedAppearanceControls();
+            this.setupAtomColorScaleControls();
+            this.setupAseBulkBuilder();
             this.setupLightingControls();
+            this.setupToolbarTooltips();
             this.setupCreateAtomWidget();
             this.setupEventListeners();
             this.setupInputCommitBehavior();
             this.setupNumberInputHoldGuards();
+            await this.loadUserVisualDefaults();
             await this.refresh();
             this.collaborationReady = true;
             this.collaborationSelectionSignature = this.collaborationSelectionKey();
@@ -386,11 +603,41 @@ class VAseApp {
             this.workspaceOpenRequests.delete(message.requestId);
             if (message.ok) pending.resolve(message);
             else pending.reject(new Error(message.error || 'Could not open a new structure tab.'));
+        } else if (message.type === 'v_ase:workspace-theme') {
+            window.v_aseTheme?.apply(message.preference, {
+                persist: false,
+                announce: false
+            });
+            this.syncThemeControl();
+            this.refreshActiveAnalysisTheme();
+        } else if (message.type === 'v_ase:workspace-visual-defaults') {
+            this.hasPersonalVisualDefaults = message.configured === true;
+            this.personalVisualDefaults = this.hasPersonalVisualDefaults && message.settings
+                ? this.clonePlain(message.settings)
+                : null;
+            this.updateVisualDefaultStatus();
         }
     }
 
     canEditAtoms() {
-        return !this.state.vizOnly;
+        return !this.state.vizOnly && !this.addAtomsSessionActive();
+    }
+
+    canTransformSelectedAtoms() {
+        if (this.state.vizOnly) return false;
+        const addition = this.addAtomsUI?.active || this.state.atoms?.metadata?.atom_addition;
+        if (!addition?.active) return true;
+        if (addition.is_relaxing || this.state.selected.size === 0) return false;
+        const inserted = new Set((addition.new_indices || []).map(Number));
+        return [...this.state.selected].every(index => inserted.has(Number(index)));
+    }
+
+    transformUnavailableToast() {
+        if (this.addAtomsSessionActive()) {
+            this.toast('During batch insertion, G/R can transform only the inserted content. Stop placement first if it is running.', 'warning');
+            return;
+        }
+        this.editOnlyToast();
     }
 
     canViewportSelectAtoms() {
@@ -398,18 +645,39 @@ class VAseApp {
     }
 
     updateEditingAvailability() {
+        const addAtomsActive = this.addAtomsSessionActive();
         document.body.dataset.vizOnly = this.state.vizOnly ? 'true' : 'false';
+        document.body.dataset.addAtomsActive = addAtomsActive ? 'true' : 'false';
         document.querySelectorAll('[data-edit-only]').forEach(el => {
             if ('disabled' in el) el.disabled = this.state.vizOnly;
         });
-        if (this.state.vizOnly && this.transform.mode !== 'IDLE') {
+        const sectionSelect = document.getElementById('structure-section-select');
+        if (
+            ['structure', 'analysis', 'export'].includes(this.inspectorGroup)
+            && sectionSelect?.selectedOptions?.[0]?.disabled
+        ) {
+            this.populateInspectorSectionNavigation(this.inspectorGroup);
+        }
+        if (
+            this.transform.mode !== 'IDLE'
+            && this.state.transformSubject === 'atoms'
+            && !this.canTransformSelectedAtoms()
+        ) {
             this.cancelTransform();
         }
         document.querySelectorAll('[data-runtime-mode]').forEach(button => {
             const selected = button.dataset.runtimeMode === (this.state.vizOnly ? 'view' : 'edit');
             button.setAttribute('aria-pressed', selected ? 'true' : 'false');
-            button.disabled = this.state.modeSwitchInFlight;
+            button.disabled = this.state.modeSwitchInFlight || addAtomsActive;
         });
+        const deleteButton = document.getElementById('btn-delete-selection');
+        if (deleteButton) {
+            deleteButton.textContent = this.state.vizOnly ? 'Hide Selected' : 'Delete Selected';
+            deleteButton.title = this.state.vizOnly
+                ? 'Hide only the selected visual instances; the ASE structure is unchanged'
+                : 'Delete selected atoms from the ASE structure';
+        }
+        this.syncVolumetricPlaneModeNote();
         this.updateSelectedAppearanceControls();
     }
 
@@ -426,23 +694,1399 @@ class VAseApp {
 
     setupSelectedAppearanceControls() {
         const labelInput = document.getElementById('selected-atom-label');
-        const applyLabel = document.getElementById('btn-apply-selected-label');
-        const material = document.getElementById('selected-atom-material');
-        applyLabel?.addEventListener('click', () => {
-            this.applySelectedLabelEdit().catch(err => {
-                this.toast(`Label update failed: ${err.message}`, 'error');
+        const materialInput = document.getElementById('selected-atom-material');
+        const colorInput = document.getElementById('selected-atom-color');
+        const opacityInput = document.getElementById('selected-atom-opacity');
+        const radiusScaleInput = document.getElementById('selected-atom-radius-scale');
+        const radiusScaleOutput = document.getElementById('selected-atom-radius-scale-value');
+        const bondToggle = document.getElementById('selected-atom-update-bonds');
+        const applyButton = document.getElementById('btn-apply-selected-label');
+        const markDirty = field => {
+            if (!this.selectedAtomIndices().length) return;
+            this.state.selectedAppearanceDirty.add(field);
+            applyButton?.classList.add('is-dirty');
+        };
+        applyButton?.addEventListener('click', () => {
+            this.applySelectedAppearanceEdit().catch(err => {
+                this.toast(`Appearance update failed: ${err.message}`, 'error');
             });
         });
+        labelInput?.addEventListener('input', () => markDirty('label'));
         labelInput?.addEventListener('keydown', event => {
             if (event.key !== 'Enter') return;
             event.preventDefault();
-            this.applySelectedLabelEdit().catch(err => {
-                this.toast(`Label update failed: ${err.message}`, 'error');
+            this.applySelectedAppearanceEdit().catch(err => {
+                this.toast(`Appearance update failed: ${err.message}`, 'error');
             });
         });
-        material?.addEventListener('change', () => {
-            if (material.value === 'mixed') return;
-            this.applySelectedMaterial(material.value);
+        materialInput?.addEventListener('change', () => markDirty('material'));
+        colorInput?.addEventListener('input', () => markDirty('color'));
+        opacityInput?.addEventListener('input', () => markDirty('opacity'));
+        opacityInput?.addEventListener('keydown', event => {
+            if (event.key !== 'Enter') return;
+            event.preventDefault();
+            this.applySelectedAppearanceEdit().catch(err => {
+                this.toast(`Appearance update failed: ${err.message}`, 'error');
+            });
+        });
+        radiusScaleInput?.addEventListener('input', () => {
+            const value = Number(radiusScaleInput.value);
+            if (radiusScaleOutput && Number.isFinite(value)) {
+                radiusScaleOutput.textContent = `${value.toFixed(2)}x`;
+            }
+            markDirty('radiusScale');
+        });
+        bondToggle?.addEventListener('change', () => {
+            this.state.display.selectedAppearanceAffectsBonds = bondToggle.checked;
+            this.scheduleVisualHistoryCommit('selected-appearance-bond-link');
+        });
+    }
+
+    async applySelectedAppearanceEdit() {
+        let indices = this.selectedAtomIndices();
+        if (!indices.length) {
+            this.toast('Select atoms before changing their appearance.', 'warning');
+            return;
+        }
+        const dirty = new Set(this.state.selectedAppearanceDirty || []);
+        const labelInput = document.getElementById('selected-atom-label');
+        const label = this.normalizedTypeLabel(labelInput?.value);
+        const labels = [...new Set(indices.map(index => this.state.atoms?.symbols?.[index]))];
+        if (dirty.has('label') && label && (labels.length !== 1 || labels[0] !== label)) {
+            const applied = await this.applySelectedLabelEdit({ reportErrors: false });
+            if (!applied) return;
+            indices = this.selectedAtomIndices();
+        }
+        const appearanceFields = new Set(
+            [...dirty].filter(field => ['material', 'color', 'opacity', 'radiusScale'].includes(field))
+        );
+        if (appearanceFields.size) {
+            this.applySelectedIndexAppearance(indices, appearanceFields);
+        }
+        this.state.selectedAppearanceDirty.clear();
+        document.getElementById('btn-apply-selected-label')?.classList.remove('is-dirty');
+        this.updateSelectedAppearanceControls();
+    }
+
+    defaultCustomAtomColormap() {
+        return {
+            mode: DEFAULT_CUSTOM_COLORMAP.mode,
+            stops: DEFAULT_CUSTOM_COLORMAP.stops.map(stop => ({ ...stop }))
+        };
+    }
+
+    normalizedCustomAtomColormap(value, { strict = false } = {}) {
+        const fail = message => {
+            if (strict) throw new Error(message);
+            return this.defaultCustomAtomColormap();
+        };
+        if (!value || typeof value !== 'object') return fail('Custom colormap must be an object.');
+        const mode = value.mode === 'discrete' ? 'discrete' : 'continuous';
+        if (strict && value.mode !== undefined && !['continuous', 'discrete'].includes(value.mode)) {
+            return fail('Custom colormap mode must be continuous or discrete.');
+        }
+        if (!Array.isArray(value.stops) || value.stops.length < 2) {
+            return fail('Custom colormap requires at least two colors.');
+        }
+        if (value.stops.length > MAX_CUSTOM_COLORMAP_STOPS) {
+            return fail(`Custom colormap supports up to ${MAX_CUSTOM_COLORMAP_STOPS} colors.`);
+        }
+        const stops = [];
+        for (const item of value.stops) {
+            const position = Number(item?.position);
+            const color = String(item?.color || '').toUpperCase();
+            if (!Number.isFinite(position) || position < 0 || position > 1) {
+                return fail('Every custom colormap position must be between 0 and 1.');
+            }
+            if (!this.validHexColor(color)) {
+                return fail('Every custom colormap color must use #RRGGBB notation.');
+            }
+            stops.push({ position, color });
+        }
+        stops.sort((left, right) => left.position - right.position);
+        for (let index = 1; index < stops.length; index += 1) {
+            if (stops[index].position - stops[index - 1].position <= 1e-9) {
+                return fail('Custom colormap positions must be unique.');
+            }
+        }
+        stops[0].position = 0;
+        stops[stops.length - 1].position = 1;
+        return { mode, stops };
+    }
+
+    atomColormapHexToRgb(color) {
+        if (!this.validHexColor(color)) return null;
+        return [1, 3, 5].map(offset => parseInt(color.slice(offset, offset + 2), 16));
+    }
+
+    atomColormapRgbToHex(channels) {
+        return `#${channels.map(value => (
+            Math.max(0, Math.min(255, Math.round(value))).toString(16).padStart(2, '0')
+        )).join('').toUpperCase()}`;
+    }
+
+    interpolateAtomColormapColor(left, right, amount) {
+        const a = this.atomColormapHexToRgb(left);
+        const b = this.atomColormapHexToRgb(right);
+        if (!a || !b) return '#808080';
+        return this.atomColormapRgbToHex(
+            a.map((value, index) => value + (b[index] - value) * amount)
+        );
+    }
+
+    customAtomColormapPalette(specification = null, samples = 256, reverse = false) {
+        const custom = this.normalizedCustomAtomColormap(
+            specification || this.state.display.atomColorScaleCustomMap
+        );
+        const count = Math.max(16, Math.min(2048, parseInt(samples, 10) || 256));
+        const colors = Array.from({ length: count }, (_, index) => {
+            const value = index / Math.max(1, count - 1);
+            let rightIndex = custom.stops.findIndex(stop => stop.position > value);
+            if (rightIndex < 0) return custom.stops[custom.stops.length - 1].color;
+            if (rightIndex === 0) return custom.stops[0].color;
+            const left = custom.stops[rightIndex - 1];
+            const right = custom.stops[rightIndex];
+            if (custom.mode === 'discrete') return left.color;
+            const span = Math.max(1e-12, right.position - left.position);
+            return this.interpolateAtomColormapColor(
+                left.color,
+                right.color,
+                (value - left.position) / span
+            );
+        });
+        if (reverse) colors.reverse();
+        return colors;
+    }
+
+    atomColormapGradientCss(colors = []) {
+        const palette = colors.filter(color => this.validHexColor(color));
+        if (!palette.length) return 'linear-gradient(90deg, #777777, #aaaaaa)';
+        const stops = palette.map((color, index) => (
+            `${color} ${(index / Math.max(1, palette.length - 1) * 100).toFixed(2)}%`
+        ));
+        return `linear-gradient(90deg, ${stops.join(', ')})`;
+    }
+
+    customAtomColormapGradientCss(specification = null, reverse = false) {
+        const custom = this.normalizedCustomAtomColormap(
+            specification || this.state.display.atomColorScaleCustomMap
+        );
+        let stops = custom.stops.map(stop => ({ ...stop }));
+        if (reverse) {
+            stops = stops.map(stop => ({
+                position: 1 - stop.position,
+                color: stop.color
+            })).reverse();
+        }
+        const parts = [];
+        if (custom.mode === 'continuous') {
+            stops.forEach(stop => {
+                parts.push(`${stop.color} ${(stop.position * 100).toFixed(2)}%`);
+            });
+        } else {
+            stops.forEach((stop, index) => {
+                const next = stops[index + 1];
+                parts.push(`${stop.color} ${(stop.position * 100).toFixed(2)}%`);
+                if (next) parts.push(`${stop.color} ${(next.position * 100).toFixed(2)}%`);
+            });
+        }
+        return `linear-gradient(90deg, ${parts.join(', ')})`;
+    }
+
+    atomColormapCatalogItem(name) {
+        return (this.atomColorScaleRuntime.colormapCatalog?.maps || [])
+            .find(item => item.name === name) || null;
+    }
+
+    orderedAtomColormapGroups(groups) {
+        const rank = label => {
+            const index = ATOM_COLORMAP_CATEGORY_ORDER.indexOf(label);
+            return index >= 0 ? index : ATOM_COLORMAP_CATEGORY_ORDER.length;
+        };
+        return Array.from(groups.entries()).sort(([left], [right]) => (
+            rank(left) - rank(right) || left.localeCompare(right)
+        ));
+    }
+
+    atomColormapPreviewCss(name = this.state.display.atomColorScaleMap, { reverse = false } = {}) {
+        if (name === CUSTOM_ATOM_COLORMAP) {
+            return this.customAtomColormapGradientCss(null, reverse);
+        }
+        const preview = this.atomColormapCatalogItem(name)?.preview || [];
+        const colors = reverse ? [...preview].reverse() : preview;
+        return this.atomColormapGradientCss(colors);
+    }
+
+    syncAtomColormapPicker() {
+        const name = this.state.display.atomColorScaleMap || 'viridis';
+        const trigger = document.getElementById('atom-colormap-trigger');
+        const preview = document.getElementById('atom-colormap-trigger-preview');
+        const label = document.getElementById('atom-colormap-trigger-name');
+        if (preview) {
+            preview.style.background = this.atomColormapPreviewCss(name, {
+                reverse: Boolean(this.state.display.atomColorScaleReverse)
+            });
+        }
+        if (label) label.textContent = name === CUSTOM_ATOM_COLORMAP ? 'Custom' : name;
+        if (trigger) trigger.title = name === CUSTOM_ATOM_COLORMAP
+            ? 'Edit or choose a colormap'
+            : `Choose colormap; current: ${name}`;
+        this.syncAtomColormapMenuSelection();
+    }
+
+    ensureAtomColormapMenu() {
+        let menu = document.getElementById('atom-colormap-menu');
+        if (menu) return menu;
+        menu = document.createElement('div');
+        menu.id = 'atom-colormap-menu';
+        menu.className = 'atom-colormap-menu hidden';
+        menu.setAttribute('role', 'listbox');
+        menu.setAttribute('aria-label', 'Colormaps');
+        menu.innerHTML = `
+            <div class="atom-colormap-menu-head">
+                <input id="atom-colormap-menu-search" class="atom-colormap-menu-search"
+                       type="search" placeholder="Search colormaps" aria-label="Search colormaps">
+            </div>
+            <div id="atom-colormap-options" class="atom-colormap-options"></div>
+        `;
+        document.body.appendChild(menu);
+        menu.querySelector('#atom-colormap-menu-search')?.addEventListener('input', event => {
+            this.filterAtomColormapMenu(event.target.value);
+        });
+        menu.addEventListener('click', event => {
+            const option = event.target.closest('.atom-colormap-option');
+            if (!option) return;
+            const name = option.dataset.map;
+            this.closeAtomColormapMenu();
+            if (name === CUSTOM_ATOM_COLORMAP) {
+                this.openCustomAtomColormapEditor();
+                return;
+            }
+            const select = document.getElementById('atom-colorscale-map');
+            if (!select || select.value === name) return;
+            select.value = name;
+            select.dispatchEvent(new Event('change', { bubbles: true }));
+        });
+        menu.addEventListener('keydown', event => {
+            if (event.key === 'Escape') {
+                event.preventDefault();
+                this.closeAtomColormapMenu({ restoreFocus: true });
+                return;
+            }
+            if (!['ArrowDown', 'ArrowUp'].includes(event.key)) return;
+            const options = Array.from(menu.querySelectorAll('.atom-colormap-option:not(.hidden)'));
+            if (!options.length) return;
+            event.preventDefault();
+            const current = options.indexOf(document.activeElement);
+            const offset = event.key === 'ArrowDown' ? 1 : -1;
+            options[(current + offset + options.length) % options.length].focus();
+        });
+        this.atomColorScaleRuntime.colormapMenu = menu;
+        return menu;
+    }
+
+    renderAtomColormapMenu() {
+        const menu = this.ensureAtomColormapMenu();
+        const options = menu.querySelector('#atom-colormap-options');
+        if (!options) return;
+        options.replaceChildren();
+        const addGroup = (label, entries) => {
+            const heading = document.createElement('div');
+            heading.className = 'atom-colormap-group-label';
+            heading.dataset.group = label;
+            heading.textContent = label;
+            options.appendChild(heading);
+            entries.forEach(item => {
+                const button = document.createElement('button');
+                button.type = 'button';
+                button.className = 'atom-colormap-option';
+                button.dataset.map = item.name;
+                button.dataset.group = label;
+                button.setAttribute('role', 'option');
+                if (item.name === CUSTOM_ATOM_COLORMAP) {
+                    button.classList.add('atom-colormap-option-custom');
+                }
+                const preview = document.createElement('span');
+                preview.className = 'atom-colormap-swatch';
+                preview.style.background = item.name === CUSTOM_ATOM_COLORMAP
+                    ? this.customAtomColormapGradientCss()
+                    : this.atomColormapGradientCss(item.preview || []);
+                preview.setAttribute('aria-hidden', 'true');
+                const name = document.createElement('span');
+                name.className = 'atom-colormap-option-name';
+                name.textContent = item.name === CUSTOM_ATOM_COLORMAP ? 'Custom' : item.name;
+                button.append(preview, name);
+                options.appendChild(button);
+            });
+        };
+        addGroup('Custom', [{ name: CUSTOM_ATOM_COLORMAP }]);
+        const groups = new Map();
+        (this.atomColorScaleRuntime.colormapCatalog?.maps || []).forEach(item => {
+            const group = item.category || 'Other';
+            if (!groups.has(group)) groups.set(group, []);
+            groups.get(group).push(item);
+        });
+        this.orderedAtomColormapGroups(groups).forEach(([label, entries]) => {
+            addGroup(label, entries);
+        });
+        this.syncAtomColormapMenuSelection();
+    }
+
+    filterAtomColormapMenu(query = '') {
+        const menu = this.atomColorScaleRuntime.colormapMenu;
+        if (!menu) return;
+        const requested = String(query).trim().toLowerCase();
+        const visibleGroups = new Set();
+        menu.querySelectorAll('.atom-colormap-option').forEach(option => {
+            const visible = !requested || option.dataset.map.toLowerCase().includes(requested);
+            option.classList.toggle('hidden', !visible);
+            if (visible) visibleGroups.add(option.dataset.group);
+        });
+        menu.querySelectorAll('.atom-colormap-group-label').forEach(label => {
+            label.classList.toggle('hidden', !visibleGroups.has(label.dataset.group));
+        });
+    }
+
+    syncAtomColormapMenuSelection() {
+        const menu = this.atomColorScaleRuntime.colormapMenu;
+        if (!menu) return;
+        const selected = this.state.display.atomColorScaleMap || 'viridis';
+        menu.querySelectorAll('.atom-colormap-option').forEach(option => {
+            const active = option.dataset.map === selected;
+            option.setAttribute('aria-selected', active ? 'true' : 'false');
+        });
+        const customPreview = menu.querySelector(
+            `.atom-colormap-option[data-map="${CUSTOM_ATOM_COLORMAP}"] .atom-colormap-swatch`
+        );
+        if (customPreview) customPreview.style.background = this.customAtomColormapGradientCss();
+    }
+
+    positionAtomColormapMenu() {
+        const trigger = document.getElementById('atom-colormap-trigger');
+        const menu = this.atomColorScaleRuntime.colormapMenu;
+        if (!trigger || !menu || menu.classList.contains('hidden')) return;
+        const rect = trigger.getBoundingClientRect();
+        const width = Math.min(360, window.innerWidth - 24);
+        menu.style.width = `${width}px`;
+        const menuHeight = Math.min(menu.scrollHeight || 460, window.innerHeight - 24);
+        const left = Math.max(12, Math.min(window.innerWidth - width - 12, rect.right - width));
+        const roomBelow = window.innerHeight - rect.bottom - 12;
+        const top = roomBelow >= Math.min(360, menuHeight)
+            ? rect.bottom + 6
+            : Math.max(12, rect.top - menuHeight - 6);
+        menu.style.left = `${left}px`;
+        menu.style.top = `${top}px`;
+    }
+
+    openAtomColormapMenu() {
+        const menu = this.ensureAtomColormapMenu();
+        this.renderAtomColormapMenu();
+        menu.classList.remove('hidden');
+        const trigger = document.getElementById('atom-colormap-trigger');
+        trigger?.setAttribute('aria-expanded', 'true');
+        const search = menu.querySelector('#atom-colormap-menu-search');
+        if (search) search.value = '';
+        this.filterAtomColormapMenu('');
+        this.positionAtomColormapMenu();
+        requestAnimationFrame(() => search?.focus());
+    }
+
+    closeAtomColormapMenu({ restoreFocus = false } = {}) {
+        const menu = this.atomColorScaleRuntime.colormapMenu;
+        menu?.classList.add('hidden');
+        const trigger = document.getElementById('atom-colormap-trigger');
+        trigger?.setAttribute('aria-expanded', 'false');
+        if (restoreFocus) trigger?.focus();
+    }
+
+    setupAtomColormapPicker() {
+        const trigger = document.getElementById('atom-colormap-trigger');
+        trigger?.addEventListener('click', () => {
+            const menu = this.ensureAtomColormapMenu();
+            if (menu.classList.contains('hidden')) this.openAtomColormapMenu();
+            else this.closeAtomColormapMenu();
+        });
+        trigger?.addEventListener('keydown', event => {
+            if (!['Enter', ' ', 'ArrowDown'].includes(event.key)) return;
+            event.preventDefault();
+            this.openAtomColormapMenu();
+        });
+        const closeOutside = event => {
+            const menu = this.atomColorScaleRuntime.colormapMenu;
+            if (!menu || menu.classList.contains('hidden')) return;
+            if (menu.contains(event.target) || trigger?.contains(event.target)) return;
+            this.closeAtomColormapMenu();
+        };
+        const reposition = event => {
+            const menu = this.atomColorScaleRuntime.colormapMenu;
+            if (!menu || menu.classList.contains('hidden') || menu.contains(event.target)) return;
+            this.positionAtomColormapMenu();
+        };
+        window.addEventListener('pointerdown', closeOutside, true);
+        window.addEventListener('resize', reposition, { passive: true });
+        window.addEventListener('scroll', reposition, true);
+        this.cleanupCallbacks.push(() => {
+            window.removeEventListener('pointerdown', closeOutside, true);
+            window.removeEventListener('resize', reposition);
+            window.removeEventListener('scroll', reposition, true);
+            this.atomColorScaleRuntime.colormapMenu?.remove();
+            this.atomColorScaleRuntime.colormapMenu = null;
+        });
+    }
+
+    openCustomAtomColormapEditor() {
+        this.closeAtomColormapMenu();
+        let draft = this.normalizedCustomAtomColormap(
+            this.state.display.atomColorScaleCustomMap
+        );
+        this.showModal(`
+            <h2>Custom colormap</h2>
+            <p class="modal-intro">Choose at least two colors across the full 0-1 range.</p>
+            <div class="custom-colormap-editor">
+                <div class="custom-colormap-preview-card">
+                    <span>0</span>
+                    <div id="custom-colormap-preview" class="custom-colormap-preview" aria-label="Custom colormap preview"></div>
+                    <span>1</span>
+                </div>
+                <div class="custom-colormap-mode" role="group" aria-label="Colormap interpolation">
+                    <button type="button" data-custom-colormap-mode="continuous">Continuous</button>
+                    <button type="button" data-custom-colormap-mode="discrete">Discrete</button>
+                </div>
+                <div id="custom-colormap-stops" class="custom-colormap-stops"></div>
+                <button id="btn-add-custom-colormap-stop" class="custom-colormap-add-stop" type="button">+ Add color</button>
+                <p id="custom-colormap-error" class="custom-colormap-error" aria-live="polite"></p>
+            </div>
+        `, `
+            <button id="modal-close" class="btn">Cancel</button>
+            <button id="modal-apply-custom-colormap" class="btn primary">Apply colormap</button>
+        `);
+        document.querySelector('#modal-container .modal')?.classList.add('custom-colormap-modal');
+        const rows = document.getElementById('custom-colormap-stops');
+        const preview = document.getElementById('custom-colormap-preview');
+        const error = document.getElementById('custom-colormap-error');
+        const apply = document.getElementById('modal-apply-custom-colormap');
+
+        const readRows = ({ strict = false } = {}) => {
+            const stops = Array.from(rows?.querySelectorAll('.custom-colormap-stop') || []).map(row => ({
+                position: Number(row.querySelector('.custom-colormap-stop-position')?.value),
+                color: String(row.querySelector('.custom-colormap-stop-hex')?.value || '').toUpperCase()
+            }));
+            return this.normalizedCustomAtomColormap({ mode: draft.mode, stops }, { strict });
+        };
+        const updatePreview = () => {
+            try {
+                draft = readRows({ strict: true });
+                if (preview) preview.style.background = this.customAtomColormapGradientCss(draft);
+                if (error) error.textContent = '';
+                if (apply) apply.disabled = false;
+                return true;
+            } catch (exception) {
+                if (error) error.textContent = exception.message;
+                if (apply) apply.disabled = true;
+                return false;
+            }
+        };
+        const renderRows = () => {
+            if (!rows) return;
+            rows.replaceChildren();
+            draft.stops.forEach((stop, index) => {
+                const row = document.createElement('div');
+                row.className = 'custom-colormap-stop';
+                const position = document.createElement('input');
+                position.className = 'custom-colormap-stop-position';
+                position.type = 'number';
+                position.min = '0';
+                position.max = '1';
+                position.step = '0.01';
+                position.value = Number(stop.position.toFixed(4)).toString();
+                position.setAttribute('aria-label', `Color ${index + 1} position`);
+                position.readOnly = index === 0 || index === draft.stops.length - 1;
+                const picker = document.createElement('input');
+                picker.className = 'custom-colormap-stop-color';
+                picker.type = 'color';
+                picker.value = stop.color.toLowerCase();
+                picker.setAttribute('aria-label', `Color ${index + 1}`);
+                const hex = document.createElement('input');
+                hex.className = 'custom-colormap-stop-hex';
+                hex.type = 'text';
+                hex.value = stop.color;
+                hex.maxLength = 7;
+                hex.spellcheck = false;
+                hex.setAttribute('aria-label', `Color ${index + 1} hex value`);
+                const remove = document.createElement('button');
+                remove.className = 'custom-colormap-stop-remove';
+                remove.type = 'button';
+                remove.textContent = 'x';
+                remove.title = `Remove color ${index + 1}`;
+                remove.setAttribute('aria-label', `Remove color ${index + 1}`);
+                remove.disabled = draft.stops.length <= 2;
+                position.addEventListener('input', updatePreview);
+                position.addEventListener('change', () => {
+                    if (!updatePreview()) return;
+                    renderRows();
+                });
+                picker.addEventListener('input', () => {
+                    hex.value = picker.value.toUpperCase();
+                    updatePreview();
+                });
+                hex.addEventListener('input', () => {
+                    const color = hex.value.toUpperCase();
+                    if (this.validHexColor(color)) picker.value = color.toLowerCase();
+                    updatePreview();
+                });
+                remove.addEventListener('click', () => {
+                    draft.stops.splice(index, 1);
+                    renderRows();
+                });
+                row.append(position, picker, hex, remove);
+                rows.appendChild(row);
+            });
+            document.querySelectorAll('[data-custom-colormap-mode]').forEach(button => {
+                button.classList.toggle('is-active', button.dataset.customColormapMode === draft.mode);
+            });
+            updatePreview();
+        };
+        document.querySelectorAll('[data-custom-colormap-mode]').forEach(button => {
+            button.addEventListener('click', () => {
+                draft.mode = button.dataset.customColormapMode;
+                document.querySelectorAll('[data-custom-colormap-mode]').forEach(item => {
+                    item.classList.toggle('is-active', item === button);
+                });
+                updatePreview();
+            });
+        });
+        document.getElementById('btn-add-custom-colormap-stop')?.addEventListener('click', () => {
+            if (!updatePreview() || draft.stops.length >= MAX_CUSTOM_COLORMAP_STOPS) return;
+            let gapIndex = 0;
+            let gap = -1;
+            for (let index = 0; index < draft.stops.length - 1; index += 1) {
+                const candidate = draft.stops[index + 1].position - draft.stops[index].position;
+                if (candidate > gap) {
+                    gap = candidate;
+                    gapIndex = index;
+                }
+            }
+            const left = draft.stops[gapIndex];
+            const right = draft.stops[gapIndex + 1];
+            draft.stops.splice(gapIndex + 1, 0, {
+                position: (left.position + right.position) / 2,
+                color: this.interpolateAtomColormapColor(left.color, right.color, 0.5)
+            });
+            renderRows();
+        });
+        apply?.addEventListener('click', () => {
+            if (!updatePreview()) return;
+            this.state.display.atomColorScaleCustomMap = draft;
+            this.state.display.atomColorScaleMap = CUSTOM_ATOM_COLORMAP;
+            const select = document.getElementById('atom-colorscale-map');
+            if (select) select.value = CUSTOM_ATOM_COLORMAP;
+            Array.from(this.atomColorScaleRuntime.lutCaches.keys())
+                .filter(key => key.startsWith(`${CUSTOM_ATOM_COLORMAP}:`))
+                .forEach(key => this.atomColorScaleRuntime.lutCaches.delete(key));
+            this.closeModal();
+            this.syncAtomColorScaleControls();
+            this.updateAtomColorScale().catch(exception => this.handleAtomColorScaleError(exception));
+            this.scheduleVisualHistoryCommit('atom-colorscale-custom-map');
+        });
+        renderRows();
+    }
+
+    setupAtomColorScaleControls() {
+        const enabled = document.getElementById('chk-atom-colorscale');
+        const field = document.getElementById('atom-colorscale-field');
+        const map = document.getElementById('atom-colorscale-map');
+        const reverse = document.getElementById('chk-atom-colorscale-reverse');
+        const scope = document.getElementById('atom-colorscale-scope');
+        const minimum = document.getElementById('atom-colorscale-min');
+        const maximum = document.getElementById('atom-colorscale-max');
+        const fitCurrent = document.getElementById('btn-atom-colorscale-fit-current');
+        const fitTrajectory = document.getElementById('btn-atom-colorscale-fit-trajectory');
+        const gamma = document.getElementById('atom-colorscale-gamma');
+
+        this.setupAtomColormapPicker();
+
+        enabled?.addEventListener('change', () => {
+            this.state.display.atomColorScaleEnabled = enabled.checked;
+            this.syncAtomColorScaleControls();
+            this.scheduleVisualHistoryCommit('atom-colorscale');
+            if (!enabled.checked) {
+                this.atomColorScaleRuntime.requestToken += 1;
+                this.renderer.setAtomColorScaleColors(null);
+                this.updateAtomColorScaleLegend(null);
+                this.setAtomColorScaleStatus('Values load only while this option is enabled.');
+                return;
+            }
+            this.updateAtomColorScale({ refreshCatalog: true }).catch(error => {
+                this.handleAtomColorScaleError(error);
+            });
+        });
+        field?.addEventListener('change', () => {
+            this.state.display.atomColorScaleField = field.value || 'position:z';
+            this.state.display.atomColorScaleRangeMode = 'current';
+            this.state.display.atomColorScaleAutoRange = true;
+            this.atomColorScaleRuntime.rangeSignature = '';
+            this.updateAtomColorScale().catch(error => this.handleAtomColorScaleError(error));
+            this.scheduleVisualHistoryCommit('atom-colorscale-field');
+        });
+        map?.addEventListener('change', () => {
+            this.state.display.atomColorScaleMap = map.value || 'viridis';
+            this.syncAtomColormapPicker();
+            this.updateAtomColorScale().catch(error => this.handleAtomColorScaleError(error));
+            this.scheduleVisualHistoryCommit('atom-colorscale-map');
+        });
+        reverse?.addEventListener('change', () => {
+            this.state.display.atomColorScaleReverse = reverse.checked;
+            this.syncAtomColormapPicker();
+            this.updateAtomColorScale().catch(error => this.handleAtomColorScaleError(error));
+            this.scheduleVisualHistoryCommit('atom-colorscale-reverse');
+        });
+        scope?.addEventListener('change', () => {
+            this.state.display.atomColorScaleScope = scope.value === 'selected' ? 'selected' : 'all';
+            this.state.display.atomColorScaleRangeMode = 'current';
+            this.state.display.atomColorScaleAutoRange = true;
+            this.atomColorScaleRuntime.rangeSignature = '';
+            this.updateAtomColorScale().catch(error => this.handleAtomColorScaleError(error));
+            this.scheduleVisualHistoryCommit('atom-colorscale-scope');
+        });
+        fitCurrent?.addEventListener('click', () => {
+            this.fitAtomColorScaleRange('current').catch(error => this.handleAtomColorScaleError(error));
+        });
+        fitTrajectory?.addEventListener('click', () => {
+            const frames = Number(this.state.atoms?.metadata?.frame_count || 1);
+            const mode = frames > 1 ? 'trajectory' : 'current';
+            const action = () => this.fitAtomColorScaleRange(mode);
+            const task = mode === 'trajectory'
+                ? this.withBusy(`Scanning ${frames} trajectory frames for vmin and vmax...`, action)
+                : action();
+            task.catch(error => this.handleAtomColorScaleError(error));
+        });
+        [minimum, maximum].forEach(input => {
+            const update = () => {
+                const value = Number(input?.value);
+                if (Number.isFinite(value)) {
+                    const key = input === minimum ? 'atomColorScaleMin' : 'atomColorScaleMax';
+                    if (
+                        Number(this.state.display[key]) === value
+                        && this.state.display.atomColorScaleRangeMode === 'manual'
+                    ) return;
+                    this.state.display[key] = value;
+                }
+                this.state.display.atomColorScaleRangeMode = 'manual';
+                this.state.display.atomColorScaleAutoRange = false;
+                this.atomColorScaleRuntime.rangeSignature = this.atomColorScaleRangeSignature('manual');
+                this.syncAtomColorScaleControls();
+                this.updateAtomColorScale().catch(error => this.handleAtomColorScaleError(error));
+                this.scheduleVisualHistoryCommit('atom-colorscale-range');
+            };
+            input?.addEventListener('change', update);
+            input?.addEventListener('blur', update);
+        });
+        gamma?.addEventListener('input', () => {
+            const value = Math.max(0.1, Math.min(5, Number(gamma.value) || 1));
+            this.state.display.atomColorScaleGamma = value;
+            this.syncAtomColorScaleControls();
+            this.updateAtomColorScale({ quiet: true }).catch(error => this.handleAtomColorScaleError(error));
+            this.scheduleVisualHistoryCommit('atom-colorscale-gamma');
+        });
+        this.syncAtomColorScaleControls();
+    }
+
+    syncAtomColorScaleControls() {
+        const display = this.state.display;
+        const enabled = Boolean(display.atomColorScaleEnabled);
+        const setChecked = (id, value) => {
+            const input = document.getElementById(id);
+            if (input) input.checked = Boolean(value);
+        };
+        const setValue = (id, value) => {
+            const input = document.getElementById(id);
+            if (input && document.activeElement !== input) input.value = `${value}`;
+        };
+        setChecked('chk-atom-colorscale', enabled);
+        setChecked('chk-atom-colorscale-reverse', display.atomColorScaleReverse);
+        setValue('atom-colorscale-field', display.atomColorScaleField || 'position:z');
+        setValue('atom-colorscale-map', display.atomColorScaleMap || 'viridis');
+        setValue('atom-colorscale-scope', display.atomColorScaleScope === 'selected' ? 'selected' : 'all');
+        setValue(
+            'atom-colorscale-min',
+            this.formatAtomColorScaleValue(
+                Number.isFinite(Number(display.atomColorScaleMin)) ? display.atomColorScaleMin : 0
+            )
+        );
+        setValue(
+            'atom-colorscale-max',
+            this.formatAtomColorScaleValue(
+                Number.isFinite(Number(display.atomColorScaleMax)) ? display.atomColorScaleMax : 1
+            )
+        );
+        const gamma = Math.max(0.1, Math.min(5, Number(display.atomColorScaleGamma) || 1));
+        setValue('atom-colorscale-gamma', gamma);
+        this.syncAtomColormapPicker();
+        const gammaValue = document.getElementById('atom-colorscale-gamma-value');
+        if (gammaValue) gammaValue.textContent = gamma.toFixed(2);
+        document.getElementById('atom-colorscale-controls')?.classList.toggle('hidden', !enabled);
+        const mode = this.normalizedAtomColorScaleRangeMode(display.atomColorScaleRangeMode);
+        const source = document.getElementById('atom-colorscale-range-source');
+        if (source) {
+            source.textContent = {
+                current: 'CURRENT FRAME',
+                trajectory: 'FULL TRAJECTORY',
+                manual: 'MANUAL'
+            }[mode];
+        }
+        document.getElementById('btn-atom-colorscale-fit-current')?.classList.toggle(
+            'is-active', mode === 'current'
+        );
+        const trajectoryButton = document.getElementById('btn-atom-colorscale-fit-trajectory');
+        trajectoryButton?.classList.toggle('is-active', mode === 'trajectory');
+        if (trajectoryButton) {
+            trajectoryButton.disabled = Number(this.state.atoms?.metadata?.frame_count || 1) <= 1;
+        }
+        if (!enabled) document.getElementById('atom-colorscale-legend')?.classList.add('hidden');
+    }
+
+    setAtomColorScaleStatus(message, kind = '') {
+        const status = document.getElementById('atom-colorscale-status');
+        if (!status) return;
+        status.textContent = message;
+        status.classList.toggle('is-error', kind === 'error');
+        status.classList.toggle('is-loading', kind === 'loading');
+    }
+
+    handleAtomColorScaleError(error) {
+        this.atomColorScaleRuntime.renderedFrame = -1;
+        this.renderer.setAtomColorScaleColors(null);
+        this.updateAtomColorScaleLegend(null);
+        this.setAtomColorScaleStatus(error?.message || 'Atom color scale could not be applied.', 'error');
+    }
+
+    invalidateAtomColorScaleData({ preserveRange = false } = {}) {
+        const runtime = this.atomColorScaleRuntime;
+        runtime.requestToken += 1;
+        if (!preserveRange) {
+            runtime.catalog = null;
+            runtime.catalogPromise = null;
+            runtime.valueCaches.clear();
+            runtime.frameValueCaches.clear();
+            runtime.valuePromises?.clear?.();
+            runtime.selectionSignature = '';
+            runtime.prefetchField = '';
+            runtime.prefetchFrame = -1;
+            runtime.prefetchPromise = null;
+            if (runtime.prefetchTimer !== null) {
+                clearTimeout(runtime.prefetchTimer);
+            }
+            runtime.prefetchTimer = null;
+            runtime.rangeCaches.clear();
+            runtime.rangeSignature = '';
+        }
+        if (runtime.refreshRequest !== null) cancelAnimationFrame(runtime.refreshRequest);
+        runtime.refreshRequest = null;
+        runtime.renderedFrame = -1;
+        this.renderer.atomColorScaleColors = null;
+    }
+
+    populateAtomScalarFields(fields = []) {
+        const select = document.getElementById('atom-colorscale-field');
+        if (!select) return;
+        const requested = this.state.display.atomColorScaleField || 'position:z';
+        const groups = new Map();
+        fields.forEach(descriptor => {
+            const group = descriptor.group || 'Other';
+            if (!groups.has(group)) groups.set(group, []);
+            groups.get(group).push(descriptor);
+        });
+        select.replaceChildren();
+        groups.forEach((descriptors, label) => {
+            const optgroup = document.createElement('optgroup');
+            optgroup.label = label;
+            descriptors.forEach(descriptor => {
+                const option = document.createElement('option');
+                option.value = descriptor.id;
+                option.textContent = descriptor.label;
+                optgroup.appendChild(option);
+            });
+            select.appendChild(optgroup);
+        });
+        const available = fields.some(descriptor => descriptor.id === requested);
+        this.state.display.atomColorScaleField = available ? requested : 'position:z';
+        select.value = this.state.display.atomColorScaleField;
+    }
+
+    populateColormaps(catalog = {}) {
+        const select = document.getElementById('atom-colorscale-map');
+        if (!select) return;
+        const requested = this.state.display.atomColorScaleMap || catalog.default || 'viridis';
+        const groups = new Map();
+        (catalog.maps || []).forEach(item => {
+            const group = item.category || 'Other';
+            if (!groups.has(group)) groups.set(group, []);
+            groups.get(group).push(item.name);
+        });
+        select.replaceChildren();
+        const custom = document.createElement('option');
+        custom.value = CUSTOM_ATOM_COLORMAP;
+        custom.textContent = 'Custom';
+        select.appendChild(custom);
+        this.orderedAtomColormapGroups(groups).forEach(([label, names]) => {
+            const optgroup = document.createElement('optgroup');
+            optgroup.label = label;
+            names.forEach(name => {
+                const option = document.createElement('option');
+                option.value = name;
+                option.textContent = name;
+                optgroup.appendChild(option);
+            });
+            select.appendChild(optgroup);
+        });
+        const names = new Set((catalog.maps || []).map(item => item.name));
+        names.add(CUSTOM_ATOM_COLORMAP);
+        this.state.display.atomColorScaleMap = names.has(requested)
+            ? requested
+            : (catalog.default || 'viridis');
+        select.value = this.state.display.atomColorScaleMap;
+        this.syncAtomColormapPicker();
+        if (this.atomColorScaleRuntime.colormapMenu) this.renderAtomColormapMenu();
+    }
+
+    async ensureAtomColorScaleCatalog({ refresh = false } = {}) {
+        const runtime = this.atomColorScaleRuntime;
+        if (refresh) {
+            runtime.catalog = null;
+            runtime.catalogPromise = null;
+            runtime.valueCaches.clear();
+            runtime.frameValueCaches.clear();
+        }
+        if (!runtime.catalog) {
+            if (!runtime.catalogPromise) {
+                runtime.catalogPromise = this.api.fetchAtomScalarCatalog(
+                    Number(this.state.atoms?.metadata?.current_frame || 0)
+                ).then(catalog => {
+                    runtime.catalog = catalog;
+                    runtime.catalogPromise = null;
+                    return catalog;
+                }).catch(error => {
+                    runtime.catalogPromise = null;
+                    throw error;
+                });
+            }
+            await runtime.catalogPromise;
+        }
+        if (!runtime.colormapCatalog) {
+            if (!runtime.colormapCatalogPromise) {
+                runtime.colormapCatalogPromise = this.api.fetchColormapCatalog().then(catalog => {
+                    runtime.colormapCatalog = catalog;
+                    runtime.colormapCatalogPromise = null;
+                    return catalog;
+                }).catch(error => {
+                    runtime.colormapCatalogPromise = null;
+                    throw error;
+                });
+            }
+            await runtime.colormapCatalogPromise;
+        }
+        this.populateAtomScalarFields(runtime.catalog?.fields || []);
+        this.populateColormaps(runtime.colormapCatalog || {});
+        return runtime.catalog;
+    }
+
+    atomColorScaleDescriptor() {
+        const fieldId = this.state.display.atomColorScaleField || 'position:z';
+        return this.atomColorScaleRuntime.catalog?.fields?.find(item => item.id === fieldId) || {
+            id: fieldId,
+            label: fieldId,
+            unit: ''
+        };
+    }
+
+    atomColorScaleCoordinateValues(fieldId) {
+        const component = { 'position:x': 0, 'position:y': 1, 'position:z': 2 }[fieldId];
+        if (component === undefined) return null;
+        const positions = this.transform.mode !== 'IDLE'
+            ? this.currentPositionsFromScene()
+            : (this.renderer.atomsData?.positions || this.state.atoms?.positions || []);
+        return Float64Array.from(positions, position => Number(position?.[component]));
+    }
+
+    atomColorScaleFrameCacheKey(fieldId, frame, atomCount) {
+        return `${fieldId}:${frame}:${atomCount}`;
+    }
+
+    cacheAtomColorScaleFrame(fieldId, frame, atomCount, values) {
+        const cache = this.atomColorScaleRuntime.frameValueCaches;
+        cache.set(
+            this.atomColorScaleFrameCacheKey(fieldId, frame, atomCount),
+            Float32Array.from(values)
+        );
+        while (cache.size > 64) cache.delete(cache.keys().next().value);
+    }
+
+    scheduleAtomColorScaleFramePrefetch(fieldId, currentFrame) {
+        const runtime = this.atomColorScaleRuntime;
+        const frameCount = Number(this.state.atoms?.metadata?.frame_count || 1);
+        const atomCount = this.state.atoms?.positions?.length || 0;
+        const targetFrame = (Math.max(0, Number(currentFrame) || 0) + 1) % Math.max(1, frameCount);
+        const cacheKey = this.atomColorScaleFrameCacheKey(fieldId, targetFrame, atomCount);
+        if (
+            frameCount <= 1
+            || !atomCount
+            || String(fieldId).startsWith('position:')
+            || runtime.frameValueCaches.has(cacheKey)
+            || runtime.valueCaches.get(fieldId)?.frames === frameCount
+            || runtime.prefetchPromise
+            || runtime.prefetchTimer !== null
+            || !this.state.display.atomColorScaleEnabled
+        ) return;
+        runtime.prefetchField = fieldId;
+        runtime.prefetchFrame = targetFrame;
+        // Leave a short foreground window for a full-trajectory range scan to
+        // supersede this optional next-frame request without duplicate I/O.
+        runtime.prefetchTimer = window.setTimeout(() => {
+            runtime.prefetchTimer = null;
+            if (
+                !this.state.display.atomColorScaleEnabled
+                || this.state.display.atomColorScaleField !== fieldId
+            ) {
+                runtime.prefetchField = '';
+                runtime.prefetchFrame = -1;
+                return;
+            }
+            runtime.prefetchPromise = this.api.fetchAtomScalarValues(fieldId, targetFrame, false)
+                .then(result => {
+                    if (result.frames === 1 && result.atoms === atomCount) {
+                        this.cacheAtomColorScaleFrame(
+                            fieldId,
+                            targetFrame,
+                            atomCount,
+                            result.values
+                        );
+                    }
+                })
+                .catch(() => {
+                    // The foreground frame request remains authoritative.
+                })
+                .finally(() => {
+                    runtime.prefetchField = '';
+                    runtime.prefetchFrame = -1;
+                    runtime.prefetchPromise = null;
+                });
+        }, 160);
+    }
+
+    async atomColorScaleValuesForCurrentFrame() {
+        const fieldId = this.state.display.atomColorScaleField || 'position:z';
+        const coordinateValues = this.atomColorScaleCoordinateValues(fieldId);
+        if (coordinateValues) return { values: coordinateValues, cache: 'coordinates' };
+        const runtime = this.atomColorScaleRuntime;
+        const frame = Number(this.state.atoms?.metadata?.current_frame || 0);
+        const atomCount = this.state.atoms?.positions?.length || 0;
+        const cached = runtime.valueCaches.get(fieldId);
+        if (
+            cached
+            && cached.atoms === atomCount
+            && frame >= cached.startFrame
+            && frame < cached.startFrame + cached.frames
+        ) {
+            const offset = (frame - cached.startFrame) * atomCount;
+            return { values: cached.values.subarray(offset, offset + atomCount), cache: cached.cache };
+        }
+        const frameCacheKey = this.atomColorScaleFrameCacheKey(fieldId, frame, atomCount);
+        const frameCached = runtime.frameValueCaches.get(frameCacheKey);
+        if (frameCached) {
+            this.scheduleAtomColorScaleFramePrefetch(fieldId, frame);
+            return { values: frameCached, cache: 'frame' };
+        }
+        if (!runtime.valuePromises) runtime.valuePromises = new Map();
+        const key = `${fieldId}:${frame}`;
+        let promise = runtime.valuePromises.get(key);
+        if (!promise) {
+            promise = this.api.fetchAtomScalarValues(fieldId, frame, false)
+                .then(result => {
+                    if (result.frames > 1) runtime.valueCaches.set(fieldId, result);
+                    runtime.valuePromises.delete(key);
+                    return result;
+                })
+                .catch(error => {
+                    runtime.valuePromises.delete(key);
+                    throw error;
+                });
+            runtime.valuePromises.set(key, promise);
+        }
+        const result = await promise;
+        const offset = (frame - result.startFrame) * atomCount;
+        if (offset < 0 || offset + atomCount > result.values.length) {
+            throw new Error('The selected per-atom property is unavailable for this trajectory frame.');
+        }
+        const values = result.values.subarray(offset, offset + atomCount);
+        this.cacheAtomColorScaleFrame(fieldId, frame, atomCount, values);
+        this.scheduleAtomColorScaleFramePrefetch(fieldId, frame);
+        return { values, cache: result.cache };
+    }
+
+    async atomColorScaleLut() {
+        const runtime = this.atomColorScaleRuntime;
+        const name = this.state.display.atomColorScaleMap || 'viridis';
+        const reverse = Boolean(this.state.display.atomColorScaleReverse);
+        const custom = name === CUSTOM_ATOM_COLORMAP
+            ? this.normalizedCustomAtomColormap(this.state.display.atomColorScaleCustomMap)
+            : null;
+        const key = custom
+            ? `${name}:${reverse ? 'reverse' : 'forward'}:${JSON.stringify(custom)}`
+            : `${name}:${reverse ? 'reverse' : 'forward'}`;
+        if (!runtime.lutCaches.has(key)) {
+            runtime.lutCaches.set(key, custom
+                ? {
+                    provider: 'Custom',
+                    name,
+                    reverse,
+                    samples: 256,
+                    colors: this.customAtomColormapPalette(custom, 256, reverse)
+                }
+                : await this.api.fetchColormapLut(name, reverse, 256));
+        }
+        return runtime.lutCaches.get(key);
+    }
+
+    atomColorScalePalette(lut) {
+        const colors = Array.isArray(lut?.colors) ? lut.colors : [];
+        const gamma = Math.max(0.1, Math.min(5, Number(this.state.display.atomColorScaleGamma) || 1));
+        if (!colors.length || Math.abs(gamma - 1) < 1e-9) return colors;
+        return colors.map((_, index) => {
+            const normalized = index / Math.max(1, colors.length - 1);
+            const source = Math.min(
+                colors.length - 1,
+                Math.round((normalized ** gamma) * (colors.length - 1))
+            );
+            return colors[source];
+        });
+    }
+
+    atomColorScaleSelection() {
+        const selected = new Set(this.state.selected);
+        if (this.state.vizOnly) {
+            this.state.replicaSelected.forEach(reference => {
+                const index = Number(reference?.index);
+                if (Number.isInteger(index)) selected.add(index);
+            });
+        }
+        return selected;
+    }
+
+    normalizedAtomColorScaleRangeMode(mode) {
+        return ['current', 'trajectory', 'manual'].includes(mode) ? mode : 'current';
+    }
+
+    atomColorScaleRangeSignature(mode = this.state.display.atomColorScaleRangeMode) {
+        const normalizedMode = this.normalizedAtomColorScaleRangeMode(mode);
+        const scope = this.state.display.atomColorScaleScope === 'selected' ? 'selected' : 'all';
+        const selection = scope === 'selected'
+            ? Array.from(this.atomColorScaleSelection()).sort((a, b) => a - b).join(',')
+            : '*';
+        return [
+            normalizedMode,
+            this.state.display.atomColorScaleField || 'position:z',
+            scope,
+            selection
+        ].join('|');
+    }
+
+    atomColorScaleFiniteRange(values, selected) {
+        const scope = this.state.display.atomColorScaleScope === 'selected' ? 'selected' : 'all';
+        let minimum = Infinity;
+        let maximum = -Infinity;
+        let count = 0;
+        values.forEach((value, index) => {
+            if (scope === 'selected' && !selected.has(index)) return;
+            const numeric = Number(value);
+            if (!Number.isFinite(numeric)) return;
+            minimum = Math.min(minimum, numeric);
+            maximum = Math.max(maximum, numeric);
+            count += 1;
+        });
+        if (!count) return null;
+        if (minimum === maximum) {
+            const padding = Math.max(1e-12, Math.abs(minimum) * 1e-6);
+            minimum -= padding;
+            maximum += padding;
+        }
+        return { minimum, maximum, finiteValues: count };
+    }
+
+    storedAtomColorScaleRange() {
+        const minimum = Number(this.state.display.atomColorScaleMin);
+        const maximum = Number(this.state.display.atomColorScaleMax);
+        if (!Number.isFinite(minimum) || !Number.isFinite(maximum) || maximum <= minimum) return null;
+        return { minimum, maximum };
+    }
+
+    setAtomColorScaleRange(range, mode, metadata = {}) {
+        if (!range || !Number.isFinite(range.minimum) || !Number.isFinite(range.maximum)) {
+            throw new Error('Color scale range contains no finite values.');
+        }
+        if (range.maximum <= range.minimum) {
+            throw new Error('Color scale maximum must be greater than its minimum.');
+        }
+        const normalizedMode = this.normalizedAtomColorScaleRangeMode(mode);
+        Object.assign(this.state.display, {
+            atomColorScaleRangeMode: normalizedMode,
+            atomColorScaleAutoRange: normalizedMode !== 'manual',
+            atomColorScaleMin: Number(range.minimum),
+            atomColorScaleMax: Number(range.maximum)
+        });
+        this.atomColorScaleRuntime.rangeSignature = this.atomColorScaleRangeSignature(normalizedMode);
+        this.atomColorScaleRuntime.rangeMetadata = metadata;
+        this.syncAtomColorScaleControls();
+        return this.storedAtomColorScaleRange();
+    }
+
+    atomColorScaleRangeFromTrajectoryCache(selected) {
+        const runtime = this.atomColorScaleRuntime;
+        const fieldId = this.state.display.atomColorScaleField || 'position:z';
+        const cached = runtime.valueCaches.get(fieldId);
+        const frameCount = Number(this.state.atoms?.metadata?.frame_count || 1);
+        const atomCount = this.state.atoms?.positions?.length || 0;
+        if (!cached || cached.frames !== frameCount || cached.atoms !== atomCount) return null;
+        const scope = this.state.display.atomColorScaleScope === 'selected' ? 'selected' : 'all';
+        let minimum = Infinity;
+        let maximum = -Infinity;
+        let finiteValues = 0;
+        let framesWithValues = 0;
+        for (let frame = 0; frame < cached.frames; frame += 1) {
+            const offset = frame * atomCount;
+            let frameHasValue = false;
+            for (let index = 0; index < atomCount; index += 1) {
+                if (scope === 'selected' && !selected.has(index)) continue;
+                const value = Number(cached.values[offset + index]);
+                if (!Number.isFinite(value)) continue;
+                minimum = Math.min(minimum, value);
+                maximum = Math.max(maximum, value);
+                finiteValues += 1;
+                frameHasValue = true;
+            }
+            if (frameHasValue) framesWithValues += 1;
+        }
+        if (!finiteValues) return null;
+        if (minimum === maximum) {
+            const padding = Math.max(1e-12, Math.abs(minimum) * 1e-6);
+            minimum -= padding;
+            maximum += padding;
+        }
+        return {
+            minimum,
+            maximum,
+            finite_values: finiteValues,
+            frames_scanned: cached.frames,
+            frames_with_values: framesWithValues,
+            missing_frames: cached.frames - framesWithValues,
+            cache: 'browser'
+        };
+    }
+
+    atomColorScaleTrajectoryCacheEligible(fieldId = this.state.display.atomColorScaleField || 'position:z') {
+        const frames = Number(this.state.atoms?.metadata?.frame_count || 1);
+        const atoms = Number(this.state.atoms?.positions?.length || 0);
+        const total = frames * atoms;
+        return !fieldId.startsWith('position:')
+            && frames > 1
+            && total >= MIN_ATOM_COLORSCALE_TRAJECTORY_CACHE_VALUES
+            && total <= MAX_ATOM_COLORSCALE_TRAJECTORY_CACHE_VALUES;
+    }
+
+    async resolveAtomColorScaleRange(values, selected, { force = false } = {}) {
+        const mode = this.normalizedAtomColorScaleRangeMode(
+            this.state.display.atomColorScaleRangeMode
+                || (this.state.display.atomColorScaleAutoRange === false ? 'manual' : 'current')
+        );
+        const signature = this.atomColorScaleRangeSignature(mode);
+        const stored = this.storedAtomColorScaleRange();
+        if (!force && this.atomColorScaleRuntime.rangeSignature === signature && stored) {
+            return stored;
+        }
+        if (mode === 'manual') {
+            if (!stored) throw new Error('Manual color scale requires vmax greater than vmin.');
+            this.atomColorScaleRuntime.rangeSignature = signature;
+            return stored;
+        }
+        if (mode === 'current') {
+            const range = this.atomColorScaleFiniteRange(values, selected);
+            if (!range) {
+                if (this.state.display.atomColorScaleScope === 'selected') {
+                    return stored || { minimum: 0, maximum: 1 };
+                }
+                throw new Error('The selected property has no finite values in this frame.');
+            }
+            return this.setAtomColorScaleRange(range, 'current', {
+                frames_scanned: 1,
+                finite_values: range.finiteValues
+            });
+        }
+
+        if (this.state.display.atomColorScaleScope === 'selected' && !selected.size) {
+            throw new Error('Select at least one atom before scanning the trajectory color range.');
+        }
+        let cachedRange = this.atomColorScaleRuntime.rangeCaches.get(signature)
+            || this.atomColorScaleRangeFromTrajectoryCache(selected);
+        if (!cachedRange && this.atomColorScaleTrajectoryCacheEligible()) {
+            await this.preloadAtomColorScaleTrajectoryValues();
+            cachedRange = this.atomColorScaleRangeFromTrajectoryCache(selected);
+        }
+        if (cachedRange) {
+            this.atomColorScaleRuntime.rangeCaches.set(signature, cachedRange);
+            return this.setAtomColorScaleRange(cachedRange, 'trajectory', cachedRange);
+        }
+        const indices = this.state.display.atomColorScaleScope === 'selected'
+            ? Array.from(selected).sort((a, b) => a - b)
+            : null;
+        const result = await this.api.fetchAtomScalarRange(
+            this.state.display.atomColorScaleField || 'position:z',
+            Number(this.state.atoms?.metadata?.current_frame || 0),
+            true,
+            indices
+        );
+        this.atomColorScaleRuntime.rangeCaches.set(signature, result);
+        return this.setAtomColorScaleRange(result, 'trajectory', result);
+    }
+
+    async fitAtomColorScaleRange(mode) {
+        if (!this.state.display.atomColorScaleEnabled) return;
+        const normalized = this.normalizedAtomColorScaleRangeMode(mode);
+        this.state.display.atomColorScaleRangeMode = normalized;
+        this.state.display.atomColorScaleAutoRange = normalized !== 'manual';
+        this.atomColorScaleRuntime.rangeSignature = '';
+        if (normalized === 'trajectory') {
+            await this.preloadAtomColorScaleTrajectoryValues();
+        }
+        await this.updateAtomColorScale({ quiet: normalized !== 'trajectory', forceRange: true });
+        this.scheduleVisualHistoryCommit(`atom-colorscale-range-${normalized}`);
+    }
+
+    async preloadAtomColorScaleTrajectoryValues() {
+        const runtime = this.atomColorScaleRuntime;
+        const fieldId = this.state.display.atomColorScaleField || 'position:z';
+        if (fieldId.startsWith('position:') || runtime.valueCaches.has(fieldId)) return false;
+        if (runtime.prefetchTimer !== null) {
+            clearTimeout(runtime.prefetchTimer);
+            runtime.prefetchTimer = null;
+            runtime.prefetchField = '';
+            runtime.prefetchFrame = -1;
+        }
+        const frames = Number(this.state.atoms?.metadata?.frame_count || 1);
+        const atoms = Number(this.state.atoms?.positions?.length || 0);
+        if (!this.atomColorScaleTrajectoryCacheEligible(fieldId)) return false;
+        const result = await this.api.fetchAtomScalarValues(fieldId, 0, true);
+        if (result.frames !== frames || result.atoms !== atoms) return false;
+        runtime.valueCaches.set(fieldId, result);
+        return true;
+    }
+
+    formatAtomColorScaleValue(value) {
+        const number = Number(value);
+        if (!Number.isFinite(number)) return '-';
+        const absolute = Math.abs(number);
+        if ((absolute > 0 && absolute < 1e-3) || absolute >= 1e4) return number.toExponential(3);
+        return Number(number.toPrecision(5)).toString();
+    }
+
+    updateAtomColorScaleLegend(payload) {
+        const legend = document.getElementById('atom-colorscale-legend');
+        if (!legend) return;
+        if (!payload || !this.state.display.atomColorScaleEnabled) {
+            legend.classList.add('hidden');
+            return;
+        }
+        legend.classList.remove('hidden');
+        const descriptor = payload.descriptor || {};
+        document.getElementById('atom-colorscale-legend-label').textContent = descriptor.label || descriptor.id || 'Atom value';
+        document.getElementById('atom-colorscale-legend-unit').textContent = descriptor.unit || '';
+        document.getElementById('atom-colorscale-legend-min').textContent = this.formatAtomColorScaleValue(payload.minimum);
+        document.getElementById('atom-colorscale-legend-max').textContent = this.formatAtomColorScaleValue(payload.maximum);
+        const sampled = payload.colors.filter((_, index) => index % 16 === 0 || index === payload.colors.length - 1);
+        const stops = sampled.map((color, index) => `${color} ${(index / Math.max(1, sampled.length - 1) * 100).toFixed(2)}%`);
+        document.getElementById('atom-colorscale-legend-gradient').style.background = `linear-gradient(90deg, ${stops.join(', ')})`;
+        const scope = document.getElementById('atom-colorscale-legend-scope');
+        scope?.classList.toggle('hidden', this.state.display.atomColorScaleScope !== 'selected');
+    }
+
+    async updateAtomColorScale({
+        refreshCatalog = false,
+        quiet = false,
+        forceRange = false,
+        refreshBonds = true
+    } = {}) {
+        if (!this.state.display.atomColorScaleEnabled) {
+            this.atomColorScaleRuntime.renderedFrame = -1;
+            if (this.renderer.atomColorScaleColors !== null) {
+                this.renderer.setAtomColorScaleColors(null);
+                this.updateAtomColorScaleLegend(null);
+            }
+            return;
+        }
+        if (!this.state.atoms?.positions?.length) return;
+        const token = ++this.atomColorScaleRuntime.requestToken;
+        if (!quiet) this.setAtomColorScaleStatus('Loading available per-atom values...', 'loading');
+        await this.ensureAtomColorScaleCatalog({ refresh: refreshCatalog });
+        if (token !== this.atomColorScaleRuntime.requestToken || !this.state.display.atomColorScaleEnabled) return;
+        const [{ values, cache }, lut] = await Promise.all([
+            this.atomColorScaleValuesForCurrentFrame(),
+            this.atomColorScaleLut()
+        ]);
+        if (token !== this.atomColorScaleRuntime.requestToken || !this.state.display.atomColorScaleEnabled) return;
+        const selected = this.atomColorScaleSelection();
+        const range = await this.resolveAtomColorScaleRange(values, selected, { force: forceRange });
+        if (token !== this.atomColorScaleRuntime.requestToken || !this.state.display.atomColorScaleEnabled) return;
+        const palette = this.atomColorScalePalette(lut);
+        const scope = this.state.display.atomColorScaleScope === 'selected' ? 'selected' : 'all';
+        const colors = new Array(values.length).fill(null);
+        if (range) {
+            const span = range.maximum - range.minimum;
+            values.forEach((rawValue, index) => {
+                const value = Number(rawValue);
+                if (!Number.isFinite(value) || (scope === 'selected' && !selected.has(index))) return;
+                const normalized = Math.max(0, Math.min(1, (value - range.minimum) / span));
+                const paletteIndex = Math.min(palette.length - 1, Math.round(normalized * (palette.length - 1)));
+                colors[index] = palette[paletteIndex];
+            });
+        }
+        this.renderer.setAtomColorScaleColors(colors, { refreshBonds });
+        this.atomColorScaleRuntime.renderedFrame = Number(
+            this.state.atoms?.metadata?.current_frame || 0
+        );
+        if (range) {
+            this.updateAtomColorScaleLegend({
+                descriptor: this.atomColorScaleDescriptor(),
+                minimum: range.minimum,
+                maximum: range.maximum,
+                colors: palette
+            });
+        } else {
+            this.updateAtomColorScaleLegend(null);
+        }
+        const selectedNotice = scope === 'selected' && !selected.size
+            ? ' Select atoms to apply it.'
+            : '';
+        const frameCount = Number(this.state.atoms?.metadata?.frame_count || 1);
+        const rangeMode = this.normalizedAtomColorScaleRangeMode(this.state.display.atomColorScaleRangeMode);
+        const rangeNotice = {
+            current: `Current-frame range locked across ${frameCount} frame${frameCount === 1 ? '' : 's'}.`,
+            trajectory: `Full-trajectory range locked across ${frameCount} frame${frameCount === 1 ? '' : 's'}.`,
+            manual: `Manual vmin/vmax locked across ${frameCount} frame${frameCount === 1 ? '' : 's'}.`
+        }[rangeMode];
+        const cacheNotice = cache === 'trajectory' ? ' Values cached.' : '';
+        this.setAtomColorScaleStatus(`${rangeNotice}${cacheNotice}${selectedNotice}`);
+        this.syncAtomColorScaleControls();
+    }
+
+    scheduleAtomColorScaleRefresh({ coordinatesOnly = false } = {}) {
+        if (!this.state.display.atomColorScaleEnabled) return;
+        if (
+            coordinatesOnly
+            && !String(this.state.display.atomColorScaleField || '').startsWith('position:')
+        ) return;
+        const runtime = this.atomColorScaleRuntime;
+        if (runtime.refreshRequest !== null) return;
+        runtime.refreshRequest = requestAnimationFrame(() => {
+            runtime.refreshRequest = null;
+            this.updateAtomColorScale({ quiet: true }).catch(error => this.handleAtomColorScaleError(error));
         });
     }
 
@@ -457,47 +2101,223 @@ class VAseApp {
         return this.normalizedAtomMaterialPreset(display.labelMaterials?.[label]);
     }
 
+    atomRadiusScaleOverride(index, display = this.state.display) {
+        const value = Number(
+            display.atomRadiusScales?.[index] ?? display.atomRadiusScales?.[String(index)]
+        );
+        return Number.isFinite(value) && value > 0 ? value : 1;
+    }
+
+    atomManualColor(index, display = this.state.display) {
+        const override = display.atomColors?.[index] ?? display.atomColors?.[String(index)];
+        if (this.validHexColor(override)) return override.toLowerCase();
+        const label = this.state.atoms?.symbols?.[index];
+        return this.labelVisualColor(label).toLowerCase();
+    }
+
+    atomManualOpacity(index, display = this.state.display) {
+        const override = Number(
+            display.atomOpacities?.[index] ?? display.atomOpacities?.[String(index)]
+        );
+        if (Number.isFinite(override)) return Math.max(0, Math.min(1, override));
+        const label = this.state.atoms?.symbols?.[index];
+        const inherited = Number(display.labelOpacities?.[label]);
+        return Math.max(0, Math.min(1, Number.isFinite(inherited) ? inherited : 1));
+    }
+
+    commonSelectedAppearanceValue(indices, getter) {
+        if (!indices.length) return { mixed: false, value: null };
+        const values = indices.map(getter);
+        const first = values[0];
+        const mixed = values.some(value => value !== first);
+        return { mixed, value: mixed ? null : first, first };
+    }
+
     selectedAtomIndices() {
         const atomCount = this.state.atoms?.positions?.length || 0;
-        return [...this.state.selected]
+        const selected = new Set(this.state.selected);
+        if (this.state.vizOnly) {
+            this.state.replicaSelected.forEach(reference => selected.add(reference.index));
+        }
+        return [...selected]
             .filter(index => Number.isInteger(index) && index >= 0 && index < atomCount)
             .sort((a, b) => a - b);
     }
 
     updateSelectedAppearanceControls() {
         const labelInput = document.getElementById('selected-atom-label');
-        const applyLabel = document.getElementById('btn-apply-selected-label');
+        const applyButton = document.getElementById('btn-apply-selected-label');
         const material = document.getElementById('selected-atom-material');
+        const color = document.getElementById('selected-atom-color');
+        const opacity = document.getElementById('selected-atom-opacity');
+        const radiusScale = document.getElementById('selected-atom-radius-scale');
+        const radiusOutput = document.getElementById('selected-atom-radius-scale-value');
+        const bondToggle = document.getElementById('selected-atom-update-bonds');
         const count = document.getElementById('selected-appearance-count');
-        if (!labelInput || !applyLabel || !material || !count) return;
+        if (
+            !labelInput || !applyButton || !material || !color || !opacity
+            || !radiusScale || !radiusOutput || !bondToggle || !count
+        ) return;
 
         const indices = this.selectedAtomIndices();
-        const enabled = !this.state.vizOnly && indices.length > 0 && !this.state.modeSwitchInFlight;
+        const selectionKey = indices.join(',');
+        if (this.state.selectedAppearanceSelectionKey !== selectionKey) {
+            this.state.selectedAppearanceSelectionKey = selectionKey;
+            this.state.selectedAppearanceDirty.clear();
+            applyButton.classList.remove('is-dirty');
+        }
+        const dirty = this.state.selectedAppearanceDirty;
+        const enabled = indices.length > 0 && !this.state.modeSwitchInFlight;
         count.textContent = indices.length
             ? `${indices.length} atom${indices.length === 1 ? '' : 's'}`
             : 'None';
         labelInput.disabled = !enabled;
-        applyLabel.disabled = !enabled;
+        applyButton.disabled = !enabled;
         material.disabled = !enabled;
+        color.disabled = !enabled;
+        opacity.disabled = !enabled;
+        radiusScale.disabled = !enabled;
+        bondToggle.disabled = !enabled;
 
         const labels = [...new Set(indices.map(index => this.state.atoms?.symbols?.[index]).filter(Boolean))];
-        if (document.activeElement !== labelInput) {
+        if (!dirty.has('label') && document.activeElement !== labelInput) {
             labelInput.value = labels.length === 1 ? labels[0] : '';
             labelInput.placeholder = indices.length
                 ? (labels.length > 1 ? 'Mixed labels' : 'Label')
                 : 'Select atoms';
         }
-        const materials = [...new Set(indices.map(index => this.atomMaterialPreset(index)))];
-        material.value = materials.length === 1 ? materials[0] : 'mixed';
+        if (!dirty.has('material')) {
+            const materials = [...new Set(indices.map(index => this.atomMaterialPreset(index)))];
+            material.value = materials.length === 1 ? materials[0] : 'mixed';
+        }
+        if (!dirty.has('color')) {
+            if (!indices.length) {
+                color.value = '#808080';
+                color.dataset.mixed = 'false';
+                color.title = 'Select atoms to set their color';
+            } else {
+                const colors = this.commonSelectedAppearanceValue(
+                    indices, index => this.atomManualColor(index)
+                );
+                color.value = this.validHexColor(colors.value)
+                    ? colors.value
+                    : (this.validHexColor(colors.first) ? colors.first : '#808080');
+                color.dataset.mixed = colors.mixed ? 'true' : 'false';
+                color.title = colors.mixed
+                    ? 'Mixed colors; choose a color to override only the selected atom indices'
+                    : 'Color for the selected atom indices';
+            }
+        }
+        if (!dirty.has('opacity') && document.activeElement !== opacity) {
+            if (!indices.length) {
+                opacity.value = '';
+                opacity.placeholder = '—';
+            } else {
+                const opacities = this.commonSelectedAppearanceValue(
+                    indices, index => Number(this.atomManualOpacity(index).toFixed(6))
+                );
+                opacity.value = opacities.mixed ? '' : Number(opacities.value).toFixed(2);
+                opacity.placeholder = opacities.mixed ? 'Mixed' : '';
+            }
+        }
+        if (!dirty.has('radiusScale')) {
+            if (!indices.length) {
+                radiusScale.value = '1';
+                radiusOutput.textContent = '—';
+            } else {
+                const scales = this.commonSelectedAppearanceValue(
+                    indices, index => Number(this.atomRadiusScaleOverride(index).toFixed(6))
+                );
+                radiusScale.value = scales.mixed ? '1' : String(scales.value ?? 1);
+                radiusOutput.textContent = scales.mixed
+                    ? 'Mixed'
+                    : `${Number(scales.value ?? 1).toFixed(2)}x`;
+            }
+        }
+        bondToggle.checked = this.state.display.selectedAppearanceAffectsBonds !== false;
     }
 
-    applySelectedMaterial(value) {
-        if (!this.canEditAtoms()) {
-            this.editOnlyToast();
-            return;
+    applySelectedIndexAppearance(indices, dirtyFields) {
+        if (!indices.length || !dirtyFields.size) return;
+        const materialInput = document.getElementById('selected-atom-material');
+        const colorInput = document.getElementById('selected-atom-color');
+        const opacityInput = document.getElementById('selected-atom-opacity');
+        const radiusInput = document.getElementById('selected-atom-radius-scale');
+        const followBonds = document.getElementById('selected-atom-update-bonds')?.checked !== false;
+        const material = dirtyFields.has('material')
+            ? this.normalizedAtomMaterialPreset(materialInput?.value)
+            : null;
+        const color = dirtyFields.has('color') ? String(colorInput?.value || '').toLowerCase() : null;
+        if (dirtyFields.has('color') && !this.validHexColor(color)) {
+            throw new Error('Selected atom color must use #RRGGBB notation.');
         }
+        const parsedOpacity = dirtyFields.has('opacity') ? Number(opacityInput?.value) : null;
+        if (dirtyFields.has('opacity') && (!Number.isFinite(parsedOpacity) || parsedOpacity < 0 || parsedOpacity > 1)) {
+            throw new Error('Selected atom opacity must be between 0 and 1.');
+        }
+        const parsedRadiusScale = dirtyFields.has('radiusScale') ? Number(radiusInput?.value) : null;
+        if (
+            dirtyFields.has('radiusScale')
+            && (!Number.isFinite(parsedRadiusScale) || parsedRadiusScale < 0.25 || parsedRadiusScale > 2.5)
+        ) {
+            throw new Error('Selected atom radius scale must be between 0.25 and 2.5.');
+        }
+
+        const atomMaterials = { ...(this.state.display.atomMaterials || {}) };
+        const atomColors = { ...(this.state.display.atomColors || {}) };
+        const atomOpacities = { ...(this.state.display.atomOpacities || {}) };
+        const atomRadiusScales = { ...(this.state.display.atomRadiusScales || {}) };
+        const atomBondStyles = this.clonePlain(this.state.display.atomBondStyles || {});
+        indices.forEach(index => {
+            const label = this.state.atoms?.symbols?.[index];
+            if (dirtyFields.has('material')) {
+                const inherited = this.normalizedAtomMaterialPreset(
+                    this.state.display.labelMaterials?.[label]
+                );
+                if (material === inherited) delete atomMaterials[index];
+                else atomMaterials[index] = material;
+            }
+            if (dirtyFields.has('color')) {
+                const inherited = this.labelVisualColor(label).toLowerCase();
+                if (color === inherited) delete atomColors[index];
+                else atomColors[index] = color;
+            }
+            if (dirtyFields.has('opacity')) {
+                const inheritedValue = Number(this.state.display.labelOpacities?.[label]);
+                const inherited = Number.isFinite(inheritedValue)
+                    ? Math.max(0, Math.min(1, inheritedValue))
+                    : 1;
+                if (Math.abs(parsedOpacity - inherited) <= 1e-9) delete atomOpacities[index];
+                else atomOpacities[index] = parsedOpacity;
+            }
+            if (dirtyFields.has('radiusScale')) {
+                if (Math.abs(parsedRadiusScale - 1) <= 1e-9) delete atomRadiusScales[index];
+                else atomRadiusScales[index] = parsedRadiusScale;
+            }
+            if (followBonds) {
+                const style = { ...(atomBondStyles[index] || atomBondStyles[String(index)] || {}) };
+                if (dirtyFields.has('material')) style.material = material;
+                if (dirtyFields.has('opacity')) style.opacity = parsedOpacity;
+                if (Object.keys(style).length) atomBondStyles[index] = style;
+            }
+        });
+        this.state.display.atomMaterials = atomMaterials;
+        this.state.display.atomColors = atomColors;
+        this.state.display.atomOpacities = atomOpacities;
+        this.state.display.atomRadiusScales = atomRadiusScales;
+        this.state.display.atomBondStyles = atomBondStyles;
+        this.state.display.selectedAppearanceAffectsBonds = followBonds;
+        this.applyDisplayOptions();
+        this.renderAppearanceRows();
+        this.scheduleVisualHistoryCommit('selected-appearance');
+        this.toast(
+            `Updated ${indices.length} selected atom${indices.length === 1 ? '' : 's'} by index.`,
+            'success'
+        );
+    }
+
+    applySelectedMaterial(value, indices = this.selectedAtomIndices()) {
         const preset = this.normalizedAtomMaterialPreset(value);
-        const indices = this.selectedAtomIndices();
         if (!indices.length) {
             this.toast('Select atoms before changing material.', 'warning');
             return;
@@ -512,9 +2332,20 @@ class VAseApp {
             else atomMaterials[index] = preset;
         });
         this.state.display.atomMaterials = atomMaterials;
-        this.safeApplyDisplayOptions();
+        if (this.state.display.selectedAppearanceAffectsBonds !== false) {
+            const atomBondStyles = this.clonePlain(this.state.display.atomBondStyles || {});
+            indices.forEach(index => {
+                atomBondStyles[index] = {
+                    ...(atomBondStyles[index] || atomBondStyles[String(index)] || {}),
+                    material: preset
+                };
+            });
+            this.state.display.atomBondStyles = atomBondStyles;
+        }
+        this.applyDisplayOptions();
         this.renderAppearanceRows();
         this.updateSelectedAppearanceControls();
+        this.scheduleVisualHistoryCommit('selected-material');
     }
 
     uniqueTransitionLabel(base, usedLabels) {
@@ -566,7 +2397,7 @@ class VAseApp {
                     : this.uniqueTransitionLabel(sourceLabel, usedLabels);
                 atomIndices.forEach(index => { nextLabels[index] = targetLabel; });
                 nextDisplay.labelMaterials[targetLabel] = preset;
-                ['labelRadii', 'labelColors', 'labelVisible'].forEach(key => {
+                ['labelRadii', 'labelColors', 'labelOpacities', 'labelVisible'].forEach(key => {
                     nextDisplay[key] = { ...(nextDisplay[key] || {}) };
                     if (
                         targetLabel !== sourceLabel
@@ -643,10 +2474,18 @@ class VAseApp {
                 })
             );
             this.state.vizOnly = vizOnly;
+            this.clearViewIdentityOverrides();
             this.state.display = plan.display;
             this.state.display.vizOnly = vizOnly;
             this.state.labelOrder = [...plan.labelOrder];
-            if (!vizOnly) this.state.replicaSelected.clear();
+            if (!vizOnly) {
+                this.state.replicaSelected.forEach(reference => {
+                    this.state.selected.add(reference.index);
+                    const key = `atom:${reference.index}`;
+                    if (!this.state.selectionOrder.includes(key)) this.state.selectionOrder.push(key);
+                });
+                this.state.replicaSelected.clear();
+            }
             this.setAtomsData(data, { preserveDisplay: false });
             (data.mode_transition_warnings || []).forEach(message => {
                 this.toast(message, 'warning');
@@ -673,12 +2512,45 @@ class VAseApp {
     }
 
     editOnlyToast() {
+        if (this.addAtomsSessionActive()) {
+            this.toast('Finish or cancel Add Atoms before changing existing atoms.', 'warning');
+            return;
+        }
         this.toast('Switch the top-bar mode to Edit to modify atoms.', 'warning');
+    }
+
+    setCreateAtomWidgetExpanded(expanded) {
+        const widget = document.getElementById('create-atom-widget');
+        if (!widget) return;
+        widget.classList.toggle('collapsed', !expanded);
+        if (!expanded) {
+            widget.style.removeProperty('left');
+            widget.style.removeProperty('top');
+            widget.style.removeProperty('right');
+            widget.style.removeProperty('bottom');
+            this.setAddAtomsRegionSelected(false, { update: false });
+            this.renderer.clearAddAtomsRegion();
+        }
     }
 
     setupCreateAtomWidget() {
         const widget = document.getElementById('create-atom-widget');
         if (!widget) return;
+        this.addAtomsUI = {
+            pane: 'single',
+            contentKind: 'atoms',
+            placementMode: 'random',
+            quantityMode: 'count',
+            regions: [],
+            regionSequence: 0,
+            domainPreview: null,
+            domainRequestToken: 0,
+            domainRequestTimer: null,
+            active: null,
+            entrySequence: 0,
+            moleculeSequence: 0,
+            moleculeCatalog: []
+        };
         const typeSelect = document.getElementById('create-atom-type');
         const labelInput = document.getElementById('create-atom-label');
         const toggle = document.getElementById('btn-create-atom-toggle');
@@ -696,7 +2568,10 @@ class VAseApp {
             });
             typeSelect.value = 'H';
         }
-        const setExpanded = expanded => widget.classList.toggle('collapsed', !expanded);
+        this.addAddAtomsEntry({ element: 'H', label: 'H', count: 1 });
+        this.addAddMoleculeEntry({ name: 'H2O', label: 'water', count: 1 });
+        void this.loadAddAtomsMoleculeCatalog();
+        const setExpanded = expanded => this.setCreateAtomWidgetExpanded(expanded);
         const setPositionInputs = vector => {
             ['x', 'y', 'z'].forEach((axis, idx) => {
                 const input = document.getElementById(`create-atom-${axis}`);
@@ -707,10 +2582,20 @@ class VAseApp {
             event.preventDefault();
             setExpanded(true);
             this.syncCreateAtomDefaults({ position: true });
+            if (this.addAtomsUI?.pane === 'batch') {
+                this.syncAddAtomsBounds();
+                this.updateAddAtomsRegionPreview();
+            }
         });
         close?.addEventListener('click', event => {
             event.preventDefault();
+            if (this.addAtomsSessionActive()) {
+                this.toast('Finish or cancel the active Add Atoms session first.', 'warning');
+                return;
+            }
             setExpanded(false);
+            this.setAddAtomsRegionSelected(false, { update: false });
+            this.renderer.clearAddAtomsRegion();
         });
         typeSelect?.addEventListener('change', () => {
             if (!labelInput) return;
@@ -719,6 +2604,11 @@ class VAseApp {
                 labelInput.value = typeSelect.value;
             }
         });
+        const syncSingleTypeFromLabel = () => {
+            this.syncElementSelectFromLabel(labelInput, typeSelect);
+        };
+        labelInput?.addEventListener('input', syncSingleTypeFromLabel);
+        labelInput?.addEventListener('change', syncSingleTypeFromLabel);
         centerButton?.addEventListener('click', event => {
             event.preventDefault();
             setPositionInputs(this.createAtomViewCenter());
@@ -731,34 +2621,1184 @@ class VAseApp {
             event.preventDefault();
             this.createAtomFromWidget();
         });
+        document.getElementById('add-atoms-tab-single')?.addEventListener('click', () => {
+            this.setAddAtomsPane('single');
+        });
+        document.getElementById('add-atoms-tab-batch')?.addEventListener('click', () => {
+            this.setAddAtomsPane('batch');
+        });
+        document.getElementById('add-atoms-tab-build')?.addEventListener('click', () => {
+            this.setAddAtomsPane('build');
+        });
+        document.getElementById('btn-add-atoms-entry')?.addEventListener('click', () => {
+            this.addAddAtomsEntry({ element: 'H', label: 'H', count: 1 });
+        });
+        document.getElementById('btn-add-molecule-entry')?.addEventListener('click', () => {
+            this.addAddMoleculeEntry({ name: 'H2O', label: 'water', count: 1 });
+        });
+        document.getElementById('add-atoms-content-atoms')?.addEventListener('click', () => {
+            this.setAddAtomsContentKind('atoms');
+        });
+        document.getElementById('add-atoms-content-molecules')?.addEventListener('click', () => {
+            this.setAddAtomsContentKind('molecules');
+        });
+        document.getElementById('add-atoms-placement-random')?.addEventListener('click', () => {
+            this.setAddAtomsPlacementMode('random');
+        });
+        document.getElementById('add-atoms-placement-homogeneous')?.addEventListener('click', () => {
+            this.setAddAtomsPlacementMode('homogeneous');
+        });
+        document.getElementById('add-atoms-placement-regular')?.addEventListener('click', () => {
+            this.setAddAtomsPlacementMode('regular');
+        });
+        document.getElementById('add-molecules-quantity-count')?.addEventListener('click', () => {
+            this.setAddMoleculeQuantityMode('count');
+        });
+        document.getElementById('add-molecules-quantity-density')?.addEventListener('click', () => {
+            this.setAddMoleculeQuantityMode('density');
+        });
+        document.getElementById('add-molecules-target-density')?.addEventListener('input', () => {
+            this.scheduleAddAtomsDomainPreview();
+        });
+        document.getElementById('btn-add-atoms-allow-region')?.addEventListener('click', () => {
+            this.addAddAtomsRegion('allow');
+        });
+        document.getElementById('btn-add-atoms-reject-region')?.addEventListener('click', () => {
+            this.addAddAtomsRegion('reject');
+        });
+        document.getElementById('btn-add-atoms-delete-region')?.addEventListener('click', () => {
+            this.deleteSelectedAddAtomsRegions();
+        });
+        document.getElementById('add-atoms-region-allowed')?.addEventListener('click', () => {
+            this.setAddAtomsRegionRole('allow');
+        });
+        document.getElementById('add-atoms-region-prohibited')?.addEventListener('click', () => {
+            this.setAddAtomsRegionRole('reject');
+        });
+        document.getElementById('add-atoms-region-name')?.addEventListener('change', event => {
+            this.renameSelectedAddAtomsRegion(event.currentTarget.value);
+        });
+        ['xmin', 'xmax', 'ymin', 'ymax', 'zmin', 'zmax'].forEach(name => {
+            const input = document.getElementById(`add-atoms-${name}`);
+            input?.addEventListener('input', () => {
+                this.applyAddAtomsBoundsFromEditor();
+            });
+            input?.addEventListener('change', () => {
+                void this.commitAddAtomsRegionControls();
+            });
+        });
+        document.getElementById('add-atoms-constrain-domain')?.addEventListener('change', () => {
+            void this.commitAddAtomsRegionControls();
+        });
+        document.getElementById('add-atoms-mic')?.addEventListener('change', () => {
+            if (this.addAtomsSessionActive()) void this.commitAddAtomsRegionControls();
+            else this.scheduleAddAtomsDomainPreview({ immediate: true });
+        });
+        document.getElementById('btn-add-atoms-select-added')?.addEventListener('click', () => {
+            this.selectAddedAtoms();
+        });
+        document.getElementById('add-atoms-select-added')?.addEventListener('change', event => {
+            if (event.currentTarget.checked) this.selectAddedAtoms();
+        });
+        document.getElementById('btn-add-atoms-scatter')?.addEventListener('click', () => {
+            void this.scatterAtomsFromWidget();
+        });
+        document.getElementById('btn-add-atoms-open-relaxation')?.addEventListener('click', () => {
+            this.openInspectorSection('structure', 'scientific-tools');
+        });
+        document.getElementById('btn-add-atoms-cancel')?.addEventListener('click', () => {
+            void this.cancelAddedAtomsSession();
+        });
+        document.getElementById('btn-add-atoms-finish')?.addEventListener('click', () => {
+            void this.finishAddedAtomsSession();
+        });
+        this.renderAddAtomsRegions();
+        this.renderAddAtomsDomainStatus();
+        this.setAddMoleculeQuantityMode('count', { force: true });
         this.makeCreateAtomWidgetDraggable(widget, head);
+    }
+
+    addAtomsSessionActive() {
+        return Boolean(this.addAtomsUI?.active?.active || this.state.atoms?.metadata?.atom_addition?.active);
+    }
+
+    addAtomsRelaxationRunning() {
+        return Boolean(
+            this.addAtomsUI?.active?.is_relaxing
+            || this.state.atoms?.metadata?.atom_addition?.is_relaxing
+        );
+    }
+
+    setAddAtomsPane(pane) {
+        const target = ['single', 'batch', 'build'].includes(pane) ? pane : 'single';
+        if (target !== 'batch' && this.addAtomsSessionActive()) {
+            this.toast('Finish or cancel the active Add Atoms session first.', 'warning');
+            return;
+        }
+        if (!this.addAtomsUI) return;
+        this.addAtomsUI.pane = target;
+        const single = target === 'single';
+        const batch = target === 'batch';
+        const build = target === 'build';
+        document.getElementById('add-atoms-tab-single')?.classList.toggle('active', single);
+        document.getElementById('add-atoms-tab-batch')?.classList.toggle('active', batch);
+        document.getElementById('add-atoms-tab-build')?.classList.toggle('active', build);
+        document.getElementById('add-atoms-tab-single')?.setAttribute('aria-selected', single ? 'true' : 'false');
+        document.getElementById('add-atoms-tab-batch')?.setAttribute('aria-selected', batch ? 'true' : 'false');
+        document.getElementById('add-atoms-tab-build')?.setAttribute('aria-selected', build ? 'true' : 'false');
+        document.getElementById('add-atoms-pane-single')?.classList.toggle('hidden', !single);
+        document.getElementById('add-atoms-pane-batch')?.classList.toggle('hidden', !batch);
+        document.getElementById('add-atoms-pane-build')?.classList.toggle('hidden', !build);
+        document.querySelector('#create-atom-widget .create-atom-card')?.classList.toggle('batch-active', !single);
+        if (!batch) {
+            this.setAddAtomsRegionSelected(false, { update: false });
+            this.renderer.clearAddAtomsRegion();
+        } else {
+            this.renderAddAtomsRegions();
+            this.updateAddAtomsRegionPreview();
+            this.scheduleAddAtomsDomainPreview({ immediate: true });
+        }
+    }
+
+    setAddAtomsContentKind(kind, { force = false } = {}) {
+        if (!this.addAtomsUI || (!force && this.addAtomsRelaxationRunning())) return;
+        const molecules = kind === 'molecules';
+        this.addAtomsUI.contentKind = molecules ? 'molecules' : 'atoms';
+        document.getElementById('add-atoms-content-atoms')?.classList.toggle('active', !molecules);
+        document.getElementById('add-atoms-content-molecules')?.classList.toggle('active', molecules);
+        document.getElementById('add-atoms-atom-content')?.classList.toggle('hidden', molecules);
+        document.getElementById('add-atoms-molecule-content')?.classList.toggle('hidden', !molecules);
+        const place = document.getElementById('btn-add-atoms-scatter');
+        if (place) place.textContent = molecules ? 'Place molecules' : 'Place atoms';
+        const status = document.getElementById('add-atoms-status');
+        if (!this.addAtomsSessionActive() && status?.dataset.state !== 'error') {
+            this.setAddAtomsStatus(
+                'idle',
+                molecules ? 'Ready to place molecules' : 'Ready to place atoms'
+            );
+        }
+        this.scheduleAddAtomsDomainPreview();
+    }
+
+    setAddMoleculeQuantityMode(mode, { force = false } = {}) {
+        if (!this.addAtomsUI || (!force && this.addAtomsRelaxationRunning())) return;
+        const density = mode === 'density';
+        this.addAtomsUI.quantityMode = density ? 'density' : 'count';
+        document.getElementById('add-molecules-quantity-count')?.classList.toggle('active', !density);
+        document.getElementById('add-molecules-quantity-density')?.classList.toggle('active', density);
+        document.getElementById('add-molecules-density-row')?.classList.toggle('hidden', !density);
+        const heading = document.getElementById('add-molecules-count-heading');
+        if (heading) heading.textContent = density ? 'Ratio' : 'Count';
+        document.querySelectorAll('.add-molecule-entry-count').forEach(input => {
+            input.setAttribute(
+                'aria-label',
+                density ? 'Molecule composition ratio' : 'Inserted molecule count'
+            );
+        });
+        if (!density) {
+            const actual = document.getElementById('add-molecules-actual-density');
+            if (actual) actual.textContent = '—';
+        }
+        this.scheduleAddAtomsDomainPreview({ immediate: true });
+    }
+
+    setAddAtomsPlacementMode(mode, { force = false } = {}) {
+        if (!this.addAtomsUI || (!force && this.addAtomsRelaxationRunning())) return;
+        const homogeneous = mode === 'homogeneous';
+        const regular = mode === 'regular';
+        this.addAtomsUI.placementMode = regular ? 'regular' : (homogeneous ? 'homogeneous' : 'random');
+        document.getElementById('add-atoms-placement-random')?.classList.toggle('active', !homogeneous && !regular);
+        document.getElementById('add-atoms-placement-homogeneous')?.classList.toggle('active', homogeneous);
+        document.getElementById('add-atoms-placement-regular')?.classList.toggle('active', regular);
+        document.getElementById('add-atoms-spacing-basis-row')?.classList.toggle('hidden', !homogeneous);
+        document.getElementById('add-atoms-placement-pbc-row')?.classList.toggle('hidden', !homogeneous && !regular);
+        document.getElementById('add-atoms-regular-spacing-row')?.classList.toggle('hidden', !regular);
+        const note = document.getElementById('add-atoms-distribution-note');
+        if (note) {
+            note.textContent = regular
+                ? 'Regular grid uses fixed global Cartesian spacing and clips sites exactly to the insertion domain.'
+                : homogeneous
+                    ? 'Homogeneous maximizes physical separation and minimizes uncovered voids without imposing a crystal lattice.'
+                    : 'Random samples every accessible volume element with equal probability.';
+        }
+    }
+
+    async loadAddAtomsMoleculeCatalog() {
+        if (!this.addAtomsUI) return;
+        try {
+            const response = await this.api.atomAdditionMoleculeCatalog();
+            this.addAtomsUI.moleculeCatalog = Array.isArray(response?.molecules)
+                ? response.molecules.map(entry => ({ ...entry }))
+                : [];
+            document.querySelectorAll('#add-molecule-entries .add-molecule-entry-row').forEach(row => {
+                const select = row.querySelector('.add-molecule-entry-name');
+                const selected = select?.value || row.dataset.moleculeName || 'H2O';
+                if (!select) return;
+                select.replaceChildren();
+                this.addAtomsUI.moleculeCatalog.forEach(entry => {
+                    const option = document.createElement('option');
+                    option.value = entry.name;
+                    option.textContent = `${entry.name} · ${entry.formula}`;
+                    select.appendChild(option);
+                });
+                select.value = this.addAtomsUI.moleculeCatalog.some(entry => entry.name === selected)
+                    ? selected
+                    : (this.addAtomsUI.moleculeCatalog[0]?.name || 'H2O');
+                row.dataset.moleculeName = select.value;
+            });
+        } catch (error) {
+            this.setAddAtomsStatus('error', `Molecule catalog unavailable: ${error.message}`);
+        }
+    }
+
+    addAddMoleculeEntry(entry = {}) {
+        const container = document.getElementById('add-molecule-entries');
+        if (!container || !this.addAtomsUI) return;
+        const row = document.createElement('div');
+        row.className = 'add-molecule-entry-row';
+        row.dataset.entryId = String(++this.addAtomsUI.moleculeSequence);
+        row.dataset.moleculeName = entry.name || 'H2O';
+        const name = document.createElement('select');
+        name.className = 'add-molecule-entry-name';
+        name.setAttribute('aria-label', 'ASE molecule');
+        const catalog = this.addAtomsUI.moleculeCatalog.length
+            ? this.addAtomsUI.moleculeCatalog
+            : [{ name: entry.name || 'H2O', formula: entry.formula || entry.name || 'H2O' }];
+        catalog.forEach(item => {
+            const option = document.createElement('option');
+            option.value = item.name;
+            option.textContent = `${item.name} · ${item.formula}`;
+            name.appendChild(option);
+        });
+        name.value = catalog.some(item => item.name === entry.name)
+            ? entry.name
+            : (catalog[0]?.name || 'H2O');
+        row.dataset.moleculeName = name.value;
+        const label = document.createElement('input');
+        label.className = 'add-molecule-entry-label';
+        label.type = 'text';
+        label.value = this.normalizedTypeLabel(entry.label) || name.value;
+        label.setAttribute('aria-label', 'Molecule label suffix');
+        const count = document.createElement('input');
+        count.className = 'add-molecule-entry-count';
+        count.type = 'number';
+        count.min = '1';
+        count.max = '20000';
+        count.step = '1';
+        const initialCount = Number(entry.count);
+        count.value = String(Number.isInteger(initialCount) && initialCount >= 1 ? initialCount : 1);
+        count.setAttribute('aria-label', 'Inserted molecule count');
+        const remove = document.createElement('button');
+        remove.className = 'remove-add-molecule-entry';
+        remove.type = 'button';
+        remove.textContent = '×';
+        remove.title = 'Remove molecule type';
+        remove.setAttribute('aria-label', 'Remove molecule type');
+        name.addEventListener('change', () => {
+            row.dataset.moleculeName = name.value;
+            this.scheduleAddAtomsDomainPreview();
+        });
+        count.addEventListener('input', () => this.scheduleAddAtomsDomainPreview());
+        remove.addEventListener('click', () => {
+            if (container.children.length <= 1) {
+                this.toast('Add Molecules requires at least one molecule type.', 'warning');
+                return;
+            }
+            row.remove();
+            this.scheduleAddAtomsDomainPreview();
+        });
+        row.append(name, label, count, remove);
+        container.appendChild(row);
+        this.enhanceNumberInputHoldGuards(row);
+    }
+
+    readAddMoleculeEntries() {
+        const entries = [...document.querySelectorAll('#add-molecule-entries .add-molecule-entry-row')].map(row => {
+            const name = row.querySelector('.add-molecule-entry-name')?.value || '';
+            const label = this.normalizedTypeLabel(row.querySelector('.add-molecule-entry-label')?.value) || name;
+            const count = Number(row.querySelector('.add-molecule-entry-count')?.value);
+            if (!name) throw new Error('Choose an ASE molecule for every entry.');
+            if (!label) throw new Error('Every inserted molecule needs a label.');
+            if (!Number.isInteger(count) || count < 1) throw new Error('Molecule counts must be positive integers.');
+            return { name, label, count };
+        });
+        const total = entries.reduce((sum, entry) => sum + entry.count, 0);
+        if (!entries.length || total < 1 || total > 20000) {
+            throw new Error('The total molecule count must be from 1 through 20,000.');
+        }
+        return entries;
+    }
+
+    selectAddedAtoms() {
+        const indices = this.addAtomsUI?.active?.new_indices || [];
+        if (!indices.length) return;
+        this.clearAtomSelection({ update: false });
+        indices.forEach(index => this.addSelectionReference(Number(index)));
+        this.updateSelectionVisuals();
+        this.updateUI();
+    }
+
+    addAddAtomsEntry(entry = {}) {
+        const container = document.getElementById('add-atoms-entries');
+        if (!container || !this.addAtomsUI) return;
+        const row = document.createElement('div');
+        row.className = 'add-atoms-entry-row';
+        row.dataset.entryId = String(++this.addAtomsUI.entrySequence);
+        const type = document.createElement('select');
+        type.className = 'add-atoms-entry-type';
+        type.setAttribute('aria-label', 'Inserted atom element');
+        this.chemicalElementOptions().forEach(symbol => {
+            const option = document.createElement('option');
+            option.value = symbol;
+            option.textContent = symbol;
+            type.appendChild(option);
+        });
+        type.value = this.chemicalElementOptions().includes(entry.element) ? entry.element : 'H';
+        type.dataset.previous = type.value;
+        const label = document.createElement('input');
+        label.className = 'add-atoms-entry-label';
+        label.type = 'text';
+        label.value = this.normalizedTypeLabel(entry.label) || type.value;
+        label.setAttribute('aria-label', 'Inserted atom label');
+        const count = document.createElement('input');
+        count.className = 'add-atoms-entry-count';
+        count.type = 'number';
+        count.min = '1';
+        count.max = '100000';
+        count.step = '1';
+        const initialCount = Number(entry.count);
+        count.value = String(Number.isInteger(initialCount) && initialCount >= 1 ? initialCount : 1);
+        count.setAttribute('aria-label', 'Inserted atom count');
+        const remove = document.createElement('button');
+        remove.className = 'remove-add-atoms-entry';
+        remove.type = 'button';
+        remove.textContent = '×';
+        remove.title = 'Remove atom type';
+        remove.setAttribute('aria-label', 'Remove atom type');
+        type.addEventListener('change', () => {
+            if (!label.value.trim() || label.value.trim() === type.dataset.previous) {
+                label.value = type.value;
+            }
+            type.dataset.previous = type.value;
+        });
+        const syncBatchTypeFromLabel = () => {
+            if (!this.syncElementSelectFromLabel(label, type)) return;
+            type.dataset.previous = type.value;
+        };
+        label.addEventListener('input', syncBatchTypeFromLabel);
+        label.addEventListener('change', syncBatchTypeFromLabel);
+        remove.addEventListener('click', () => {
+            if (container.children.length <= 1) {
+                this.toast('Add Atoms requires at least one atom type.', 'warning');
+                return;
+            }
+            row.remove();
+        });
+        row.append(type, label, count, remove);
+        container.appendChild(row);
+        this.enhanceNumberInputHoldGuards(row);
+    }
+
+    readAddAtomsEntries() {
+        const entries = [...document.querySelectorAll('#add-atoms-entries .add-atoms-entry-row')].map(row => {
+            const element = row.querySelector('.add-atoms-entry-type')?.value || 'H';
+            const label = this.normalizedTypeLabel(row.querySelector('.add-atoms-entry-label')?.value);
+            const count = Number(row.querySelector('.add-atoms-entry-count')?.value);
+            if (!label) throw new Error('Every inserted atom type needs a label.');
+            if (!Number.isInteger(count) || count < 1) throw new Error('Atom counts must be positive integers.');
+            return { element, label, count };
+        });
+        const total = entries.reduce((sum, entry) => sum + entry.count, 0);
+        if (!entries.length || total < 1 || total > 100000) {
+            throw new Error('The total atom count must be from 1 through 100,000.');
+        }
+        return entries;
+    }
+
+    addAtomsCellBounds() {
+        const cell = this.state.atoms?.cell;
+        if (!Array.isArray(cell) || cell.length !== 3) return null;
+        const values = cell.map(row => row.map(Number));
+        if (values.flat().some(value => !Number.isFinite(value))) return null;
+        const [a, b, c] = values.map(row => new THREE.Vector3(...row));
+        if (Math.abs(a.dot(new THREE.Vector3().crossVectors(b, c))) <= 1e-10) return null;
+        const corners = [];
+        for (let i = 0; i <= 1; i++) {
+            for (let j = 0; j <= 1; j++) {
+                for (let k = 0; k <= 1; k++) {
+                    corners.push([0, 1, 2].map(axis => (
+                        i * values[0][axis] + j * values[1][axis] + k * values[2][axis]
+                    )));
+                }
+            }
+        }
+        return [0, 1, 2].flatMap(axis => [
+            Math.min(...corners.map(corner => corner[axis])),
+            Math.max(...corners.map(corner => corner[axis]))
+        ]);
+    }
+
+    syncAddAtomsBounds({ force = false, bounds = null } = {}) {
+        const values = Array.isArray(bounds) && bounds.length === 6
+            ? bounds.map(Number)
+            : this.addAtomsCellBounds();
+        if (!values) return;
+        ['xmin', 'xmax', 'ymin', 'ymax', 'zmin', 'zmax'].forEach((name, index) => {
+            const input = document.getElementById(`add-atoms-${name}`);
+            if (input && (force || input.value === '')) input.value = Number(values[index].toFixed(6));
+        });
+    }
+
+    readAddAtomsBounds() {
+        const bounds = ['xmin', 'xmax', 'ymin', 'ymax', 'zmin', 'zmax'].map(name => (
+            Number(document.getElementById(`add-atoms-${name}`)?.value)
+        ));
+        if (bounds.some(value => !Number.isFinite(value))) throw new Error('Insertion region bounds must be finite.');
+        for (let axis = 0; axis < 3; axis++) {
+            if (bounds[axis * 2 + 1] <= bounds[axis * 2]) {
+                throw new Error(`${'xyz'[axis]} max must be greater than ${'xyz'[axis]} min.`);
+            }
+        }
+        return bounds;
+    }
+
+    addAtomsHasFiniteCell() {
+        const cell = this.state.atoms?.cell;
+        if (!Array.isArray(cell) || cell.length !== 3) return false;
+        const [a, b, c] = cell.map(row => new THREE.Vector3(...row.map(Number)));
+        return [a, b, c].every(vector => Number.isFinite(vector.lengthSq()))
+            && Math.abs(a.dot(new THREE.Vector3().crossVectors(b, c))) > 1e-10;
+    }
+
+    addAtomsDefaultRegionBounds(role = 'allow') {
+        let bounds = this.addAtomsCellBounds();
+        if (!bounds) {
+            const positions = this.state.atoms?.positions || [];
+            if (positions.length) {
+                bounds = [0, 1, 2].flatMap(axis => {
+                    const values = positions.map(position => Number(position[axis])).filter(Number.isFinite);
+                    return [Math.min(...values) - 2, Math.max(...values) + 2];
+                });
+            } else {
+                bounds = [-5, 5, -5, 5, -5, 5];
+            }
+        }
+        return [0, 1, 2].flatMap(axis => {
+            const lower = Number(bounds[axis * 2]);
+            const upper = Number(bounds[axis * 2 + 1]);
+            const center = 0.5 * (lower + upper);
+            const half = (role === 'reject' ? 0.18 : 0.30) * (upper - lower);
+            return [center - half, center + half];
+        });
+    }
+
+    addAtomsRegions() {
+        return Array.isArray(this.addAtomsUI?.regions)
+            ? this.addAtomsUI.regions
+            : [];
+    }
+
+    selectedAddAtomsRegionIds() {
+        const available = new Set(this.addAtomsRegions().map(region => String(region.id)));
+        return new Set(
+            [...(this.state.addAtomsRegionSelectedIds || [])]
+                .map(String)
+                .filter(id => available.has(id))
+        );
+    }
+
+    setAddAtomsRegionSelection(ids, { update = true } = {}) {
+        const next = ids instanceof Set ? ids : new Set(ids || []);
+        this.state.addAtomsRegionSelectedIds = new Set([...next].map(String));
+        this.renderAddAtomsRegions();
+        if (update) this.updateAddAtomsRegionPreview();
+    }
+
+    setAddAtomsRegionSelected(selected, { update = true } = {}) {
+        if (!selected) {
+            this.setAddAtomsRegionSelection([], { update });
+            return;
+        }
+        const first = this.addAtomsRegions()[0];
+        this.setAddAtomsRegionSelection(first ? [first.id] : [], { update });
+    }
+
+    selectAddAtomsRegion(regionId, { additive = false, toggle = false } = {}) {
+        const id = String(regionId || '');
+        if (!this.addAtomsRegions().some(region => String(region.id) === id)) return;
+        const selected = additive ? this.selectedAddAtomsRegionIds() : new Set();
+        if (toggle && selected.has(id)) selected.delete(id);
+        else selected.add(id);
+        this.setAddAtomsRegionSelection(selected);
+    }
+
+    addAddAtomsRegion(role = 'allow') {
+        if (!this.addAtomsUI || this.addAtomsUI?.active?.is_relaxing) return;
+        const shouldFrameScratchRegion = (
+            !this.hasLoadedAtoms()
+            && !this.hasUsableCell()
+            && this.addAtomsRegions().length === 0
+        );
+        const normalizedRole = role === 'reject' ? 'reject' : 'allow';
+        const number = this.addAtomsRegions().filter(region => region.role === normalizedRole).length + 1;
+        const generated = globalThis.crypto?.randomUUID?.()
+            || `${Date.now()}-${++this.addAtomsUI.regionSequence}`;
+        const region = {
+            id: `region-${generated}`,
+            name: `${normalizedRole === 'allow' ? 'Allow' : 'Reject'} region ${number}`,
+            role: normalizedRole,
+            bounds: this.addAtomsDefaultRegionBounds(normalizedRole)
+        };
+        this.addAtomsUI.regions = [...this.addAtomsRegions(), region];
+        this.setAddAtomsRegionSelection([region.id], { update: false });
+        this.updateAddAtomsRegionPreview();
+        if (shouldFrameScratchRegion) {
+            this.frameScratchInsertionRegion(region.bounds);
+        }
+        void this.commitAddAtomsRegionControls();
+    }
+
+    frameScratchInsertionRegion(bounds) {
+        if (!Array.isArray(bounds) || bounds.length !== 6) return;
+        const values = bounds.map(Number);
+        if (!values.every(Number.isFinite)) return;
+        const box = new THREE.Box3(
+            new THREE.Vector3(values[0], values[2], values[4]),
+            new THREE.Vector3(values[1], values[3], values[5])
+        );
+        if (box.isEmpty()) return;
+        this.renderer.fitCameraToStructure(box);
+        this.syncAtomicScaleFromCamera({ forceInput: true });
+    }
+
+    deleteSelectedAddAtomsRegions() {
+        if (!this.addAtomsUI || this.addAtomsUI?.active?.is_relaxing) return;
+        const selected = this.selectedAddAtomsRegionIds();
+        if (!selected.size) return;
+        this.addAtomsUI.regions = this.addAtomsRegions().filter(region => !selected.has(String(region.id)));
+        this.setAddAtomsRegionSelection([], { update: false });
+        this.updateAddAtomsRegionPreview();
+        void this.commitAddAtomsRegionControls();
+    }
+
+    renameSelectedAddAtomsRegion(value) {
+        const selected = [...this.selectedAddAtomsRegionIds()];
+        if (selected.length !== 1) return;
+        const name = String(value || '').trim();
+        if (!name) {
+            this.renderAddAtomsRegions();
+            return;
+        }
+        this.addAtomsUI.regions = this.addAtomsRegions().map(region => (
+            String(region.id) === selected[0] ? { ...region, name } : region
+        ));
+        this.renderAddAtomsRegions();
+        void this.commitAddAtomsRegionControls();
+    }
+
+    setAddAtomsRegionRole(role) {
+        if (!this.addAtomsUI || this.addAtomsUI?.active?.is_relaxing) return;
+        const selected = [...this.selectedAddAtomsRegionIds()];
+        if (selected.length !== 1) return;
+        const normalizedRole = role === 'reject' ? 'reject' : 'allow';
+        this.addAtomsUI.regions = this.addAtomsRegions().map(region => (
+            String(region.id) === selected[0] ? { ...region, role: normalizedRole } : region
+        ));
+        this.renderAddAtomsRegions();
+        this.updateAddAtomsRegionPreview();
+        void this.commitAddAtomsRegionControls();
+    }
+
+    applyAddAtomsBoundsFromEditor() {
+        const selected = [...this.selectedAddAtomsRegionIds()];
+        if (selected.length !== 1) return;
+        try {
+            const bounds = this.readAddAtomsBounds();
+            this.addAtomsUI.regions = this.addAtomsRegions().map(region => (
+                String(region.id) === selected[0] ? { ...region, bounds } : region
+            ));
+            this.updateAddAtomsRegionPreview();
+        } catch {
+            // Keep partially edited fields visible; validation runs on commit.
+        }
+    }
+
+    renderAddAtomsRegions() {
+        const list = document.getElementById('add-atoms-region-list');
+        if (!list || !this.addAtomsUI) return;
+        const regions = this.addAtomsRegions();
+        const selected = this.selectedAddAtomsRegionIds();
+        this.state.addAtomsRegionSelectedIds = selected;
+        list.replaceChildren();
+        regions.forEach((region, index) => {
+            const item = document.createElement('button');
+            item.type = 'button';
+            item.className = 'add-atoms-region-item';
+            item.dataset.role = region.role;
+            item.dataset.regionId = String(region.id);
+            item.setAttribute('role', 'option');
+            item.setAttribute('aria-selected', selected.has(String(region.id)) ? 'true' : 'false');
+            const swatch = document.createElement('span');
+            swatch.className = 'add-atoms-region-swatch';
+            const name = document.createElement('span');
+            name.className = 'add-atoms-region-item-name';
+            name.textContent = region.name;
+            const role = document.createElement('span');
+            role.className = 'add-atoms-region-item-role';
+            role.textContent = region.role === 'reject' ? 'Reject' : 'Allow';
+            const number = document.createElement('span');
+            number.className = 'add-atoms-region-item-index';
+            number.textContent = String(index + 1).padStart(2, '0');
+            item.append(swatch, name, role, number);
+            item.addEventListener('click', event => {
+                this.selectAddAtomsRegion(region.id, {
+                    additive: event.shiftKey,
+                    toggle: event.shiftKey
+                });
+            });
+            list.appendChild(item);
+        });
+        document.getElementById('add-atoms-region-empty')?.classList.toggle('hidden', regions.length > 0);
+
+        const editor = document.getElementById('add-atoms-box-fields');
+        const selectedRegions = regions.filter(region => selected.has(String(region.id)));
+        editor?.classList.toggle('hidden', selectedRegions.length === 0);
+        const single = selectedRegions.length === 1 ? selectedRegions[0] : null;
+        const nameInput = document.getElementById('add-atoms-region-name');
+        const deleteButton = document.getElementById('btn-add-atoms-delete-region');
+        if (nameInput) {
+            nameInput.disabled = !single || Boolean(this.addAtomsUI.active?.is_relaxing);
+            nameInput.value = single ? single.name : `${selectedRegions.length} regions selected`;
+        }
+        if (deleteButton) {
+            deleteButton.disabled = !selectedRegions.length || Boolean(this.addAtomsUI.active?.is_relaxing);
+            deleteButton.title = selectedRegions.length > 1
+                ? `Delete ${selectedRegions.length} selected regions`
+                : 'Delete selected region';
+        }
+        const boundsInputs = ['xmin', 'xmax', 'ymin', 'ymax', 'zmin', 'zmax']
+            .map(key => document.getElementById(`add-atoms-${key}`));
+        boundsInputs.forEach((input, index) => {
+            if (!input) return;
+            input.disabled = !single || Boolean(this.addAtomsUI.active?.is_relaxing);
+            input.value = single ? Number(single.bounds[index]).toFixed(6) : '';
+            input.placeholder = single ? '' : 'Multiple';
+        });
+        const allow = document.getElementById('add-atoms-region-allowed');
+        const reject = document.getElementById('add-atoms-region-prohibited');
+        if (allow) {
+            allow.disabled = !single || Boolean(this.addAtomsUI.active?.is_relaxing);
+            allow.classList.toggle('active', single?.role === 'allow');
+        }
+        if (reject) {
+            reject.disabled = !single || Boolean(this.addAtomsUI.active?.is_relaxing);
+            reject.classList.toggle('active', single?.role === 'reject');
+        }
+        this.updateDocumentAvailability();
+    }
+
+    addAtomsDomainPayload() {
+        const payload = {
+            content_kind: this.addAtomsUI?.contentKind || 'atoms',
+            region_mode: 'regions',
+            regions: this.addAtomsRegions().map(region => ({
+                id: region.id,
+                name: region.name,
+                role: region.role,
+                bounds: region.bounds.map(Number)
+            })),
+            region_mic: document.getElementById('add-atoms-mic')?.checked !== false
+        };
+        if (payload.content_kind === 'molecules' && this.addAtomsUI?.quantityMode === 'density') {
+            payload.molecule_quantity_mode = 'density';
+            payload.target_density_g_cm3 = this.addAtomsNumber('add-molecules-target-density', 0.997);
+            try {
+                payload.molecules = this.readAddMoleculeEntries();
+            } catch {
+                // Domain volume remains previewable while a molecule row is incomplete.
+                payload.content_kind = 'atoms';
+            }
+        }
+        return payload;
+    }
+
+    renderAddAtomsDomainStatus(preview = null, error = null) {
+        const base = document.getElementById('add-atoms-base-domain');
+        const baseText = document.getElementById('add-atoms-base-domain-text');
+        const volume = document.getElementById('add-atoms-domain-volume');
+        const message = document.getElementById('add-atoms-domain-message');
+        const hasCell = Boolean(preview?.domain?.has_unit_cell ?? this.addAtomsHasFiniteCell());
+        base?.setAttribute('data-state', hasCell ? 'cell' : 'missing');
+        if (baseText) {
+            baseText.textContent = hasCell
+                ? 'Periodic unit cell; Allow union minus Reject union'
+                : 'No finite cell; at least one Allow region is required';
+        }
+        if (volume) {
+            const value = Number(preview?.domain?.volume_angstrom3);
+            volume.textContent = Number.isFinite(value) ? `${value.toFixed(6)} Å³` : '—';
+        }
+        const previewError = error || preview?.density_error || null;
+        if (message) {
+            message.dataset.state = previewError ? 'error' : 'ready';
+            message.textContent = previewError
+                ? previewError
+                : 'Allow regions are combined; Reject regions are subtracted exactly.';
+        }
+        const actual = document.getElementById('add-molecules-actual-density');
+        if (actual) {
+            const density = Number(preview?.density?.actual_g_cm3);
+            const molecules = Number(preview?.density?.molecule_count);
+            actual.textContent = Number.isFinite(density)
+                ? `${density.toFixed(5)} g/cm³ · ${molecules} molecules`
+                : '—';
+        }
+    }
+
+    scheduleAddAtomsDomainPreview({ immediate = false } = {}) {
+        if (!this.addAtomsUI || this.addAtomsUI.pane !== 'batch') return;
+        this.updateAddAtomsRegionPreview();
+        if (this.addAtomsSessionActive()) return;
+        if (this.addAtomsUI.domainRequestTimer) clearTimeout(this.addAtomsUI.domainRequestTimer);
+        const run = () => void this.requestAddAtomsDomainPreview();
+        if (immediate) run();
+        else this.addAtomsUI.domainRequestTimer = setTimeout(run, 140);
+    }
+
+    async requestAddAtomsDomainPreview() {
+        if (!this.addAtomsUI || this.addAtomsSessionActive()) return;
+        const token = ++this.addAtomsUI.domainRequestToken;
+        try {
+            const preview = await this.api.atomAdditionDomain(this.addAtomsDomainPayload());
+            if (token !== this.addAtomsUI.domainRequestToken) return;
+            this.addAtomsUI.domainPreview = preview;
+            this.renderAddAtomsDomainStatus(preview);
+            this.updateAddAtomsRegionPreview();
+        } catch (error) {
+            if (token !== this.addAtomsUI.domainRequestToken) return;
+            this.addAtomsUI.domainPreview = null;
+            this.renderAddAtomsDomainStatus(null, error.message);
+        }
+    }
+
+    async commitAddAtomsRegionControls() {
+        if (!this.addAtomsUI?.active) {
+            this.scheduleAddAtomsDomainPreview({ immediate: true });
+            return;
+        }
+        if (this.addAtomsUI.active.is_relaxing) return;
+        try {
+            const data = await this.api.updateAtomAdditionRegion({
+                regions: this.addAtomsRegions(),
+                region_mic: document.getElementById('add-atoms-mic')?.checked !== false,
+                constrain_to_domain: document.getElementById('add-atoms-constrain-domain')?.checked === true
+            });
+            this.syncAddAtomsSessionFromData(data);
+        } catch (error) {
+            this.toast(`Insertion-domain update failed: ${error.message}`, 'error');
+            this.syncAddAtomsSessionFromData({ metadata: { atom_addition: this.addAtomsUI.active } });
+        }
+    }
+
+    updateAddAtomsRegionPreview() {
+        if (!this.addAtomsUI || this.addAtomsUI.pane !== 'batch') return;
+        try {
+            this.renderer.setAddAtomsRegions({
+                regions: this.addAtomsRegions(),
+                cell: this.addAtomsUI.active?.cell || this.state.atoms?.cell,
+                pbc: this.addAtomsUI.active?.pbc || this.state.atoms?.pbc,
+                pbcAware: document.getElementById('add-atoms-mic')?.checked !== false,
+                selectedIds: [...this.selectedAddAtomsRegionIds()],
+                visible: true
+            });
+        } catch {
+            this.renderer.clearAddAtomsRegion();
+        }
+    }
+
+    addAtomsNumber(id, fallback) {
+        const value = Number(document.getElementById(id)?.value);
+        return Number.isFinite(value) ? value : fallback;
+    }
+
+    setAddAtomsStatus(state, message) {
+        const status = document.getElementById('add-atoms-status');
+        if (status) status.dataset.state = state;
+        const text = document.getElementById('add-atoms-status-text');
+        if (text) text.textContent = message;
+    }
+
+    syncAddAtomsActionState() {
+        const summary = this.addAtomsUI?.active;
+        const active = Boolean(summary?.active);
+        const running = Boolean(summary?.is_relaxing);
+        document.getElementById('add-atoms-mode-badge')?.classList.toggle('hidden', !active);
+        const scatter = document.getElementById('btn-add-atoms-scatter');
+        const cancel = document.getElementById('btn-add-atoms-cancel');
+        const finish = document.getElementById('btn-add-atoms-finish');
+        const selectAdded = document.getElementById('btn-add-atoms-select-added');
+        if (scatter) scatter.disabled = running;
+        if (cancel) cancel.disabled = !active || running;
+        if (finish) finish.disabled = !active || running;
+        if (selectAdded) selectAdded.disabled = !active;
+        document.querySelectorAll(
+            '#add-atoms-entries input, #add-atoms-entries select, #btn-add-atoms-entry, '
+            + '#add-atoms-entries .remove-add-atoms-entry, '
+            + '#add-molecule-entries input, #add-molecule-entries select, #btn-add-molecule-entry, '
+            + '#add-molecule-entries .remove-add-molecule-entry, '
+            + '#add-atoms-content-atoms, #add-atoms-content-molecules, '
+            + '#add-atoms-placement-random, #add-atoms-placement-homogeneous, #add-atoms-placement-regular, '
+            + '#add-atoms-coordinate-basis, #add-atoms-placement-pbc, #add-atoms-regular-spacing, '
+            + '#add-molecules-random-orientation, #add-molecules-rigid, '
+            + '#add-molecules-quantity-count, #add-molecules-quantity-density, '
+            + '#add-molecules-target-density, '
+            + '#add-atoms-seed, #add-atoms-freeze-existing'
+        ).forEach(control => { control.disabled = running; });
+        document.querySelectorAll(
+            '#add-atoms-box-fields input, #add-atoms-region-allowed, '
+            + '#add-atoms-region-prohibited, #add-atoms-constrain-domain, #add-atoms-mic, '
+            + '#btn-add-atoms-allow-region, #btn-add-atoms-reject-region, '
+            + '#btn-add-atoms-delete-region, #add-atoms-region-list button'
+        ).forEach(control => { control.disabled = running; });
+    }
+
+    syncAddAtomsSessionFromData(data) {
+        if (!this.addAtomsUI) return;
+        const summary = data?.metadata?.atom_addition || null;
+        const sameSession = Boolean(
+            summary?.active
+            && this.addAtomsUI.active?.id
+            && this.addAtomsUI.active.id === summary.id
+        );
+        this.addAtomsUI.active = summary?.active ? { ...summary } : null;
+        if (summary?.active) {
+            this.addAtomsUI.pane = 'batch';
+            if (!sameSession) {
+                this.addAtomsUI.contentKind = summary.last_content_kind === 'molecules'
+                    ? 'molecules'
+                    : 'atoms';
+                this.addAtomsUI.placementMode = ['homogeneous', 'regular'].includes(summary.placement_mode)
+                    ? summary.placement_mode
+                    : 'random';
+            }
+            this.addAtomsUI.regions = Array.isArray(summary.regions)
+                ? summary.regions.map(region => ({
+                    id: String(region.id),
+                    name: String(region.name || region.id),
+                    role: region.role === 'reject' ? 'reject' : 'allow',
+                    bounds: region.bounds.map(Number)
+                }))
+                : [];
+            this.addAtomsUI.domainPreview = {
+                domain: summary.domain,
+                density: summary.density
+            };
+            if (!sameSession) {
+                this.setAddAtomsContentKind(this.addAtomsUI.contentKind, { force: true });
+                this.setAddAtomsPlacementMode(this.addAtomsUI.placementMode, { force: true });
+                this.setAddMoleculeQuantityMode(summary.density ? 'density' : 'count', { force: true });
+                if (this.addAtomsUI.contentKind === 'molecules') {
+                    const entries = document.getElementById('add-molecule-entries');
+                    if (entries) {
+                        entries.replaceChildren();
+                        (summary.entries || []).forEach(entry => this.addAddMoleculeEntry({
+                            ...entry,
+                            count: entry.ratio ?? entry.count
+                        }));
+                    }
+                } else {
+                    const entries = document.getElementById('add-atoms-entries');
+                    if (entries) {
+                        entries.replaceChildren();
+                        (summary.entries || []).forEach(entry => this.addAddAtomsEntry(entry));
+                    }
+                }
+            }
+            const selected = this.selectedAddAtomsRegionIds();
+            this.state.addAtomsRegionSelectedIds = new Set(
+                [...selected].filter(id => this.addAtomsUI.regions.some(region => region.id === id))
+            );
+            this.renderAddAtomsRegions();
+            this.renderAddAtomsDomainStatus(this.addAtomsUI.domainPreview);
+            const seed = document.getElementById('add-atoms-seed');
+            if (seed && !sameSession) seed.value = summary.seed ?? '';
+            const coordinateBasis = document.getElementById('add-atoms-coordinate-basis');
+            if (coordinateBasis && !sameSession) coordinateBasis.value = summary.coordinate_basis || 'cartesian';
+            const regularSpacing = document.getElementById('add-atoms-regular-spacing');
+            if (regularSpacing && !sameSession) regularSpacing.value = summary.regular_spacing ?? '';
+            if (!sameSession) {
+                document.getElementById('add-atoms-placement-pbc').checked = summary.pbc_aware !== false;
+                document.getElementById('add-molecules-random-orientation').checked = summary.random_orientation !== false;
+                document.getElementById('add-molecules-rigid').checked = summary.rigid_molecules !== false;
+            }
+            document.getElementById('add-atoms-mic').checked = summary.domain?.pbc_aware !== false;
+            const targetDensity = document.getElementById('add-molecules-target-density');
+            if (!sameSession && targetDensity && summary.density?.target_g_cm3 != null) {
+                targetDensity.value = Number(summary.density.target_g_cm3).toFixed(6);
+            }
+            document.getElementById('add-atoms-freeze-existing').checked = summary.freeze_existing !== false;
+            document.getElementById('add-atoms-constrain-domain').checked = summary.constrain_to_domain === true;
+            this.setAddAtomsPane('batch');
+            const entity = `${summary.new_count || 0} staged atoms`
+                + (summary.molecule_count ? ` · ${summary.molecule_count} molecules` : '')
+                + (summary.placement_count > 1 ? ` · ${summary.placement_count} placements` : '');
+            const detail = summary.is_relaxing
+                ? `Relaxing staged content · ${summary.step || 0}/${summary.max_steps || 0}`
+                : `${entity} ready`;
+            this.setAddAtomsStatus(summary.is_relaxing ? 'running' : 'active', detail);
+        }
+        this.syncAddAtomsActionState();
+        this.updateEditingAvailability();
+    }
+
+    async scatterAtomsFromWidget() {
+        if (this.state.vizOnly) {
+            this.editOnlyToast();
+            return;
+        }
+        try {
+            if (!this.addAtomsHistoryToken) {
+                this.addAtomsHistoryToken = `add-atoms:${crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`}`;
+            }
+            const contentKind = this.addAtomsUI?.contentKind === 'molecules' ? 'molecules' : 'atoms';
+            const entries = contentKind === 'atoms' ? this.readAddAtomsEntries() : null;
+            const molecules = contentKind === 'molecules' ? this.readAddMoleculeEntries() : null;
+            const rawSeed = document.getElementById('add-atoms-seed')?.value?.trim();
+            const rawRegularSpacing = document.getElementById('add-atoms-regular-spacing')?.value?.trim();
+            const payload = {
+                content_kind: contentKind,
+                entries: entries || undefined,
+                molecules: molecules || undefined,
+                placement_mode: this.addAtomsUI?.placementMode || 'random',
+                regular_spacing: rawRegularSpacing === '' ? null : Number(rawRegularSpacing),
+                coordinate_basis: document.getElementById('add-atoms-coordinate-basis')?.value || 'cartesian',
+                pbc_aware: document.getElementById('add-atoms-placement-pbc')?.checked !== false,
+                random_orientation: document.getElementById('add-molecules-random-orientation')?.checked !== false,
+                rigid_molecules: document.getElementById('add-molecules-rigid')?.checked !== false,
+                molecule_quantity_mode: this.addAtomsUI?.quantityMode || 'count',
+                target_density_g_cm3: this.addAtomsNumber('add-molecules-target-density', 0.997),
+                region_mode: 'regions',
+                regions: this.addAtomsRegions(),
+                region_mic: document.getElementById('add-atoms-mic')?.checked !== false,
+                constrain_to_domain: document.getElementById('add-atoms-constrain-domain')?.checked === true,
+                seed: rawSeed === '' ? null : Number(rawSeed),
+                freeze_existing: document.getElementById('add-atoms-freeze-existing')?.checked !== false
+            };
+            const busyLabel = contentKind === 'molecules'
+                ? 'Placing molecules...'
+                : 'Placing atoms...';
+            const data = await this.withBusy(busyLabel, () => this.api.startAtomAddition(payload));
+            this.setAtomsData(data, { clearSelection: true });
+            this.startModeTrajectory('add-atoms', 'Add Atoms placement');
+            const summary = data.metadata?.atom_addition;
+            if (document.getElementById('add-atoms-select-added')?.checked !== false) {
+                (summary?.new_indices || []).forEach(index => this.addSelectionReference(index));
+            }
+            this.updateSelectionVisuals();
+            this.updateUI();
+            const sampling = summary?.sampling || {};
+            const detail = sampling.acceptance_fraction < 0.999
+                ? ` (${(100 * sampling.acceptance_fraction).toFixed(1)}% box acceptance)`
+                : '';
+            const batchAtoms = Number(summary?.last_batch_new_count || 0);
+            const batchMolecules = Number(summary?.last_batch_molecule_count || 0);
+            const inserted = contentKind === 'molecules'
+                ? `${batchMolecules} molecules (${batchAtoms} atoms)`
+                : `${batchAtoms} atoms`;
+            const total = Number(summary?.new_count || 0);
+            this.toast(`Placed ${inserted}${detail}. ${total} atoms are staged in total.`, 'success');
+        } catch (error) {
+            this.setAddAtomsStatus('error', error.message);
+            this.toast(`Add Atoms failed: ${error.message}`, 'error');
+        }
+    }
+
+    async relaxAddedAtomsFromWidget({
+        calculator: calculatorOverrides = null,
+        fmax = null,
+        steps = null,
+        throwOnError = false
+    } = {}) {
+        if (!this.addAtomsSessionActive()) return;
+        try {
+            if (
+                !this.state.relaxTrajectory?.active
+                || this.state.relaxTrajectory?.kind !== 'add-atoms'
+            ) {
+                this.startModeTrajectory('add-atoms', 'Add Atoms placement');
+            }
+            const requestedSteps = Math.max(
+                1,
+                Math.round(Number(steps ?? document.getElementById('relax-steps')?.value) || 200)
+            );
+            const calculator = this.calculatorPayloadWithOverrides(calculatorOverrides) || {
+                device: 'cpu',
+                cpu_threads: 4,
+                cutoff_mode: 'absolute',
+                cutoff_basis: 'covalent',
+                cutoff_distance: 2.0,
+                cutoff_scale: 1.0,
+                pair_cutoffs: this.repulsionPairCutoffs(),
+                k_repulsion: 1.0
+            };
+            this.addAtomsUI.active = {
+                ...this.addAtomsUI.active,
+                is_relaxing: true,
+                status: 'relaxing',
+                step: 0,
+                max_steps: requestedSteps,
+                requested_device: calculator.device,
+                cpu_threads: calculator.cpu_threads,
+                cutoff_mode: calculator.cutoff_mode,
+                cutoff_distance: calculator.cutoff_distance,
+                cutoff_scale: calculator.cutoff_scale,
+                k_repulsion: calculator.k_repulsion
+            };
+            this.setAddAtomsStatus('running', `Relaxing staged content · 0/${requestedSteps}`);
+            this.syncAddAtomsActionState();
+            this.updateCalculatorControls(this.state.atoms?.metadata);
+            const summary = await this.api.relaxAtomAddition({
+                ...calculator,
+                freeze_existing: document.getElementById('add-atoms-freeze-existing')?.checked !== false,
+                fmax: Number(fmax ?? document.getElementById('relax-fmax')?.value) || 0.05,
+                steps: requestedSteps,
+                mic: document.getElementById('add-atoms-mic')?.checked !== false,
+                constrain_to_domain: document.getElementById('add-atoms-constrain-domain')?.checked === true
+            });
+            const current = this.addAtomsUI.active;
+            const terminalStatuses = new Set(['converged', 'steps', 'stopped', 'error', 'relaxed']);
+            const completionArrivedFirst = (
+                current?.id === summary.id
+                && current.is_relaxing === false
+                && terminalStatuses.has(current.status)
+            );
+            if (!completionArrivedFirst) {
+                this.addAtomsUI.active = { ...summary };
+                this.setAddAtomsStatus('running', `Relaxing staged content · 0/${summary.max_steps || 0}`);
+            }
+            this.syncAddAtomsActionState();
+        } catch (error) {
+            if (this.addAtomsUI?.active) {
+                this.addAtomsUI.active.is_relaxing = false;
+                this.addAtomsUI.active.status = 'error';
+            }
+            this.setAddAtomsStatus('error', error.message);
+            this.syncAddAtomsActionState();
+            this.updateCalculatorControls(this.state.atoms?.metadata);
+            this.toast(`Repulsive placement failed: ${error.message}`, 'error');
+            if (throwOnError) throw error;
+        }
+    }
+
+    async stopAddedAtomsRelaxation() {
+        try {
+            await this.api.stopAtomAdditionRelaxation();
+            this.setAddAtomsStatus('running', 'Stopping repulsive placement...');
+        } catch (error) {
+            this.toast(`Could not stop placement: ${error.message}`, 'error');
+        }
+    }
+
+    async cancelAddedAtomsSession() {
+        const historyScope = this.addAtomsHistoryToken;
+        try {
+            const data = await this.api.cancelAtomAddition();
+            this.removeHistoryScope(historyScope);
+            this.addAtomsHistoryToken = null;
+            this.addAtomsUI.active = null;
+            this.setAtomsData(data, { clearSelection: true });
+            this.setAddAtomsRegionSelected(false, { update: false });
+            this.clearModeTrajectory('add-atoms');
+            const molecules = this.addAtomsUI?.contentKind === 'molecules';
+            this.setAddAtomsStatus(
+                'idle',
+                molecules ? 'Ready to place molecules' : 'Ready to place atoms'
+            );
+            this.updateAddAtomsRegionPreview();
+            this.setAddAtomsPane('single');
+            this.setCreateAtomWidgetExpanded(false);
+            this.toast('Add Atoms cancelled. The original structure was restored.', 'success');
+        } catch (error) {
+            this.toast(`Cancel failed: ${error.message}`, 'error');
+        }
+    }
+
+    async finishAddedAtomsSession() {
+        try {
+            const data = await this.api.finishAtomAddition();
+            const result = data.metadata?.atom_addition_result || {};
+            const added = Number(result.added || 0);
+            const molecules = result.content_kind === 'molecules';
+            const moleculeCount = Number(result.molecule_count || 0);
+            this.addAtomsHistoryToken = null;
+            this.addAtomsUI.active = null;
+            this.setAtomsData(data, { clearSelection: true });
+            this.setAddAtomsRegionSelected(false, { update: false });
+            this.clearModeTrajectory('add-atoms');
+            this.setAddAtomsPane('single');
+            this.setCreateAtomWidgetExpanded(false);
+            const completion = molecules
+                ? `${moleculeCount} molecules (${added} atoms) added`
+                : `${added} atoms added`;
+            this.setAddAtomsStatus('complete', completion);
+            const inserted = molecules
+                ? `${moleculeCount} molecules (${added} atoms)`
+                : `${added} atoms`;
+            this.toast(`Added ${inserted} to the structure.`, 'success');
+        } catch (error) {
+            this.toast(`Finish failed: ${error.message}`, 'error');
+        }
     }
 
     makeCreateAtomWidgetDraggable(widget, handle) {
         if (!widget || !handle) return;
         let dragging = false;
+        let pointerId = null;
         let startX = 0;
         let startY = 0;
         let startLeft = 0;
         let startTop = 0;
         const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
-        const onMove = event => {
-            if (!dragging) return;
+        const dragBounds = () => {
             const rect = widget.getBoundingClientRect();
-            const left = clamp(startLeft + event.clientX - startX, 12, window.innerWidth - rect.width - 12);
-            const top = clamp(startTop + event.clientY - startY, 84, window.innerHeight - rect.height - 88);
-            widget.style.left = `${left}px`;
-            widget.style.top = `${top}px`;
+            const headerBottom = document.getElementById('top-bar')
+                ?.getBoundingClientRect().bottom || 0;
+            const margin = window.innerWidth <= 760 ? 8 : 12;
+            const minimumTop = Math.max(margin, headerBottom + margin);
+            return {
+                minimumLeft: margin,
+                maximumLeft: Math.max(margin, window.innerWidth - rect.width - margin),
+                minimumTop,
+                maximumTop: Math.max(minimumTop, window.innerHeight - rect.height - margin)
+            };
+        };
+        const placeWithinViewport = (left, top) => {
+            const bounds = dragBounds();
+            widget.style.left = `${clamp(left, bounds.minimumLeft, bounds.maximumLeft)}px`;
+            widget.style.top = `${clamp(top, bounds.minimumTop, bounds.maximumTop)}px`;
             widget.style.right = 'auto';
             widget.style.bottom = 'auto';
         };
-        const onUp = () => {
+        const onMove = event => {
+            if (!dragging || (pointerId !== null && event.pointerId !== pointerId)) return;
+            placeWithinViewport(
+                startLeft + event.clientX - startX,
+                startTop + event.clientY - startY
+            );
+        };
+        const onUp = event => {
             if (!dragging) return;
+            if (event?.pointerId !== undefined && pointerId !== null && event.pointerId !== pointerId) return;
             dragging = false;
             document.body.classList.remove('dragging-create-atom');
             window.removeEventListener('pointermove', onMove, true);
             window.removeEventListener('pointerup', onUp, true);
             window.removeEventListener('pointercancel', onUp, true);
+            window.removeEventListener('blur', onUp, true);
+            if (pointerId !== null && handle.hasPointerCapture?.(pointerId)) {
+                handle.releasePointerCapture(pointerId);
+            }
+            pointerId = null;
         };
         handle.addEventListener('pointerdown', event => {
             if (event.target?.closest?.('button')) return;
@@ -770,11 +3810,24 @@ class VAseApp {
             startY = event.clientY;
             startLeft = rect.left;
             startTop = rect.top;
+            pointerId = event.pointerId;
+            placeWithinViewport(startLeft, startTop);
             document.body.classList.add('dragging-create-atom');
             handle.setPointerCapture?.(event.pointerId);
             window.addEventListener('pointermove', onMove, true);
             window.addEventListener('pointerup', onUp, true);
             window.addEventListener('pointercancel', onUp, true);
+            window.addEventListener('blur', onUp, true);
+        });
+        const keepWidgetInViewport = () => {
+            if (widget.classList.contains('collapsed')) return;
+            const rect = widget.getBoundingClientRect();
+            placeWithinViewport(rect.left, rect.top);
+        };
+        window.addEventListener('resize', keepWidgetInViewport, { passive: true });
+        this.cleanupCallbacks.push(() => {
+            onUp();
+            window.removeEventListener('resize', keepWidgetInViewport);
         });
     }
 
@@ -921,10 +3974,12 @@ class VAseApp {
             '#super-x', '#super-y', '#super-z',
             '#commensurate-strain',
             '#commensurate-max-index',
+            '#commensurate-max-area',
             '#commensurate-snap-range',
             '.pairwise-bond-max',
             '.label-radius-input',
-            '.label-color-input'
+            '.label-color-input',
+            '.label-opacity-input'
         ].join(','));
     }
 
@@ -1076,10 +4131,12 @@ class VAseApp {
             const labels = { export: 'Export' };
             label.textContent = labels[next] || (next.charAt(0).toUpperCase() + next.slice(1));
         }
+        const hasSectionNavigation = ['structure', 'analysis', 'export'].includes(next);
         document.getElementById('structure-section-picker')?.classList.toggle(
             'hidden',
-            next !== 'structure'
+            !hasSectionNavigation
         );
+        if (hasSectionNavigation) this.populateInspectorSectionNavigation(next);
         if (persist) {
             try {
                 window.localStorage?.setItem('v_ase.inspectorGroup', next);
@@ -1087,9 +4144,67 @@ class VAseApp {
                 // Local storage may be unavailable in restricted browser contexts.
             }
         }
-        if (next === 'structure') {
+        if (hasSectionNavigation) {
             requestAnimationFrame(() => this.syncStructureSectionNavigation());
         }
+    }
+
+    inspectorSectionCatalog(group = this.inspectorGroup) {
+        const catalogs = {
+            structure: [
+                ['appearance', 'Atoms & Appearance'],
+                ['cell-replication', 'Cell & Replication'],
+                ['cell-transform', 'Cell Transform', true],
+                ['transform', 'Transform & Cell Match'],
+                ['constraints', 'Constraints', true],
+                ['bonding', 'Bonding'],
+                ['scientific-tools', 'Relaxation', true]
+            ],
+            analysis: [
+                ['displacement', 'Displacement'],
+                ['forces', 'Forces'],
+                ['volumetric', 'Volumetric Data'],
+                ['rdf', 'Distribution Functions'],
+                ['registry-map', 'Rigid Translation']
+            ],
+            export: [
+                ['export', 'Files & Media'],
+                ['project', 'v_ase Project'],
+                ['settings', 'Visual Settings'],
+                ['save-guide', 'Format Guide']
+            ]
+        };
+        return catalogs[group] || [];
+    }
+
+    populateInspectorSectionNavigation(group = this.inspectorGroup) {
+        const select = document.getElementById('structure-section-select');
+        if (!select) return;
+        this.inspectorSectionSelections ||= {};
+        const previous = select.value;
+        if (select.dataset.group) {
+            this.inspectorSectionSelections[select.dataset.group] = previous;
+        }
+        select.replaceChildren();
+        this.inspectorSectionCatalog(group).forEach(([value, label, editOnly]) => {
+            const option = document.createElement('option');
+            option.value = value;
+            option.textContent = label;
+            if (editOnly) {
+                option.dataset.editOnly = '';
+                option.disabled = Boolean(this.state.vizOnly);
+            }
+            select.appendChild(option);
+        });
+        select.dataset.group = group;
+        const preferred = this.inspectorSectionSelections[group];
+        const available = [...select.options].find(option => (
+            option.value === preferred && !option.disabled
+        ));
+        select.value = available?.value
+            || [...select.options].find(option => !option.disabled)?.value
+            || select.options[0]?.value
+            || '';
     }
 
     structureSectionTargets() {
@@ -1104,8 +4219,17 @@ class VAseApp {
             .filter(item => item.panel);
     }
 
+    openInspectorSection(group, section) {
+        this.setInspectorCollapsed(false);
+        this.setInspectorGroup(group);
+        const select = document.getElementById('structure-section-select');
+        if (!select || ![...select.options].some(option => option.value === section)) return;
+        select.value = section;
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+
     syncStructureSectionNavigation() {
-        if (this.inspectorGroup !== 'structure') return;
+        if (!['structure', 'analysis', 'export'].includes(this.inspectorGroup)) return;
         const content = document.getElementById('inspector-content');
         const select = document.getElementById('structure-section-select');
         const targets = this.structureSectionTargets().filter(
@@ -1121,6 +4245,8 @@ class VAseApp {
             active = targets[targets.length - 1];
         }
         select.value = active.option.value;
+        this.inspectorSectionSelections ||= {};
+        this.inspectorSectionSelections[this.inspectorGroup] = active.option.value;
     }
 
     setupStructureSectionNavigation() {
@@ -1128,6 +4254,8 @@ class VAseApp {
         const select = document.getElementById('structure-section-select');
         if (!content || !select) return;
         select.addEventListener('change', () => {
+            this.inspectorSectionSelections ||= {};
+            this.inspectorSectionSelections[this.inspectorGroup] = select.value;
             const panel = document.querySelector(
                 `#inspector-content [data-panel="${select.value}"]`
             );
@@ -1178,7 +4306,13 @@ class VAseApp {
             this.scheduleDisplacementAnalysisRefresh();
         };
         const restyle = () => this.readDisplacementControls();
-        document.getElementById('chk-displacement')?.addEventListener('change', recompute);
+        document.getElementById('chk-displacement')?.addEventListener('change', async event => {
+            if (event.target.checked && !await this.confirmAnalysisWithHiddenAtoms()) {
+                event.target.checked = false;
+                return;
+            }
+            recompute();
+        });
         document.getElementById('displacement-reference-mode')?.addEventListener('change', recompute);
         document.getElementById('displacement-reference-frame')?.addEventListener('change', recompute);
         document.getElementById('chk-displacement-mic')?.addEventListener('change', recompute);
@@ -1191,9 +4325,10 @@ class VAseApp {
 
     readDisplacementControls({ applyRenderer = true } = {}) {
         const frameCount = Math.max(1, Number(this.state.atoms?.metadata?.frame_count) || 1);
-        const mode = document.getElementById('displacement-reference-mode')?.value === 'frame'
+        const requestedMode = document.getElementById('displacement-reference-mode')?.value;
+        const mode = requestedMode === 'frame'
             ? 'frame'
-            : 'previous';
+            : (requestedMode === 'phonon' ? 'phonon' : 'previous');
         const referenceInput = document.getElementById('displacement-reference-frame');
         const referenceFrame = Math.max(
             0,
@@ -1201,7 +4336,7 @@ class VAseApp {
         );
         const scale = Math.max(
             0.05,
-            Math.min(10, Number(document.getElementById('displacement-scale')?.value) || 1)
+            Math.min(40, Number(document.getElementById('displacement-scale')?.value) || 1)
         );
         const thickness = Math.max(
             0.01,
@@ -1241,7 +4376,12 @@ class VAseApp {
         };
         setChecked('chk-displacement', display.showDisplacements);
         setChecked('chk-displacement-mic', display.displacementMic !== false);
-        setValue('displacement-reference-mode', display.displacementReferenceMode === 'frame' ? 'frame' : 'previous');
+        setValue(
+            'displacement-reference-mode',
+            display.displacementReferenceMode === 'frame'
+                ? 'frame'
+                : (display.displacementReferenceMode === 'phonon' ? 'phonon' : 'previous')
+        );
         setValue('displacement-reference-frame', (Number(display.displacementReferenceFrame) || 0) + 1);
         setValue('displacement-style', display.displacementStyle === '2d' ? '2d' : '3d');
         setValue('displacement-scale', Number(display.displacementScale) || 1);
@@ -1284,7 +4424,9 @@ class VAseApp {
         };
         setText(
             'displacement-frame-summary',
-            `${Number(data.reference_frame) + 1} -> ${Number(data.current_frame) + 1}`
+            data.reference_mode === 'phonon'
+                ? `Equilibrium -> ${Number(data.current_frame) + 1}`
+                : `${Number(data.reference_frame) + 1} -> ${Number(data.current_frame) + 1}`
         );
         setText(
             'displacement-mapped',
@@ -1326,7 +4468,7 @@ class VAseApp {
             this.clearDisplacementStats();
             return;
         }
-        if (frameCount <= 1) {
+        if (frameCount <= 1 && this.state.display.displacementReferenceMode !== 'phonon') {
             this.setDisplacementStatus(
                 'warning',
                 'Displacement unavailable',
@@ -1379,10 +4521,13 @@ class VAseApp {
             this.updateDisplacementStats(data);
             const mic = data.mic_applied ? 'MIC' : 'direct';
             const warning = (data.warnings || []).join(' ');
+            const mapping = data.reference_mode === 'phonon'
+                ? `${mic} mapping from phonon equilibrium to frame ${data.current_frame + 1}.`
+                : `${mic} mapping from frame ${data.reference_frame + 1} to ${data.current_frame + 1}.`;
             this.setDisplacementStatus(
                 warning ? 'warning' : 'ready',
                 `${data.matched} displacement vectors`,
-                warning || `${mic} mapping from frame ${data.reference_frame + 1} to ${data.current_frame + 1}.`
+                warning || mapping
             );
         } finally {
             if (busyTimer !== null) clearTimeout(busyTimer);
@@ -1393,105 +4538,182 @@ class VAseApp {
         }
     }
 
-    setupSymmetryPhononAnalysis() {
-        document.getElementById('btn-analyze-symmetry')?.addEventListener(
-            'click',
-            () => this.analyzeCurrentSymmetry()
-        );
-        document.getElementById('btn-symmetry-path')?.addEventListener(
-            'click',
-            () => this.calculateHighSymmetryPath()
-        );
-        document.querySelectorAll('[data-symmetry-transform]').forEach(button => {
-            button.addEventListener('click', () => {
-                this.applySymmetryTransform(button.dataset.symmetryTransform);
-            });
-        });
-        document.getElementById('btn-phonon-displacements')?.addEventListener(
-            'click',
-            () => this.createFiniteDisplacementTrajectory()
-        );
-        const projectInput = document.getElementById('phonopy-project-file');
-        document.getElementById('btn-load-phonopy-project')?.addEventListener(
-            'click',
-            () => projectInput?.click()
-        );
-        projectInput?.addEventListener('change', () => {
-            const file = projectInput.files?.[0];
-            projectInput.value = '';
-            if (file) this.loadPhonopyProject(file);
-        });
-        document.getElementById('btn-phonon-modes')?.addEventListener(
-            'click',
-            () => this.calculatePhononModes()
-        );
-        document.getElementById('btn-phonon-bands')?.addEventListener(
-            'click',
-            () => this.calculatePhononBandStructure()
-        );
-        ['phonon-q-x', 'phonon-q-y', 'phonon-q-z'].forEach(id => {
-            document.getElementById(id)?.addEventListener('input', () => {
-                this.state.phononSelectedNacDirection = null;
-                this.state.phononBandSelection = null;
-                this.updatePhononBandSelectionUI();
-            });
-        });
-        document.getElementById('btn-phonon-modulate')?.addEventListener(
-            'click',
-            () => this.createPhononModeTrajectory()
-        );
+    setupForceAnalysis() {
+        const restyle = () => this.readForceVectorControls();
+        document.getElementById('chk-force-vectors')?.addEventListener('change', restyle);
+        document.getElementById('force-vector-style')?.addEventListener('change', restyle);
+        document.getElementById('force-vector-scale')?.addEventListener('input', restyle);
+        document.getElementById('force-vector-thickness')?.addEventListener('input', restyle);
+        document.getElementById('force-vector-color')?.addEventListener('input', restyle);
+        this.syncForceVectorControls();
     }
 
-    finiteScienceNumber(id, label, {
-        minimum = -Infinity,
-        maximum = Infinity,
-        integer = false
-    } = {}) {
-        const input = document.getElementById(id);
-        const value = Number(input?.value);
-        if (!Number.isFinite(value)) throw new Error(`${label} must be finite.`);
-        if (integer && !Number.isInteger(value)) throw new Error(`${label} must be an integer.`);
-        if (value < minimum || value > maximum) {
-            throw new Error(`${label} must be between ${minimum} and ${maximum}.`);
+    readForceVectorControls({ applyRenderer = true } = {}) {
+        const color = document.getElementById('force-vector-color')?.value;
+        Object.assign(this.state.display, {
+            showForceVectors: Boolean(document.getElementById('chk-force-vectors')?.checked),
+            forceVectorStyle: document.getElementById('force-vector-style')?.value === '2d'
+                ? '2d'
+                : '3d',
+            forceVectorScale: Math.max(
+                0.02,
+                Math.min(5, Number(document.getElementById('force-vector-scale')?.value) || 1)
+            ),
+            forceVectorThickness: Math.max(
+                0.01,
+                Math.min(0.5, Number(document.getElementById('force-vector-thickness')?.value) || 0.08)
+            ),
+            forceVectorColor: /^#[0-9a-f]{6}$/i.test(color || '') ? color : '#c43f5e'
+        });
+        this.syncForceVectorControls();
+        if (applyRenderer) {
+            this.renderer.setDisplayOptions(this.state.display);
+            this.scheduleVisualHistoryCommit('force-vectors');
         }
-        return value;
+        if (this.state.display.showForceVectors) {
+            this.updateForceVectorsForCurrentFrame().catch(error => {
+                this.renderer.clearForceVectors();
+                this.updateForceVectorStatus(error.message);
+            });
+        }
+        this.updateForceVectorStatus();
     }
 
-    scienceVector(ids, label, options = {}) {
-        return ids.map((id, index) => this.finiteScienceNumber(
-            id,
-            `${label} ${'xyz'[index]}`,
-            options
-        ));
-    }
-
-    symmetryAnalysisOptions() {
-        const symprec = this.finiteScienceNumber(
-            'symmetry-symprec',
-            'Position tolerance',
-            { minimum: 1e-8, maximum: 1 }
-        );
-        const angleTolerance = this.finiteScienceNumber(
-            'symmetry-angle-tolerance',
-            'Angle tolerance',
-            { minimum: -1, maximum: 180 }
-        );
-        const positions = this.state.vizOnly
-            ? this.state.atoms?.positions
-            : this.backendPositionsPayload();
-        return {
-            symprec,
-            angle_tolerance: angleTolerance,
-            type_basis: document.getElementById('symmetry-type-basis')?.value === 'label'
-                ? 'label'
-                : 'element',
-            magnetic: Boolean(document.getElementById('chk-symmetry-magnetic')?.checked),
-            positions
+    syncForceVectorControls(display = this.state.display) {
+        const setValue = (id, value) => {
+            const element = document.getElementById(id);
+            if (element && document.activeElement !== element) element.value = `${value}`;
         };
+        const enabled = document.getElementById('chk-force-vectors');
+        if (enabled) enabled.checked = Boolean(display.showForceVectors);
+        setValue('force-vector-style', display.forceVectorStyle === '2d' ? '2d' : '3d');
+        setValue('force-vector-scale', Number(display.forceVectorScale) || 1);
+        setValue('force-vector-thickness', Number(display.forceVectorThickness) || 0.08);
+        setValue('force-vector-color', display.forceVectorColor || '#c43f5e');
+        const scaleOutput = document.getElementById('force-vector-scale-value');
+        if (scaleOutput) {
+            scaleOutput.textContent = `${(Number(display.forceVectorScale) || 1).toFixed(2)} A per eV/A`;
+        }
+        const thicknessOutput = document.getElementById('force-vector-thickness-value');
+        if (thicknessOutput) {
+            thicknessOutput.textContent = `${(Number(display.forceVectorThickness) || 0.08).toFixed(2)} A`;
+        }
+        this.updateForceVectorStatus();
     }
 
-    setScienceStatus(id, state, title, detail = '') {
-        const status = document.getElementById(id);
+    updateForceVectorStatus(errorMessage = '') {
+        const status = document.getElementById('force-vector-status');
+        if (!status) return;
+        const title = status.querySelector('.analysis-status-title');
+        const detail = status.querySelector('.analysis-status-detail');
+        const forces = Array.isArray(this.state.atoms?.forces) ? this.state.atoms.forces : [];
+        const finite = forces.filter(vector => (
+            Array.isArray(vector)
+            && vector.length >= 3
+            && vector.slice(0, 3).every(value => Number.isFinite(Number(value)))
+        ));
+        const nonzero = finite.filter(vector => (
+            Number(vector[0]) ** 2 + Number(vector[1]) ** 2 + Number(vector[2]) ** 2 > 1e-14
+        ));
+        if (errorMessage) {
+            status.dataset.state = 'warning';
+            if (title) title.textContent = 'Force vectors unavailable';
+            if (detail) detail.textContent = errorMessage;
+            return;
+        }
+        if (!this.state.display.showForceVectors) {
+            status.dataset.state = 'idle';
+            if (title) title.textContent = 'Force vectors hidden';
+            if (detail) detail.textContent = finite.length
+                ? `${finite.length} per-atom force values are available in this frame.`
+                : 'This frame does not contain per-atom force values.';
+            return;
+        }
+        if (!finite.length) {
+            status.dataset.state = 'warning';
+            if (title) title.textContent = 'Forces unavailable';
+            if (detail) detail.textContent = 'Load a frame with calculator or per-atom force data.';
+            return;
+        }
+        status.dataset.state = 'ready';
+        if (title) title.textContent = `${nonzero.length} force vector${nonzero.length === 1 ? '' : 's'}`;
+        if (detail) detail.textContent = 'Arrow direction follows the stored Cartesian force vector.';
+    }
+
+    invalidateForceVectorData() {
+        this.forceVectorRuntime.requestToken += 1;
+        this.forceVectorRuntime.trajectoryCache = null;
+        this.forceVectorRuntime.frameCaches.clear();
+        this.forceVectorRuntime.pending = null;
+        this.forceVectorRuntime.renderedFrame = -1;
+    }
+
+    forceVectorsFromCache(cache, frameIndex) {
+        if (!cache || cache.atoms !== this.state.atoms?.positions?.length) return null;
+        const localFrame = Number(frameIndex) - Number(cache.startFrame || 0);
+        if (localFrame < 0 || localFrame >= cache.frames) return null;
+        const offset = localFrame * cache.atoms * 3;
+        return Array.from({ length: cache.atoms }, (_, atomIndex) => {
+            const base = offset + atomIndex * 3;
+            const vector = [cache.values[base], cache.values[base + 1], cache.values[base + 2]];
+            return vector.every(Number.isFinite) ? vector : [Number.NaN, Number.NaN, Number.NaN];
+        });
+    }
+
+    async updateForceVectorsForCurrentFrame() {
+        if (!this.state.display.showForceVectors || !this.state.atoms?.positions?.length) {
+            this.forceVectorRuntime.renderedFrame = -1;
+            return;
+        }
+        const frameIndex = Number(this.state.atoms.metadata?.current_frame || 0);
+        const frameCount = Math.max(1, Number(this.state.atoms.metadata?.frame_count || 1));
+        const atomCount = this.state.atoms.positions.length;
+        let cache = this.forceVectorRuntime.trajectoryCache;
+        if (!cache) cache = this.forceVectorRuntime.frameCaches.get(frameIndex) || null;
+        let forces = this.forceVectorsFromCache(cache, frameIndex);
+        if (!forces) {
+            const token = ++this.forceVectorRuntime.requestToken;
+            const allFrames = frameCount > 1
+                && frameCount * atomCount * 3 <= MAX_FORCE_VECTOR_TRAJECTORY_CACHE_VALUES;
+            const request = this.api.fetchForceVectors(frameIndex, allFrames);
+            this.forceVectorRuntime.pending = request;
+            cache = await request;
+            if (token !== this.forceVectorRuntime.requestToken) return;
+            if (cache.cache === 'trajectory') {
+                this.forceVectorRuntime.trajectoryCache = cache;
+                this.forceVectorRuntime.frameCaches.clear();
+            } else {
+                this.forceVectorRuntime.frameCaches.set(frameIndex, cache);
+                while (this.forceVectorRuntime.frameCaches.size > 4) {
+                    this.forceVectorRuntime.frameCaches.delete(
+                        this.forceVectorRuntime.frameCaches.keys().next().value
+                    );
+                }
+            }
+            this.forceVectorRuntime.pending = null;
+            forces = this.forceVectorsFromCache(cache, frameIndex);
+        }
+        if (!forces || frameIndex !== Number(this.state.atoms.metadata?.current_frame || 0)) return;
+        this.state.atoms.forces = forces;
+        this.renderer.atomsData.forces = forces;
+        this.renderer.setForceVectors(forces, this.state.display);
+        this.forceVectorRuntime.renderedFrame = frameIndex;
+        this.updateForceVectorStatus();
+    }
+
+    volumetricDatasets() {
+        const datasets = this.state.atoms?.metadata?.volumetric_datasets;
+        return Array.isArray(datasets) ? datasets : [];
+    }
+
+    volumetricImportPrecision() {
+        return this.state.display.volumetricPrecision === 'float64'
+            ? 'float64'
+            : 'float32';
+    }
+
+    setVolumeStatus(state, title, detail = '') {
+        const status = document.getElementById('volume-status');
         if (!status) return;
         status.dataset.state = state;
         const titleElement = status.querySelector('.analysis-status-title');
@@ -1500,931 +4722,4116 @@ class VAseApp {
         if (detailElement) detailElement.textContent = detail;
     }
 
-    async analyzeCurrentSymmetry() {
-        try {
-            const options = this.symmetryAnalysisOptions();
-            options.tolerances = [
-                options.symprec / 100,
-                options.symprec / 10,
-                options.symprec,
-                options.symprec * 10,
-                options.symprec * 100
-            ].filter(value => value >= 1e-8 && value <= 1);
-            this.setScienceStatus(
-                'symmetry-status',
-                'loading',
-                'Analyzing symmetry',
-                `spglib tolerance ${options.symprec} A`
-            );
-            const result = await this.withBusy(
-                'Analyzing crystallographic symmetry...',
-                () => this.api.analyzeSymmetry(options)
-            );
-            this.state.symmetryResult = result;
-            this.renderSymmetryResult(result);
-        } catch (error) {
-            this.setScienceStatus('symmetry-status', 'warning', 'Symmetry unavailable', error.message);
-            this.toast(`Symmetry analysis failed: ${error.message}`, 'error');
-        }
+    selectedVolumetricDataset() {
+        const datasets = this.volumetricDatasets();
+        const selectedId = this.state.display.volumetricDatasetId;
+        return datasets.find(dataset => dataset.id === selectedId) || datasets[0] || null;
     }
 
-    renderSymmetryResult(result) {
-        const container = document.getElementById('symmetry-result');
-        if (!container) return;
-        const text = (id, value) => {
-            const element = document.getElementById(id);
-            if (element) element.textContent = `${value ?? '-'}`;
-        };
-        if (result.kind === 'magnetic') {
-            container.classList.add('hidden');
-            this.setScienceStatus(
-                'symmetry-status',
-                'ready',
-                `Magnetic space group UNI ${result.uni_number}`,
-                `${result.operation_count} operations; type ${result.magnetic_spacegroup_type}.`
-            );
-            return;
-        }
-        container.classList.remove('hidden');
-        text('symmetry-spacegroup', result.international);
-        text('symmetry-number', `No. ${result.number}`);
-        text('symmetry-pointgroup', result.pointgroup);
-        text('symmetry-crystal-system', result.crystal_system);
-        text('symmetry-operation-count', result.operation_count);
-        text('symmetry-orbit-count', result.orbits?.length || 0);
-        const orbitList = document.getElementById('symmetry-orbits');
-        orbitList?.replaceChildren(...(result.orbits || []).map(orbit => {
-            const row = document.createElement('div');
-            row.className = 'symmetry-orbit-row';
-            const number = document.createElement('strong');
-            number.textContent = `${orbit.orbit}`;
-            const site = document.createElement('span');
-            site.textContent = `${orbit.wyckoff}  ${orbit.site_symmetry || '-'}`;
-            const identity = document.createElement('span');
-            const labels = (orbit.labels || []).join(', ');
-            identity.textContent = `${labels || orbit.element} | ${orbit.multiplicity} atom${orbit.multiplicity === 1 ? '' : 's'}`;
-            identity.title = `Indices: ${(orbit.indices || []).join(', ')}`;
-            row.append(number, site, identity);
-            return row;
-        }));
-        const warnings = (result.warnings || []).join(' ');
-        const scan = result.tolerance_scan || [];
-        const stableGroups = new Set(
-            scan.filter(item => !item.error).map(item => `${item.number}:${item.international}`)
-        );
-        const stability = scan.length
-            ? `${stableGroups.size === 1 ? 'Stable' : 'Changes'} across ${scan.length} tested tolerances.`
-            : '';
-        this.setScienceStatus(
-            'symmetry-status',
-            warnings ? 'warning' : 'ready',
-            `${result.international} (No. ${result.number})`,
-            [stability, warnings].filter(Boolean).join(' ')
-        );
-    }
-
-    invalidateScientificResults() {
-        this.state.symmetryResult = null;
-        this.state.symmetryPath = null;
-        this.state.phononBandStructure = null;
-        this.state.phononBandSelection = null;
-        this.state.phononSelectedNacDirection = null;
-        this.state.phononModes = null;
-        this.state.phononTrajectoryMetadata = null;
-        this.state.phononBandRequestToken += 1;
-        this.state.phononBandCalculationPending = false;
-        document.getElementById('symmetry-result')?.classList.add('hidden');
-        document.getElementById('symmetry-orbits')?.replaceChildren();
-        document.getElementById('symmetry-path-result')?.classList.add('hidden');
-        document.getElementById('phonon-mode-result')?.classList.add('hidden');
-        document.getElementById('phonon-band-result')?.classList.add('hidden');
-        this.setScienceStatus(
-            'symmetry-status',
-            'idle',
-            'Not analyzed',
-            'Inspect the current frame with spglib.'
-        );
-        this.setScienceStatus(
-            'phonon-band-status',
-            'idle',
-            'Band structure unavailable',
-            'Load force constants to calculate the HPKOT path.'
-        );
-    }
-
-    async calculateHighSymmetryPath() {
-        try {
-            const result = await this.withBusy(
-                'Calculating the standard reciprocal path...',
-                () => this.api.fetchHighSymmetryPath(this.symmetryAnalysisOptions())
-            );
-            this.state.symmetryPath = result;
-            const container = document.getElementById('symmetry-path-result');
-            if (container) {
-                container.classList.remove('hidden');
-                const segments = (result.path || [])
-                    .map(([start, end]) => `${start} -> ${end}`)
-                    .join(' | ');
-                container.textContent = [
-                    `${result.bravais_lattice || '-'} / ${result.spacegroup_international || '-'} No. ${result.spacegroup_number ?? '-'}`,
-                    segments || 'No path segments returned.'
-                ].join('\n');
-            }
-            this.toast('Calculated the HPKOT high-symmetry path.', 'success');
-        } catch (error) {
-            this.toast(`Reciprocal path failed: ${error.message}`, 'error');
-        }
-    }
-
-    async applySymmetryTransform(mode) {
-        if (!['primitive', 'conventional', 'refine'].includes(mode)) return;
-        if (!this.canEditAtoms()) {
-            this.editOnlyToast();
-            return;
-        }
-        const accepted = await this.showConfirmModal({
-            title: `Create ${mode} structure?`,
-            intro: 'This replaces the loaded trajectory with one standardized frame.',
-            items: [
-                'Atom ordering and atom count may change.',
-                'Constraints and calculators are removed when no exact mapping exists.',
-                'The complete replacement can be undone with Ctrl+Z.'
-            ],
-            confirmText: `Create ${mode}`
+    volumetricDatasetFrameAssignments() {
+        const datasets = this.volumetricDatasets();
+        const sourceFrames = new Set(datasets.map(dataset => Number(
+            dataset?.metadata?.source_frame
+        )).filter(Number.isInteger));
+        const useSourceFrames = sourceFrames.size > 1;
+        const assignments = new Map();
+        datasets.forEach(dataset => {
+            const explicit = Number(dataset?.metadata?.trajectory_frame);
+            const source = Number(dataset?.metadata?.source_frame);
+            const frame = Number.isInteger(explicit)
+                ? explicit
+                : (useSourceFrames && Number.isInteger(source) ? source : null);
+            assignments.set(dataset.id, frame);
         });
-        if (!accepted) return;
-        const previousPhononTrajectoryMetadata = this.state.phononTrajectoryMetadata;
-        this.state.phononTrajectoryMetadata = null;
-        try {
-            const result = await this.withBusy(
-                `Creating ${mode} structure...`,
-                () => this.api.transformBySymmetry({
-                    ...this.symmetryAnalysisOptions(),
-                    mode,
-                    idealize: true
-                })
-            );
-            const metadata = result.symmetry_transform || {};
-            this.setAtomsData(result, { clearSelection: true });
-            const warnings = (metadata.warnings || []).join(' ');
-            this.toast(
-                `${mode[0].toUpperCase()}${mode.slice(1)} structure created: ${metadata.source_atom_count ?? '-'} -> ${metadata.result_atom_count ?? '-'} atoms.${warnings ? ` ${warnings}` : ''}`,
-                warnings ? 'warning' : 'success'
-            );
-            await this.analyzeCurrentSymmetry();
-        } catch (error) {
-            this.toast(`Symmetry transform failed: ${error.message}`, 'error');
-        }
+        return assignments;
     }
 
-    async createFiniteDisplacementTrajectory() {
-        if (!this.canEditAtoms()) {
-            this.editOnlyToast();
-            return;
-        }
-        let supercell;
-        let distance;
-        try {
-            supercell = this.scienceVector(
-                ['phonon-super-x', 'phonon-super-y', 'phonon-super-z'],
-                'Supercell',
-                { minimum: 1, maximum: 20, integer: true }
-            );
-            distance = this.finiteScienceNumber(
-                'phonon-displacement-distance',
-                'Displacement',
-                { minimum: 1e-6, maximum: 1 }
-            );
-        } catch (error) {
-            this.toast(error.message, 'error');
-            return;
-        }
-        const accepted = await this.showConfirmModal({
-            title: 'Generate finite-displacement inputs?',
-            intro: 'The current trajectory will be replaced by symmetry-reduced calculation inputs.',
-            items: [
-                `Supercell: ${supercell.join(' x ')}; displacement: ${distance} A.`,
-                'These frames do not contain forces and are not physical phonon modes.',
-                'Use Ctrl+Z to restore the current trajectory.'
-            ],
-            confirmText: 'Generate inputs'
-        });
-        if (!accepted) return;
-        try {
-            const result = await this.withBusy(
-                'Generating symmetry-reduced finite displacements...',
-                () => this.api.generatePhononDisplacements({
-                    supercell_matrix: supercell,
-                    distance,
-                    symprec: this.symmetryAnalysisOptions().symprec,
-                    positions: this.backendPositionsPayload()
-                })
-            );
-            const metadata = result.phonon || {};
-            this.state.phononModelSummary = metadata;
-            this.state.phononBandStructure = null;
-            this.state.phononBandSelection = null;
-            this.state.phononSelectedNacDirection = null;
-            this.state.phononModes = null;
-            this.state.phononTrajectoryMetadata = null;
-            this.setAtomsData(result, { clearSelection: true });
-            this.renderPhononModelSummary(metadata);
-            this.setScienceStatus(
-                'phonon-band-status',
-                'warning',
-                'Force constants required',
-                'Calculate forces for every displaced frame, then load the completed project.'
-            );
-            document.getElementById('phonon-band-result')?.classList.add('hidden');
-            document.getElementById('phonon-mode-result')?.classList.add('hidden');
-            this.toast(
-                `Generated ${metadata.displacement_count || result.metadata?.frame_count || 0} finite-displacement inputs. Forces are still required.`,
-                'success'
-            );
-        } catch (error) {
-            this.toast(`Finite displacement generation failed: ${error.message}`, 'error');
-        }
-    }
-
-    async loadPhonopyProject(file) {
-        try {
-            const result = await this.withBusy(
-                `Loading ${file.name}...`,
-                () => this.api.loadPhonopyProject(file)
-            );
-            this.state.phononModelSummary = result;
-            this.state.phononBandStructure = null;
-            this.state.phononBandSelection = null;
-            this.state.phononSelectedNacDirection = null;
-            this.state.phononModes = null;
-            this.state.phononTrajectoryMetadata = null;
-            this.renderPhononModelSummary(result);
-            document.getElementById('phonon-mode-result')?.classList.add('hidden');
-            this.toast(
-                result.has_force_constants
-                    ? 'Loaded phonopy force constants.'
-                    : 'Loaded phonopy project, but it does not contain force constants.',
-                result.has_force_constants ? 'success' : 'warning'
-            );
-            if (result.has_force_constants) {
-                await this.calculatePhononBandStructure({ silent: true });
-            } else {
-                this.setScienceStatus(
-                    'phonon-band-status',
-                    'warning',
-                    'Force constants required',
-                    'This project contains calculation inputs but no physical dispersion.'
-                );
-            }
-        } catch (error) {
-            this.setScienceStatus(
-                'phonon-model-status',
-                'warning',
-                'Could not load phonopy project',
-                error.message
-            );
-            this.toast(`Phonopy load failed: ${error.message}`, 'error');
-        }
-    }
-
-    renderPhononModelSummary(result) {
-        if (!result) {
-            this.setScienceStatus(
-                'phonon-model-status',
-                'idle',
-                'No phonopy model',
-                'Load a phonopy YAML that contains force constants.'
-            );
-            return;
-        }
-        const supercell = Array.isArray(result.supercell_matrix)
-            ? result.supercell_matrix.map(row => row.join(' ')).join('; ')
-            : '-';
-        this.setScienceStatus(
-            'phonon-model-status',
-            result.has_force_constants ? 'ready' : 'warning',
-            result.has_force_constants ? 'Force constants ready' : 'Calculation inputs only',
-            `${result.unit_atoms ?? '-'} unit atoms; ${result.supercell_atoms ?? '-'} supercell atoms; P=[${supercell}].`
-        );
-    }
-
-    async calculatePhononBandStructure({ silent = false } = {}) {
-        if (this.state.phononBandCalculationPending) return null;
-        this.state.phononBandCalculationPending = true;
-        const token = ++this.state.phononBandRequestToken;
-        let referenceDistance;
-        try {
-            referenceDistance = this.finiteScienceNumber(
-                'phonon-band-spacing',
-                'Band spacing',
-                { minimum: 0.005, maximum: 1 }
-            );
-        } catch (error) {
-            this.toast(error.message, 'error');
-            this.state.phononBandCalculationPending = false;
-            return null;
-        }
-        this.setScienceStatus(
-            'phonon-band-status',
-            'loading',
-            'Calculating band structure',
-            `SeeK-path HPKOT spacing ${referenceDistance} 1/A`
-        );
-        try {
-            const request = () => this.api.fetchPhononBandStructure({
-                reference_distance: referenceDistance,
-                symprec: this.finiteScienceNumber(
-                    'symmetry-symprec',
-                    'Position tolerance',
-                    { minimum: 1e-8, maximum: 1 }
-                ),
-                angle_tolerance: this.finiteScienceNumber(
-                    'symmetry-angle-tolerance',
-                    'Angle tolerance',
-                    { minimum: -1, maximum: 180 }
-                )
-            });
-            const result = silent
-                ? await request()
-                : await this.withBusy('Calculating the phonon band structure...', request);
-            if (token !== this.state.phononBandRequestToken) return null;
-            this.state.phononBandStructure = result;
-            this.state.phononBandSelection = null;
-            this.state.phononSelectedNacDirection = null;
-            this.renderPhononBandStructure(result);
-            this.setScienceStatus(
-                'phonon-band-status',
-                result.has_imaginary ? 'warning' : 'ready',
-                `${result.bravais_lattice} phonon dispersion`,
-                `${result.qpoint_count} q-points; ${result.band_count} bands; ${result.convention} path.`
-            );
-            if (!silent) this.toast('Calculated the interactive phonon band structure.', 'success');
-            return result;
-        } catch (error) {
-            if (token !== this.state.phononBandRequestToken) return null;
-            this.state.phononBandStructure = null;
-            this.state.phononBandSelection = null;
-            document.getElementById('phonon-band-result')?.classList.add('hidden');
-            this.setScienceStatus(
-                'phonon-band-status',
-                'warning',
-                'Band structure unavailable',
-                error.message
-            );
-            this.toast(`Phonon band structure failed: ${error.message}`, 'error');
-            return null;
-        } finally {
-            if (token === this.state.phononBandRequestToken) {
-                this.state.phononBandCalculationPending = false;
-            }
-        }
-    }
-
-    phononBandLabel(label) {
-        return String(label || '').replaceAll('GAMMA', 'Γ');
-    }
-
-    phononBandPointLabel(point) {
-        if (!point) return '';
-        if (point.pathLabel) return this.phononBandLabel(point.pathLabel);
-        const tick = (this.state.phononBandStructure?.ticks || []).find(item => (
-            Math.abs(Number(item.distance) - Number(point.distance)) <= 1e-9
+    matchingVolumetricDataset(dataset, frameIndex, assignments) {
+        if (!dataset) return null;
+        const candidates = this.volumetricDatasets().filter(candidate => (
+            assignments.get(candidate.id) === frameIndex
         ));
-        return this.phononBandLabel(tick?.label || '');
+        if (!candidates.length) return null;
+        const score = candidate => [
+            candidate.component === dataset.component,
+            candidate.quantity === dataset.quantity,
+            candidate.metadata?.source_file === dataset.metadata?.source_file,
+            candidate.source_format === dataset.source_format
+        ].reduce((total, matches, index) => total + (matches ? 8 >> index : 0), 0);
+        return candidates.sort((left, right) => score(right) - score(left))[0];
     }
 
-    phononBandPointShortText(point) {
-        if (!point) return '';
-        const label = this.phononBandPointLabel(point);
-        const location = label ? `${label} · ` : '';
-        return `${location}ν${point.band} · ${Number(point.frequency).toFixed(3)} THz`;
+    volumetricDatasetMatchesDisplayedCell(dataset) {
+        const fieldCell = dataset?.cell;
+        const structureCell = this.state.atoms?.cell;
+        if (!Array.isArray(fieldCell) || !Array.isArray(structureCell)) return false;
+        if (fieldCell.length !== 3 || structureCell.length !== 3) return false;
+        for (let row = 0; row < 3; row++) {
+            if (!Array.isArray(fieldCell[row]) || !Array.isArray(structureCell[row])) return false;
+            for (let column = 0; column < 3; column++) {
+                const expected = Number(fieldCell[row][column]);
+                const actual = Number(structureCell[row][column]);
+                const tolerance = 1e-7 + 1e-6 * Math.max(Math.abs(expected), Math.abs(actual));
+                if (!Number.isFinite(expected) || !Number.isFinite(actual) || Math.abs(expected - actual) > tolerance) {
+                    return false;
+                }
+            }
+        }
+        return true;
     }
 
-    phononBandPointText(point) {
-        if (!point) return 'Point at a branch, then click to select q and ν.';
-        const label = this.phononBandPointLabel(point);
-        const location = label ? `${label} · ` : '';
-        const q = point.qpoint.map(value => Number(value).toFixed(4)).join(', ');
-        const frequency = Number(point.frequency).toFixed(4);
-        const dimension = Array.isArray(point.dimension)
-            ? ` | mode cell ${point.dimension.join(' x ')}`
-            : ' | no small diagonal mode cell found';
-        const imaginary = point.frequency < -1e-8 ? ' (imaginary)' : '';
-        return `Selected ${location}ν${point.band} | q=(${q}) | ${frequency} THz${imaginary}${dimension}`;
-    }
-
-    phononBandNearestPoint(event) {
-        const plot = document.getElementById('phonon-band-plot');
-        const result = this.state.phononBandStructure;
-        const geometry = plot?.__vAseBandGeometry;
-        if (!plot || !result || !geometry) return null;
-        const rect = plot.getBoundingClientRect();
-        if (rect.width <= 0 || rect.height <= 0) return null;
-        const px = (event.clientX - rect.left) * geometry.width / rect.width;
-        const py = (event.clientY - rect.top) * geometry.height / rect.height;
-        let nearest = null;
-        let nearestDistance = Infinity;
-        (result.segments || []).forEach((segment, segmentIndex) => {
-            (segment.distances || []).forEach((distance, pointIndex) => {
-                const x = geometry.x(Number(distance));
-                (segment.frequencies?.[pointIndex] || []).forEach((frequency, bandIndex) => {
-                    const y = geometry.y(Number(frequency));
-                    const metric = (x - px) ** 2 + (y - py) ** 2;
-                    if (metric >= nearestDistance) return;
-                    nearestDistance = metric;
-                    nearest = {
-                        segmentIndex,
-                        pointIndex,
-                        band: bandIndex + 1,
-                        distance: Number(distance),
-                        qpoint: [...segment.qpoints[pointIndex]],
-                        frequency: Number(frequency),
-                        nacDirection: segment.nac_directions?.[pointIndex]
-                            ? [...segment.nac_directions[pointIndex]]
-                            : null,
-                        dimension: segment.suggested_dimensions?.[pointIndex]
-                            ? [...segment.suggested_dimensions[pointIndex]]
-                            : null,
-                        pathLabel: (result.ticks || []).find(item => (
-                            Math.abs(Number(item.distance) - Number(distance)) <= 1e-9
-                        ))?.label || '',
-                        x,
-                        y
-                    };
-                });
-            });
-        });
-        return nearest;
-    }
-
-    updatePhononBandCursor(point, { selected = false } = {}) {
-        const plot = document.getElementById('phonon-band-plot');
-        if (!plot) return;
-        const prefix = selected ? 'selected' : 'hover';
-        const line = plot.querySelector(`.phonon-band-${prefix}-line`);
-        const horizontal = plot.querySelector(`.phonon-band-${prefix}-horizontal`);
-        const halo = plot.querySelector(`.phonon-band-${prefix}-halo`);
-        const marker = plot.querySelector(`.phonon-band-${prefix}-point`);
-        const tag = plot.querySelector(`.phonon-band-${prefix}-tag`);
-        const tagText = tag?.querySelector('text');
-        if (!marker || !tag) return;
-        if (!point) {
-            line?.setAttribute('visibility', 'hidden');
-            horizontal?.setAttribute('visibility', 'hidden');
-            halo?.setAttribute('visibility', 'hidden');
-            marker.setAttribute('visibility', 'hidden');
-            tag.setAttribute('visibility', 'hidden');
-            return;
+    async refreshVolumetricDataForCurrentFrame() {
+        const datasets = this.volumetricDatasets();
+        if (!datasets.length) return;
+        const frameIndex = Number(this.state.atoms?.metadata?.current_frame || 0);
+        const assignments = this.volumetricDatasetFrameAssignments();
+        const selected = this.selectedVolumetricDataset();
+        const selectedFrame = assignments.get(selected?.id);
+        let active = selected;
+        let datasetChanged = false;
+        if (selectedFrame !== null && selectedFrame !== undefined && selectedFrame !== frameIndex) {
+            active = this.matchingVolumetricDataset(selected, frameIndex, assignments);
+            if (active) {
+                this.state.display.volumetricDatasetId = active.id;
+                datasetChanged = active.id !== selected.id;
+            }
         }
-        const geometry = plot.__vAseBandGeometry;
-        if (line) {
-            line.setAttribute('x1', `${point.x}`);
-            line.setAttribute('x2', `${point.x}`);
-            line.setAttribute('visibility', 'visible');
-        }
-        if (horizontal) {
-            horizontal.setAttribute('x1', `${geometry?.margin?.left ?? 0}`);
-            horizontal.setAttribute('x2', `${point.x}`);
-            horizontal.setAttribute('y1', `${point.y}`);
-            horizontal.setAttribute('y2', `${point.y}`);
-            horizontal.setAttribute('visibility', 'visible');
-        }
-        if (halo) {
-            halo.setAttribute('cx', `${point.x}`);
-            halo.setAttribute('cy', `${point.y}`);
-            halo.setAttribute('visibility', 'visible');
-        }
-        marker.setAttribute('cx', `${point.x}`);
-        marker.setAttribute('cy', `${point.y}`);
-        marker.setAttribute('visibility', 'visible');
-        const tagWidth = selected ? 92 : 138;
-        const tagHeight = 25;
-        const width = geometry?.width || 640;
-        const height = geometry?.height || 350;
-        const tagX = point.x + tagWidth + 18 > width
-            ? point.x - tagWidth - 10
-            : point.x + 10;
-        const tagY = point.y < 44
-            ? point.y + 10
-            : Math.min(height - tagHeight - 5, point.y - tagHeight - 9);
-        tag.setAttribute('transform', `translate(${tagX} ${tagY})`);
-        tag.setAttribute('visibility', 'visible');
-        if (tagText) {
-            const pointLabel = this.phononBandPointLabel(point) || 'q';
-            tagText.textContent = selected
-                ? `${pointLabel} · ν${point.band}`
-                : this.phononBandPointShortText(point);
-        }
-    }
-
-    updatePhononBandSelectionUI(point = this.state.phononBandSelection) {
-        const output = document.getElementById('phonon-band-selection');
-        if (output) output.textContent = this.phononBandPointText(point);
-        const selection = output?.closest('.phonon-band-selection');
-        if (selection) selection.dataset.state = point ? 'selected' : 'idle';
-        const meta = document.getElementById('phonon-band-meta');
-        if (meta) {
-            const result = this.state.phononBandStructure;
-            meta.textContent = point
-                ? this.phononBandPointShortText(point)
-                : `${result?.convention || '-'} · q path · ${result?.frequency_unit || 'THz'}`;
-        }
-        const plot = document.getElementById('phonon-band-plot');
-        plot?.querySelectorAll('.phonon-band-branch').forEach(path => {
-            path.classList.toggle(
-                'is-selected',
-                Boolean(point) && Number(path.dataset.band) === Number(point.band)
+        let planeDatasetChanged = false;
+        const hiddenPlaneIds = new Set();
+        this.state.display.volumetricPlanes = this.volumetricPlanes().map(plane => {
+            const planeDataset = datasets.find(dataset => dataset.id === plane.datasetId);
+            const planeFrame = assignments.get(plane.datasetId);
+            if (planeFrame === null || planeFrame === undefined || planeFrame === frameIndex) {
+                if (planeDataset && !this.volumetricDatasetMatchesDisplayedCell(planeDataset)) {
+                    hiddenPlaneIds.add(plane.id);
+                }
+                return plane;
+            }
+            const replacement = this.matchingVolumetricDataset(
+                planeDataset,
+                frameIndex,
+                assignments
             );
+            if (!replacement || !this.volumetricDatasetMatchesDisplayedCell(replacement)) {
+                hiddenPlaneIds.add(plane.id);
+                return plane;
+            }
+            planeDatasetChanged = planeDatasetChanged || replacement.id !== plane.datasetId;
+            return { ...plane, datasetId: replacement.id };
         });
-        this.updatePhononBandCursor(point, { selected: true });
-    }
-
-    renderPhononBandStructure(result) {
-        const container = document.getElementById('phonon-band-result');
-        const plot = document.getElementById('phonon-band-plot');
-        if (!container || !plot || !result?.segments?.length) return;
-        container.classList.remove('hidden');
-        const title = document.getElementById('phonon-band-title');
-        const meta = document.getElementById('phonon-band-meta');
-        if (title) title.textContent = `${result.spacegroup_international} phonons`;
-        if (meta) meta.textContent = `${result.convention} · ${result.frequency_unit}`;
-
-        const svg = (name, attributes = {}, text = '') => {
-            const element = document.createElementNS('http://www.w3.org/2000/svg', name);
-            Object.entries(attributes).forEach(([key, value]) => {
-                element.setAttribute(key, `${value}`);
-            });
-            if (text) element.textContent = text;
-            return element;
-        };
-        const margin = { left: 62, right: 17, top: 17, bottom: 66 };
-        const width = 640;
-        const height = 350;
-        const xMin = Number(result.ticks?.[0]?.distance ?? result.segments[0].distances[0]);
-        const xMax = Number(
-            result.ticks?.[result.ticks.length - 1]?.distance
-            ?? result.segments[result.segments.length - 1].distances.at(-1)
+        this.state.volumetricFrameHiddenPlaneIds = hiddenPlaneIds;
+        this.renderer.volumetricPlanes.forEach((record, planeId) => {
+            if (hiddenPlaneIds.has(planeId)) record.group.visible = false;
+        });
+        const signature = JSON.stringify({
+            datasetId: active?.id || null,
+            structureCell: this.state.atoms?.cell || null,
+            planes: this.volumetricPlanes().map(plane => [plane.id, plane.datasetId, plane.visible]),
+            hiddenPlanes: [...hiddenPlaneIds].sort()
+        });
+        if (signature === this.state.volumetricFrameSignature) return;
+        this.state.volumetricFrameSignature = signature;
+        const activeUnavailable = !active || (
+            selectedFrame !== null
+            && selectedFrame !== undefined
+            && !datasetChanged
+            && selectedFrame !== frameIndex
         );
-        const rawMin = Math.min(0, Number(result.frequency_min));
-        const rawMax = Math.max(0, Number(result.frequency_max));
-        const frequencySpan = Math.max(1e-6, rawMax - rawMin);
-        const yMin = rawMin - frequencySpan * 0.07;
-        const yMax = rawMax + frequencySpan * 0.07;
-        const x = value => margin.left + (Number(value) - xMin) / Math.max(1e-12, xMax - xMin)
-            * (width - margin.left - margin.right);
-        const y = value => height - margin.bottom - (Number(value) - yMin) / (yMax - yMin)
-            * (height - margin.top - margin.bottom);
-        plot.setAttribute('viewBox', `0 0 ${width} ${height}`);
-        plot.__vAseBandGeometry = { x, y, yMin, yMax, width, height, margin };
-        plot.replaceChildren();
-
-        const yTicks = 5;
-        for (let index = 0; index <= yTicks; index += 1) {
-            const frequency = yMin + (yMax - yMin) * index / yTicks;
-            const py = y(frequency);
-            plot.append(
-                svg('line', {
-                    x1: margin.left,
-                    y1: py,
-                    x2: width - margin.right,
-                    y2: py,
-                    class: 'phonon-band-grid'
-                }),
-                svg('text', {
-                    x: margin.left - 8,
-                    y: py + 5,
-                    'text-anchor': 'end',
-                    class: 'phonon-band-axis-label'
-                }, frequency.toFixed(1))
+        const activeCellMismatch = active && !this.volumetricDatasetMatchesDisplayedCell(active);
+        if (activeUnavailable || activeCellMismatch) {
+            this.state.volumetricRequestToken += 1;
+            this.renderer.clearVolumetricSurfaces();
+            this.state.volumetricSurfaceSummary = null;
+            this.setVolumeStatus(
+                'warning',
+                activeUnavailable
+                    ? `No scalar field for frame ${frameIndex + 1}`
+                    : `Scalar field cell differs at frame ${frameIndex + 1}`,
+                activeUnavailable
+                    ? 'The previous frame field was hidden rather than reused for a different structure.'
+                    : 'Load a field calculated for this frame and unit cell.'
             );
         }
-        if (yMin < 0 && yMax > 0) {
-            plot.append(svg('line', {
-                x1: margin.left,
-                y1: y(0),
-                x2: width - margin.right,
-                y2: y(0),
-                class: 'phonon-band-zero'
+        if (datasetChanged || planeDatasetChanged) this.renderVolumetricControls();
+        const requests = [];
+        if (!activeUnavailable && !activeCellMismatch && this.state.display.showVolumetric) {
+            requests.push(this.updateVolumetricSurface({ recordHistory: false }));
+        }
+        if (this.volumetricPlanes().some(plane => (
+            plane.visible && !hiddenPlaneIds.has(plane.id)
+        ))) {
+            requests.push(this.renderAllVolumetricPlanes({
+                updateControls: datasetChanged || planeDatasetChanged
             }));
         }
-        (result.ticks || []).forEach(tick => {
-            const px = x(tick.distance);
-            plot.append(
-                svg('line', {
-                    x1: px,
-                    y1: margin.top,
-                    x2: px,
-                    y2: height - margin.bottom,
-                    class: 'phonon-band-tick-line'
-                }),
-                svg('text', {
-                    x: px,
-                    y: height - 35,
-                    'text-anchor': 'middle',
-                    class: 'phonon-band-label'
-                }, this.phononBandLabel(tick.label))
-            );
-        });
-        plot.append(svg('text', {
-            x: (margin.left + width - margin.right) / 2,
-            y: height - 9,
-            'text-anchor': 'middle',
-            class: 'phonon-band-axis-title'
-        }, 'Wavevector path q'));
-        plot.append(svg('text', {
-            x: 17,
-            y: (margin.top + height - margin.bottom) / 2,
-            transform: `rotate(-90 17 ${(margin.top + height - margin.bottom) / 2})`,
-            'text-anchor': 'middle',
-            class: 'phonon-band-axis-label'
-        }, 'Frequency (THz)'));
+        await Promise.all(requests);
+    }
 
-        for (let bandIndex = 0; bandIndex < Number(result.band_count); bandIndex += 1) {
-            result.segments.forEach(segment => {
-                const commands = (segment.distances || []).map((distance, pointIndex) => {
-                    const frequency = segment.frequencies?.[pointIndex]?.[bandIndex];
-                    return `${pointIndex === 0 ? 'M' : 'L'} ${x(distance).toFixed(3)} ${y(frequency).toFixed(3)}`;
-                }).join(' ');
-                plot.append(svg('path', {
-                    d: commands,
-                    class: 'phonon-band-branch',
-                    'data-band': bandIndex + 1
-                }));
-            });
+    hideStaleVolumetricDataForCurrentFrame() {
+        const datasets = this.volumetricDatasets();
+        if (!datasets.length) return;
+        const frameIndex = Number(this.state.atoms?.metadata?.current_frame || 0);
+        const assignments = this.volumetricDatasetFrameAssignments();
+        const selected = this.selectedVolumetricDataset();
+        const selectedFrame = assignments.get(selected?.id);
+        if (selectedFrame !== null && selectedFrame !== undefined && selectedFrame !== frameIndex) {
+            this.state.volumetricRequestToken += 1;
+            this.renderer.clearVolumetricSurfaces();
+            this.state.volumetricSurfaceSummary = null;
         }
-        plot.append(
-            svg('line', {
-                x1: 0,
-                y1: margin.top,
-                x2: 0,
-                y2: height - margin.bottom,
-                visibility: 'hidden',
-                class: 'phonon-band-selected-line'
-            }),
-            svg('line', {
-                x1: margin.left,
-                y1: 0,
-                x2: margin.left,
-                y2: 0,
-                visibility: 'hidden',
-                class: 'phonon-band-selected-horizontal'
-            }),
-            svg('circle', {
-                cx: 0,
-                cy: 0,
-                r: 10,
-                visibility: 'hidden',
-                class: 'phonon-band-selected-halo'
-            }),
-            svg('circle', {
-                cx: 0,
-                cy: 0,
-                r: 6.5,
-                visibility: 'hidden',
-                class: 'phonon-band-selected-point'
-            }),
-            (() => {
-                const group = svg('g', {
-                    visibility: 'hidden',
-                    class: 'phonon-band-selected-tag'
-                });
-                group.append(
-                    svg('rect', { width: 92, height: 25, rx: 4 }),
-                    svg('text', { x: 8, y: 17 })
+        const hidden = new Set();
+        this.volumetricPlanes().forEach(plane => {
+            const planeFrame = assignments.get(plane.datasetId);
+            if (planeFrame !== null && planeFrame !== undefined && planeFrame !== frameIndex) {
+                hidden.add(plane.id);
+                const record = this.renderer.volumetricPlanes.get(plane.id);
+                if (record) record.group.visible = false;
+                this.state.volumetricPlaneRequestTokens.set(
+                    plane.id,
+                    (this.state.volumetricPlaneRequestTokens.get(plane.id) || 0) + 1
                 );
-                return group;
-            })(),
-            svg('circle', {
-                cx: 0,
-                cy: 0,
-                r: 5,
-                visibility: 'hidden',
-                class: 'phonon-band-hover-point'
-            }),
-            (() => {
-                const group = svg('g', {
-                    visibility: 'hidden',
-                    class: 'phonon-band-hover-tag'
-                });
-                group.append(
-                    svg('rect', { width: 138, height: 25, rx: 4 }),
-                    svg('text', { x: 8, y: 17 })
-                );
-                return group;
-            })()
-        );
-        plot.onpointermove = event => {
-            const point = this.phononBandNearestPoint(event);
-            this.updatePhononBandCursor(point);
-        };
-        plot.onpointerleave = () => this.updatePhononBandCursor(null);
-        plot.onclick = event => {
-            const point = this.phononBandNearestPoint(event);
-            if (point) this.selectPhononBandPoint(point);
-        };
-        this.updatePhononBandSelectionUI();
-    }
-
-    async selectPhononBandPoint(point) {
-        this.state.phononBandSelection = { ...point };
-        this.state.phononSelectedNacDirection = point.nacDirection
-            ? [...point.nacDirection]
-            : null;
-        ['phonon-q-x', 'phonon-q-y', 'phonon-q-z'].forEach((id, index) => {
-            const input = document.getElementById(id);
-            if (input) input.value = Number(point.qpoint[index]).toPrecision(10).replace(/\.?0+$/, '');
-        });
-        const bandInput = document.getElementById('phonon-mode-band');
-        if (bandInput) bandInput.value = `${point.band}`;
-        if (Array.isArray(point.dimension)) {
-            ['phonon-mode-super-x', 'phonon-mode-super-y', 'phonon-mode-super-z'].forEach((id, index) => {
-                const input = document.getElementById(id);
-                if (input) input.value = `${point.dimension[index]}`;
-            });
-        }
-        this.updatePhononBandSelectionUI();
-        await this.calculatePhononModes({ preferredBand: point.band, silent: true });
-    }
-
-    phononQPoint() {
-        return this.scienceVector(
-            ['phonon-q-x', 'phonon-q-y', 'phonon-q-z'],
-            'q-point'
-        );
-    }
-
-    async calculatePhononModes({ preferredBand = null, silent = false } = {}) {
-        try {
-            const axis = document.getElementById('phonon-projection-axis')?.value;
-            const projection = {
-                x: [1, 0, 0],
-                y: [0, 1, 0],
-                z: [0, 0, 1]
-            }[axis] || null;
-            const request = () => this.api.fetchPhononModes({
-                    qpoint: this.phononQPoint(),
-                    nac_direction: this.state.phononSelectedNacDirection,
-                    projection_direction: projection
-                });
-            const result = silent
-                ? await request()
-                : await this.withBusy('Diagonalizing the dynamical matrix...', request);
-            this.state.phononModes = result;
-            this.renderPhononModes(result, preferredBand);
-            if (!silent) {
-                this.toast(`Calculated ${result.band_count} modes at q=(${result.qpoint.join(', ')}).`, 'success');
             }
-            return result;
-        } catch (error) {
-            this.toast(`Phonon mode calculation failed: ${error.message}`, 'error');
+        });
+        this.state.volumetricFrameHiddenPlaneIds = hidden;
+    }
+
+    activateNewestVolumetricDataset({ show = true } = {}) {
+        const dataset = this.volumetricDatasets().at(-1) || null;
+        if (!dataset) return null;
+        this.state.display.volumetricDatasetId = dataset.id;
+        const level = this.defaultVolumetricLevel(dataset);
+        this.state.display.volumetricLevel = level;
+        this.state.display.volumetricSurfaceMode = (
+            Number(dataset.minimum) < 0 && Number(dataset.maximum) > 0
+        ) ? 'signed' : 'single';
+        if (show) this.state.display.showVolumetric = Number.isFinite(level);
+        this.renderVolumetricControls();
+        return dataset;
+    }
+
+    defaultVolumetricLevel(dataset) {
+        if (!dataset) return null;
+        const minimum = Number(dataset.minimum);
+        const maximum = Number(dataset.maximum);
+        if (!Number.isFinite(minimum) || !Number.isFinite(maximum) || maximum <= minimum) return null;
+        if (minimum < 0 && maximum > 0) {
+            return Math.max(Math.abs(minimum), Math.abs(maximum)) * 0.18;
+        }
+        return minimum + (maximum - minimum) * 0.22;
+    }
+
+    formatScalarValue(value) {
+        const parsed = Number(value);
+        if (!Number.isFinite(parsed)) return '-';
+        const magnitude = Math.abs(parsed);
+        return magnitude !== 0 && (magnitude < 1e-3 || magnitude >= 1e4)
+            ? parsed.toExponential(4)
+            : parsed.toPrecision(6);
+    }
+
+    formatByteCount(value) {
+        const bytes = Math.max(0, Number(value) || 0);
+        if (bytes < 1024) return `${Math.round(bytes)} B`;
+        const units = ['KiB', 'MiB', 'GiB', 'TiB'];
+        let scaled = bytes;
+        let unit = -1;
+        do {
+            scaled /= 1024;
+            unit += 1;
+        } while (scaled >= 1024 && unit < units.length - 1);
+        return `${scaled >= 100 ? scaled.toFixed(0) : scaled.toFixed(1)} ${units[unit]}`;
+    }
+
+    volumetricDistributionProfile(dataset = this.selectedVolumetricDataset()) {
+        if (!dataset) return null;
+        const signed = this.state.display.volumetricSurfaceMode === 'signed';
+        const minimum = signed ? 0 : Number(dataset.minimum);
+        const maximum = signed
+            ? Math.max(Math.abs(Number(dataset.minimum)), Math.abs(Number(dataset.maximum)))
+            : Number(dataset.maximum);
+        const histogram = signed && Array.isArray(dataset.absolute_histogram?.counts)
+            ? dataset.absolute_histogram
+            : dataset.histogram;
+        return { signed, minimum, maximum, histogram };
+    }
+
+    volumetricLevelStep(dataset, profile = this.volumetricDistributionProfile(dataset)) {
+        const span = Number(profile?.maximum) - Number(profile?.minimum);
+        if (!Number.isFinite(span) || span <= 0) return 0.001;
+        return Math.max(Number.MIN_VALUE, span / 2400);
+    }
+
+    syncVolumetricDistribution(dataset = this.selectedVolumetricDataset()) {
+        const slider = document.getElementById('volume-level-slider');
+        const minimumLabel = document.getElementById('volume-distribution-min');
+        const maximumLabel = document.getElementById('volume-distribution-max');
+        const marker = document.getElementById('volume-histogram-marker');
+        if (!slider || !dataset) return;
+        const profile = this.volumetricDistributionProfile(dataset);
+        if (!profile) return;
+        const { minimum, maximum } = profile;
+        const requested = Number(this.state.display.volumetricLevel);
+        const normalized = profile.signed ? Math.abs(requested) : requested;
+        const level = Math.min(maximum, Math.max(minimum, normalized));
+        this.state.display.volumetricLevel = level;
+        slider.min = `${minimum}`;
+        slider.max = `${maximum}`;
+        slider.step = `${this.volumetricLevelStep(dataset, profile)}`;
+        if (document.activeElement !== slider) slider.value = `${level}`;
+        const number = document.getElementById('volume-level');
+        if (number) {
+            number.min = `${minimum}`;
+            number.max = `${maximum}`;
+            number.step = `${this.volumetricLevelStep(dataset, profile)}`;
+            if (document.activeElement !== number) number.value = `${level}`;
+        }
+        if (minimumLabel) minimumLabel.textContent = this.formatScalarValue(minimum);
+        if (maximumLabel) maximumLabel.textContent = this.formatScalarValue(maximum);
+        const caption = document.getElementById('volume-distribution-caption');
+        if (caption) caption.textContent = profile.signed
+            ? '|voxel value| distribution'
+            : 'voxel value distribution';
+        if (marker) {
+            const normalized = maximum > minimum ? (level - minimum) / (maximum - minimum) : 0.5;
+            marker.style.left = `${Math.max(0, Math.min(1, normalized)) * 100}%`;
+        }
+        this.drawVolumetricHistogram(dataset, profile.histogram);
+    }
+
+    drawVolumetricHistogram(
+        dataset = this.selectedVolumetricDataset(),
+        histogram = this.volumetricDistributionProfile(dataset)?.histogram
+    ) {
+        const canvas = document.getElementById('volume-histogram');
+        const counts = histogram?.counts;
+        if (!canvas || !Array.isArray(counts) || !counts.length) return;
+        const rect = canvas.getBoundingClientRect();
+        const width = Math.max(1, Math.round(rect.width));
+        const height = Math.max(1, Math.round(rect.height));
+        const ratio = Math.min(2, window.devicePixelRatio || 1);
+        const pixelWidth = Math.max(1, Math.round(width * ratio));
+        const pixelHeight = Math.max(1, Math.round(height * ratio));
+        if (canvas.width !== pixelWidth || canvas.height !== pixelHeight) {
+            canvas.width = pixelWidth;
+            canvas.height = pixelHeight;
+        }
+        const context = canvas.getContext('2d');
+        if (!context) return;
+        context.setTransform(ratio, 0, 0, ratio, 0, 0);
+        context.clearRect(0, 0, width, height);
+        const transformed = counts.map(value => Math.log1p(Math.max(0, Number(value) || 0)));
+        const maximum = Math.max(...transformed, 1);
+        const baseline = height - 2;
+        const points = transformed.map((value, index) => ({
+            x: counts.length === 1 ? width / 2 : index * width / (counts.length - 1),
+            y: baseline - (value / maximum) * Math.max(6, height - 9)
+        }));
+        const styles = getComputedStyle(document.documentElement);
+        const teal = styles.getPropertyValue('--teal').trim() || '#55d6c2';
+        const muted = styles.getPropertyValue('--muted').trim() || '#87928e';
+        const trace = new Path2D();
+        trace.moveTo(0, baseline);
+        trace.lineTo(points[0].x, points[0].y);
+        for (let index = 1; index < points.length; index++) {
+            const previous = points[index - 1];
+            const point = points[index];
+            const middleX = (previous.x + point.x) / 2;
+            trace.quadraticCurveTo(previous.x, previous.y, middleX, (previous.y + point.y) / 2);
+        }
+        trace.lineTo(points.at(-1).x, points.at(-1).y);
+        trace.lineTo(width, baseline);
+        trace.closePath();
+        const fill = context.createLinearGradient(0, 0, 0, height);
+        fill.addColorStop(0, teal);
+        fill.addColorStop(1, teal);
+        context.globalAlpha = 0.22;
+        context.fillStyle = fill;
+        context.fill(trace);
+        context.globalAlpha = 0.82;
+        context.strokeStyle = teal;
+        context.lineWidth = 1.25;
+        context.stroke(trace);
+        context.globalAlpha = 0.32;
+        context.strokeStyle = muted;
+        context.beginPath();
+        context.moveTo(0, baseline + 0.5);
+        context.lineTo(width, baseline + 0.5);
+        context.stroke();
+        context.globalAlpha = 1;
+    }
+
+    setVolumetricToolView(view, { focus = false } = {}) {
+        const selected = ['surface', 'planes', 'difference'].includes(view)
+            ? view
+            : 'surface';
+        this.state.volumetricToolView = selected;
+        document.querySelectorAll('[data-volume-tool]').forEach(button => {
+            const active = button.dataset.volumeTool === selected;
+            button.setAttribute('aria-selected', active ? 'true' : 'false');
+            button.tabIndex = active ? 0 : -1;
+            if (active && focus) button.focus({ preventScroll: true });
+        });
+        document.querySelectorAll('[data-volume-tool-view]').forEach(panel => {
+            const active = panel.dataset.volumeToolView === selected;
+            panel.classList.toggle('hidden', !active);
+            panel.setAttribute('aria-hidden', active ? 'false' : 'true');
+        });
+    }
+
+    syncVolumetricPlaneModeNote() {
+        const modeNote = document.getElementById('volume-plane-mode-note');
+        if (!modeNote) return;
+        modeNote.dataset.mode = this.state.vizOnly ? 'view' : 'edit';
+        modeNote.textContent = this.state.vizOnly
+            ? 'View mode · edit (h k l) and distance here without changing ASE coordinates.'
+            : 'Edit mode · use these controls, or select a plane in the viewport and press G or R.';
+    }
+
+    renderVolumetricControls() {
+        const datasets = this.volumetricDatasets();
+        const empty = document.getElementById('volume-empty');
+        const controls = document.getElementById('volume-controls');
+        empty?.classList.toggle('hidden', datasets.length > 0);
+        controls?.classList.toggle('hidden', datasets.length === 0);
+        const select = document.getElementById('volume-dataset');
+        if (!select) return;
+
+        const previousId = this.state.display.volumetricDatasetId;
+        select.replaceChildren();
+        datasets.forEach(dataset => {
+            const option = document.createElement('option');
+            option.value = dataset.id;
+            option.textContent = dataset.name;
+            select.appendChild(option);
+        });
+        const selected = datasets.find(dataset => dataset.id === previousId) || datasets[0] || null;
+        if (!selected) {
+            this.state.display.volumetricDatasetId = '';
+            this.state.display.showVolumetric = false;
+            this.renderer.clearVolumetricSurfaces();
+            this.state.display.volumetricPlanes = [];
+            this.state.selectedVolumetricPlanes.clear();
+            this.renderer.clearVolumetricPlanes();
+            this.renderVolumetricPlaneControls();
+            return;
+        }
+        this.ensureVolumetricColormapCatalog().catch(() => {
+            // The built-in viridis fallback remains usable if the catalog is unavailable.
+        });
+        const datasetChanged = selected.id !== previousId;
+        this.state.display.volumetricDatasetId = selected.id;
+        select.value = selected.id;
+        if (datasetChanged || !Number.isFinite(Number(this.state.display.volumetricLevel))) {
+            this.state.display.volumetricLevel = this.defaultVolumetricLevel(selected);
+        }
+
+        const summary = document.getElementById('volume-summary');
+        if (summary) {
+            summary.replaceChildren();
+            const entries = [
+                ['Grid', (selected.shape || []).join(' x ')],
+                ['Range', `${this.formatScalarValue(selected.minimum)} to ${this.formatScalarValue(selected.maximum)}`],
+                ['Quantity', `${selected.quantity || 'scalar field'} · ${selected.units || 'file native'}`],
+                [
+                    'Precision',
+                    `${selected.precision === 'float64' ? 'FP64' : 'FP32'} · ${
+                        this.formatByteCount(Number(selected.memory_bytes) || 0)
+                    }`
+                ]
+            ];
+            entries.forEach(([label, value]) => {
+                const key = document.createElement('strong');
+                const text = document.createElement('span');
+                key.textContent = label;
+                text.textContent = value;
+                summary.append(key, text);
+            });
+        }
+
+        const differenceTerms = document.getElementById('volume-difference-terms');
+        if (differenceTerms) {
+            differenceTerms.replaceChildren();
+            datasets.forEach((dataset, index) => {
+                const row = document.createElement('label');
+                row.className = 'volume-difference-term';
+                const enabled = document.createElement('input');
+                enabled.type = 'checkbox';
+                enabled.dataset.datasetId = dataset.id;
+                enabled.checked = index < Math.min(3, datasets.length);
+                const name = document.createElement('span');
+                name.textContent = dataset.name;
+                name.title = dataset.name;
+                const coefficient = document.createElement('input');
+                coefficient.type = 'number';
+                coefficient.step = 'any';
+                coefficient.value = index === 0 ? '1' : '-1';
+                coefficient.setAttribute('aria-label', `Coefficient for ${dataset.name}`);
+                row.append(enabled, name, coefficient);
+                differenceTerms.appendChild(row);
+            });
+        }
+        this.syncVolumetricControls();
+        this.renderVolumetricPlaneControls();
+        this.setVolumetricToolView(this.state.volumetricToolView);
+    }
+
+    syncVolumetricControls() {
+        const display = this.state.display;
+        const setValue = (id, value) => {
+            const element = document.getElementById(id);
+            if (element && document.activeElement !== element && value !== null && value !== undefined) {
+                element.value = `${value}`;
+            }
+        };
+        const visible = document.getElementById('chk-volume-visible');
+        if (visible) visible.checked = Boolean(display.showVolumetric);
+        setValue('volume-import-precision', this.volumetricImportPrecision());
+        setValue('volume-surface-mode', display.volumetricSurfaceMode === 'signed' ? 'signed' : 'single');
+        setValue('volume-level', display.volumetricLevel);
+        setValue('volume-step', [1, 2, 4].includes(Number(display.volumetricStepSize))
+            ? Number(display.volumetricStepSize)
+            : 1);
+        setValue(
+            'volume-smearing',
+            Math.max(0, Math.min(8, Number(display.volumetricSmearingSigma) || 0))
+        );
+        setValue(
+            'volume-smoothing',
+            Math.max(0, Math.min(
+                30,
+                Math.round(Number(display.volumetricSmoothingIterations) || 0)
+            ))
+        );
+        setValue('volume-positive-color', display.volumetricPositiveColor || '#2f8fdb');
+        setValue('volume-negative-color', display.volumetricNegativeColor || '#e05b78');
+        setValue('volume-opacity', Number(display.volumetricOpacity) || 0.72);
+        const output = document.getElementById('volume-opacity-value');
+        if (output) output.textContent = (Number(display.volumetricOpacity) || 0.72).toFixed(2);
+        this.syncVolumetricDistribution();
+    }
+
+    readVolumetricControls() {
+        const level = Number(document.getElementById('volume-level')?.value);
+        Object.assign(this.state.display, {
+            volumetricPrecision: document.getElementById('volume-import-precision')?.value === 'float64'
+                ? 'float64'
+                : 'float32',
+            showVolumetric: Boolean(document.getElementById('chk-volume-visible')?.checked),
+            volumetricDatasetId: document.getElementById('volume-dataset')?.value || '',
+            volumetricLevel: Number.isFinite(level) ? level : null,
+            volumetricSurfaceMode: document.getElementById('volume-surface-mode')?.value === 'signed'
+                ? 'signed'
+                : 'single',
+            volumetricStepSize: [1, 2, 4].includes(Number(document.getElementById('volume-step')?.value))
+                ? Number(document.getElementById('volume-step')?.value)
+                : 1,
+            volumetricSmearingSigma: Math.max(
+                0,
+                Math.min(8, Number(document.getElementById('volume-smearing')?.value) || 0)
+            ),
+            volumetricSmoothingIterations: Math.max(
+                0,
+                Math.min(
+                    30,
+                    Math.round(Number(document.getElementById('volume-smoothing')?.value) || 0)
+                )
+            ),
+            volumetricOpacity: Math.max(
+                0.05,
+                Math.min(1, Number(document.getElementById('volume-opacity')?.value) || 0.72)
+            ),
+            volumetricPositiveColor: document.getElementById('volume-positive-color')?.value || '#2f8fdb',
+            volumetricNegativeColor: document.getElementById('volume-negative-color')?.value || '#e05b78'
+        });
+        this.syncVolumetricControls();
+    }
+
+    volumetricPlanes() {
+        if (!Array.isArray(this.state.display.volumetricPlanes)) {
+            this.state.display.volumetricPlanes = [];
+        }
+        return this.state.display.volumetricPlanes;
+    }
+
+    normalizedVolumetricPlane(source = {}, index = 0) {
+        const datasets = this.volumetricDatasets();
+        const datasetId = datasets.some(dataset => dataset.id === source.datasetId)
+            ? source.datasetId
+            : (datasets[0]?.id || '');
+        const hkl = Array.isArray(source.hkl) && source.hkl.length >= 3
+            ? source.hkl.slice(0, 3).map((value, axis) => {
+                const parsed = Number(value);
+                return Number.isFinite(parsed) ? parsed : [0, 0, 1][axis];
+            })
+            : [0, 0, 1];
+        if (Math.hypot(...hkl) <= 1e-9) hkl[2] = 1;
+        const resolution = [128, 256, 512, 1024].includes(Number(source.resolution))
+            ? Number(source.resolution)
+            : 256;
+        const opacity = Math.max(0.05, Math.min(1, Number(source.opacity) || 0.88));
+        return {
+            id: String(source.id || globalThis.crypto?.randomUUID?.() || `volume-plane-${Date.now()}-${index}`),
+            name: String(source.name || `Plane ${index + 1}`),
+            datasetId,
+            visible: source.visible !== false,
+            hkl,
+            offsetAngstrom: Number.isFinite(Number(source.offsetAngstrom))
+                ? Number(source.offsetAngstrom)
+                : 0,
+            resolution,
+            colormap: String(source.colormap || 'viridis'),
+            reverse: Boolean(source.reverse),
+            autoRange: source.autoRange !== false,
+            vmin: Number.isFinite(Number(source.vmin)) ? Number(source.vmin) : null,
+            vmax: Number.isFinite(Number(source.vmax)) ? Number(source.vmax) : null,
+            opacity,
+            offsetMinimum: Number.isFinite(Number(source.offsetMinimum))
+                ? Number(source.offsetMinimum)
+                : null,
+            offsetMaximum: Number.isFinite(Number(source.offsetMaximum))
+                ? Number(source.offsetMaximum)
+                : null
+        };
+    }
+
+    volumetricPlanePatchFromOperation(operation = {}, plane = null) {
+        const has = key => Object.prototype.hasOwnProperty.call(operation, key);
+        const patch = {};
+        if (has('datasetId')) {
+            const datasetId = String(operation.datasetId || '').trim();
+            if (!this.volumetricDatasets().some(dataset => dataset.id === datasetId)) {
+                throw new Error(`Volumetric dataset '${datasetId}' was not found.`);
+            }
+            patch.datasetId = datasetId;
+        }
+        if (has('planeName')) {
+            const name = String(operation.planeName || '').trim();
+            if (!name) throw new Error('planeName must not be empty.');
+            patch.name = name;
+        }
+        if (has('hkl')) {
+            if (!Array.isArray(operation.hkl) || operation.hkl.length !== 3) {
+                throw new Error('hkl must contain exactly three finite numbers.');
+            }
+            const hkl = operation.hkl.map(Number);
+            if (!hkl.every(Number.isFinite) || Math.hypot(...hkl) <= 1e-9) {
+                throw new Error('hkl must be a finite, non-zero three-number vector.');
+            }
+            patch.hkl = hkl;
+        }
+        if (has('offsetAngstrom')) {
+            const offset = Number(operation.offsetAngstrom);
+            if (!Number.isFinite(offset)) throw new Error('offsetAngstrom must be finite.');
+            patch.offsetAngstrom = offset;
+        }
+        if (has('resolution')) {
+            const resolution = Number(operation.resolution);
+            if (![128, 256, 512, 1024].includes(resolution)) {
+                throw new Error('resolution must be 128, 256, 512, or 1024.');
+            }
+            patch.resolution = resolution;
+        }
+        if (has('colormap')) {
+            const colormap = String(operation.colormap || '').trim();
+            if (!colormap) throw new Error('colormap must not be empty.');
+            patch.colormap = colormap;
+        }
+        if (has('reverse')) patch.reverse = Boolean(operation.reverse);
+        if (has('autoRange')) patch.autoRange = Boolean(operation.autoRange);
+        if (has('vmin')) {
+            const value = Number(operation.vmin);
+            if (!Number.isFinite(value)) throw new Error('vmin must be finite.');
+            patch.vmin = value;
+        }
+        if (has('vmax')) {
+            const value = Number(operation.vmax);
+            if (!Number.isFinite(value)) throw new Error('vmax must be finite.');
+            patch.vmax = value;
+        }
+        if (has('opacity')) {
+            const opacity = Number(operation.opacity);
+            if (!Number.isFinite(opacity) || opacity < 0.05 || opacity > 1) {
+                throw new Error('opacity must be between 0.05 and 1.');
+            }
+            patch.opacity = opacity;
+        }
+        if (has('visible')) patch.visible = Boolean(operation.visible);
+
+        const autoRange = patch.autoRange ?? plane?.autoRange ?? true;
+        const minimum = patch.vmin ?? plane?.vmin;
+        const maximum = patch.vmax ?? plane?.vmax;
+        if (!autoRange && (!Number.isFinite(Number(minimum))
+            || !Number.isFinite(Number(maximum)) || Number(maximum) <= Number(minimum))) {
+            throw new Error('Manual plane coloring requires finite vmin < vmax.');
+        }
+        return patch;
+    }
+
+    volumetricPlanesByOperationIds(operation = {}) {
+        if (!Array.isArray(operation.planeIds) || !operation.planeIds.length) {
+            throw new Error('planeIds must contain at least one plane ID.');
+        }
+        const requested = operation.planeIds.map(value => String(value || '').trim());
+        if (requested.some(id => !id) || new Set(requested).size !== requested.length) {
+            throw new Error('planeIds must contain unique, non-empty plane IDs.');
+        }
+        const byId = new Map(this.volumetricPlanes().map(plane => [plane.id, plane]));
+        const missing = requested.filter(id => !byId.has(id));
+        if (missing.length) {
+            throw new Error(`Volumetric plane${missing.length === 1 ? '' : 's'} not found: ${missing.join(', ')}.`);
+        }
+        return requested.map(id => byId.get(id));
+    }
+
+    normalizeVolumetricPlanes() {
+        const datasets = new Set(this.volumetricDatasets().map(dataset => dataset.id));
+        this.state.display.volumetricPlanes = this.volumetricPlanes()
+            .map((plane, index) => {
+                const normalized = this.normalizedVolumetricPlane(plane, index);
+                if (plane && typeof plane === 'object') {
+                    Object.assign(plane, normalized);
+                    return plane;
+                }
+                return normalized;
+            })
+            .filter(plane => datasets.has(plane.datasetId));
+        const available = new Set(this.state.display.volumetricPlanes.map(plane => plane.id));
+        this.state.selectedVolumetricPlanes = new Set(
+            [...this.state.selectedVolumetricPlanes].filter(id => available.has(id))
+        );
+        return this.state.display.volumetricPlanes;
+    }
+
+    selectedVolumetricPlaneList() {
+        const selected = this.state.selectedVolumetricPlanes;
+        return this.volumetricPlanes().filter(plane => selected.has(plane.id));
+    }
+
+    volumetricPlaneDataset(plane) {
+        return this.volumetricDatasets().find(dataset => dataset.id === plane?.datasetId) || null;
+    }
+
+    volumetricPlaneRepetitions() {
+        return (this.state.display.supercell || [1, 1, 1]).map(value => (
+            Math.max(1, Math.min(128, Math.round(Number(value) || 1)))
+        ));
+    }
+
+    volumetricPlaneMetrics(plane) {
+        const dataset = this.volumetricPlaneDataset(plane);
+        const cell = dataset?.cell;
+        if (!Array.isArray(cell) || cell.length !== 3) return null;
+        const hkl = Array.isArray(plane?.hkl) ? plane.hkl : [0, 0, 1];
+        const matrix = new THREE.Matrix3().set(...cell.flat().map(Number));
+        if (Math.abs(matrix.determinant()) <= 1e-12) return null;
+        const reciprocal = new THREE.Vector3(...hkl.map(Number)).applyMatrix3(matrix.clone().invert());
+        if (reciprocal.lengthSq() <= 1e-18) return null;
+        const normal = reciprocal.normalize();
+        const vectors = cell.map(vector => new THREE.Vector3(...vector.map(Number)));
+        const repetitions = this.volumetricPlaneRepetitions();
+        const projections = [];
+        for (const a of [0, repetitions[0]]) {
+            for (const b of [0, repetitions[1]]) {
+                for (const c of [0, repetitions[2]]) {
+                    projections.push(
+                        vectors[0].clone().multiplyScalar(a)
+                            .addScaledVector(vectors[1], b)
+                            .addScaledVector(vectors[2], c)
+                            .dot(normal)
+                    );
+                }
+            }
+        }
+        return {
+            normal,
+            minimum: Math.min(...projections),
+            maximum: Math.max(...projections)
+        };
+    }
+
+    createVolumetricPlane() {
+        const dataset = this.selectedVolumetricDataset();
+        if (!dataset) {
+            this.toast('Load a volumetric dataset before adding a plane.', 'warning');
             return null;
         }
+        const index = this.volumetricPlanes().length;
+        const plane = this.normalizedVolumetricPlane({
+            name: `Plane ${index + 1}`,
+            datasetId: dataset.id,
+            hkl: [0, 0, 1],
+            autoRange: true,
+            vmin: dataset.minimum,
+            vmax: dataset.maximum
+        }, index);
+        const metrics = this.volumetricPlaneMetrics(plane);
+        plane.offsetAngstrom = metrics ? (metrics.minimum + metrics.maximum) / 2 : 0;
+        plane.offsetMinimum = metrics?.minimum ?? null;
+        plane.offsetMaximum = metrics?.maximum ?? null;
+        this.volumetricPlanes().push(plane);
+        this.setVolumetricPlaneSelection([plane.id]);
+        this.renderVolumetricPlane(plane).catch(error => {
+            this.setVolumetricPlaneStatus('warning', 'Plane unavailable', error.message);
+        });
+        this.scheduleVisualHistoryCommit('volumetric-plane-add');
+        return plane;
     }
 
-    renderPhononModes(result, preferredBand = null) {
-        const container = document.getElementById('phonon-mode-result');
-        if (!container) return;
-        const requestedBand = Number(
-            preferredBand ?? document.getElementById('phonon-mode-band')?.value ?? 1
-        );
-        container.classList.remove('hidden');
-        container.replaceChildren(...(result.bands || []).map(mode => {
+    setVolumetricPlaneStatus(state, title, detail = '') {
+        const status = document.getElementById('volume-plane-status');
+        if (!status) return;
+        status.dataset.state = state;
+        const titleElement = status.querySelector('.analysis-status-title');
+        const detailElement = status.querySelector('.analysis-status-detail');
+        if (titleElement) titleElement.textContent = title;
+        if (detailElement) detailElement.textContent = detail;
+    }
+
+    setVolumetricPlaneSelection(planeIds = [], { additive = false, update = true } = {}) {
+        const available = new Set(this.volumetricPlanes().map(plane => plane.id));
+        const next = additive ? new Set(this.state.selectedVolumetricPlanes) : new Set();
+        planeIds.forEach(id => {
+            if (!available.has(id)) return;
+            if (additive && next.has(id)) next.delete(id);
+            else next.add(id);
+        });
+        this.state.selectedVolumetricPlanes = next;
+        this.renderer.setVolumetricPlaneSelection([...next]);
+        if (next.size) {
+            this.setSunSelected(false, { update: false });
+            if (this.selectionCount()) {
+                this.clearAtomSelection();
+                this.updateSelectionVisuals();
+            }
+            this.setVolumetricToolView('planes');
+        }
+        if (update) {
+            this.renderVolumetricPlaneControls();
+            this.updateToolState();
+            this.updateUI();
+        }
+    }
+
+    commonVolumetricPlaneValue(planes, getter) {
+        if (!planes.length) return { mixed: false, value: null };
+        const values = planes.map(getter);
+        const first = JSON.stringify(values[0]);
+        return values.every(value => JSON.stringify(value) === first)
+            ? { mixed: false, value: values[0] }
+            : { mixed: true, value: null };
+    }
+
+    setMixedControl(id, common, { checked = false } = {}) {
+        const element = document.getElementById(id);
+        if (!element) return;
+        if (checked) {
+            element.indeterminate = common.mixed;
+            element.checked = common.mixed ? false : Boolean(common.value);
+            return;
+        }
+        if (document.activeElement === element) return;
+        element.value = common.mixed || common.value === null || common.value === undefined
+            ? ''
+            : `${common.value}`;
+        element.placeholder = common.mixed ? 'Mixed' : '';
+    }
+
+    populateVolumetricPlaneColormaps(select, requested = 'viridis') {
+        if (!select) return;
+        const catalog = this.atomColorScaleRuntime.colormapCatalog;
+        const maps = Array.isArray(catalog?.maps) ? catalog.maps : [];
+        if (!maps.length) return;
+        select.replaceChildren();
+        const groups = new Map();
+        maps.forEach(item => {
+            const category = item.category || 'Other';
+            if (!groups.has(category)) groups.set(category, []);
+            groups.get(category).push(item.name);
+        });
+        groups.forEach((names, label) => {
+            const optgroup = document.createElement('optgroup');
+            optgroup.label = label;
+            names.forEach(name => {
+                const option = document.createElement('option');
+                option.value = name;
+                option.textContent = name;
+                optgroup.appendChild(option);
+            });
+            select.appendChild(optgroup);
+        });
+        select.value = maps.some(item => item.name === requested)
+            ? requested
+            : (catalog.default || 'viridis');
+    }
+
+    ensureVolumetricColormapCatalog() {
+        const runtime = this.atomColorScaleRuntime;
+        if (runtime.colormapCatalog) return Promise.resolve(runtime.colormapCatalog);
+        if (!runtime.colormapCatalogPromise) {
+            runtime.colormapCatalogPromise = this.api.fetchColormapCatalog()
+                .then(catalog => {
+                    runtime.colormapCatalog = catalog;
+                    runtime.colormapCatalogPromise = null;
+                    this.renderVolumetricPlaneControls();
+                    return catalog;
+                })
+                .catch(error => {
+                    runtime.colormapCatalogPromise = null;
+                    throw error;
+                });
+        }
+        return runtime.colormapCatalogPromise;
+    }
+
+    renderVolumetricPlaneControls() {
+        const planes = this.normalizeVolumetricPlanes();
+        this.syncVolumetricPlaneModeNote();
+        const list = document.getElementById('volume-plane-list');
+        if (!list) return;
+        list.replaceChildren();
+        planes.forEach(plane => {
             const row = document.createElement('button');
             row.type = 'button';
-            row.className = 'phonon-mode-row';
-            row.setAttribute('aria-selected', mode.band === requestedBand ? 'true' : 'false');
-            const band = document.createElement('strong');
-            band.textContent = `${mode.band}`;
-            const frequency = document.createElement('span');
-            frequency.className = `phonon-mode-frequency${mode.imaginary ? ' imaginary' : ''}`;
-            frequency.textContent = `${Number(mode.frequency_thz).toFixed(4)} THz`;
-            const character = document.createElement('span');
-            const longitudinal = Number.isFinite(mode.longitudinal_fraction)
-                ? `, L ${(100 * mode.longitudinal_fraction).toFixed(0)}%`
-                : '';
-            const projected = Number.isFinite(mode.directional_fraction)
-                ? `, P ${(100 * mode.directional_fraction).toFixed(0)}%`
-                : '';
-            character.textContent = `${String(mode.dominant_axis || '-').toUpperCase()} dominant${longitudinal}${projected}`;
-            row.append(band, frequency, character);
-            row.addEventListener('click', () => {
-                document.getElementById('phonon-mode-band').value = `${mode.band}`;
-                if (this.state.phononBandSelection) {
-                    this.state.phononBandSelection.band = mode.band;
-                    this.state.phononBandSelection.frequency = mode.frequency_thz;
-                    const geometry = document.getElementById('phonon-band-plot')?.__vAseBandGeometry;
-                    if (geometry) this.state.phononBandSelection.y = geometry.y(mode.frequency_thz);
-                    this.updatePhononBandSelectionUI();
+            row.className = 'volume-plane-list-item';
+            row.dataset.planeId = plane.id;
+            row.setAttribute('role', 'option');
+            row.setAttribute('aria-selected', this.state.selectedVolumetricPlanes.has(plane.id) ? 'true' : 'false');
+            const visible = document.createElement('input');
+            visible.type = 'checkbox';
+            visible.checked = plane.visible;
+            visible.setAttribute('aria-label', `Show ${plane.name}`);
+            visible.addEventListener('click', event => event.stopPropagation());
+            visible.addEventListener('change', () => {
+                plane.visible = visible.checked;
+                const record = this.renderer.volumetricPlanes.get(plane.id);
+                if (record) record.group.visible = plane.visible;
+                if (plane.visible && !record) {
+                    this.renderVolumetricPlane(plane).catch(error => {
+                        this.setVolumetricPlaneStatus('warning', 'Plane unavailable', error.message);
+                    });
                 }
-                container.querySelectorAll('.phonon-mode-row').forEach(item => {
-                    item.setAttribute('aria-selected', item === row ? 'true' : 'false');
-                });
+                this.renderer.requestRender();
+                this.scheduleVisualHistoryCommit('volumetric-plane-visible');
             });
-            return row;
-        }));
-        const bandInput = document.getElementById('phonon-mode-band');
-        if (bandInput) bandInput.max = `${Math.max(1, Number(result.band_count) || 1)}`;
+            const name = document.createElement('span');
+            name.className = 'volume-plane-list-name';
+            name.textContent = plane.name;
+            const indices = document.createElement('span');
+            indices.className = 'volume-plane-list-hkl';
+            indices.textContent = `(${plane.hkl.map(value => this.formatScalarValue(value)).join(' ')})`;
+            row.append(visible, name, indices);
+            row.addEventListener('click', event => {
+                const additive = event.shiftKey || event.ctrlKey || event.metaKey;
+                this.setVolumetricPlaneSelection([plane.id], { additive });
+            });
+            list.appendChild(row);
+        });
+
+        const selected = this.selectedVolumetricPlaneList();
+        const editor = document.getElementById('volume-plane-editor');
+        editor?.classList.toggle('hidden', selected.length === 0);
+        const remove = document.getElementById('btn-volume-plane-remove');
+        if (remove) remove.disabled = selected.length === 0;
+        if (!selected.length) {
+            this.setVolumetricPlaneStatus(
+                planes.length ? 'ready' : 'idle',
+                planes.length ? `${planes.length} planar section${planes.length === 1 ? '' : 's'}` : 'No planar section',
+                planes.length ? 'Select a plane to edit its field mapping.' : 'Add one or more planes without transferring the full grid.'
+            );
+            return;
+        }
+
+        const title = document.getElementById('volume-plane-selection-title');
+        const count = document.getElementById('volume-plane-selection-count');
+        if (title) title.textContent = selected.length === 1 ? selected[0].name : 'Multiple planes';
+        if (count) count.textContent = `${selected.length} selected`;
+        this.setMixedControl('chk-volume-plane-visible', this.commonVolumetricPlaneValue(selected, plane => plane.visible), { checked: true });
+
+        const datasetSelect = document.getElementById('volume-plane-dataset');
+        if (datasetSelect) {
+            const common = this.commonVolumetricPlaneValue(selected, plane => plane.datasetId);
+            datasetSelect.replaceChildren();
+            if (common.mixed) {
+                const mixed = document.createElement('option');
+                mixed.value = '';
+                mixed.textContent = 'Mixed';
+                datasetSelect.appendChild(mixed);
+            }
+            this.volumetricDatasets().forEach(dataset => {
+                const option = document.createElement('option');
+                option.value = dataset.id;
+                option.textContent = dataset.name;
+                datasetSelect.appendChild(option);
+            });
+            datasetSelect.value = common.mixed ? '' : common.value;
+        }
+        ['h', 'k', 'l'].forEach((axis, index) => {
+            this.setMixedControl(
+                `volume-plane-${axis}`,
+                this.commonVolumetricPlaneValue(selected, plane => plane.hkl[index])
+            );
+        });
+        this.setMixedControl(
+            'volume-plane-offset',
+            this.commonVolumetricPlaneValue(selected, plane => plane.offsetAngstrom)
+        );
+        const offsetSlider = document.getElementById('volume-plane-offset-slider');
+        const commonOffset = this.commonVolumetricPlaneValue(selected, plane => plane.offsetAngstrom);
+        const commonMinimum = this.commonVolumetricPlaneValue(selected, plane => plane.offsetMinimum);
+        const commonMaximum = this.commonVolumetricPlaneValue(selected, plane => plane.offsetMaximum);
+        if (offsetSlider) {
+            const canSlide = !commonOffset.mixed && !commonMinimum.mixed && !commonMaximum.mixed
+                && Number.isFinite(Number(commonMinimum.value))
+                && Number.isFinite(Number(commonMaximum.value));
+            offsetSlider.disabled = !canSlide;
+            if (canSlide) {
+                offsetSlider.min = `${commonMinimum.value}`;
+                offsetSlider.max = `${commonMaximum.value}`;
+                offsetSlider.step = 'any';
+                if (document.activeElement !== offsetSlider) offsetSlider.value = `${commonOffset.value}`;
+            }
+        }
+        this.setMixedControl('volume-plane-resolution', this.commonVolumetricPlaneValue(selected, plane => plane.resolution));
+        const colormap = this.commonVolumetricPlaneValue(selected, plane => plane.colormap);
+        this.populateVolumetricPlaneColormaps(document.getElementById('volume-plane-colormap'), colormap.value || 'viridis');
+        if (colormap.mixed) {
+            const select = document.getElementById('volume-plane-colormap');
+            const mixed = document.createElement('option');
+            mixed.value = '';
+            mixed.textContent = 'Mixed';
+            select.prepend(mixed);
+            select.value = '';
+        }
+        this.setMixedControl('chk-volume-plane-reverse', this.commonVolumetricPlaneValue(selected, plane => plane.reverse), { checked: true });
+        const rangeFor = plane => {
+            const payload = this.state.volumetricPlanePayloads.get(plane.id);
+            return {
+                minimum: plane.autoRange ? payload?.header?.minimum : plane.vmin,
+                maximum: plane.autoRange ? payload?.header?.maximum : plane.vmax
+            };
+        };
+        this.setMixedControl('volume-plane-vmin', this.commonVolumetricPlaneValue(selected, plane => rangeFor(plane).minimum));
+        this.setMixedControl('volume-plane-vmax', this.commonVolumetricPlaneValue(selected, plane => rangeFor(plane).maximum));
+        this.setMixedControl('volume-plane-opacity', this.commonVolumetricPlaneValue(selected, plane => plane.opacity));
+        const opacity = this.commonVolumetricPlaneValue(selected, plane => plane.opacity);
+        const opacityOutput = document.getElementById('volume-plane-opacity-value');
+        if (opacityOutput) opacityOutput.textContent = opacity.mixed ? 'Mixed' : Number(opacity.value).toFixed(2);
+        const mixed = [
+            commonOffset, commonMinimum, commonMaximum, colormap,
+            this.commonVolumetricPlaneValue(selected, plane => plane.hkl),
+            this.commonVolumetricPlaneValue(selected, plane => plane.resolution)
+        ].some(value => value.mixed);
+        document.getElementById('volume-plane-mixed-note')?.classList.toggle('hidden', !mixed);
+        this.setVolumetricPlaneStatus(
+            'ready',
+            selected.length === 1 ? selected[0].name : `${selected.length} planes selected`,
+            'G moves along the plane normal. R rotates the normal; settled rendering restores full resolution.'
+        );
     }
 
-    async createPhononModeTrajectory() {
-        if (!this.canEditAtoms()) {
-            this.editOnlyToast();
-            return;
+    decodeVolumetricPlane(buffer) {
+        const bytes = new Uint8Array(buffer);
+        const magic = new TextDecoder().decode(bytes.subarray(0, 8));
+        if (magic !== 'VASEPLN1' || bytes.byteLength < 12) {
+            throw new Error('v_ase returned an invalid volumetric plane payload.');
         }
-        let options;
-        try {
-            options = {
-                qpoint: this.phononQPoint(),
-                band: this.finiteScienceNumber(
-                    'phonon-mode-band',
-                    'Band',
-                    { minimum: 1, maximum: 100000, integer: true }
-                ),
-                amplitude: this.finiteScienceNumber(
-                    'phonon-mode-amplitude',
-                    'Amplitude',
-                    { minimum: 0, maximum: 10 }
-                ),
-                phase_degrees: this.finiteScienceNumber(
-                    'phonon-mode-phase',
-                    'Phase',
-                    { minimum: -1000000, maximum: 1000000 }
-                ),
-                frames: this.finiteScienceNumber(
-                    'phonon-mode-frames',
-                    'Frames',
-                    { minimum: 1, maximum: 240, integer: true }
-                ),
-                dimension: this.scienceVector(
-                    ['phonon-mode-super-x', 'phonon-mode-super-y', 'phonon-mode-super-z'],
-                    'Mode supercell',
-                    { minimum: 1, maximum: 50, integer: true }
-                ),
-                oscillation: Boolean(document.getElementById('chk-phonon-oscillation')?.checked),
-                nac_direction: this.state.phononSelectedNacDirection
-            };
-        } catch (error) {
-            this.toast(error.message, 'error');
-            return;
+        const view = new DataView(buffer);
+        const headerLength = view.getUint32(8, true);
+        const dataStart = 12 + headerLength;
+        if (dataStart > bytes.byteLength) throw new Error('Volumetric plane header is truncated.');
+        const header = JSON.parse(new TextDecoder().decode(bytes.subarray(12, dataStart)));
+        const valueCount = Number(header.width) * Number(header.height);
+        if (dataStart + valueCount * 4 !== bytes.byteLength) {
+            throw new Error('Volumetric plane dimensions do not match its payload.');
         }
-        const accepted = await this.showConfirmModal({
-            title: 'Create phonon-mode trajectory?',
-            intro: 'This replaces the current trajectory with the selected mass-weighted phonon mode.',
-            items: [
-                `q=(${options.qpoint.join(', ')}), band ${options.band}, amplitude ${options.amplitude} A.`,
-                `Mode supercell: ${options.dimension.join(' x ')}; frames: ${options.frames}.`,
-                'The q-point must be commensurate with the selected mode supercell.'
-            ],
-            confirmText: 'Create trajectory'
+        return {
+            header,
+            values: dataStart % 4 === 0
+                ? new Float32Array(buffer, dataStart, valueCount)
+                : new Float32Array(buffer.slice(dataStart))
+        };
+    }
+
+    async volumetricPlanePalette(plane) {
+        const name = plane.colormap || 'viridis';
+        const reverse = Boolean(plane.reverse);
+        const key = `${name}:${reverse ? 'reverse' : 'forward'}`;
+        const cache = this.atomColorScaleRuntime.lutCaches;
+        if (!cache.has(key)) {
+            cache.set(key, await this.api.fetchColormapLut(name, reverse, 256));
+        }
+        return cache.get(key)?.colors || [];
+    }
+
+    colorStringToRgb(value) {
+        const match = /^#([0-9a-f]{6})$/i.exec(String(value || ''));
+        if (!match) return [127, 127, 127];
+        const numeric = parseInt(match[1], 16);
+        return [(numeric >> 16) & 255, (numeric >> 8) & 255, numeric & 255];
+    }
+
+    async volumetricPlaneRgba(plane, payload) {
+        const colors = await this.volumetricPlanePalette(plane);
+        if (!colors.length) throw new Error(`Colormap '${plane.colormap}' is unavailable.`);
+        const palette = colors.map(color => this.colorStringToRgb(color));
+        let minimum = plane.autoRange
+            ? Number(payload.header.minimum)
+            : Number(plane.vmin);
+        let maximum = plane.autoRange
+            ? Number(payload.header.maximum)
+            : Number(plane.vmax);
+        if (!Number.isFinite(minimum) || !Number.isFinite(maximum)) {
+            throw new Error('Plane color maximum must be greater than its minimum.');
+        }
+        if (maximum <= minimum && plane.autoRange) {
+            const epsilon = Math.max(1e-12, Math.abs(minimum) * 1e-9);
+            minimum -= epsilon;
+            maximum += epsilon;
+        }
+        if (maximum <= minimum) throw new Error('Plane color maximum must be greater than its minimum.');
+        const scale = (palette.length - 1) / (maximum - minimum);
+        const rgba = new Uint8Array(payload.values.length * 4);
+        for (let index = 0; index < payload.values.length; index++) {
+            const colorIndex = Math.max(0, Math.min(
+                palette.length - 1,
+                Math.round((payload.values[index] - minimum) * scale)
+            ));
+            const color = palette[colorIndex];
+            const output = index * 4;
+            rgba[output] = color[0];
+            rgba[output + 1] = color[1];
+            rgba[output + 2] = color[2];
+            rgba[output + 3] = 255;
+        }
+        return rgba;
+    }
+
+    async renderVolumetricPlane(plane, { preview = false } = {}) {
+        if (!plane?.visible || this.state.volumetricFrameHiddenPlaneIds.has(plane?.id)) {
+            const record = this.renderer.volumetricPlanes.get(plane?.id);
+            if (record) record.group.visible = false;
+            return null;
+        }
+        const token = (this.state.volumetricPlaneRequestTokens.get(plane.id) || 0) + 1;
+        this.state.volumetricPlaneRequestTokens.set(plane.id, token);
+        const resolution = preview ? Math.min(72, plane.resolution) : plane.resolution;
+        const metrics = this.volumetricPlaneMetrics(plane);
+        if (metrics) {
+            plane.offsetMinimum = metrics.minimum;
+            plane.offsetMaximum = metrics.maximum;
+            plane.offsetAngstrom = Math.max(metrics.minimum, Math.min(metrics.maximum, plane.offsetAngstrom));
+        }
+        const buffer = await this.api.fetchVolumetricPlane({
+            dataset_id: plane.datasetId,
+            hkl: plane.hkl,
+            offset_angstrom: plane.offsetAngstrom,
+            repetitions: this.volumetricPlaneRepetitions(),
+            resolution
         });
-        if (!accepted) return;
-        try {
-            const scientificState = {
-                phononModelSummary: this.state.phononModelSummary,
-                phononBandStructure: this.state.phononBandStructure,
-                phononBandSelection: this.state.phononBandSelection
-                    ? { ...this.state.phononBandSelection }
-                    : null,
-                phononSelectedNacDirection: this.state.phononSelectedNacDirection
-                    ? [...this.state.phononSelectedNacDirection]
-                    : null,
-                phononModes: this.state.phononModes
-            };
-            const result = await this.withBusy(
-                'Generating the phonon-mode trajectory...',
-                () => this.api.generatePhononModeTrajectory(options)
-            );
-            const metadata = result.phonon || {};
-            this.setAtomsData(result, { clearSelection: true });
-            Object.assign(this.state, scientificState);
-            this.state.phononTrajectoryMetadata = { ...metadata };
-            this.renderPhononModelSummary(scientificState.phononModelSummary);
-            if (scientificState.phononBandStructure) {
-                this.renderPhononBandStructure(scientificState.phononBandStructure);
-                const bands = scientificState.phononBandStructure;
-                this.setScienceStatus(
-                    'phonon-band-status',
-                    bands.has_imaginary ? 'warning' : 'ready',
-                    `${bands.bravais_lattice} phonon dispersion`,
-                    `${bands.qpoint_count} q-points; ${bands.band_count} bands; ${bands.convention} path.`
-                );
-            }
-            if (scientificState.phononModes) {
-                this.renderPhononModes(scientificState.phononModes, options.band);
-            }
-            this.toast(
-                `Created ${metadata.frame_count || 1} frame${metadata.frame_count === 1 ? '' : 's'} for band ${metadata.band}; ${Number(metadata.frequency_thz).toFixed(4)} THz.`,
-                metadata.imaginary ? 'warning' : 'success'
-            );
-        } catch (error) {
-            this.state.phononTrajectoryMetadata = previousPhononTrajectoryMetadata;
-            this.toast(`Phonon trajectory failed: ${error.message}`, 'error');
+        if (this.state.volumetricPlaneRequestTokens.get(plane.id) !== token) return null;
+        const payload = this.decodeVolumetricPlane(buffer);
+        const rgba = await this.volumetricPlaneRgba(plane, payload);
+        if (this.state.volumetricPlaneRequestTokens.get(plane.id) !== token) return null;
+        plane.offsetAngstrom = Number(payload.header.offset_angstrom);
+        plane.offsetMinimum = Number(payload.header.offset_minimum);
+        plane.offsetMaximum = Number(payload.header.offset_maximum);
+        this.state.volumetricPlanePayloads.set(plane.id, payload);
+        this.renderer.setVolumetricPlaneSlice({
+            planeId: plane.id,
+            polygonVertices: payload.header.polygon_vertices,
+            polygonUv: payload.header.polygon_uv,
+            normal: payload.header.normal,
+            centroid: payload.header.centroid,
+            hkl: [...plane.hkl],
+            offsetAngstrom: plane.offsetAngstrom,
+            width: payload.header.width,
+            height: payload.header.height,
+            rgba,
+            opacity: plane.opacity,
+            visible: plane.visible,
+            selected: this.state.selectedVolumetricPlanes.has(plane.id),
+            preview
+        });
+        return payload;
+    }
+
+    async renderAllVolumetricPlanes({
+        preview = false,
+        planeIds = null,
+        updateControls = true
+    } = {}) {
+        const planes = this.normalizeVolumetricPlanes();
+        const validIds = new Set(planes.map(plane => plane.id));
+        const stale = [...this.renderer.volumetricPlanes.keys()].filter(id => !validIds.has(id));
+        if (stale.length) this.renderer.clearVolumetricPlanes(stale);
+        const visible = planes.filter(plane => (
+            plane.visible && !this.state.volumetricFrameHiddenPlaneIds.has(plane.id)
+        ));
+        const requestedIds = Array.isArray(planeIds) ? new Set(planeIds.map(String)) : null;
+        const requested = requestedIds
+            ? visible.filter(plane => requestedIds.has(plane.id))
+            : visible;
+        if (!visible.length) {
+            this.setVolumetricPlaneStatus('idle', planes.length ? 'Planes hidden' : 'No planar section', '');
+            return [];
         }
+        if (!requested.length) return [];
+        this.setVolumetricPlaneStatus(
+            'loading',
+            preview ? 'Updating plane preview' : 'Sampling planar sections',
+            `${requested.length} of ${visible.length} plane${visible.length === 1 ? '' : 's'} · ${preview ? 'interactive' : 'settled'} resolution`
+        );
+        const results = await Promise.allSettled(
+            requested.map(plane => this.renderVolumetricPlane(plane, { preview }))
+        );
+        const failures = results.filter(result => result.status === 'rejected');
+        this.renderer.setVolumetricPlaneSelection([...this.state.selectedVolumetricPlanes]);
+        if (updateControls) this.renderVolumetricPlaneControls();
+        else this.syncVolumetricPlaneTransformControls();
+        this.setVolumetricPlaneStatus(
+            failures.length ? 'warning' : 'ready',
+            `${visible.length} planar section${visible.length === 1 ? '' : 's'}`,
+            failures.length
+                ? failures.map(result => result.reason?.message || 'Plane unavailable').join(' ')
+                : `${requested.length} updated · ${preview ? 'interactive preview' : 'settled field'} · trilinear interpolation`
+        );
+        return results;
+    }
+
+    scheduleVolumetricPlanePreview({ settle = false, planeIds = null } = {}) {
+        const requestedIds = Array.isArray(planeIds)
+            ? [...new Set(planeIds.map(String))]
+            : null;
+        if (this.state.volumetricPlanePreviewTimer !== null) {
+            clearTimeout(this.state.volumetricPlanePreviewTimer);
+        }
+        if (this.state.volumetricPlaneSettledTimer !== null) {
+            clearTimeout(this.state.volumetricPlaneSettledTimer);
+            this.state.volumetricPlaneSettledTimer = null;
+        }
+        this.state.volumetricPlanePreviewTimer = setTimeout(() => {
+            this.state.volumetricPlanePreviewTimer = null;
+            this.renderAllVolumetricPlanes({
+                preview: !settle,
+                planeIds: requestedIds,
+                updateControls: false
+            }).catch(error => {
+                this.setVolumetricPlaneStatus('warning', 'Plane update failed', error.message);
+            });
+        }, settle ? 90 : 45);
+        if (!settle) {
+            this.state.volumetricPlaneSettledTimer = setTimeout(() => {
+                this.state.volumetricPlaneSettledTimer = null;
+                this.renderAllVolumetricPlanes({
+                    preview: false,
+                    planeIds: requestedIds,
+                    updateControls: false
+                }).catch(error => {
+                    this.setVolumetricPlaneStatus('warning', 'Plane update failed', error.message);
+                });
+            }, 260);
+        }
+    }
+
+    async recolorVolumetricPlanes(planes = this.selectedVolumetricPlaneList()) {
+        await Promise.all(planes.map(async plane => {
+            const payload = this.state.volumetricPlanePayloads.get(plane.id);
+            if (!payload) return;
+            const rgba = await this.volumetricPlaneRgba(plane, payload);
+            this.renderer.updateVolumetricPlaneTexture(plane.id, rgba, { opacity: plane.opacity });
+        }));
+        this.renderVolumetricPlaneControls();
+    }
+
+    decodeIsosurface(buffer) {
+        const bytes = new Uint8Array(buffer);
+        const magic = new TextDecoder().decode(bytes.subarray(0, 8));
+        if (magic !== 'VASEISO1' || bytes.byteLength < 12) {
+            throw new Error('v_ase returned an invalid isosurface payload.');
+        }
+        const view = new DataView(buffer);
+        const headerLength = view.getUint32(8, true);
+        const headerStart = 12;
+        const dataStart = headerStart + headerLength;
+        if (dataStart > bytes.byteLength) throw new Error('Isosurface header is truncated.');
+        const header = JSON.parse(new TextDecoder().decode(bytes.subarray(headerStart, dataStart)));
+        const vertexBytes = Number(header.vertex_count) * 3 * 4;
+        const faceBytes = Number(header.face_count) * 3 * 4;
+        if (dataStart + vertexBytes + faceBytes !== bytes.byteLength) {
+            throw new Error('Isosurface mesh dimensions do not match its payload.');
+        }
+        return {
+            header,
+            vertices: dataStart % 4 === 0
+                ? new Float32Array(buffer, dataStart, Number(header.vertex_count) * 3)
+                : new Float32Array(buffer.slice(dataStart, dataStart + vertexBytes)),
+            faces: (dataStart + vertexBytes) % 4 === 0
+                ? new Uint32Array(buffer, dataStart + vertexBytes, Number(header.face_count) * 3)
+                : new Uint32Array(buffer.slice(dataStart + vertexBytes))
+        };
+    }
+
+    async updateVolumetricSurface({ recordHistory = true } = {}) {
+        this.readVolumetricControls();
+        const token = ++this.state.volumetricRequestToken;
+        const dataset = this.selectedVolumetricDataset();
+        if (!dataset || !this.state.display.showVolumetric) {
+            if (dataset) this.renderer.setVolumetricSurfaceVisibility(false);
+            else this.renderer.clearVolumetricSurfaces();
+            this.state.volumetricSurfaceSummary = null;
+            this.setVolumeStatus('idle', dataset ? 'Isosurface hidden' : 'No scalar field', '');
+            return;
+        }
+        const requested = Number(this.state.display.volumetricLevel);
+        if (!Number.isFinite(requested)) {
+            throw new Error('Enter a finite isovalue.');
+        }
+        const levels = this.state.display.volumetricSurfaceMode === 'signed'
+            ? [...new Set([Math.abs(requested), -Math.abs(requested)])]
+            : [requested];
+        const available = levels.filter(level => (
+            level > Number(dataset.minimum) && level < Number(dataset.maximum)
+        ));
+        if (!available.length) {
+            throw new Error(
+                `Isovalue must be between ${this.formatScalarValue(dataset.minimum)} `
+                + `and ${this.formatScalarValue(dataset.maximum)}.`
+            );
+        }
+        this.state.volumetricSurfaceSummary = null;
+        this.setVolumeStatus('loading', 'Generating isosurface', `${dataset.name}`);
+        const generated = await Promise.all(available.map(async level => {
+            try {
+                const payload = await this.api.fetchIsosurface({
+                    dataset_id: dataset.id,
+                    level,
+                    step_size: this.state.display.volumetricStepSize,
+                    smearing_sigma: this.state.display.volumetricSmearingSigma,
+                    smoothing_iterations: this.state.display.volumetricSmoothingIterations
+                });
+                const decoded = this.decodeIsosurface(payload);
+                return {
+                    datasetId: dataset.id,
+                    level,
+                    vertices: decoded.vertices,
+                    faces: decoded.faces,
+                    cell: decoded.header.cell,
+                    metadata: decoded.header.metadata || {},
+                    color: level < 0
+                        ? this.state.display.volumetricNegativeColor
+                        : this.state.display.volumetricPositiveColor,
+                    opacity: this.state.display.volumetricOpacity
+                };
+            } catch (error) {
+                if (String(error?.message || '').includes('after field smearing')) {
+                    return null;
+                }
+                throw error;
+            }
+        }));
+        const meshes = generated.filter(Boolean);
+        if (!meshes.length) {
+            throw new Error(
+                'The selected isovalue has no crossing after field smearing. '
+                + 'Reduce smearing or choose another isovalue.'
+            );
+        }
+        if (token !== this.state.volumetricRequestToken) return;
+        this.renderer.setVolumetricSurfaces(meshes);
+        const refinements = [];
+        if (this.state.display.volumetricSmearingSigma > 0) {
+            refinements.push(`σ ${this.state.display.volumetricSmearingSigma.toFixed(2)} voxel`);
+        }
+        if (this.state.display.volumetricSmoothingIterations > 0) {
+            refinements.push(
+                `${this.state.display.volumetricSmoothingIterations} smoothing passes`
+            );
+        }
+        const triangleCount = meshes.reduce(
+            (sum, mesh) => sum + mesh.faces.length / 3,
+            0
+        );
+        const meshMetadata = meshes[0]?.metadata || {};
+        this.state.volumetricSurfaceSummary = {
+            datasetId: dataset.id,
+            requestedLevel: requested,
+            renderedLevels: meshes.map(mesh => mesh.level),
+            surfaceMode: this.state.display.volumetricSurfaceMode,
+            surfaceCount: meshes.length,
+            triangleCount,
+            smearingSigma: this.state.display.volumetricSmearingSigma,
+            smoothingIterations: this.state.display.volumetricSmoothingIterations,
+            displayMinimum: Number.isFinite(Number(meshMetadata.display_minimum))
+                ? Number(meshMetadata.display_minimum)
+                : null,
+            displayMaximum: Number.isFinite(Number(meshMetadata.display_maximum))
+                ? Number(meshMetadata.display_maximum)
+                : null,
+            partialSignedSurface: meshes.length < levels.length
+        };
+        this.setVolumeStatus(
+            meshes.length < levels.length ? 'warning' : 'ready',
+            `${meshes.length} isosurface${meshes.length === 1 ? '' : 's'}`,
+            meshes.length < levels.length
+                ? 'One signed level lies outside the displayed field range.'
+                : `${triangleCount.toLocaleString()} triangles`
+                    + `${refinements.length ? ` · ${refinements.join(' · ')}` : ''}`
+        );
+        if (recordHistory) this.scheduleVisualHistoryCommit('volumetric');
+    }
+
+    async addVolumetricFile(file) {
+        if (!file) return;
+        const data = await this.withBusy(
+            `Reading ${file.name}...`,
+            () => this.api.appendStructureFile(
+                file,
+                '',
+                ':',
+                this.volumetricImportPrecision(),
+                { emitMutation: false }
+            )
+        );
+        if (data.loaded_file?.source_kind !== 'volumetric') {
+            throw new Error('The selected file did not contain supported volumetric data.');
+        }
+        const wasEmpty = !this.hasLoadedAtoms();
+        this.setAtomsData(data, {
+            clearSelection: wasEmpty,
+            preserveDisplay: true,
+            preserveRdf: true
+        });
+        this.activateNewestVolumetricDataset();
+        await this.updateVolumetricSurface();
+        this.scheduleCollaborationEvent({
+            source: this.currentCollaborationActor(),
+            categories: ['analysis'],
+            changedPaths: ['analysis.volumetricDatasets'],
+            summary: 'A volumetric dataset was added.'
+        });
+        this.toast(
+            `Added ${Number(data.loaded_file?.appended_volumetric_datasets) || 0} scalar field`
+            + `${Number(data.loaded_file?.appended_volumetric_datasets) === 1 ? '' : 's'}.`,
+            'success'
+        );
+    }
+
+    setupVolumetricAnalysis() {
+        const fileInput = document.getElementById('volume-file');
+        document.querySelectorAll('[data-volume-tool]').forEach(button => {
+            button.addEventListener('click', () => {
+                this.setVolumetricToolView(button.dataset.volumeTool, { focus: true });
+            });
+            button.addEventListener('keydown', event => {
+                if (!['ArrowLeft', 'ArrowRight'].includes(event.key)) return;
+                event.preventDefault();
+                const views = ['surface', 'planes', 'difference'];
+                const current = views.indexOf(this.state.volumetricToolView);
+                const delta = event.key === 'ArrowRight' ? 1 : -1;
+                const next = views[(current + delta + views.length) % views.length];
+                this.setVolumetricToolView(next, { focus: true });
+            });
+        });
+        const histogramContainer = document.querySelector('.volume-distribution');
+        if (histogramContainer && typeof ResizeObserver !== 'undefined') {
+            this.volumetricHistogramObserver?.disconnect?.();
+            this.volumetricHistogramObserver = new ResizeObserver(
+                () => this.drawVolumetricHistogram()
+            );
+            this.volumetricHistogramObserver.observe(histogramContainer);
+        }
+        let levelSettleTimer = null;
+        const updateLevelFromControl = (source, { settle = false } = {}) => {
+            const dataset = this.selectedVolumetricDataset();
+            if (!dataset) return;
+            const value = Number(source?.value);
+            if (!Number.isFinite(value)) return;
+            const profile = this.volumetricDistributionProfile(dataset);
+            if (!profile) return;
+            this.state.display.volumetricLevel = Math.max(
+                profile.minimum,
+                Math.min(profile.maximum, profile.signed ? Math.abs(value) : value)
+            );
+            const number = document.getElementById('volume-level');
+            const slider = document.getElementById('volume-level-slider');
+            if (source !== number && number && document.activeElement !== number) {
+                number.value = `${this.state.display.volumetricLevel}`;
+            }
+            if (source !== slider && slider && document.activeElement !== slider) {
+                slider.value = `${this.state.display.volumetricLevel}`;
+            }
+            this.syncVolumetricDistribution(dataset);
+            if (levelSettleTimer !== null) clearTimeout(levelSettleTimer);
+            levelSettleTimer = setTimeout(() => {
+                levelSettleTimer = null;
+                if (!this.state.display.showVolumetric) return;
+                this.updateVolumetricSurface().catch(error => {
+                    this.setVolumeStatus('warning', 'Isosurface unavailable', error.message);
+                });
+            }, settle ? 0 : 220);
+        };
+        document.getElementById('volume-level-slider')?.addEventListener('input', event => {
+            updateLevelFromControl(event.target);
+        });
+        document.getElementById('volume-level-slider')?.addEventListener('change', event => {
+            updateLevelFromControl(event.target, { settle: true });
+        });
+        document.getElementById('volume-level')?.addEventListener('input', event => {
+            updateLevelFromControl(event.target);
+        });
+        document.getElementById('volume-import-precision')?.addEventListener('change', event => {
+            this.state.display.volumetricPrecision = event.target.value === 'float64'
+                ? 'float64'
+                : 'float32';
+            this.scheduleVisualHistoryCommit('volumetric-import-precision');
+        });
+        document.getElementById('btn-volume-add')?.addEventListener('click', () => fileInput?.click());
+        fileInput?.addEventListener('change', async () => {
+            const file = fileInput.files?.[0];
+            fileInput.value = '';
+            try {
+                await this.addVolumetricFile(file);
+            } catch (error) {
+                this.setVolumeStatus('warning', 'Could not load scalar field', error.message);
+                this.toast(`Volumetric data failed: ${error.message}`, 'error');
+            }
+        });
+        document.getElementById('volume-dataset')?.addEventListener('change', () => {
+            this.state.display.volumetricDatasetId = document.getElementById('volume-dataset')?.value || '';
+            this.state.display.volumetricLevel = this.defaultVolumetricLevel(this.selectedVolumetricDataset());
+            this.syncVolumetricControls();
+            if (this.state.display.showVolumetric) {
+                this.updateVolumetricSurface().catch(error => {
+                    this.setVolumeStatus('warning', 'Isosurface unavailable', error.message);
+                });
+            }
+        });
+        ['chk-volume-visible', 'volume-surface-mode'].forEach(id => {
+            document.getElementById(id)?.addEventListener('change', () => {
+                this.updateVolumetricSurface().catch(error => {
+                    this.setVolumeStatus('warning', 'Isosurface unavailable', error.message);
+                    this.renderer.clearVolumetricSurfaces();
+                });
+            });
+        });
+        [
+            'volume-level',
+            'volume-step',
+            'volume-smearing',
+            'volume-smoothing'
+        ].forEach(id => {
+            document.getElementById(id)?.addEventListener('change', () => {
+                this.updateVolumetricSurface().catch(error => {
+                    this.setVolumeStatus('warning', 'Isosurface unavailable', error.message);
+                    this.renderer.clearVolumetricSurfaces();
+                });
+            });
+        });
+        ['volume-opacity', 'volume-positive-color', 'volume-negative-color'].forEach(id => {
+            document.getElementById(id)?.addEventListener('input', () => {
+                this.readVolumetricControls();
+                if (this.state.display.showVolumetric) {
+                    this.renderer.updateVolumetricSurfaceStyle({
+                        positiveColor: this.state.display.volumetricPositiveColor,
+                        negativeColor: this.state.display.volumetricNegativeColor,
+                        opacity: this.state.display.volumetricOpacity
+                    });
+                }
+            });
+            document.getElementById(id)?.addEventListener('change', () => {
+                this.scheduleVisualHistoryCommit('volumetric-style');
+            });
+        });
+        document.getElementById('btn-volume-refresh')?.addEventListener('click', () => {
+            this.updateVolumetricSurface().catch(error => {
+                this.setVolumeStatus('warning', 'Isosurface unavailable', error.message);
+                this.renderer.clearVolumetricSurfaces();
+            });
+        });
+        document.getElementById('btn-volume-delete')?.addEventListener('click', async () => {
+            const dataset = this.selectedVolumetricDataset();
+            if (!dataset) return;
+            try {
+                const result = await this.api.deleteVolumetricDataset(dataset.id);
+                this.state.atoms.metadata.volumetric_datasets = result.volumetric_datasets || [];
+                const removedPlaneIds = this.volumetricPlanes()
+                    .filter(plane => plane.datasetId === dataset.id)
+                    .map(plane => plane.id);
+                this.state.display.volumetricPlanes = this.volumetricPlanes()
+                    .filter(plane => plane.datasetId !== dataset.id);
+                removedPlaneIds.forEach(id => this.state.volumetricPlanePayloads.delete(id));
+                this.renderer.clearVolumetricPlanes(removedPlaneIds);
+                this.state.display.volumetricDatasetId = '';
+                this.renderer.clearVolumetricSurfaces();
+                this.renderVolumetricControls();
+            } catch (error) {
+                this.toast(`Remove scalar field failed: ${error.message}`, 'error');
+            }
+        });
+        document.getElementById('btn-volume-plane-add')?.addEventListener('click', () => {
+            this.createVolumetricPlane();
+        });
+        document.getElementById('btn-volume-plane-remove')?.addEventListener('click', () => {
+            const selected = new Set(this.state.selectedVolumetricPlanes);
+            if (!selected.size) return;
+            this.state.display.volumetricPlanes = this.volumetricPlanes()
+                .filter(plane => !selected.has(plane.id));
+            selected.forEach(id => this.state.volumetricPlanePayloads.delete(id));
+            this.renderer.clearVolumetricPlanes([...selected]);
+            this.state.selectedVolumetricPlanes.clear();
+            this.renderVolumetricPlaneControls();
+            this.scheduleVisualHistoryCommit('volumetric-plane-remove');
+        });
+        document.getElementById('chk-volume-plane-visible')?.addEventListener('change', event => {
+            this.selectedVolumetricPlaneList().forEach(plane => {
+                plane.visible = event.target.checked;
+                const record = this.renderer.volumetricPlanes.get(plane.id);
+                if (record) record.group.visible = plane.visible;
+            });
+            this.renderAllVolumetricPlanes().catch(error => {
+                this.setVolumetricPlaneStatus('warning', 'Plane update failed', error.message);
+            });
+            this.scheduleVisualHistoryCommit('volumetric-plane-visible');
+        });
+        document.getElementById('volume-plane-dataset')?.addEventListener('change', event => {
+            if (!event.target.value) return;
+            const dataset = this.volumetricDatasets().find(item => item.id === event.target.value);
+            this.selectedVolumetricPlaneList().forEach(plane => {
+                plane.datasetId = event.target.value;
+                plane.autoRange = true;
+                plane.vmin = Number(dataset?.minimum);
+                plane.vmax = Number(dataset?.maximum);
+                const metrics = this.volumetricPlaneMetrics(plane);
+                if (metrics) {
+                    plane.offsetMinimum = metrics.minimum;
+                    plane.offsetMaximum = metrics.maximum;
+                    plane.offsetAngstrom = Math.max(metrics.minimum, Math.min(metrics.maximum, plane.offsetAngstrom));
+                }
+            });
+            this.renderAllVolumetricPlanes().catch(error => {
+                this.setVolumetricPlaneStatus('warning', 'Plane update failed', error.message);
+            });
+            this.scheduleVisualHistoryCommit('volumetric-plane-dataset');
+        });
+        ['h', 'k', 'l'].forEach((axis, axisIndex) => {
+            document.getElementById(`volume-plane-${axis}`)?.addEventListener('change', event => {
+                const value = Number(event.target.value);
+                if (!Number.isFinite(value)) return;
+                const selected = this.selectedVolumetricPlaneList();
+                const proposed = selected.map(plane => {
+                    const next = [...plane.hkl];
+                    next[axisIndex] = value;
+                    return { plane, next };
+                });
+                if (proposed.some(({ next }) => Math.hypot(...next) <= 1e-9)) {
+                    this.toast('Plane (h k l) cannot be (0 0 0).', 'warning');
+                    this.renderVolumetricPlaneControls();
+                    return;
+                }
+                proposed.forEach(({ plane, next }) => {
+                    plane.hkl = next;
+                    const metrics = this.volumetricPlaneMetrics(plane);
+                    if (metrics) {
+                        plane.offsetMinimum = metrics.minimum;
+                        plane.offsetMaximum = metrics.maximum;
+                        plane.offsetAngstrom = Math.max(metrics.minimum, Math.min(metrics.maximum, plane.offsetAngstrom));
+                    }
+                });
+                this.renderAllVolumetricPlanes().catch(error => {
+                    this.setVolumetricPlaneStatus('warning', 'Plane update failed', error.message);
+                });
+                this.scheduleVisualHistoryCommit('volumetric-plane-hkl');
+            });
+        });
+        const applyPlaneOffset = (value, { preview = false } = {}) => {
+            if (!Number.isFinite(value)) return;
+            const selected = this.selectedVolumetricPlaneList();
+            selected.forEach(plane => {
+                const metrics = this.volumetricPlaneMetrics(plane);
+                plane.offsetAngstrom = metrics
+                    ? Math.max(metrics.minimum, Math.min(metrics.maximum, value))
+                    : value;
+            });
+            this.syncVolumetricPlaneTransformControls();
+            this.scheduleVolumetricPlanePreview({
+                settle: !preview,
+                planeIds: selected.map(plane => plane.id)
+            });
+        };
+        document.getElementById('volume-plane-offset-slider')?.addEventListener('input', event => {
+            const value = Number(event.target.value);
+            const number = document.getElementById('volume-plane-offset');
+            if (number) number.value = event.target.value;
+            applyPlaneOffset(value, { preview: true });
+        });
+        document.getElementById('volume-plane-offset-slider')?.addEventListener('change', event => {
+            applyPlaneOffset(Number(event.target.value));
+            this.scheduleVisualHistoryCommit('volumetric-plane-offset');
+        });
+        document.getElementById('volume-plane-offset')?.addEventListener('change', event => {
+            applyPlaneOffset(Number(event.target.value));
+            this.scheduleVisualHistoryCommit('volumetric-plane-offset');
+        });
+        document.getElementById('volume-plane-resolution')?.addEventListener('change', event => {
+            const resolution = Number(event.target.value);
+            if (![128, 256, 512, 1024].includes(resolution)) return;
+            this.selectedVolumetricPlaneList().forEach(plane => { plane.resolution = resolution; });
+            this.renderAllVolumetricPlanes().catch(error => {
+                this.setVolumetricPlaneStatus('warning', 'Plane update failed', error.message);
+            });
+            this.scheduleVisualHistoryCommit('volumetric-plane-resolution');
+        });
+        document.getElementById('volume-plane-colormap')?.addEventListener('change', event => {
+            if (!event.target.value) return;
+            const selected = this.selectedVolumetricPlaneList();
+            selected.forEach(plane => { plane.colormap = event.target.value; });
+            this.recolorVolumetricPlanes(selected).catch(error => {
+                this.setVolumetricPlaneStatus('warning', 'Colormap unavailable', error.message);
+            });
+            this.scheduleVisualHistoryCommit('volumetric-plane-colormap');
+        });
+        document.getElementById('chk-volume-plane-reverse')?.addEventListener('change', event => {
+            const selected = this.selectedVolumetricPlaneList();
+            selected.forEach(plane => { plane.reverse = event.target.checked; });
+            this.recolorVolumetricPlanes(selected).catch(error => {
+                this.setVolumetricPlaneStatus('warning', 'Colormap unavailable', error.message);
+            });
+            this.scheduleVisualHistoryCommit('volumetric-plane-colormap');
+        });
+        const applyPlaneRange = () => {
+            const minimumInput = document.getElementById('volume-plane-vmin');
+            const maximumInput = document.getElementById('volume-plane-vmax');
+            const minimumText = minimumInput?.value.trim() || '';
+            const maximumText = maximumInput?.value.trim() || '';
+            const selected = this.selectedVolumetricPlaneList();
+            const proposals = selected.map(plane => {
+                const payload = this.state.volumetricPlanePayloads.get(plane.id);
+                const minimum = minimumText ? Number(minimumText) : Number(
+                    plane.autoRange ? payload?.header?.minimum : plane.vmin
+                );
+                const maximum = maximumText ? Number(maximumText) : Number(
+                    plane.autoRange ? payload?.header?.maximum : plane.vmax
+                );
+                return { plane, minimum, maximum };
+            });
+            const invalid = proposals.some(({ minimum, maximum }) => (
+                !Number.isFinite(minimum)
+                || !Number.isFinite(maximum)
+                || maximum <= minimum
+            ));
+            if (invalid) {
+                this.toast('Plane color maximum must be greater than its minimum.', 'warning');
+                this.renderVolumetricPlaneControls();
+                return;
+            }
+            proposals.forEach(({ plane, minimum, maximum }) => {
+                plane.autoRange = false;
+                plane.vmin = minimum;
+                plane.vmax = maximum;
+            });
+            this.recolorVolumetricPlanes(selected).catch(error => {
+                this.setVolumetricPlaneStatus('warning', 'Color range unavailable', error.message);
+            });
+            this.scheduleVisualHistoryCommit('volumetric-plane-range');
+        };
+        ['volume-plane-vmin', 'volume-plane-vmax'].forEach(id => {
+            document.getElementById(id)?.addEventListener('change', applyPlaneRange);
+        });
+        document.getElementById('btn-volume-plane-fit')?.addEventListener('click', () => {
+            const selected = this.selectedVolumetricPlaneList();
+            selected.forEach(plane => {
+                plane.autoRange = true;
+                plane.vmin = null;
+                plane.vmax = null;
+            });
+            this.recolorVolumetricPlanes(selected).catch(error => {
+                this.setVolumetricPlaneStatus('warning', 'Color range unavailable', error.message);
+            });
+            this.scheduleVisualHistoryCommit('volumetric-plane-range');
+        });
+        document.getElementById('volume-plane-opacity')?.addEventListener('input', event => {
+            const opacity = Math.max(0.05, Math.min(1, Number(event.target.value) || 0.88));
+            const selected = this.selectedVolumetricPlaneList();
+            selected.forEach(plane => {
+                plane.opacity = opacity;
+                const record = this.renderer.volumetricPlanes.get(plane.id);
+                if (record) {
+                    record.material.opacity = opacity;
+                    record.material.transparent = opacity < 0.999;
+                    record.material.depthWrite = opacity >= 0.98;
+                    record.material.needsUpdate = true;
+                }
+            });
+            const output = document.getElementById('volume-plane-opacity-value');
+            if (output) output.textContent = opacity.toFixed(2);
+            this.renderer.requestRender();
+        });
+        document.getElementById('volume-plane-opacity')?.addEventListener('change', () => {
+            this.scheduleVisualHistoryCommit('volumetric-plane-opacity');
+        });
+        document.getElementById('btn-volume-difference')?.addEventListener('click', async () => {
+            const terms = [...document.querySelectorAll('.volume-difference-term')]
+                .filter(row => row.querySelector('input[type="checkbox"]')?.checked)
+                .map(row => ({
+                    id: row.querySelector('input[type="checkbox"]')?.dataset.datasetId,
+                    coefficient: Number(row.querySelector('input[type="number"]')?.value)
+                }));
+            if (terms.length < 2 || terms.some(term => !Number.isFinite(term.coefficient))) {
+                this.toast('Select at least two grids with finite coefficients.', 'warning');
+                return;
+            }
+            try {
+                const result = await this.withBusy(
+                    'Calculating volumetric difference...',
+                    () => this.api.createVolumetricDifference({
+                        dataset_ids: terms.map(term => term.id),
+                        coefficients: terms.map(term => term.coefficient),
+                        name: 'Charge density difference'
+                    })
+                );
+                this.state.atoms.metadata.volumetric_datasets = result.volumetric_datasets || [];
+                this.state.display.volumetricDatasetId = result.dataset.id;
+                this.state.display.volumetricLevel = this.defaultVolumetricLevel(result.dataset);
+                this.renderVolumetricControls();
+                this.toast('Created charge density difference.', 'success');
+            } catch (error) {
+                this.toast(`Density difference failed: ${error.message}`, 'error');
+            }
+        });
+        this.renderVolumetricControls();
+    }
+
+    rdfOptions({
+        frameIndex = null,
+        includePositions = true,
+        source = null,
+        positions = null
+    } = {}) {
+        const cutoffText = document.getElementById('rdf-cutoff')?.value.trim() || '';
+        const cutoff = cutoffText ? Number(cutoffText) : null;
+        const bins = Math.max(8, Math.min(5000, parseInt(
+            document.getElementById('rdf-bins')?.value || '200',
+            10
+        ) || 200));
+        const pairMode = ['active', 'selected', 'all', 'none'].includes(
+            document.getElementById('rdf-pair-mode')?.value
+        ) ? document.getElementById('rdf-pair-mode').value : 'active';
+        Object.assign(this.state.display, {
+            rdfCutoff: Number.isFinite(cutoff) ? cutoff : null,
+            rdfBins: bins,
+            rdfPairMode: pairMode
+        });
+        const context = this.rdfFrameContext({ source, frameIndex, positions });
+        const options = {
+            cutoff: Number.isFinite(cutoff) ? cutoff : null,
+            bins,
+            pair_mode: pairMode,
+            active_pairs: pairMode === 'selected'
+                ? this.selectedActiveRdfPairs()
+                : this.activeRdfPairs(),
+            frame_index: context.backendFrameIndex
+        };
+        if (includePositions) {
+            options.positions = positions || this.currentPositionsFromScene();
+        }
+        return options;
+    }
+
+    activeRdfPairs() {
+        const labels = this.state.atoms?.symbols || [];
+        if (this.state.display.bondMode === 'pairwise') {
+            return this.uniqueLabelPairs().filter(([left, right]) => {
+                const range = this.pairwiseBondRange(left, right);
+                return range.enabled && Number(range.max) > 0;
+            });
+        }
+
+        const sourcePairs = this.state.display.bondMode === 'manual'
+            ? this.state.display.manualBondPairs || []
+            : this.renderer.bondPairs || [];
+        const activePairs = new Map();
+        sourcePairs.forEach(([first, second]) => {
+            const left = labels[first];
+            const right = labels[second];
+            if (!left || !right) return;
+            const key = this.labelPairKey(left, right);
+            activePairs.set(key, [left, right]);
+        });
+        return [...activePairs.values()];
+    }
+
+    rdfActiveBondTopology() {
+        if (this.state.display.showBonds) {
+            return {
+                pairs: this.renderer.bondPairs || [],
+                bridges: this.renderer.supercellBridgeBondRecords || []
+            };
+        }
+        if (this.state.display.bondMode === 'manual') {
+            return {
+                pairs: this.state.display.manualBondPairs || [],
+                bridges: this.renderer.inferSupercellBridgeBondRecords(
+                    this.state.display.supercell || [1, 1, 1]
+                )
+            };
+        }
+        const topology = this.renderer.inferCurrentBondTopology();
+        return {
+            pairs: topology.pairs || [],
+            bridges: topology.bridgeRecords || []
+        };
+    }
+
+    rdfBondAdjacency(pairs, bridges) {
+        const cached = this.rdfSelectionTopologyCache;
+        if (cached?.pairs === pairs && cached?.bridges === bridges) return cached;
+        const directByIndex = new Map();
+        const bridgesByIndex = new Map();
+        const add = (map, index, value) => {
+            if (!map.has(index)) map.set(index, []);
+            map.get(index).push(value);
+        };
+        (pairs || []).forEach(pair => {
+            if (!Array.isArray(pair) || pair.length < 2) return;
+            const first = Number(pair[0]);
+            const second = Number(pair[1]);
+            if (!Number.isInteger(first) || !Number.isInteger(second)) return;
+            add(directByIndex, first, [first, second]);
+            if (second !== first) add(directByIndex, second, [first, second]);
+        });
+        (bridges || []).forEach(record => {
+            const first = Number(record?.i);
+            const second = Number(record?.j);
+            if (!Number.isInteger(first) || !Number.isInteger(second)) return;
+            add(bridgesByIndex, first, record);
+            if (second !== first) add(bridgesByIndex, second, record);
+        });
+        this.rdfSelectionTopologyCache = {
+            pairs,
+            bridges,
+            directByIndex,
+            bridgesByIndex
+        };
+        return this.rdfSelectionTopologyCache;
+    }
+
+    selectedActiveRdfPairs() {
+        const labels = this.state.atoms?.symbols || [];
+        const selectedOffsets = new Map();
+        this.selectionEntries().forEach(reference => {
+            const normalized = this.normalizeSelectionReference(reference);
+            if (!normalized || !labels[normalized.index]) return;
+            const offset = normalized.kind === 'replica'
+                ? normalized.cellOffset.map(value => Number(value) || 0)
+                : [0, 0, 0];
+            if (!selectedOffsets.has(normalized.index)) {
+                selectedOffsets.set(normalized.index, new Map());
+            }
+            selectedOffsets.get(normalized.index).set(offset.join(','), offset);
+        });
+        const selectedCount = [...selectedOffsets.values()].reduce(
+            (count, offsets) => count + offsets.size,
+            0
+        );
+        if (selectedCount < 2) return [];
+
+        const { pairs, bridges } = this.rdfActiveBondTopology();
+        const topology = this.rdfBondAdjacency(pairs, bridges);
+        const activePairs = new Map();
+        const addLabelPair = (first, second) => {
+            const left = labels[first];
+            const right = labels[second];
+            if (!left || !right) return;
+            const key = this.labelPairKey(left, right);
+            activePairs.set(key, [left, right]);
+        };
+        const directSeen = new Set();
+        selectedOffsets.forEach((_offsets, index) => {
+            (topology.directByIndex.get(index) || []).forEach(([first, second]) => {
+                const key = `${Math.min(first, second)}:${Math.max(first, second)}`;
+                if (directSeen.has(key)) return;
+                directSeen.add(key);
+                const firstOffsets = selectedOffsets.get(first);
+                const secondOffsets = selectedOffsets.get(second);
+                if (!firstOffsets || !secondOffsets) return;
+                const smaller = firstOffsets.size <= secondOffsets.size
+                    ? firstOffsets
+                    : secondOffsets;
+                const larger = smaller === firstOffsets ? secondOffsets : firstOffsets;
+                if ([...smaller.keys()].some(offsetKey => larger.has(offsetKey))) {
+                    addLabelPair(first, second);
+                }
+            });
+        });
+
+        const bridgeSeen = new Set();
+        const repeats = this.state.display.supercell || [1, 1, 1];
+        selectedOffsets.forEach((_offsets, index) => {
+            (topology.bridgesByIndex.get(index) || []).forEach(record => {
+                const imageOffset = (record.imageOffset || []).map(value => Number(value) || 0);
+                const recordKey = `${record.i}:${record.j}:${imageOffset.join(',')}`;
+                if (bridgeSeen.has(recordKey)) return;
+                bridgeSeen.add(recordKey);
+                const firstOffsets = selectedOffsets.get(record.i);
+                const secondOffsets = selectedOffsets.get(record.j);
+                if (!firstOffsets || !secondOffsets) return;
+                const selectedBridge = this.renderer
+                    .supercellBridgeStartOffsets(imageOffset, repeats)
+                    .some(start => {
+                        const end = start.map((value, axis) => value + imageOffset[axis]);
+                        return firstOffsets.has(start.join(','))
+                            && secondOffsets.has(end.join(','));
+                    });
+                if (selectedBridge) addLabelPair(record.i, record.j);
+            });
+        });
+        return [...activePairs.entries()]
+            .sort(([left], [right]) => left.localeCompare(right))
+            .map(([, pair]) => pair);
+    }
+
+    rdfPairSignature(pairs = []) {
+        return JSON.stringify(
+            pairs.map(([left, right]) => this.labelPairKey(left, right)).sort()
+        );
+    }
+
+    scheduleSelectedRdfRefresh() {
+        if (
+            this.state.display.rdfPairMode !== 'selected'
+            || this.state.rdfResult?.pair_mode !== 'selected'
+            || this.state.activeAnalysisPlot !== 'rdf'
+        ) return;
+        const pairs = this.selectedActiveRdfPairs();
+        const signature = this.rdfPairSignature(pairs);
+        if (signature === this.state.rdfSelectionSignature) {
+            if (this.state.rdfSelectionRefreshTimer) {
+                clearTimeout(this.state.rdfSelectionRefreshTimer);
+                this.state.rdfSelectionRefreshTimer = null;
+            }
+            this.state.rdfSelectionPendingSignature = '';
+            return;
+        }
+        if (
+            signature === this.state.rdfSelectionPendingSignature
+            && this.state.rdfSelectionRefreshTimer
+        ) return;
+        if (this.state.rdfSelectionRefreshTimer) {
+            clearTimeout(this.state.rdfSelectionRefreshTimer);
+        }
+        this.state.rdfRequestToken += 1;
+        this.state.rdfSelectionPendingSignature = signature;
+        this.state.rdfSelectionRefreshTimer = setTimeout(() => {
+            this.state.rdfSelectionRefreshTimer = null;
+            if (this.state.activeAnalysisPlot !== 'rdf') {
+                this.state.rdfSelectionPendingSignature = '';
+                return;
+            }
+            const latestSignature = this.rdfPairSignature(this.selectedActiveRdfPairs());
+            if (latestSignature !== this.state.rdfSelectionPendingSignature) {
+                this.state.rdfSelectionPendingSignature = '';
+                this.scheduleSelectedRdfRefresh();
+                return;
+            }
+            const latestPairs = this.selectedActiveRdfPairs();
+            const exportButton = document.getElementById('btn-analysis-export');
+            if (exportButton) exportButton.disabled = true;
+            this.setRdfStatus(
+                'loading',
+                'Updating selected bond pairs',
+                latestPairs.length
+                    ? 'Reusing the current RDF settings for the selected active bond labels.'
+                    : 'No active bond currently joins two selected atoms; only the total curve will remain.'
+            );
+            this.calculateRdf({ quiet: true }).catch(error => {
+                this.state.rdfSelectionPendingSignature = '';
+                this.setRdfStatus('warning', 'Selected-pair RDF unavailable', error.message);
+                this.toast(`Selected-pair RDF failed: ${error.message}`, 'error');
+            });
+        }, 160);
+    }
+
+    setRdfStatus(state, title, detail = '') {
+        const status = document.getElementById('rdf-status');
+        if (!status) return;
+        status.dataset.state = state;
+        const titleElement = status.querySelector('.analysis-status-title');
+        const detailElement = status.querySelector('.analysis-status-detail');
+        if (titleElement) titleElement.textContent = title;
+        if (detailElement) detailElement.textContent = detail;
+    }
+
+    distributionAnalysisName() {
+        const pbc = Array.isArray(this.state.atoms?.pbc)
+            ? this.state.atoms.pbc.map(Boolean)
+            : [false, false, false];
+        if (pbc.every(Boolean)) return 'RDF';
+        if (!pbc.some(Boolean)) return 'Pair-distribution function';
+        return 'Distribution';
+    }
+
+    rdfSettingsSignature(
+        options = this.rdfOptions({ includePositions: false }),
+        context = this.rdfFrameContext()
+    ) {
+        const activePairs = (options.active_pairs || [])
+            .map(([left, right]) => this.labelPairKey(left, right))
+            .sort();
+        return JSON.stringify({
+            cutoff: options.cutoff ?? null,
+            bins: Number(options.bins) || 200,
+            pairMode: options.pair_mode || 'active',
+            activePairs,
+            source: context.source,
+            sourceGeneration: context.source === 'relax'
+                ? this.state.relaxTrajectoryGeneration
+                : 0,
+            frameCount: context.source === 'relax' ? null : context.frameCount,
+            atomCount: Number(this.state.atoms?.metadata?.natoms)
+                || this.state.atoms?.positions?.length
+                || 0,
+            labels: this.uniqueAtomLabels(),
+            cell: this.state.atoms?.cell || null,
+            pbc: this.state.atoms?.pbc || null
+        });
+    }
+
+    clearRdfFrameCache() {
+        this.state.rdfPrefetchToken += 1;
+        this.state.rdfFrameCache.clear();
+        this.state.rdfFrameCacheSignature = '';
+        this.state.rdfFrameCacheComplete = false;
+        this.state.rdfPrefetchPromise = null;
+    }
+
+    ensureRdfFrameCache(options, context = this.rdfFrameContext()) {
+        const signature = this.rdfSettingsSignature(options, context);
+        if (signature !== this.state.rdfFrameCacheSignature) {
+            this.clearRdfFrameCache();
+            this.state.rdfFrameCacheSignature = signature;
+        }
+        return signature;
+    }
+
+    rdfFrameCacheKey(context = this.rdfFrameContext()) {
+        return context.source === 'relax'
+            ? `relax:${this.state.relaxTrajectoryGeneration}:${context.index}`
+            : context.index;
+    }
+
+    decorateRdfResult(result, context = this.rdfFrameContext()) {
+        if (!result) return result;
+        return {
+            ...result,
+            frame_index: context.index,
+            display_source: context.source,
+            display_frame_index: context.index,
+            display_frame_count: context.frameCount,
+            source_frame_index: Number(result.frame_index ?? context.backendFrameIndex)
+        };
+    }
+
+    cacheRdfResult(
+        result,
+        signature = this.state.rdfFrameCacheSignature,
+        context = this.rdfFrameContext()
+    ) {
+        if (!result || signature !== this.state.rdfFrameCacheSignature) return;
+        const frameIndex = Number(context.index);
+        if (!Number.isInteger(frameIndex) || frameIndex < 0) return;
+        this.state.rdfFrameCache.set(this.rdfFrameCacheKey(context), result);
+    }
+
+    rdfCurveCount(options) {
+        if (options.pair_mode === 'none') return 1;
+        if (options.pair_mode === 'all') return 1 + this.uniqueLabelPairs().length;
+        return 1 + (options.active_pairs || []).length;
+    }
+
+    rdfPrefetchIndices(
+        frameCount,
+        currentFrame,
+        complete,
+        maximumFrames = MAX_RDF_ROLLING_CACHE_FRAMES
+    ) {
+        if (complete) return Array.from({ length: frameCount }, (_, index) => index);
+        const windowSize = Math.max(1, Math.min(
+            frameCount,
+            MAX_RDF_ROLLING_CACHE_FRAMES,
+            Math.floor(Number(maximumFrames) || 1)
+        ));
+        const before = Math.floor((windowSize - 1) * 0.2);
+        const after = windowSize - before - 1;
+        const indices = [];
+        for (let offset = -before; offset <= after; offset += 1) {
+            indices.push((currentFrame + offset + frameCount) % frameCount);
+        }
+        return [...new Set(indices)];
+    }
+
+    rdfFrameOverridePositions(frameIndex, source = 'loaded') {
+        if (source === 'relax') {
+            const positions = this.state.relaxTrajectory?.frames?.[frameIndex];
+            return positions ? positions.map(position => [...position]) : null;
+        }
+        const override = this.relaxOverridePositions(frameIndex);
+        return override ? override.map(position => [...position]) : null;
+    }
+
+    async precomputeRdfTrajectory(
+        options,
+        { showBusy = true, source = null } = {}
+    ) {
+        const initialContext = this.rdfFrameContext({ source });
+        const frameCount = initialContext.frameCount;
+        if (frameCount <= 1) return;
+        const signature = this.ensureRdfFrameCache(options, initialContext);
+        if (this.state.rdfPrefetchPromise) {
+            await this.state.rdfPrefetchPromise;
+            if (signature !== this.state.rdfFrameCacheSignature) return;
+        }
+
+        const valueEstimate = frameCount * Number(options.bins || 200)
+            * this.rdfCurveCount(options);
+        const complete = frameCount <= 300
+            && valueEstimate <= MAX_RDF_TRAJECTORY_CACHE_VALUES;
+        const currentFrame = initialContext.index;
+        const valuesPerFrame = Math.max(
+            1,
+            Number(options.bins || 200) * this.rdfCurveCount(options)
+        );
+        const maximumFrames = complete
+            ? frameCount
+            : Math.max(1, Math.floor(
+                MAX_RDF_TRAJECTORY_CACHE_VALUES / valuesPerFrame
+            ));
+        const targetIndices = this.rdfPrefetchIndices(
+            frameCount,
+            currentFrame,
+            complete,
+            maximumFrames
+        );
+        if (!complete) {
+            const retained = new Set(targetIndices.map(index => this.rdfFrameCacheKey(
+                this.rdfFrameContext({ source: initialContext.source, frameIndex: index })
+            )));
+            [...this.state.rdfFrameCache.keys()].forEach(key => {
+                if (!retained.has(key)) this.state.rdfFrameCache.delete(key);
+            });
+        }
+        const indices = targetIndices
+            .filter(index => {
+                const context = this.rdfFrameContext({
+                    source: initialContext.source,
+                    frameIndex: index
+                });
+                return !this.state.rdfFrameCache.has(this.rdfFrameCacheKey(context));
+            });
+        if (!indices.length) {
+            this.state.rdfFrameCacheComplete = complete
+                && this.state.rdfFrameCache.size >= frameCount;
+            return;
+        }
+
+        const token = ++this.state.rdfPrefetchToken;
+        const startedAt = performance.now();
+        const { positions: _positions, frame_index: _frameIndex, ...baseOptions } = options;
+        if (showBusy) {
+            this.setBusy(
+                complete
+                    ? `Preparing RDF for ${frameCount} trajectory frames...`
+                    : `Preparing nearby RDF frames within the memory limit...`,
+                { title: 'Preparing trajectory analysis', progress: 0 }
+            );
+            await new Promise(resolve => requestAnimationFrame(resolve));
+        }
+
+        let cursor = 0;
+        let completed = 0;
+        const worker = async () => {
+            while (cursor < indices.length) {
+                const frameIndex = indices[cursor++];
+                const context = this.rdfFrameContext({
+                    source: initialContext.source,
+                    frameIndex
+                });
+                const overridePositions = this.rdfFrameOverridePositions(
+                    frameIndex,
+                    initialContext.source
+                );
+                const response = await this.api.fetchRdf({
+                    ...baseOptions,
+                    frame_index: context.backendFrameIndex,
+                    ...(overridePositions ? { positions: overridePositions } : {})
+                });
+                if (
+                    token !== this.state.rdfPrefetchToken
+                    || signature !== this.state.rdfFrameCacheSignature
+                ) return;
+                const result = this.decorateRdfResult(response, context);
+                this.cacheRdfResult(result, signature, context);
+                completed += 1;
+                if (showBusy) {
+                    const progress = completed / indices.length * 100;
+                    this.setBusyProgress(progress, {
+                        message: `Prepared RDF frame ${completed} of ${indices.length}`,
+                        etaSeconds: this.estimatedRemainingFromProgress(startedAt, progress),
+                        complete: completed === indices.length
+                    });
+                }
+            }
+        };
+        const task = Promise.all(
+            Array.from({ length: Math.min(2, indices.length) }, () => worker())
+        );
+        this.state.rdfPrefetchPromise = task;
+        try {
+            await task;
+            if (
+                token === this.state.rdfPrefetchToken
+                && signature === this.state.rdfFrameCacheSignature
+            ) {
+                this.state.rdfFrameCacheComplete = complete
+                    && this.state.rdfFrameCache.size >= frameCount;
+            }
+        } finally {
+            if (this.state.rdfPrefetchPromise === task) {
+                this.state.rdfPrefetchPromise = null;
+            }
+            if (showBusy) this.clearBusy();
+        }
+    }
+
+    setRdfReadyStatus(result) {
+        const warning = (result.warnings || []).join(' ');
+        const imageSpan = Array.isArray(result.periodic_image_span)
+            ? result.periodic_image_span.join(' × ')
+            : 'automatic';
+        const pairCount = Object.keys(result.partial || {}).length;
+        const selectedWithoutBond = result.pair_mode === 'selected' && pairCount === 0;
+        const frameCount = Number(result.display_frame_count || 1);
+        const frameIndex = Number(
+            result.display_frame_index ?? result.frame_index ?? 0
+        );
+        const sourceName = result.display_source === 'relax'
+            ? this.timelineSourceName('relax')
+            : this.timelineSourceName('loaded');
+        const frameDetail = frameCount > 1
+            ? `${sourceName}: frame ${frameIndex + 1} of ${frameCount}. `
+            : '';
+        this.setRdfStatus(
+            warning || selectedWithoutBond ? 'warning' : 'ready',
+            `${result.title || 'Distribution'} · ${result.bins} bins · cutoff ${Number(result.cutoff).toFixed(3)} Å`,
+            frameDetail + (warning || (selectedWithoutBond
+                ? 'No active bond joins two selected atoms; the total curve is shown without partial curves.'
+                : result.analysis_kind === 'pair-distribution'
+                ? `${pairCount} pair curve${pairCount === 1 ? '' : 's'} plus total · finite unordered-pair normalization.`
+                : `${pairCount} pair curve${pairCount === 1 ? '' : 's'} plus total · periodic image span ${imageSpan}.`))
+        );
+    }
+
+    invalidateRdfResult(detail = null, { preserveActivePlot = false } = {}) {
+        const status = document.getElementById('rdf-status');
+        const wasCalculating = status?.dataset?.state === 'loading';
+        const hadResult = Boolean(this.state.rdfResult);
+        if (this.state.rdfSelectionRefreshTimer) {
+            clearTimeout(this.state.rdfSelectionRefreshTimer);
+            this.state.rdfSelectionRefreshTimer = null;
+        }
+        this.state.rdfRequestToken += 1;
+        this.clearRdfFrameCache();
+        if (
+            preserveActivePlot
+            && this.state.rdfAutoRefresh
+            && this.state.activeAnalysisPlot === 'rdf'
+        ) {
+            const analysisName = this.distributionAnalysisName();
+            this.setRdfStatus(
+                'loading',
+                `Updating ${analysisName}`,
+                detail || 'The displayed structure changed; recalculating without closing the graph.'
+            );
+            return true;
+        }
+        this.state.rdfAutoRefresh = false;
+        this.state.rdfResult = null;
+        this.state.rdfSelectionSignature = '';
+        this.state.rdfSelectionPendingSignature = '';
+        const plot = document.getElementById('rdf-plot');
+        if (plot && window.Plotly?.purge) window.Plotly.purge(plot);
+        if (this.state.activeAnalysisPlot === 'rdf') this.closeAnalysisDrawer();
+        if (hadResult || wasCalculating) {
+            const analysisName = this.distributionAnalysisName();
+            this.setRdfStatus(
+                'idle',
+                `${analysisName} needs recalculation`,
+                detail || `The structure or trajectory frame changed. Calculate the ${analysisName} again.`
+            );
+        }
+        return false;
+    }
+
+    scheduleActiveStructureAnalysisRefresh(
+        detail = 'The displayed coordinates changed.',
+        delay = (this.state.trajectoryTimer || this.state.isRelaxing) ? 70 : 35
+    ) {
+        if (
+            !this.state.rdfAutoRefresh
+            || this.state.activeAnalysisPlot !== 'rdf'
+        ) return;
+        const context = this.rdfFrameContext();
+        this.state.rdfFrameCache.delete(this.rdfFrameCacheKey(context));
+        this.state.rdfRequestToken += 1;
+        this.setRdfStatus(
+            'loading',
+            `Updating ${this.distributionAnalysisName()}`,
+            `${detail} Keeping the current graph visible until the new result is ready.`
+        );
+        this.scheduleFrameDependentAnalysisRefresh(delay);
+    }
+
+    ensurePlotly() {
+        if (window.Plotly) return Promise.resolve(window.Plotly);
+        if (this.state.plotlyPromise) return this.state.plotlyPromise;
+        this.state.plotlyPromise = new Promise((resolve, reject) => {
+            const script = document.createElement('script');
+            script.src = new URL('/api/vendor/plotly.js', window.location.origin).href;
+            script.async = true;
+            script.onload = () => window.Plotly
+                ? resolve(window.Plotly)
+                : reject(new Error('Plotly loaded without its browser API.'));
+            script.onerror = () => reject(new Error('Could not load the local Plotly bundle.'));
+            document.head.appendChild(script);
+        });
+        return this.state.plotlyPromise;
+    }
+
+    analysisPlotElement(type = this.state.activeAnalysisPlot) {
+        const ids = {
+            rdf: 'rdf-plot',
+            commensurate: 'commensurate-plot',
+            registry: 'registry-plot'
+        };
+        return document.getElementById(ids[type] || '');
+    }
+
+    showAnalysisDrawer(type, title) {
+        const drawer = document.getElementById('analysis-drawer');
+        if (!drawer) return null;
+        this.state.activeAnalysisPlot = type;
+        ['rdf', 'commensurate', 'registry'].forEach(candidate => {
+            this.analysisPlotElement(candidate)?.classList.toggle('hidden', candidate !== type);
+        });
+        const titleElement = document.getElementById('analysis-drawer-title');
+        if (titleElement) titleElement.textContent = title;
+        const exportButton = document.getElementById('btn-analysis-export');
+        if (exportButton) exportButton.disabled = false;
+        document.getElementById('commensurate-plot-view')?.classList.toggle(
+            'hidden',
+            type !== 'commensurate'
+        );
+        drawer.dataset.analysisType = type;
+        drawer.classList.remove('hidden');
+        return this.analysisPlotElement(type);
+    }
+
+    closeAnalysisDrawer() {
+        const closingRdf = this.state.activeAnalysisPlot === 'rdf';
+        if (closingRdf && this.state.rdfSelectionRefreshTimer) {
+            clearTimeout(this.state.rdfSelectionRefreshTimer);
+            this.state.rdfSelectionRefreshTimer = null;
+        }
+        if (closingRdf && this.state.rdfSelectionPendingSignature) {
+            this.state.rdfRequestToken += 1;
+            this.state.rdfSelectionPendingSignature = '';
+        }
+        document.getElementById('analysis-drawer')?.classList.add('hidden');
+        this.state.activeAnalysisPlot = null;
+        const drawer = document.getElementById('analysis-drawer');
+        if (drawer) delete drawer.dataset.analysisType;
+        const exportButton = document.getElementById('btn-analysis-export');
+        if (exportButton) exportButton.disabled = true;
+        document.getElementById('commensurate-plot-view')?.classList.add('hidden');
+    }
+
+    plotTheme() {
+        const style = getComputedStyle(document.documentElement);
+        return {
+            text: style.getPropertyValue('--text').trim() || '#dce4e3',
+            muted: style.getPropertyValue('--muted').trim() || '#879392',
+            line: style.getPropertyValue('--line').trim() || '#33403f',
+            teal: style.getPropertyValue('--teal').trim() || '#58d5bd',
+            amber: style.getPropertyValue('--amber').trim() || '#e58b2a',
+            blue: '#6aa7ff'
+        };
+    }
+
+    async plotRdf(result) {
+        const Plotly = await this.ensurePlotly();
+        const finite = result.analysis_kind === 'pair-distribution';
+        const plot = this.showAnalysisDrawer(
+            'rdf',
+            result.title || (finite ? 'Pair-distribution function' : 'Radial distribution function')
+        );
+        if (!plot) return;
+        const theme = this.plotTheme();
+        const palette = [theme.teal, theme.amber, theme.blue, '#e05b78', '#a7d46f', '#c49ae8'];
+        const traces = [{
+            x: result.radius,
+            y: result.total,
+            type: 'scatter',
+            mode: 'lines',
+            name: 'Total',
+            line: { color: theme.teal, width: 2.4 }
+        }];
+        Object.entries(result.partial || {}).forEach(([name, values], index) => {
+            traces.push({
+                x: result.radius,
+                y: values,
+                type: 'scatter',
+                mode: 'lines',
+                name: name.replace('|', ' - '),
+                line: { color: palette[(index + 1) % palette.length], width: 1.5 }
+            });
+        });
+        const layout = {
+            autosize: true,
+            margin: { l: 56, r: 18, t: 16, b: 48 },
+            paper_bgcolor: 'rgba(0,0,0,0)',
+            plot_bgcolor: 'rgba(0,0,0,0)',
+            font: { color: theme.text, family: 'Inter, system-ui, sans-serif', size: 11 },
+            xaxis: {
+                title: 'r / Å',
+                gridcolor: theme.line,
+                zeroline: false,
+                color: theme.muted
+            },
+            yaxis: {
+                title: result.y_label || (finite ? 'Pair probability / Å⁻¹' : 'g(r)'),
+                gridcolor: theme.line,
+                zerolinecolor: theme.line,
+                color: theme.muted
+            },
+            shapes: finite ? [] : [{
+                type: 'line',
+                xref: 'paper',
+                x0: 0,
+                x1: 1,
+                yref: 'y',
+                y0: 1,
+                y1: 1,
+                line: { color: theme.muted, width: 1.2, dash: 'dot' }
+            }],
+            annotations: finite ? [] : [{
+                xref: 'paper',
+                x: 1,
+                xanchor: 'right',
+                yref: 'y',
+                y: 1,
+                yshift: 10,
+                text: 'bulk limit  g(r) = 1',
+                showarrow: false,
+                font: { color: theme.muted, size: 10 }
+            }],
+            legend: {
+                orientation: 'h',
+                x: 0,
+                y: 1.08,
+                bgcolor: 'rgba(0,0,0,0)'
+            },
+            hovermode: 'x unified'
+        };
+        await Plotly.react(plot, traces, layout, {
+            responsive: true,
+            displaylogo: false,
+            scrollZoom: true,
+            modeBarButtonsToRemove: ['lasso2d', 'select2d']
+        });
+    }
+
+    commensuratePlotGeometry(result, angleDeg = 0) {
+        const candidates = (result?.candidates || []).filter(candidate => (
+            Number(candidate.area_ratio ?? candidate.area) <= Number(result.max_area_ratio || 16)
+        )).map(candidate => {
+            const instance = this.candidateInstanceNearAngle(candidate, angleDeg);
+            return { ...instance, plotAngleDeg: instance.targetAngleDeg };
+        });
+        const areas = candidates.map(candidate => Number(
+            candidate.host_area_ratio ?? candidate.area_ratio ?? candidate.area
+        ));
+        const strains = candidates.map(candidate => (
+            Number(candidate.max_principal_strain ?? candidate.strain) * 100
+        ));
+        const areaMinimum = Math.min(...areas, 1);
+        const areaMaximum = Math.max(...areas, 1);
+        const candidateAngles = candidates.map(candidate => Number(candidate.plotAngleDeg));
+        const rawAngleMinimum = Math.min(...candidateAngles, angleDeg, 0);
+        const rawAngleMaximum = Math.max(...candidateAngles, angleDeg, 0);
+        const anglePadding = Math.max(1.5, (rawAngleMaximum - rawAngleMinimum) * 0.055);
+        const angleMinimum = rawAngleMinimum - anglePadding;
+        const angleMaximum = rawAngleMaximum + anglePadding;
+        const strainMaximum = Math.max(...strains, 0);
+        const strainRangeMaximum = strainMaximum > 1e-9
+            ? strainMaximum * 1.24
+            : 0.05;
+        const areaPadding = areaMaximum > areaMinimum
+            ? Math.max(0.5, (areaMaximum - areaMinimum) * 0.08)
+            : 0.65;
+        const areaTicks = [...new Set(areas)].sort((first, second) => first - second);
+        const exactSymmetryPeriod = Number(result?.exact_rotational_symmetry_deg);
+        const symmetryAngles = [];
+        if (Number.isFinite(exactSymmetryPeriod) && exactSymmetryPeriod > 0) {
+            const first = Math.ceil(angleMinimum / exactSymmetryPeriod) * exactSymmetryPeriod;
+            for (let value = first; value <= angleMaximum + 1e-8; value += exactSymmetryPeriod) {
+                symmetryAngles.push(Number(value.toFixed(10)));
+            }
+        }
+        const nearest = [...candidates]
+            .sort((first, second) => Math.abs(first.deltaDeg) - Math.abs(second.deltaDeg))[0] || null;
+        const layers = new Map();
+        candidates.forEach(candidate => {
+            const angleKey = Number(candidate.plotAngleDeg).toFixed(5);
+            if (!layers.has(angleKey)) layers.set(angleKey, []);
+            layers.get(angleKey).push(candidate);
+        });
+        const angleLayers = [...layers.entries()]
+            .sort(([first], [second]) => Number(first) - Number(second))
+            .map(([angle, entries]) => ({
+                angle: Number(angle),
+                candidates: entries.sort((first, second) => (
+                    Number(first.host_area_ratio ?? first.area_ratio ?? first.area)
+                    - Number(second.host_area_ratio ?? second.area_ratio ?? second.area)
+                    || Number(first.max_principal_strain ?? first.strain)
+                        - Number(second.max_principal_strain ?? second.strain)
+                ))
+            }));
+        return {
+            candidates,
+            angleLayers,
+            areaTicks,
+            exactSymmetryPeriod: Number.isFinite(exactSymmetryPeriod)
+                ? exactSymmetryPeriod
+                : null,
+            symmetryAngles,
+            nearest,
+            axis: {
+                x: [angleMinimum, angleMaximum],
+                y: [areaMinimum, areaMinimum],
+                z: [0, 0],
+                areaX: [angleMinimum, angleMinimum],
+                areaY: [areaMinimum, areaMaximum],
+                areaZ: [0, 0],
+                strainX: [angleMinimum, angleMinimum],
+                strainY: [areaMinimum, areaMinimum],
+                strainZ: [0, strainRangeMaximum],
+                yRange: [Math.max(0, areaMinimum - areaPadding), areaMaximum + areaPadding],
+                zRange: [0, strainRangeMaximum]
+            },
+            plane: {
+                x: [[angleDeg, angleDeg], [angleDeg, angleDeg]],
+                y: [[areaMinimum, areaMaximum], [areaMinimum, areaMaximum]],
+                z: [[0, 0], [strainRangeMaximum, strainRangeMaximum]]
+            },
+            floor: {
+                x: [[angleMinimum, angleMaximum], [angleMinimum, angleMaximum]],
+                y: [[areaMinimum, areaMinimum], [areaMaximum, areaMaximum]],
+                z: [[0, 0], [0, 0]]
+            }
+        };
+    }
+
+    async plotCommensurateSearch(result, angle = 0) {
+        const Plotly = await this.ensurePlotly();
+        const plot = this.showAnalysisDrawer(
+            'commensurate',
+            'Commensurate Angle–Area–Strain Landscape'
+        );
+        if (!plot) return;
+        const angleDeg = Math.abs(Number(angle)) <= Math.PI * 4
+            ? THREE.MathUtils.radToDeg(Number(angle) || 0)
+            : Number(angle) || 0;
+        const geometry = this.commensuratePlotGeometry(result, angleDeg);
+        const theme = this.plotTheme();
+        const hover = geometry.candidates.map(candidate => (
+            `rotation ${Number(candidate.plotAngleDeg).toFixed(5)}°<br>`
+            + `host area ${Number(candidate.host_area_ratio ?? candidate.area_ratio ?? candidate.area)} × primitive<br>`
+            + `guest area ${Number(candidate.guest_area_ratio ?? candidate.area_ratio ?? candidate.area)} × primitive<br>`
+            + `max principal strain ${(Number(candidate.max_principal_strain ?? candidate.strain) * 100).toFixed(5)}%<br>`
+            + `mean |strain| ${(Number(candidate.mean_absolute_strain ?? candidate.strain) * 100).toFixed(5)}%<br>`
+            + `atoms ${Number(candidate.total_atom_count || 0).toLocaleString()}<br>`
+            + `host ${candidate.host_notation || candidate.target_notation || ''}<br>`
+            + `guest ${candidate.guest_notation || candidate.source_notation || ''}`
+        ));
+        const nearest = geometry.nearest;
+        const graphView = document.getElementById('commensurate-plot-view')?.value || 'overview-3d';
+        if (graphView === 'stradi-2d') {
+            await Plotly.react(plot, [
+                {
+                    type: 'scatter',
+                    mode: 'markers',
+                    meta: { role: 'commensurate-candidates' },
+                    name: 'Valid common cells',
+                    x: geometry.candidates.map(candidate => (
+                        Number(candidate.mean_absolute_strain ?? candidate.strain) * 100
+                    )),
+                    y: geometry.candidates.map(candidate => Number(
+                        candidate.total_atom_count || candidate.area_ratio || candidate.area
+                    )),
+                    text: hover,
+                    hovertemplate: '%{text}<extra></extra>',
+                    marker: {
+                        size: 7,
+                        color: geometry.candidates.map(candidate => Number(candidate.angle_deg)),
+                        colorscale: 'Viridis',
+                        colorbar: { title: 'angle / deg', thickness: 10 },
+                        line: { color: theme.text, width: 0.45 }
+                    }
+                },
+                {
+                    type: 'scatter',
+                    mode: 'markers',
+                    meta: { role: 'nearest-angle' },
+                    name: 'Nearest angle',
+                    x: nearest ? [Number(nearest.mean_absolute_strain ?? nearest.strain) * 100] : [],
+                    y: nearest ? [Number(nearest.total_atom_count || nearest.area_ratio || nearest.area)] : [],
+                    marker: { size: 11, color: theme.blue, symbol: 'diamond-open', line: { width: 2 } },
+                    hoverinfo: 'skip'
+                }
+            ], {
+                autosize: true,
+                margin: { l: 62, r: 18, t: 12, b: 48 },
+                paper_bgcolor: 'rgba(0,0,0,0)',
+                plot_bgcolor: 'rgba(0,0,0,0)',
+                font: { color: theme.text, family: 'Inter, system-ui, sans-serif', size: 10 },
+                xaxis: {
+                    title: 'mean |strain| / %',
+                    gridcolor: theme.line,
+                    zeroline: false,
+                    color: theme.muted
+                },
+                yaxis: {
+                    title: 'atoms in common cell',
+                    gridcolor: theme.line,
+                    zeroline: false,
+                    color: theme.muted
+                },
+                showlegend: false,
+                uirevision: 'commensurate-paper-projection'
+            }, {
+                responsive: true,
+                displaylogo: false,
+                scrollZoom: true,
+                modeBarButtonsToRemove: ['lasso2d', 'select2d']
+            });
+            return;
+        }
+        const symmetryX = [];
+        const symmetryY = [];
+        const symmetryZ = [];
+        geometry.symmetryAngles.forEach(symmetryAngle => {
+            symmetryX.push(symmetryAngle, symmetryAngle, null);
+            symmetryY.push(geometry.axis.yRange[0], geometry.axis.yRange[1], null);
+            symmetryZ.push(0, 0, null);
+        });
+        const axisX = geometry.axis.x;
+        const axisY = geometry.axis.yRange;
+        const axisZ = geometry.axis.zRange;
+        const currentPlaneOutline = {
+            x: [angleDeg, angleDeg, angleDeg, angleDeg, angleDeg],
+            y: [axisY[0], axisY[1], axisY[1], axisY[0], axisY[0]],
+            z: [axisZ[0], axisZ[0], axisZ[1], axisZ[1], axisZ[0]]
+        };
+        await Plotly.react(plot, [
+            {
+                type: 'surface',
+                name: 'Angle-area floor',
+                meta: { role: 'angle-area-floor' },
+                showscale: false,
+                hoverinfo: 'skip',
+                opacity: 0.16,
+                x: geometry.floor.x,
+                y: [[geometry.axis.yRange[0], geometry.axis.yRange[0]], [geometry.axis.yRange[1], geometry.axis.yRange[1]]],
+                z: geometry.floor.z,
+                surfacecolor: [[0, 0], [0, 0]],
+                colorscale: [[0, theme.muted], [1, theme.muted]]
+            },
+            {
+                type: 'scatter3d',
+                mode: 'lines',
+                meta: { role: 'exact-symmetry-periods' },
+                name: geometry.exactSymmetryPeriod
+                    ? `Exact ${geometry.exactSymmetryPeriod}° symmetry`
+                    : 'Exact symmetry',
+                x: symmetryX,
+                y: symmetryY,
+                z: symmetryZ,
+                line: { color: theme.muted, width: 3, dash: 'dot' },
+                hoverinfo: 'skip'
+            },
+            {
+                type: 'scatter3d',
+                mode: 'markers',
+                meta: { role: 'candidate-floor-projection' },
+                name: 'Angle-area projection',
+                x: geometry.candidates.map(candidate => Number(candidate.plotAngleDeg)),
+                y: geometry.candidates.map(candidate => Number(
+                    candidate.host_area_ratio ?? candidate.area_ratio ?? candidate.area
+                )),
+                z: geometry.candidates.map(() => 0),
+                marker: {
+                    size: 3.8,
+                    color: theme.muted,
+                    opacity: 0.34,
+                    symbol: 'circle-open'
+                },
+                hoverinfo: 'skip'
+            },
+            {
+                type: 'scatter3d',
+                mode: 'markers',
+                meta: { role: 'commensurate-candidates' },
+                name: 'Valid common cells',
+                x: geometry.candidates.map(candidate => Number(candidate.plotAngleDeg)),
+                y: geometry.candidates.map(candidate => Number(
+                    candidate.host_area_ratio ?? candidate.area_ratio ?? candidate.area
+                )),
+                z: geometry.candidates.map(candidate => (
+                    Number(candidate.max_principal_strain ?? candidate.strain) * 100
+                )),
+                text: hover,
+                hovertemplate: '%{text}<extra></extra>',
+                marker: {
+                    size: 6.4,
+                    color: geometry.candidates.map(candidate => (
+                        Number(candidate.max_principal_strain ?? candidate.strain) * 100
+                    )),
+                    colorscale: 'Viridis',
+                    cmin: 0,
+                    cmax: geometry.axis.zRange[1],
+                    colorbar: {
+                        title: { text: 'strain / %', side: 'right' },
+                        thickness: 10,
+                        len: 0.66,
+                        x: 0.97
+                    },
+                    line: { color: theme.text, width: 0.7 }
+                }
+            },
+            {
+                type: 'surface',
+                name: 'Current angle',
+                meta: { role: 'current-angle-plane' },
+                showscale: false,
+                hoverinfo: 'skip',
+                opacity: 0.16,
+                x: geometry.plane.x,
+                y: geometry.plane.y,
+                z: geometry.plane.z,
+                surfacecolor: [[0, 0], [0, 0]],
+                colorscale: [[0, theme.blue], [1, theme.blue]]
+            },
+            {
+                type: 'scatter3d',
+                mode: 'lines',
+                name: 'Current-angle section',
+                meta: { role: 'current-angle-outline' },
+                x: currentPlaneOutline.x,
+                y: currentPlaneOutline.y,
+                z: currentPlaneOutline.z,
+                line: { color: theme.blue, width: 5 },
+                hoverinfo: 'skip'
+            },
+            {
+                type: 'scatter3d',
+                mode: 'markers+text',
+                name: 'Nearest suggestion',
+                meta: { role: 'nearest-angle' },
+                x: nearest ? [Number(nearest.targetAngleDeg)] : [],
+                y: nearest ? [Number(nearest.host_area_ratio ?? nearest.area_ratio ?? nearest.area)] : [],
+                z: nearest ? [Number(nearest.max_principal_strain ?? nearest.strain) * 100] : [],
+                text: nearest ? [`${Number(nearest.targetAngleDeg).toFixed(3)}°`] : [],
+                textposition: 'top center',
+                marker: { size: 8, color: theme.amber, symbol: 'diamond' }
+            }
+        ], {
+            autosize: true,
+            margin: { l: 28, r: 52, t: 18, b: 28 },
+            paper_bgcolor: 'rgba(0,0,0,0)',
+            font: { color: theme.text, family: 'Inter, system-ui, sans-serif', size: 12 },
+            scene: {
+                bgcolor: 'rgba(0,0,0,0)',
+                xaxis: {
+                    title: { text: 'rotation θ / °', font: { size: 13 } },
+                    showgrid: true,
+                    gridcolor: theme.muted,
+                    gridwidth: 2,
+                    zerolinecolor: theme.text,
+                    zerolinewidth: 2,
+                    color: theme.text,
+                    tickfont: { size: 11 },
+                    showline: true,
+                    linecolor: theme.text,
+                    linewidth: 2,
+                    showbackground: true,
+                    backgroundcolor: 'rgba(117,131,126,0.10)',
+                    showspikes: false,
+                    ticks: 'outside',
+                    ticklen: 5,
+                    tickcolor: theme.text,
+                    nticks: 9,
+                    range: geometry.axis.x
+                },
+                yaxis: {
+                    title: { text: 'host area / A₀', font: { size: 13 } },
+                    showgrid: true,
+                    gridcolor: theme.muted,
+                    gridwidth: 2,
+                    zerolinecolor: theme.text,
+                    zerolinewidth: 2,
+                    color: theme.text,
+                    tickfont: { size: 11 },
+                    showline: true,
+                    linecolor: theme.text,
+                    linewidth: 2,
+                    showbackground: true,
+                    backgroundcolor: 'rgba(117,131,126,0.11)',
+                    showspikes: false,
+                    ticks: 'outside',
+                    ticklen: 5,
+                    tickcolor: theme.text,
+                    nticks: 7,
+                    range: geometry.axis.yRange
+                },
+                zaxis: {
+                    title: { text: 'max strain / %', font: { size: 13 } },
+                    showgrid: true,
+                    gridcolor: theme.muted,
+                    gridwidth: 2,
+                    zerolinecolor: theme.text,
+                    zerolinewidth: 2,
+                    color: theme.text,
+                    tickfont: { size: 11 },
+                    showline: true,
+                    linecolor: theme.text,
+                    linewidth: 2,
+                    showbackground: true,
+                    backgroundcolor: 'rgba(117,131,126,0.09)',
+                    showspikes: false,
+                    ticks: 'outside',
+                    ticklen: 5,
+                    tickcolor: theme.text,
+                    nticks: 7,
+                    range: geometry.axis.zRange
+                },
+                aspectmode: 'manual',
+                aspectratio: { x: 2.80, y: 1.45, z: 1.40 },
+                camera: {
+                    projection: { type: 'perspective' },
+                    // Looking almost along -Y keeps rotation as the unmistakable
+                    // horizontal axis while the other two dimensions retain depth.
+                    eye: { x: 0.08, y: -2.35, z: 1.42 },
+                    center: { x: 0, y: 0, z: -0.08 },
+                    up: { x: 0, y: 0, z: 1 }
+                }
+            },
+            showlegend: false,
+            dragmode: 'orbit',
+            uirevision: 'commensurate-search'
+        }, {
+            responsive: true,
+            displaylogo: false,
+            scrollZoom: true
+        });
+    }
+
+    updateCommensuratePlotAngle(angleDeg) {
+        if (this.state.activeAnalysisPlot !== 'commensurate' || !window.Plotly || !this.state.commensurateSearch) return;
+        this.state.commensuratePlotPendingAngle = Number(angleDeg) || 0;
+        if (this.state.commensuratePlotFrame) return;
+        this.state.commensuratePlotFrame = requestAnimationFrame(() => {
+            this.state.commensuratePlotFrame = null;
+            const plot = this.analysisPlotElement('commensurate');
+            if (!plot) return;
+            const geometry = this.commensuratePlotGeometry(
+                this.state.commensurateSearch,
+                this.state.commensuratePlotPendingAngle
+            );
+            const nearest = geometry.nearest;
+            if (document.getElementById('commensurate-plot-view')?.value === 'stradi-2d') {
+                const nearestIndex = Array.from(plot.data || []).findIndex(
+                    trace => trace.meta?.role === 'nearest-angle'
+                );
+                if (nearestIndex < 0) return;
+                window.Plotly.restyle(plot, {
+                    x: [nearest ? [Number(nearest.mean_absolute_strain ?? nearest.strain) * 100] : []],
+                    y: [nearest ? [Number(nearest.total_atom_count || nearest.area_ratio || nearest.area)] : []]
+                }, [nearestIndex]);
+                return;
+            }
+            const traces = Array.from(plot.data || []);
+            const planeIndex = traces.findIndex(trace => trace.meta?.role === 'current-angle-plane');
+            const planeOutlineIndex = traces.findIndex(trace => trace.meta?.role === 'current-angle-outline');
+            const nearestIndex = traces.findIndex(trace => trace.meta?.role === 'nearest-angle');
+            if (planeIndex < 0 || planeOutlineIndex < 0 || nearestIndex < 0) return;
+            window.Plotly.restyle(plot, {
+                x: [geometry.plane.x],
+                y: [geometry.plane.y],
+                z: [geometry.plane.z]
+            }, [planeIndex]);
+            const yRange = geometry.axis.yRange;
+            const zRange = geometry.axis.zRange;
+            window.Plotly.restyle(plot, {
+                x: [[
+                    this.state.commensuratePlotPendingAngle,
+                    this.state.commensuratePlotPendingAngle,
+                    this.state.commensuratePlotPendingAngle,
+                    this.state.commensuratePlotPendingAngle,
+                    this.state.commensuratePlotPendingAngle
+                ]],
+                y: [[yRange[0], yRange[1], yRange[1], yRange[0], yRange[0]]],
+                z: [[zRange[0], zRange[0], zRange[1], zRange[1], zRange[0]]]
+            }, [planeOutlineIndex]);
+            window.Plotly.restyle(plot, {
+                x: [nearest ? [Number(nearest.targetAngleDeg)] : []],
+                y: [nearest ? [Number(
+                    nearest.host_area_ratio ?? nearest.area_ratio ?? nearest.area
+                )] : []],
+                z: [nearest ? [Number(nearest.max_principal_strain ?? nearest.strain) * 100] : []],
+                text: [nearest ? [`${Number(nearest.targetAngleDeg).toFixed(3)}°`] : []]
+            }, [nearestIndex]);
+        });
+    }
+
+    async calculateRdf({ quiet = false } = {}) {
+        if (!quiet && !await this.confirmAnalysisWithHiddenAtoms()) return;
+        const token = ++this.state.rdfRequestToken;
+        const context = this.rdfFrameContext();
+        const options = this.rdfOptions({
+            source: context.source,
+            frameIndex: context.index
+        });
+        const signature = this.ensureRdfFrameCache(options, context);
+        this.setRdfStatus(
+            'loading',
+            'Calculating structural distribution',
+            'Counting pair distances with the boundary conditions of the active structure.'
+        );
+        const request = () => this.api.fetchRdf(options);
+        const response = quiet
+            ? await request()
+            : await this.withBusy('Calculating pair distribution...', request);
+        if (token !== this.state.rdfRequestToken) return;
+        const result = this.decorateRdfResult(response, context);
+        this.cacheRdfResult(result, signature, context);
+        this.state.rdfResult = result;
+        this.state.rdfAutoRefresh = true;
+        this.state.rdfSelectionSignature = options.pair_mode === 'selected'
+            ? this.rdfPairSignature(options.active_pairs)
+            : '';
+        this.state.rdfSelectionPendingSignature = '';
+        await this.plotRdf(result);
+        this.setRdfReadyStatus(result);
+        if (!quiet && context.frameCount > 1) {
+            await this.precomputeRdfTrajectory(options, {
+                showBusy: true,
+                source: context.source
+            });
+            if (token !== this.state.rdfRequestToken) return;
+            const currentResult = this.state.rdfFrameCache.get(
+                this.rdfFrameCacheKey(context)
+            ) || result;
+            this.state.rdfResult = currentResult;
+            await this.plotRdf(currentResult);
+            this.setRdfReadyStatus(currentResult);
+        }
+        if (!quiet) this.scheduleVisualHistoryCommit('rdf');
+    }
+
+    setupAnalysisDrawerResize() {
+        const drawer = document.getElementById('analysis-drawer');
+        const resizer = document.getElementById('analysis-drawer-resizer');
+        if (!drawer || !resizer) return;
+        resizer.addEventListener('pointerdown', event => {
+            event.preventDefault();
+            const startY = event.clientY;
+            const startHeight = drawer.getBoundingClientRect().height;
+            const onMove = moveEvent => {
+                const height = Math.max(
+                    210,
+                    Math.min(window.innerHeight * 0.62, startHeight + startY - moveEvent.clientY)
+                );
+                drawer.style.height = `${height}px`;
+                window.Plotly?.Plots?.resize?.(this.analysisPlotElement());
+            };
+            const onUp = () => {
+                window.removeEventListener('pointermove', onMove);
+                window.removeEventListener('pointerup', onUp);
+                window.removeEventListener('pointercancel', onUp);
+            };
+            window.addEventListener('pointermove', onMove);
+            window.addEventListener('pointerup', onUp);
+            window.addEventListener('pointercancel', onUp);
+        });
+    }
+
+    syncRdfControls() {
+        const cutoff = document.getElementById('rdf-cutoff');
+        const bins = document.getElementById('rdf-bins');
+        const mode = document.getElementById('rdf-pair-mode');
+        if (cutoff && document.activeElement !== cutoff) {
+            cutoff.value = this.state.display.rdfCutoff === null
+                ? ''
+                : `${this.state.display.rdfCutoff}`;
+        }
+        if (bins && document.activeElement !== bins) bins.value = `${this.state.display.rdfBins || 200}`;
+        if (mode && document.activeElement !== mode) mode.value = this.state.display.rdfPairMode || 'active';
+    }
+
+    setupRdfAnalysis() {
+        this.syncRdfControls();
+        ['rdf-cutoff', 'rdf-bins', 'rdf-pair-mode'].forEach(id => {
+            document.getElementById(id)?.addEventListener('input', () => {
+                const keptOpen = this.invalidateRdfResult(
+                    'Distribution settings changed; recalculating the active graph.',
+                    { preserveActivePlot: true }
+                );
+                if (keptOpen) {
+                    this.scheduleActiveStructureAnalysisRefresh(
+                        'Distribution settings changed.',
+                        180
+                    );
+                }
+            });
+        });
+        document.getElementById('btn-rdf-calculate')?.addEventListener('click', () => {
+            this.calculateRdf().catch(error => {
+                this.setRdfStatus('warning', 'Distribution unavailable', error.message);
+                this.toast(`Distribution failed: ${error.message}`, 'error');
+            });
+        });
+        document.getElementById('btn-analysis-drawer-close')?.addEventListener('click', () => {
+            this.closeAnalysisDrawer();
+        });
+        document.getElementById('btn-analysis-export')?.addEventListener('click', () => {
+            this.exportActiveAnalysisData().catch(error => {
+                this.toast(`Analysis export failed: ${error.message}`, 'error');
+            });
+        });
+        document.getElementById('commensurate-plot-view')?.addEventListener('change', () => {
+            if (!this.state.commensurateSearch) return;
+            const currentDeg = Number(this.state.display.commensurateGuestAngleDeg || 0);
+            this.plotCommensurateSearch(
+                this.state.commensurateSearch,
+                THREE.MathUtils.degToRad(currentDeg)
+            ).catch(error => this.toast(`Commensurate plot failed: ${error.message}`, 'error'));
+        });
+        this.setupAnalysisDrawerResize();
+    }
+
+    registryPairCutoffs() {
+        const result = {};
+        this.uniqueLabelPairs().forEach(([left, right]) => {
+            const range = this.pairwiseBondRange(left, right);
+            result[[left, right].sort().join('|')] = {
+                enabled: Boolean(range.enabled && Number(range.max) > 0),
+                max: Number(range.max) || 0
+            };
+        });
+        return result;
+    }
+
+    registryHkl(overrides = {}) {
+        const requested = Array.isArray(overrides.hkl)
+            ? overrides.hkl
+            : [
+                document.getElementById('registry-h')?.value ?? 0,
+                document.getElementById('registry-k')?.value ?? 0,
+                document.getElementById('registry-l')?.value ?? 1
+            ];
+        const hkl = requested.map(value => Number(value));
+        if (hkl.length !== 3 || hkl.some(value => !Number.isInteger(value))) {
+            throw new Error('The translation plane requires three integer Miller indices.');
+        }
+        if (hkl.every(value => value === 0)) {
+            throw new Error('The translation plane cannot be (0 0 0).');
+        }
+        this.state.display.registryHkl = hkl;
+        return hkl;
+    }
+
+    registryTranslationSpace(overrides = {}) {
+        const requested = String(
+            overrides.space
+            ?? overrides.translationSpace
+            ?? document.getElementById('registry-translation-space')?.value
+            ?? 'plane'
+        ).trim().toLowerCase();
+        return ['cartesian', '3d', 'xyz'].includes(requested) ? 'cartesian' : 'plane';
+    }
+
+    registryMaxDisplacement(overrides = {}) {
+        const value = Number(
+            overrides.maxDisplacement
+            ?? document.getElementById('registry-max-displacement')?.value
+            ?? 5
+        );
+        if (!Number.isFinite(value) || value <= 0) {
+            throw new Error('3D maximum shift per Cartesian axis must be greater than 0 Å.');
+        }
+        return value;
+    }
+
+    syncRegistrySpaceControls() {
+        const activeMode = this.state.registryRelaxation;
+        const select = document.getElementById('registry-translation-space');
+        const space = activeMode?.translation_space
+            || this.registryTranslationSpace();
+        if (select && activeMode) select.value = space;
+        const planar = space === 'plane';
+        document.getElementById('registry-plane-controls')?.classList.toggle('hidden', !planar);
+        document.getElementById('registry-cartesian-controls')?.classList.toggle('hidden', planar);
+        document.getElementById('registry-map-card')?.classList.toggle('hidden', !planar);
+        const description = document.getElementById('registry-mode-description');
+        if (description) {
+            description.textContent = planar
+                ? 'Move the selected atoms as one rigid component in a periodic (hkl) plane. The cell, host atoms, and selected internal coordinates remain fixed.'
+                : 'Move the selected atoms as one rigid component in x, y, and z. Internal coordinates, host atoms, and the cell remain fixed.';
+        }
+        const instruction = document.getElementById('registry-mode-instruction');
+        if (instruction) {
+            instruction.textContent = planar
+                ? 'Activate first, then use G or optimize the shared two-coordinate translation.'
+                : 'Activate first, then use G or optimize one shared Cartesian x/y/z translation.';
+        }
+        return space;
+    }
+
+    registryOptions(jobId = null, overrides = {}) {
+        const requestedMetric = overrides.metric
+            ?? document.getElementById('registry-metric')?.value;
+        const metric = requestedMetric === 'bond-strain' ? 'bond-strain' : 'short-contact';
+        const gridX = Math.max(4, Math.min(160, parseInt(
+            overrides.gridX ?? document.getElementById('registry-grid-x')?.value ?? '32', 10
+        ) || 32));
+        const gridY = Math.max(4, Math.min(160, parseInt(
+            overrides.gridY ?? document.getElementById('registry-grid-y')?.value ?? '32', 10
+        ) || 32));
+        this.state.display.registryMetric = metric;
+        this.state.display.registryGridX = gridX;
+        this.state.display.registryGridY = gridY;
+        const hkl = this.registryHkl(overrides);
+        return {
+            positions: this.backendPositionsPayload(),
+            selected_indices: Array.isArray(overrides.selectedIndices)
+                ? [...overrides.selectedIndices]
+                : [...this.state.selected].filter(index => this.isEditableIndex(index)),
+            grid_x: gridX,
+            grid_y: gridY,
+            metric,
+            hkl,
+            pair_cutoffs: overrides.pairCutoffs ?? this.registryPairCutoffs(),
+            job_id: jobId
+        };
+    }
+
+    setRegistryStatus(state, title, detail = '') {
+        const status = document.getElementById('registry-status');
+        if (!status) return;
+        status.dataset.state = state;
+        const titleElement = status.querySelector('.analysis-status-title');
+        const detailElement = status.querySelector('.analysis-status-detail');
+        if (titleElement) titleElement.textContent = title;
+        if (detailElement) detailElement.textContent = detail;
+    }
+
+    registrySelectionKey() {
+        return [...this.state.selected]
+            .filter(index => this.isEditableIndex(index))
+            .sort((left, right) => left - right)
+            .join(',');
+    }
+
+    invalidateRegistryResult(detail = 'Selection or structure changed. Calculate the map again.') {
+        const hadResult = Boolean(this.state.registryResult);
+        this.state.registryRequestToken += 1;
+        this.state.registryResult = null;
+        this.state.registrySelectionSignature = '';
+        this.state.registryTranslationFractional = [0, 0];
+        if (!this.state.registryRelaxation) this.state.registryTranslationCoordinates = [0, 0];
+        const plot = this.analysisPlotElement('registry');
+        if (plot && window.Plotly?.purge) window.Plotly.purge(plot);
+        if (this.state.activeAnalysisPlot === 'registry') this.closeAnalysisDrawer();
+        if (hadResult) this.setRegistryStatus('idle', 'Map needs recalculation', detail);
+    }
+
+    async calculateRegistryMap(overrides = {}) {
+        if (!overrides.skipHiddenWarning && !await this.confirmAnalysisWithHiddenAtoms()) return null;
+        const selection = Array.isArray(overrides.selectedIndices)
+            ? [...overrides.selectedIndices]
+            : [...this.state.selected].filter(index => this.isEditableIndex(index));
+        if (!selection.length) {
+            throw new Error('Select the movable atoms before calculating a planar translation map.');
+        }
+        if (selection.length >= (this.state.atoms?.positions?.length || 0)) {
+            throw new Error('Leave at least one host atom unselected as the registry reference.');
+        }
+        const token = ++this.state.registryRequestToken;
+        const jobId = crypto.randomUUID?.() || `registry-${Date.now()}-${token}`;
+        this.state.registryJobId = jobId;
+        const options = this.registryOptions(jobId, {
+            ...overrides,
+            selectedIndices: selection
+        });
+        const hklLabel = `(${options.hkl.join(' ')})`;
+        this.setRegistryStatus('loading', 'Scanning periodic translations', `Evaluating one periodic ${hklLabel} cell.`);
+        this.setBusy('Preparing periodic interfacial distances...', {
+            title: `${hklLabel} translation map`,
+            progress: 1
+        });
+        await new Promise(resolve => requestAnimationFrame(resolve));
+        try {
+            const result = await this.api.fetchRegistryMap(options);
+            if (token !== this.state.registryRequestToken) return;
+            this.state.registryResult = result;
+            this.state.registrySelectionSignature = this.registrySelectionKey();
+            this.state.registryTranslationFractional = [0, 0];
+            this.setBusyProgress(100, {
+                message: 'Translation scan complete. Preparing the map...',
+                complete: true
+            });
+            await this.plotRegistryMap(result);
+            const optimum = result.optimum_fractional || [0, 0];
+            this.setRegistryStatus(
+                'ready',
+                `Minimum at (${Number(optimum[0]).toFixed(4)}, ${Number(optimum[1]).toFixed(4)})`,
+                `${result.metric_label}; lower is better. Geometry-only result, not an energy.`
+            );
+            this.scheduleVisualHistoryCommit('registry-map');
+        } finally {
+            if (token === this.state.registryRequestToken) {
+                this.state.registryJobId = null;
+                this.clearBusy();
+            }
+        }
+    }
+
+    registryPlaneSource() {
+        return this.state.registryRelaxation || this.state.registryResult;
+    }
+
+    registryPlotPoint(coordinates, source = this.registryPlaneSource()) {
+        const basis = source?.translation_basis_2d_angstrom || [[1, 0], [0, 1]];
+        const u = Number(coordinates?.[0]) || 0;
+        const v = Number(coordinates?.[1]) || 0;
+        return [
+            u * Number(basis[0]?.[0] || 0) + v * Number(basis[1]?.[0] || 0),
+            u * Number(basis[0]?.[1] || 0) + v * Number(basis[1]?.[1] || 0)
+        ];
+    }
+
+    async plotRegistryPlane(source = this.registryPlaneSource()) {
+        if (!source) return;
+        const Plotly = await this.ensurePlotly();
+        const hkl = source.hkl || [0, 0, 1];
+        const plot = this.showAnalysisDrawer('registry', `(${hkl.join(' ')}) Rigid Translation`);
+        if (!plot) return;
+        const theme = this.plotTheme();
+        const candidateResult = this.state.registryResult;
+        const activeMode = this.state.registryRelaxation;
+        const sameArray = (left, right) => JSON.stringify(left || []) === JSON.stringify(right || []);
+        const result = !candidateResult || !activeMode || (
+            sameArray(candidateResult.hkl, activeMode.hkl)
+            && sameArray(
+                [...(candidateResult.selected_indices || [])].sort((a, b) => a - b),
+                [...(activeMode.selected_indices || [])].sort((a, b) => a - b)
+            )
+        ) ? candidateResult : null;
+        const basis = source.translation_basis_2d_angstrom || [[1, 0], [0, 1]];
+        const origin = [0, 0];
+        const first = this.registryPlotPoint([1, 0], source);
+        const second = this.registryPlotPoint([0, 1], source);
+        const corner = this.registryPlotPoint([1, 1], source);
+        const traces = [];
+        if (result?.values?.length) {
+            const x = [];
+            const y = [];
+            const color = [];
+            const customdata = [];
+            (result.y_fractional || []).forEach((v, row) => {
+                (result.x_fractional || []).forEach((u, column) => {
+                    const point = this.registryPlotPoint([u, v], result);
+                    x.push(point[0]);
+                    y.push(point[1]);
+                    color.push(Number(result.values?.[row]?.[column]));
+                    customdata.push([Number(u), Number(v)]);
+                });
+            });
+            traces.push({
+                type: 'scattergl',
+                mode: 'markers',
+                meta: { role: 'registry-score' },
+                name: result.metric_label,
+                x,
+                y,
+                customdata,
+                marker: {
+                    symbol: 'square',
+                    size: Math.max(4, Math.min(15, 360 / Math.max(
+                        Number(result.x_fractional?.length || 1),
+                        Number(result.y_fractional?.length || 1)
+                    ))),
+                    color,
+                    colorscale: [[0, theme.teal], [0.5, theme.blue], [1, theme.amber]],
+                    colorbar: { title: result.metric_label, thickness: 11 },
+                    showscale: true,
+                    opacity: 0.92
+                },
+                hovertemplate: 'x=%{x:.4f} Å<br>y=%{y:.4f} Å<br>u=%{customdata[0]:.4f}<br>v=%{customdata[1]:.4f}<br>value=%{marker.color:.6g}<extra></extra>'
+            });
+        }
+        traces.push({
+            type: 'scatter',
+            mode: 'lines',
+            meta: { role: 'host-reference-cell' },
+            name: `Periodic (${hkl.join(' ')}) cell`,
+            x: [origin[0], first[0], corner[0], second[0], origin[0]],
+            y: [origin[1], first[1], corner[1], second[1], origin[1]],
+            line: { color: theme.text, width: 3 },
+            hovertemplate: 'Periodic translation-cell boundary<extra></extra>'
+        });
+        traces.push({
+            type: 'scatter',
+            mode: 'lines+markers',
+            meta: { role: 'host-reference-basis' },
+            name: 'Plane basis',
+            x: [0, first[0], null, 0, second[0]],
+            y: [0, first[1], null, 0, second[1]],
+            line: { color: theme.muted, width: 2 },
+            marker: { size: 5, color: theme.muted },
+            hovertemplate: 'Primitive periodic plane basis<extra></extra>'
+        });
+        if (result?.optimum_fractional) {
+            const optimum = this.registryPlotPoint(result.optimum_fractional, result);
+            traces.push({
+                type: 'scatter',
+                mode: 'markers',
+                meta: { role: 'registry-optimum' },
+                name: 'Suggested minimum',
+                x: [optimum[0]],
+                y: [optimum[1]],
+                marker: { symbol: 'diamond-open', size: 12, color: theme.text, line: { width: 2 } }
+            });
+        }
+        const trials = this.state.registryRelaxation?.trials || [];
+        if (trials.length) {
+            const trialPoints = trials.map(trial => this.registryPlotPoint(trial.coordinates, source));
+            traces.push({
+                type: 'scatter',
+                mode: 'lines+markers',
+                meta: { role: 'registry-trials' },
+                name: 'Optimization trials',
+                x: trialPoints.map(point => point[0]),
+                y: trialPoints.map(point => point[1]),
+                customdata: trials.map(trial => [trial.step, trial.energy, trial.projected_force]),
+                line: { color: theme.amber, width: 2 },
+                marker: {
+                    size: 7,
+                    color: trials.map(trial => Number(trial.energy)),
+                    colorscale: 'Viridis',
+                    showscale: false,
+                    line: { color: theme.text, width: 0.7 }
+                },
+                hovertemplate: 'trial %{customdata[0]}<br>x=%{x:.4f} Å<br>y=%{y:.4f} Å<br>E=%{customdata[1]:.6g} eV<br>|Fplane|=%{customdata[2]:.6g} eV/Å<extra></extra>'
+            });
+        }
+        const currentCoordinates = this.state.registryTranslationCoordinates || [0, 0];
+        const current = this.registryPlotPoint(currentCoordinates, source);
+        traces.push(
+            {
+                type: 'scatter',
+                mode: 'markers',
+                meta: { role: 'registry-current' },
+                name: 'Current translation',
+                x: [current[0]],
+                y: [current[1]],
+                marker: { size: 11, color: theme.amber, line: { color: theme.text, width: 1.5 } }
+            },
+            {
+                type: 'scatter',
+                mode: 'lines',
+                meta: { role: 'registry-current-vector' },
+                name: 'Rigid translation vector',
+                x: [0, current[0]],
+                y: [0, current[1]],
+                line: { color: theme.amber, width: 3, dash: 'dot' },
+                hovertemplate: 'Selected atoms move as one rigid component<extra></extra>'
+            }
+        );
+        const boundsX = [0, first[0], second[0], corner[0]];
+        const boundsY = [0, first[1], second[1], corner[1]];
+        const span = Math.max(
+            Math.max(...boundsX) - Math.min(...boundsX),
+            Math.max(...boundsY) - Math.min(...boundsY),
+            1
+        );
+        const padding = span * 0.12;
+        await Plotly.react(plot, traces, {
+            autosize: true,
+            margin: { l: 58, r: 22, t: 20, b: 52 },
+            paper_bgcolor: 'rgba(0,0,0,0)',
+            plot_bgcolor: 'rgba(0,0,0,0)',
+            font: { color: theme.text, family: 'Inter, system-ui, sans-serif', size: 11 },
+            xaxis: {
+                title: 'plane x / Å',
+                range: [Math.min(...boundsX) - padding, Math.max(...boundsX) + padding],
+                showgrid: true,
+                gridcolor: theme.line,
+                zeroline: true,
+                zerolinecolor: theme.muted,
+                color: theme.muted,
+                constrain: 'domain'
+            },
+            yaxis: {
+                title: 'plane y / Å',
+                range: [Math.min(...boundsY) - padding, Math.max(...boundsY) + padding],
+                showgrid: true,
+                gridcolor: theme.line,
+                zeroline: true,
+                zerolinecolor: theme.muted,
+                color: theme.muted,
+                scaleanchor: 'x',
+                scaleratio: 1,
+                constrain: 'domain'
+            },
+            legend: { orientation: 'h', x: 0, y: 1.12, bgcolor: 'rgba(0,0,0,0)' },
+            annotations: [{
+                x: 0.5,
+                y: -0.18,
+                xref: 'paper',
+                yref: 'paper',
+                text: `Physical (${hkl.join(' ')}) periodic plane · b₁ (${Math.hypot(...basis[0]).toFixed(3)} Å) · b₂ (${Math.hypot(...basis[1]).toFixed(3)} Å)`,
+                showarrow: false,
+                font: { color: theme.muted, size: 10 }
+            }],
+            uirevision: `registry-plane-${hkl.join('-')}`
+        }, {
+            responsive: true,
+            displaylogo: false,
+            scrollZoom: false,
+            modeBarButtonsToRemove: ['lasso2d', 'select2d']
+        });
+    }
+
+    async plotRegistryMap(result) {
+        await this.plotRegistryPlane(result);
+    }
+
+    updateRegistryMapMarker(coordinates, { refreshTrials = false } = {}) {
+        const source = this.registryPlaneSource();
+        if (!source) return;
+        if (source.translation_space === 'cartesian') {
+            this.state.registryTranslationCoordinates = [0, 1, 2].map(index => (
+                Number(coordinates?.[index]) || 0
+            ));
+            this.state.registryTranslationFractional = null;
+            return;
+        }
+        const unwrapped = [
+            Number(coordinates?.[0]) || 0,
+            Number(coordinates?.[1]) || 0
+        ];
+        const wrapped = [
+            ((unwrapped[0] % 1) + 1) % 1,
+            ((unwrapped[1] % 1) + 1) % 1
+        ];
+        this.state.registryTranslationCoordinates = unwrapped;
+        this.state.registryTranslationFractional = wrapped;
+        const result = this.state.registryResult;
+        if (result) {
+            this.setRegistryStatus(
+                'ready',
+                `Current translation (${wrapped[0].toFixed(4)}, ${wrapped[1].toFixed(4)})`,
+                `${result.metric_label}; suggested minimum (${Number(result.optimum_fractional?.[0] || 0).toFixed(4)}, ${Number(result.optimum_fractional?.[1] || 0).toFixed(4)}).`
+            );
+        }
+        if (this.state.activeAnalysisPlot === 'registry' && window.Plotly) {
+            const plot = this.analysisPlotElement('registry');
+            if (plot) {
+                const traces = Array.from(plot.data || []);
+                const markerIndex = traces.findIndex(trace => trace.meta?.role === 'registry-current');
+                const vectorIndex = traces.findIndex(trace => trace.meta?.role === 'registry-current-vector');
+                const current = this.registryPlotPoint(unwrapped, source);
+                if (markerIndex >= 0) {
+                    window.Plotly.restyle(plot, { x: [[current[0]]], y: [[current[1]]] }, [markerIndex]);
+                }
+                if (vectorIndex >= 0) {
+                    window.Plotly.restyle(plot, {
+                        x: [[0, current[0]]],
+                        y: [[0, current[1]]]
+                    }, [vectorIndex]);
+                }
+                if (refreshTrials) {
+                    const trials = this.state.registryRelaxation?.trials || [];
+                    const trialIndex = traces.findIndex(trace => trace.meta?.role === 'registry-trials');
+                    if (trials.length && trialIndex < 0) {
+                        this.plotRegistryPlane(source).catch(error => {
+                            console.error('Could not refresh planar-translation trials:', error);
+                        });
+                    } else if (trialIndex >= 0) {
+                        const points = trials.map(trial => this.registryPlotPoint(trial.coordinates, source));
+                        window.Plotly.restyle(plot, {
+                            x: [points.map(point => point[0])],
+                            y: [points.map(point => point[1])],
+                            customdata: [trials.map(trial => [
+                                trial.step,
+                                trial.energy,
+                                trial.projected_force
+                            ])],
+                            'marker.color': [trials.map(trial => Number(trial.energy))]
+                        }, [trialIndex]);
+                    }
+                }
+            }
+        }
+    }
+
+    setRegistryRelaxStatus(state, title, detail = '') {
+        const status = document.getElementById('registry-relax-status');
+        if (!status) return;
+        status.dataset.state = state;
+        const titleElement = status.querySelector('.analysis-status-title');
+        const detailElement = status.querySelector('.analysis-status-detail');
+        if (titleElement) titleElement.textContent = title;
+        if (detailElement) detailElement.textContent = detail;
+    }
+
+    syncRegistryRelaxationControls({ updateStatus = true } = {}) {
+        const mode = this.state.registryRelaxation;
+        const active = Boolean(mode);
+        const running = Boolean(mode?.is_relaxing);
+        document.getElementById('registry-relax-mode-badge')?.classList.toggle('hidden', !active);
+        const activate = document.getElementById('btn-registry-relax-activate');
+        const run = document.getElementById('btn-registry-relax-run');
+        const stop = document.getElementById('btn-registry-relax-stop');
+        const cancel = document.getElementById('btn-registry-relax-cancel');
+        const finish = document.getElementById('btn-registry-relax-finish');
+        const spaceSelect = document.getElementById('registry-translation-space');
+        const displacementControl = document.getElementById('registry-max-displacement');
+        const configuredSpace = this.syncRegistrySpaceControls();
+        const space = mode?.translation_space || configuredSpace;
+        if (activate) activate.disabled = active || this.state.vizOnly || !this.hasLoadedAtoms();
+        if (run) run.disabled = !active || running;
+        if (stop) stop.disabled = !running;
+        if (cancel) cancel.disabled = !active;
+        if (finish) finish.disabled = !active || running;
+        if (spaceSelect) spaceSelect.disabled = active;
+        if (displacementControl) displacementControl.disabled = active;
+        ['registry-h', 'registry-k', 'registry-l'].forEach(id => {
+            const control = document.getElementById(id);
+            if (control) control.disabled = active;
+        });
+        const cellToggle = document.getElementById('chk-cell');
+        if (cellToggle && space === 'plane') {
+            if (active) cellToggle.checked = true;
+            cellToggle.disabled = active;
+        }
+        if (!updateStatus) return;
+        if (!active) {
+            this.setRegistryRelaxStatus(
+                'idle',
+                'Mode inactive',
+                space === 'plane'
+                    ? 'Select a movable component, choose an (hkl) plane, then activate rigid translation.'
+                    : 'Select a movable component, choose the maximum shift per Cartesian axis, then activate rigid translation.'
+            );
+            return;
+        }
+        const coordinates = mode.translation_coordinates || (space === 'plane' ? [0, 0] : [0, 0, 0]);
+        const force = Number(mode.projected_force ?? mode.generalized_force);
+        const forceDetail = Number.isFinite(force)
+            ? ` · ${space === 'plane' ? '|Fplane|' : '|F|'} ${force.toFixed(4)} eV/Å`
+            : '';
+        const hkl = mode.hkl || [0, 0, 1];
+        const coordinateDetail = space === 'plane'
+            ? `(${hkl.join(' ')}) · u ${Number(coordinates[0] || 0).toFixed(4)} · v ${Number(coordinates[1] || 0).toFixed(4)}`
+            : `x ${Number(coordinates[0] || 0).toFixed(4)} · y ${Number(coordinates[1] || 0).toFixed(4)} · z ${Number(coordinates[2] || 0).toFixed(4)} Å`;
+        this.setRegistryRelaxStatus(
+            running ? 'loading' : (mode.status === 'error' ? 'warning' : 'ready'),
+            running ? `Optimizing · step ${Number(mode.step) || 0}/${Number(mode.max_steps) || 0}` : `Mode ${mode.status || 'active'}`,
+            `${coordinateDetail}${forceDetail}`
+        );
+    }
+
+    syncRegistryRelaxationFromData(data) {
+        const summary = data?.metadata?.registry_relaxation || null;
+        this.state.registryRelaxation = summary ? this.registryRelaxationFromMessage(summary) : null;
+        if (this.state.registryRelaxation) {
+            this.state.registryTranslationCoordinates = [
+                ...(this.state.registryRelaxation.translation_coordinates || [0, 0])
+            ];
+            this.state.registryTranslationFractional = this.state.registryRelaxation.translation_space === 'plane'
+                ? [...(this.state.registryRelaxation.translation_fractional || [0, 0])]
+                : null;
+        } else {
+            this.state.registryTranslationCoordinates = [0, 0];
+            this.state.registryTranslationFractional = [0, 0];
+        }
+        this.syncRegistryRelaxationControls();
+    }
+
+    registryRelaxationFromMessage(message) {
+        if (!message) return null;
+        return {
+            schema: message.schema || 'v_ase.rigid-translation-relaxation.v2',
+            session_id: message.session_id,
+            status: message.status,
+            is_relaxing: Boolean(message.is_relaxing),
+            selected_indices: [...(message.selected_indices || [])],
+            hkl: [...(message.hkl || [0, 0, 1])],
+            periodic_axes: [...(message.periodic_axes || [0, 1])],
+            plane_integer_basis: (message.plane_integer_basis || []).map(row => [...row]),
+            plane_normal_cartesian: [...(message.plane_normal_cartesian || [0, 0, 1])],
+            plane_basis_cartesian: (message.plane_basis_cartesian || []).map(row => [...row]),
+            translation_basis_angstrom: (message.translation_basis_angstrom || []).map(row => [...row]),
+            translation_basis_2d_angstrom: (message.translation_basis_2d_angstrom || []).map(row => [...row]),
+            translation_space: message.translation_space === 'cartesian' ? 'cartesian' : 'plane',
+            degrees_of_freedom: Number(message.degrees_of_freedom) || (message.translation_space === 'cartesian' ? 3 : 2),
+            coordinate_basis: message.coordinate_basis || (message.translation_space === 'cartesian' ? 'cartesian-angstrom' : 'fractional-plane-lattice'),
+            max_displacement_angstrom: Number.isFinite(Number(message.max_displacement_angstrom))
+                ? Number(message.max_displacement_angstrom)
+                : null,
+            translation_cartesian: [...(message.translation_cartesian || [0, 0, 0])],
+            translation_fractional: Array.isArray(message.translation_fractional)
+                ? [...message.translation_fractional]
+                : null,
+            translation_coordinates: [...(message.translation_coordinates || (message.translation_space === 'cartesian' ? [0, 0, 0] : [0, 0]))],
+            trials: (message.trials || []).map(trial => ({
+                ...trial,
+                coordinates: [...(trial.coordinates || [0, 0])],
+                translation_cartesian: [...(trial.translation_cartesian || [0, 0, 0])]
+            })),
+            step: Number(message.step) || 0,
+            max_steps: Number(message.max_steps) || 0,
+            energy: Number.isFinite(Number(message.energy)) ? Number(message.energy) : null,
+            projected_force: Number.isFinite(Number(message.projected_force))
+                ? Number(message.projected_force)
+                : Number.isFinite(Number(message.generalized_force))
+                    ? Number(message.generalized_force)
+                    : null,
+            generalized_force: Number.isFinite(Number(message.generalized_force))
+                ? Number(message.generalized_force)
+                : null,
+            generalized_gradient: Number.isFinite(Number(message.generalized_gradient))
+                ? Number(message.generalized_gradient)
+                : null
+        };
+    }
+
+    async activateRegistryRelaxation(selectedIndices = null, overrides = {}) {
+        const selected = Array.isArray(selectedIndices)
+            ? selectedIndices.map(Number).filter(index => this.isEditableIndex(index))
+            : this.state.registryResult
+                && this.registrySelectionKey() === this.state.registrySelectionSignature
+                ? [...(this.state.registryResult.selected_indices || [])]
+                : [...this.state.selected].filter(index => this.isEditableIndex(index));
+        if (!selected.length) throw new Error('Select the movable guest or interface atoms first.');
+        const space = this.registryTranslationSpace(overrides);
+        const payload = {
+            positions: this.backendPositionsPayload(),
+            selected_indices: selected,
+            hkl: space === 'plane' ? this.registryHkl(overrides) : [0, 0, 1],
+            translation_space: space,
+            max_displacement: space === 'cartesian'
+                ? this.registryMaxDisplacement(overrides)
+                : undefined
+        };
+        const data = await this.api.startRegistryRelaxation(payload);
+        this.setAtomsData(data, {
+            clearSelection: false,
+            preserveRdf: true,
+            preserveColorScaleRange: true
+        });
+        this.aiSelectIndices(selected);
+        if (space === 'plane') {
+            const cellToggle = document.getElementById('chk-cell');
+            if (cellToggle) cellToggle.checked = true;
+            this.state.display.showCell = true;
+            this.renderer.setDisplayOptions(this.state.display, { rebuild: false });
+            await this.plotRegistryPlane(this.state.registryRelaxation);
+        } else if (this.state.activeAnalysisPlot === 'registry') {
+            this.closeAnalysisDrawer();
+        }
+        const hkl = this.state.registryRelaxation?.hkl || [0, 0, 1];
+        this.setRegistryRelaxStatus(
+            'ready',
+            space === 'plane' ? `Rigid (${hkl.join(' ')}) translation active` : 'Rigid 3D translation active',
+            space === 'plane'
+                ? 'G moves every selected atom by one common vector in this plane.'
+                : 'G moves every selected atom by one common Cartesian vector.'
+        );
+        this.toast(space === 'plane'
+            ? `Rigid (${hkl.join(' ')}) translation mode activated.`
+            : 'Rigid 3D translation mode activated.', 'success');
+    }
+
+    async runRegistryRelaxation({ fmax: requestedFmax, steps: requestedSteps, calculator } = {}) {
+        if (!this.state.registryRelaxation) throw new Error('Activate rigid translation first.');
+        const fmaxControl = document.getElementById('registry-relax-fmax');
+        const stepsControl = document.getElementById('registry-relax-steps');
+        const fmax = Math.max(
+            0.0001,
+            Number(requestedFmax ?? fmaxControl?.value) || 0.05
+        );
+        const steps = Math.max(1, Math.min(100000, Math.round(
+            Number(requestedSteps ?? stepsControl?.value) || 100
+        )));
+        if (fmaxControl) fmaxControl.value = `${fmax}`;
+        if (stepsControl) stepsControl.value = `${steps}`;
+        const requestedCalculator = this.calculatorPayloadWithOverrides(calculator);
+        const threeDimensional = this.state.registryRelaxation.translation_space === 'cartesian';
+        this.startModeTrajectory('registry', threeDimensional
+            ? 'Rigid 3D translation relaxation'
+            : 'Rigid planar translation relaxation');
+        try {
+            const summary = await this.api.runRegistryRelaxation({
+                fmax,
+                steps,
+                calculator: requestedCalculator
+            });
+            // A very short optimization can publish its WebSocket completion
+            // before this HTTP start response resolves.  Never let that older
+            // response put an already-finished mode back into a running state.
+            const terminalStatuses = new Set(['converged', 'steps', 'stopped', 'error']);
+            const currentStatus = String(this.state.registryRelaxation?.status || '');
+            if (!terminalStatuses.has(currentStatus)) {
+                this.state.registryRelaxation = summary;
+            }
+            this.syncRegistryRelaxationControls();
+        } catch (error) {
+            this.clearModeTrajectory('registry');
+            throw error;
+        }
+    }
+
+    async stopRegistryRelaxation() {
+        await this.api.stopRegistryRelaxation();
+        this.setRegistryRelaxStatus('loading', 'Stopping optimization', 'The current calculator step will finish first.');
+    }
+
+    async finishRegistryRelaxation() {
+        const data = await this.api.finishRegistryRelaxation();
+        this.setAtomsData(data, {
+            clearSelection: false,
+            preserveRdf: false,
+            preserveColorScaleRange: true
+        });
+        this.clearModeTrajectory('registry');
+        this.toast('Rigid translation applied.', 'success');
+    }
+
+    async cancelRegistryRelaxation() {
+        const data = await this.api.cancelRegistryRelaxation();
+        this.setAtomsData(data, {
+            clearSelection: false,
+            preserveRdf: true,
+            preserveColorScaleRange: true
+        });
+        this.clearModeTrajectory('registry');
+        this.state.registryTranslationCoordinates = [0, 0];
+        this.state.registryTranslationFractional = [0, 0];
+        this.toast('Rigid translation restored to its starting structure.', 'success');
+    }
+
+    constrainMoveToRegistryPlane(moveDelta) {
+        const mode = this.state.registryRelaxation;
+        if (!mode) {
+            return moveDelta;
+        }
+        if (mode.translation_space === 'cartesian') {
+            const start = this.state.registryTransformStartCoordinates
+                || mode.translation_coordinates
+                || [0, 0, 0];
+            this.state.registryTranslationCoordinates = [
+                Number(start[0] || 0) + moveDelta.x,
+                Number(start[1] || 0) + moveDelta.y,
+                Number(start[2] || 0) + moveDelta.z
+            ];
+            return moveDelta;
+        }
+        const basis = (mode.translation_basis_angstrom || []).map(row => new THREE.Vector3(...row));
+        if (basis.length !== 2) return moveDelta;
+        const g00 = basis[0].dot(basis[0]);
+        const g01 = basis[0].dot(basis[1]);
+        const g11 = basis[1].dot(basis[1]);
+        const determinant = g00 * g11 - g01 * g01;
+        if (!Number.isFinite(determinant) || Math.abs(determinant) <= 1e-14) return moveDelta;
+        const rhs0 = moveDelta.dot(basis[0]);
+        const rhs1 = moveDelta.dot(basis[1]);
+        const coefficients = [
+            (g11 * rhs0 - g01 * rhs1) / determinant,
+            (-g01 * rhs0 + g00 * rhs1) / determinant
+        ];
+        moveDelta.copy(basis[0]).multiplyScalar(coefficients[0])
+            .addScaledVector(basis[1], coefficients[1]);
+        const start = this.state.registryTransformStartCoordinates
+            || mode.translation_coordinates
+            || [0, 0];
+        this.updateRegistryMapMarker([
+            Number(start[0]) + coefficients[0],
+            Number(start[1]) + coefficients[1]
+        ]);
+        return moveDelta;
+    }
+
+    setupRegistryAnalysis() {
+        const metric = document.getElementById('registry-metric');
+        const gridX = document.getElementById('registry-grid-x');
+        const gridY = document.getElementById('registry-grid-y');
+        if (metric) metric.value = this.state.display.registryMetric || 'short-contact';
+        if (gridX) gridX.value = `${this.state.display.registryGridX || 32}`;
+        if (gridY) gridY.value = `${this.state.display.registryGridY || 32}`;
+        const storedHkl = this.state.display.registryHkl || [0, 0, 1];
+        ['registry-h', 'registry-k', 'registry-l'].forEach((id, index) => {
+            const control = document.getElementById(id);
+            if (control) control.value = `${storedHkl[index]}`;
+        });
+        document.getElementById('registry-translation-space')?.addEventListener('change', () => {
+            this.syncRegistrySpaceControls();
+            this.syncRegistryRelaxationControls({ updateStatus: true });
+        });
+        ['registry-metric', 'registry-grid-x', 'registry-grid-y', 'registry-h', 'registry-k', 'registry-l'].forEach(id => {
+            document.getElementById(id)?.addEventListener('change', () => {
+                if (id.startsWith('registry-') && ['registry-h', 'registry-k', 'registry-l'].includes(id)) {
+                    try {
+                        this.registryHkl();
+                    } catch (error) {
+                        this.toast(error.message, 'error');
+                        return;
+                    }
+                }
+                if (this.state.registryResult) {
+                    this.invalidateRegistryResult('Map settings changed. Calculate the map again.');
+                }
+            });
+        });
+        document.getElementById('btn-registry-calculate')?.addEventListener('click', () => {
+            this.calculateRegistryMap().catch(error => {
+                this.setRegistryStatus('warning', 'Translation map unavailable', error.message);
+                this.toast(`Translation map failed: ${error.message}`, 'error');
+                this.clearBusy();
+                this.state.registryJobId = null;
+            });
+        });
+        document.getElementById('btn-registry-relax-activate')?.addEventListener('click', () => {
+            this.activateRegistryRelaxation().catch(error => {
+                this.toast(`Could not activate rigid translation: ${error.message}`, 'error');
+            });
+        });
+        document.getElementById('btn-registry-relax-run')?.addEventListener('click', () => {
+            this.runRegistryRelaxation().catch(error => {
+                this.toast(`Rigid translation optimization failed: ${error.message}`, 'error');
+            });
+        });
+        document.getElementById('btn-registry-relax-stop')?.addEventListener('click', () => {
+            this.stopRegistryRelaxation().catch(error => this.toast(`Stop failed: ${error.message}`, 'error'));
+        });
+        document.getElementById('btn-registry-relax-finish')?.addEventListener('click', () => {
+            this.finishRegistryRelaxation().catch(error => this.toast(`Apply failed: ${error.message}`, 'error'));
+        });
+        document.getElementById('btn-registry-relax-cancel')?.addEventListener('click', () => {
+            this.cancelRegistryRelaxation().catch(error => this.toast(`Cancel failed: ${error.message}`, 'error'));
+        });
+        this.syncRegistrySpaceControls();
+        this.syncRegistryRelaxationControls();
+    }
+
+    async exportActiveAnalysisData() {
+        let blob;
+        let filename;
+        if (this.state.activeAnalysisPlot === 'rdf') {
+            if (!this.state.rdfResult) throw new Error('Calculate the RDF before exporting data.');
+            blob = await this.withBusy('Preparing RDF data...', () => this.api.exportRdfCsv(this.rdfOptions()));
+            filename = 'v_ase_rdf.csv';
+        } else if (this.state.activeAnalysisPlot === 'commensurate') {
+            if (!this.state.commensurateSearch) throw new Error('Run the commensurate search before exporting data.');
+            const options = {
+                axis: 'Z',
+                max_index: this.state.display.commensurateMaxIndex,
+                strain_tolerance: this.state.display.commensurateStrainTolerance,
+                max_area_ratio: this.state.display.commensurateMaxAreaRatio,
+                mode: this.commensurateMode(),
+                strain_target: this.state.display.commensurateStrainTarget
+            };
+            blob = await this.withBusy(
+                'Preparing commensurate-cell data...',
+                () => this.api.exportCommensurateCsv(options)
+            );
+            filename = 'v_ase_commensurate.csv';
+        } else if (this.state.activeAnalysisPlot === 'registry') {
+            if (!this.state.registryResult) throw new Error('Calculate the translation map before exporting data.');
+            blob = await this.withBusy(
+                'Preparing translation-map data...',
+                () => this.api.exportRegistryCsv(this.registryOptions())
+            );
+            filename = 'v_ase_registry_map.csv';
+        } else {
+            throw new Error('No analysis graph is active.');
+        }
+        this.downloadBlob(blob, filename, 'text/csv');
     }
 
     normalizedViewRotationStep(value = this.state.display.viewRotationStepDeg) {
         const parsed = Number(value);
         return Number.isFinite(parsed) ? Math.max(0.1, Math.min(360, parsed)) : 15;
+    }
+
+    normalizedThemePreference(value) {
+        const normalized = String(value || '').trim().toLowerCase();
+        return ['light', 'dark'].includes(normalized) ? normalized : 'system';
+    }
+
+    syncThemeControl() {
+        const select = document.getElementById('ui-theme');
+        if (!select) return;
+        const info = window.v_aseTheme?.info?.() || {};
+        select.value = this.normalizedThemePreference(info.preference);
+    }
+
+    refreshActiveAnalysisTheme() {
+        if (this.state.activeAnalysisPlot === 'rdf' && this.state.rdfResult) {
+            void this.plotRdf(this.state.rdfResult);
+        } else if (this.state.activeAnalysisPlot === 'commensurate' && this.state.commensurateSearch) {
+            const angle = THREE.MathUtils.degToRad(
+                Number(this.state.display.commensurateGuestAngleDeg) || 0
+            );
+            void this.plotCommensurateSearch(this.state.commensurateSearch, angle);
+        } else if (this.state.activeAnalysisPlot === 'registry' && this.state.registryResult) {
+            void this.plotRegistryMap(this.state.registryResult);
+        }
+    }
+
+    applyThemePreference(value, { persist = true, notifyWorkspace = true } = {}) {
+        const preference = this.normalizedThemePreference(value);
+        const result = window.v_aseTheme?.apply?.(preference, { persist })
+            || { preference, resolved: preference };
+        // System is the intentionally mixed default: the chrome follows the
+        // OS while the scientific canvas stays white. Explicit Dark makes the
+        // canvas dark as well, so the interface never looks half-switched.
+        const background = preference === 'dark' ? 'dark' : 'white';
+        if (this.state.display.viewportBackground !== background) {
+            this.state.display.viewportBackground = background;
+            this.syncViewControls();
+            this.renderer?.setDisplayOptions?.(this.state.display);
+            if (this.state.exportPreviewEnabled) this.syncImageExportPreview();
+            if (persist) this.scheduleVisualHistoryCommit('theme-viewport');
+        }
+        this.syncThemeControl();
+        this.refreshActiveAnalysisTheme();
+        if (notifyWorkspace && this.workspaceChild && window.parent !== window) {
+            window.parent.postMessage({
+                type: 'v_ase:document-theme',
+                sessionId: this.sessionId,
+                preference: result.preference,
+                persist
+            }, window.location.origin);
+        }
+        return result;
+    }
+
+    applyConfiguredTheme(value) {
+        const info = window.v_aseTheme?.info?.() || {};
+        if (info.persisted) return;
+        this.applyThemePreference(value, { persist: false, notifyWorkspace: true });
+    }
+
+    setupThemeControls() {
+        this.syncThemeControl();
+        document.getElementById('ui-theme')?.addEventListener('change', event => {
+            this.applyThemePreference(event.target.value);
+        });
+        this.handleThemeChange = () => {
+            this.syncThemeControl();
+            this.refreshActiveAnalysisTheme();
+        };
+        window.addEventListener('v_ase-theme-change', this.handleThemeChange);
+    }
+
+    setupToolbarTooltips() {
+        const targets = document.querySelectorAll(
+            '#top-bar button[aria-label], #top-bar button[title], #top-bar label[title]'
+        );
+        let tooltip = document.getElementById('toolbar-tooltip');
+        if (!tooltip) {
+            tooltip = document.createElement('div');
+            tooltip.id = 'toolbar-tooltip';
+            tooltip.className = 'toolbar-tooltip hidden';
+            tooltip.setAttribute('role', 'tooltip');
+            document.body.appendChild(tooltip);
+        }
+        let timer = null;
+        const hide = () => {
+            if (timer !== null) window.clearTimeout(timer);
+            timer = null;
+            tooltip.classList.add('hidden');
+            tooltip.removeAttribute('data-side');
+        };
+        const show = target => {
+            const description = target.dataset.tooltip
+                || target.getAttribute('aria-label')
+                || target.getAttribute('title');
+            if (!description) return;
+            if (timer !== null) window.clearTimeout(timer);
+            timer = window.setTimeout(() => {
+                timer = null;
+                tooltip.textContent = description;
+                tooltip.classList.remove('hidden');
+                const targetRect = target.getBoundingClientRect();
+                const tooltipRect = tooltip.getBoundingClientRect();
+                const margin = 10;
+                const left = Math.max(
+                    margin,
+                    Math.min(
+                        window.innerWidth - tooltipRect.width - margin,
+                        targetRect.left + targetRect.width / 2 - tooltipRect.width / 2
+                    )
+                );
+                let top = targetRect.bottom + 9;
+                if (top + tooltipRect.height > window.innerHeight - margin) {
+                    top = targetRect.top - tooltipRect.height - 9;
+                    tooltip.dataset.side = 'top';
+                }
+                tooltip.style.left = `${left}px`;
+                tooltip.style.top = `${Math.max(margin, top)}px`;
+            }, 560);
+        };
+        const bindings = [];
+        targets.forEach(target => {
+            if (target.dataset.tooltipBound === 'true') return;
+            target.dataset.tooltipBound = 'true';
+            const description = target.getAttribute('title') || target.getAttribute('aria-label');
+            if (description) target.dataset.tooltip = description;
+            target.removeAttribute('title');
+            const enter = () => show(target);
+            target.addEventListener('pointerenter', enter);
+            target.addEventListener('pointerleave', hide);
+            target.addEventListener('focus', enter);
+            target.addEventListener('blur', hide);
+            target.addEventListener('click', hide);
+            bindings.push({ target, enter });
+        });
+        this.hideToolbarTooltip = hide;
+        this.cleanupCallbacks.push(() => {
+            hide();
+            bindings.forEach(({ target, enter }) => {
+                target.removeEventListener('pointerenter', enter);
+                target.removeEventListener('pointerleave', hide);
+                target.removeEventListener('focus', enter);
+                target.removeEventListener('blur', hide);
+                target.removeEventListener('click', hide);
+                delete target.dataset.tooltipBound;
+            });
+            tooltip.remove();
+        });
     }
 
     syncViewControls(options = this.state.display) {
@@ -2443,7 +8850,8 @@ class VAseApp {
             const action = showGrid ? 'Hide' : 'Show';
             gridButton.setAttribute('aria-pressed', showGrid ? 'true' : 'false');
             gridButton.setAttribute('aria-label', `${action} viewport grid`);
-            gridButton.title = `${action} viewport grid`;
+            gridButton.dataset.tooltip = `${action} viewport grid`;
+            gridButton.removeAttribute('title');
         }
         document.body.dataset.viewportBackground = background;
         document.body.dataset.atomDisplayMode = displayMode;
@@ -2459,6 +8867,10 @@ class VAseApp {
         }
         this.syncViewControls();
         this.renderer.setDisplayOptions(this.state.display);
+        this.syncLightingControls();
+        if (this.state.display.atomDisplayMode === '2d' && this.state.sunSelected) {
+            this.setSunSelected(false);
+        }
         if (this.state.exportPreviewEnabled) this.syncImageExportPreview();
         this.scheduleVisualHistoryCommit('view-display');
     }
@@ -2509,19 +8921,41 @@ class VAseApp {
         this.redoTimeline = [];
     }
 
-    recordStructureHistoryAction() {
+    activeStructureHistoryScope(sourcePath = '') {
+        const path = String(sourcePath || '');
+        const additionMutation = (
+            path.includes('/api/add-session/')
+            || (this.addAtomsSessionActive?.() && path.includes('/api/apply/'))
+        );
+        if (!additionMutation) return null;
+        if (!this.addAtomsHistoryToken) {
+            this.addAtomsHistoryToken = `add-atoms:${crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`}`;
+        }
+        return this.addAtomsHistoryToken;
+    }
+
+    recordStructureHistoryAction(sourcePath = '') {
         this.flushVisualHistoryCommit();
         this.recordHistoryAction({
             kind: 'structure',
+            sourcePath: String(sourcePath || ''),
+            scope: this.activeStructureHistoryScope(sourcePath),
             visualBefore: this.visualHistoryReady
                 ? this.visualHistorySnapshot()
                 : null
         });
     }
 
+    removeHistoryScope(scope) {
+        if (!scope) return;
+        this.undoTimeline = this.undoTimeline.filter(action => action?.scope !== scope);
+        this.redoTimeline = this.redoTimeline.filter(action => action?.scope !== scope);
+    }
+
     resetHistoryTimeline() {
         this.undoTimeline = [];
         this.redoTimeline = [];
+        this.addAtomsHistoryToken = null;
         this.resetVisualHistoryBaseline();
     }
 
@@ -2529,6 +8963,7 @@ class VAseApp {
         return {
             schema: 'v_ase.visual_history.v1',
             display: this.clonePlain(this.state.display),
+            viewIdentityOverrides: this.viewIdentityOverridesSnapshot(),
             applyConstraints: Boolean(this.state.applyConstraints),
             antiAliasing: Boolean(this.state.antiAliasing),
             sphereQuality: this.state.sphereQuality || 'auto',
@@ -2761,8 +9196,8 @@ class VAseApp {
         const directions = {
             left: { axis: basis.up, sign: 1 },
             right: { axis: basis.up, sign: -1 },
-            up: { axis: basis.right, sign: -1 },
-            down: { axis: basis.right, sign: 1 },
+            up: { axis: basis.right, sign: 1 },
+            down: { axis: basis.right, sign: -1 },
             'roll-ccw': { axis: basis.forward, sign: 1 },
             'roll-cw': { axis: basis.forward, sign: -1 }
         };
@@ -2816,6 +9251,7 @@ class VAseApp {
 
     syncLightingControls(options = this.state.display) {
         const mode = options.lightingMode || 'modeling';
+        const flatDisplay = options.atomDisplayMode === '2d';
         const setValue = (id, value) => {
             const element = document.getElementById(id);
             if (element && document.activeElement !== element) element.value = `${value}`;
@@ -2831,13 +9267,23 @@ class VAseApp {
         const gizmo = document.getElementById('chk-sun-gizmo');
         if (gizmo) gizmo.checked = Boolean(options.sunGizmo);
         const cardMode = document.getElementById('lighting-card-mode');
-        if (cardMode) cardMode.textContent = mode === 'studio-shadow' ? 'Soft Shadow' : mode === 'studio' ? 'Studio Sun' : 'Modeling';
+        if (cardMode) {
+            cardMode.textContent = flatDisplay
+                ? 'Disabled in 2D'
+                : (mode === 'studio-shadow' ? 'Soft Shadow' : mode === 'studio' ? 'Studio Sun' : 'Modeling');
+        }
         const widget = document.getElementById('lighting-widget');
-        if (widget) widget.dataset.mode = mode;
-        document.querySelectorAll('.lighting-card-body input:not(#lighting-mode), .lighting-card-body button').forEach(control => {
+        if (widget) {
+            widget.dataset.mode = flatDisplay ? 'flat' : mode;
+            widget.dataset.disabledReason = flatDisplay ? '2D rendering does not use lighting or materials.' : '';
+        }
+        const modeSelect = document.getElementById('lighting-mode');
+        if (modeSelect) modeSelect.disabled = flatDisplay;
+        document.querySelectorAll('.lighting-card-body input, .lighting-card-body button').forEach(control => {
             if (control.id === 'chk-sun-gizmo') return;
-            control.disabled = mode === 'modeling';
+            control.disabled = flatDisplay || mode === 'modeling';
         });
+        if (gizmo) gizmo.disabled = flatDisplay || mode === 'modeling';
     }
 
     applyLightingControls() {
@@ -2861,7 +9307,9 @@ class VAseApp {
     }
 
     sunIsSelectable() {
-        return this.state.display.lightingMode !== 'modeling' && Boolean(this.state.display.sunGizmo);
+        return this.state.display.atomDisplayMode !== '2d'
+            && this.state.display.lightingMode !== 'modeling'
+            && Boolean(this.state.display.sunGizmo);
     }
 
     setSunSelected(selected, { clearAtoms = true, update = true } = {}) {
@@ -2871,6 +9319,9 @@ class VAseApp {
             : null;
         this.state.sunSelected = next;
         this.renderer.setSunGizmoSelected(next);
+        if (next && this.state.selectedVolumetricPlanes.size) {
+            this.setVolumetricPlaneSelection([], { update: false });
+        }
         if (next && clearAtoms && this.selectionCount() > 0) {
             this.clearAtomSelection();
             this.updateSelectionVisuals();
@@ -2934,7 +9385,9 @@ class VAseApp {
             const data = await this.api.fetchAtoms();
             if (!data || !data.positions) return;
 
-            this.state.atoms = data;
+            this.invalidateSelectionPropertyData();
+            this.invalidateForceVectorData();
+            this.state.atoms = this.applyViewIdentityOverridesToData(data);
             this.syncTrajectoryIdentity(data);
             this.rebuildLabelIndexCache(data.symbols || []);
             this.state.cachedFmax = this.computeFmax(data.forces || []);
@@ -2965,6 +9418,14 @@ class VAseApp {
             const hasRequestedAtomicScale = Number.isFinite(requestedAtomicScale) && requestedAtomicScale > 0;
             this.renderer.setDisplayOptions(this.state.display, { rebuild: false });
             this.renderer.rebuildAtoms(data, data.metadata.custom_colors || {});
+            this.syncAddAtomsSessionFromData(data);
+            this.syncRegistryRelaxationFromData(data);
+            this.renderVolumetricControls();
+            if (this.state.display.showVolumetric) {
+                this.updateVolumetricSurface().catch(error => {
+                    this.setVolumeStatus('warning', 'Isosurface unavailable', error.message);
+                });
+            }
             const projectCamera = data.metadata?.config?.initial_design_settings?.camera;
             if (projectCamera) this.applyCameraSettings(projectCamera, { syncScale: false });
             if (projectCamera && hasRequestedAtomicScale) {
@@ -3006,6 +9467,7 @@ class VAseApp {
         
         const pbc = this.state.atoms.pbc.map(p => p ? 'T' : 'F').join('');
         setHtml('prop-pbc', pbc);
+        this.updateDistributionPanelTitle();
         setHtml('prop-selected', selectedEntries.length);
         this.setCopyableSelectionText(
             'selected-indices',
@@ -3021,19 +9483,44 @@ class VAseApp {
         this.updateLabelSelectionControls();
         this.updateSelectedAppearanceControls();
         this.updateSelectionConstraintControls();
+        this.syncCommensurateSelectionPreview();
 
         this.updateCalculatorControls(meta);
 
+        const addition = this.addAtomsUI?.active || meta.atom_addition || null;
+        const relaxationRunning = Boolean(this.state.isRelaxing || addition?.is_relaxing);
         const relaxBtn = document.getElementById('btn-relax');
-        if (relaxBtn) relaxBtn.disabled = !meta.has_calculator || this.state.isRelaxing;
+        if (relaxBtn) {
+            relaxBtn.disabled = (!addition?.active && !meta.has_calculator) || relaxationRunning;
+            relaxBtn.textContent = addition?.active
+                ? 'Start Placement Relaxation'
+                : 'Start Relaxation';
+        }
         const stopRelaxBtn = document.getElementById('btn-stop-relax');
-        if (stopRelaxBtn) stopRelaxBtn.disabled = !this.state.isRelaxing;
+        if (stopRelaxBtn) {
+            stopRelaxBtn.disabled = !relaxationRunning;
+            stopRelaxBtn.textContent = addition?.active
+                ? 'Stop Placement Relaxation'
+                : 'Stop Relaxation';
+        }
+        this.syncRegistryRelaxationControls({ updateStatus: false });
 
         this.updateCommandReadout();
         const hoverReadout = document.getElementById('hover-readout');
         if (hoverReadout) hoverReadout.innerText = this.atomHoverText(this.state.hoveredReference);
 
         document.body.dataset.mode = this.transform.mode.toLowerCase();
+    }
+
+    updateDistributionPanelTitle() {
+        const title = document.getElementById('distribution-panel-title');
+        if (!title) return;
+        const analysisName = this.distributionAnalysisName();
+        title.textContent = analysisName === 'RDF'
+            ? 'Radial Distribution Function'
+            : (analysisName === 'Distribution'
+                ? 'Radial / Pair Distribution'
+                : analysisName);
     }
 
     setCopyableSelectionText(id, value) {
@@ -3060,13 +9547,68 @@ class VAseApp {
     updateSelectionMeasureUI(selectedEntries = this.selectionEntries()) {
         const detail = this.getSelectionMeasureText(selectedEntries);
         const panelValue = document.getElementById('selected-measure');
-        if (panelValue) panelValue.innerText = detail;
+        if (panelValue) {
+            panelValue.innerText = detail;
+            panelValue.classList.toggle('single-atom-properties', selectedEntries.length === 1);
+            panelValue.closest('.prop-grid')?.classList.toggle(
+                'single-atom-measure-grid',
+                selectedEntries.length === 1
+            );
+        }
         const readout = document.getElementById('selection-measure-readout');
         const readoutValue = document.getElementById('selection-measure-value');
         if (!readout || !readoutValue) return;
         const summary = this.getSelectionMeasureSummary(selectedEntries);
         readoutValue.innerText = summary;
+        readoutValue.title = selectedEntries.length === 1 ? detail : summary;
         readout.classList.toggle('hidden', selectedEntries.length === 0);
+        if (selectedEntries.length === 1) this.ensureSingleSelectionProperties(selectedEntries[0]);
+    }
+
+    invalidateSelectionPropertyData() {
+        const runtime = this.selectionPropertyRuntime;
+        if (!runtime) return;
+        runtime.requestToken += 1;
+        runtime.cache.clear();
+        runtime.pending.clear();
+    }
+
+    singleSelectionPropertyKey(reference) {
+        const normalized = this.normalizeSelectionReference(reference);
+        if (!normalized) return '';
+        const frame = Number(this.state.atoms?.metadata?.current_frame || 0);
+        return `${frame}:${normalized.index}`;
+    }
+
+    ensureSingleSelectionProperties(reference) {
+        const normalized = this.normalizeSelectionReference(reference);
+        const runtime = this.selectionPropertyRuntime;
+        if (!normalized || !runtime) return;
+        const frame = Number(this.state.atoms?.metadata?.current_frame || 0);
+        const key = this.singleSelectionPropertyKey(normalized);
+        if (!key || runtime.cache.has(key) || runtime.pending.has(key)) return;
+        const token = runtime.requestToken;
+        const request = this.api.fetchAtomProperties(normalized.index, frame)
+            .then(snapshot => {
+                if (token === runtime.requestToken) {
+                    runtime.cache.set(key, snapshot);
+                    while (runtime.cache.size > 64) runtime.cache.delete(runtime.cache.keys().next().value);
+                }
+            })
+            .catch(error => {
+                if (token === runtime.requestToken) {
+                    runtime.cache.set(key, { error: error?.message || 'Per-atom properties are unavailable.' });
+                }
+            })
+            .finally(() => {
+                runtime.pending.delete(key);
+                if (token !== runtime.requestToken) return;
+                const selected = this.selectionEntries();
+                if (selected.length === 1 && this.singleSelectionPropertyKey(selected[0]) === key) {
+                    this.updateSelectionMeasureUI(selected);
+                }
+            });
+        runtime.pending.set(key, request);
     }
 
     async copySelectionField(targetId) {
@@ -3100,13 +9642,195 @@ class VAseApp {
         return this.state.atoms?.metadata?.calculator_details || {};
     }
 
+    repulsionPairKey(left, right) {
+        return [String(left), String(right)].sort().join('|');
+    }
+
+    repulsionReferencePairCutoff(left, right, basis = this.state.repulsionPairBasis) {
+        const radius = label => {
+            const element = this.chemicalSymbolForLabel(label);
+            if (basis === 'vdw') {
+                const value = Number(this.elementVdwRadius(element));
+                if (Number.isFinite(value) && value > 0) return value;
+            }
+            return Number(this.elementCovalentRadius(element));
+        };
+        const cutoff = radius(left) + radius(right);
+        return Number.isFinite(cutoff) && cutoff > 0 ? cutoff : 1.5;
+    }
+
+    repulsionPairRecord(left, right) {
+        const key = this.repulsionPairKey(left, right);
+        const source = this.state.repulsionPairRanges?.[key];
+        const fallback = this.repulsionReferencePairCutoff(left, right);
+        if (source && typeof source === 'object') {
+            const distance = Number(source.distance);
+            return {
+                enabled: source.enabled !== false && Number.isFinite(distance) && distance > 0,
+                distance: Number.isFinite(distance) && distance >= 0 ? distance : fallback
+            };
+        }
+        const legacy = Number(source);
+        if (Number.isFinite(legacy)) {
+            return { enabled: legacy > 0, distance: Math.max(0, legacy) };
+        }
+        return { enabled: true, distance: fallback };
+    }
+
+    repulsionPairValueFromSource(source, left, right) {
+        if (!source || typeof source !== 'object') return undefined;
+        const keys = [
+            `${left}|${right}`, `${right}|${left}`,
+            `${left}-${right}`, `${right}-${left}`
+        ];
+        const matched = keys.find(key => Object.prototype.hasOwnProperty.call(source, key));
+        return matched ? source[matched] : undefined;
+    }
+
+    hydrateRepulsionPairRanges(source = null, basis = null) {
+        if (basis === 'vdw' || basis === 'covalent') this.state.repulsionPairBasis = basis;
+        const raw = source && typeof source === 'object' ? source : null;
+        const signature = raw ? JSON.stringify(raw) : '';
+        const shouldImport = Boolean(raw && Object.keys(raw).length)
+            && signature !== this.state.repulsionPairSourceSignature;
+        const ranges = { ...(this.state.repulsionPairRanges || {}) };
+        this.uniqueLabelPairs().forEach(([left, right]) => {
+            const key = this.repulsionPairKey(left, right);
+            const incoming = shouldImport
+                ? Number(this.repulsionPairValueFromSource(raw, left, right))
+                : NaN;
+            if (Number.isFinite(incoming)) {
+                ranges[key] = { enabled: incoming > 0, distance: Math.max(0, incoming) };
+            } else if (!(key in ranges)) {
+                ranges[key] = {
+                    enabled: true,
+                    distance: this.repulsionReferencePairCutoff(left, right)
+                };
+            }
+        });
+        this.state.repulsionPairRanges = ranges;
+        if (shouldImport) this.state.repulsionPairSourceSignature = signature;
+    }
+
+    parseRepulsionPairControls() {
+        const ranges = { ...(this.state.repulsionPairRanges || {}) };
+        document.querySelectorAll('.repulsion-pair-row').forEach(row => {
+            const key = row.dataset.pairKey;
+            if (!key) return;
+            const previous = ranges[key] || { enabled: true, distance: 1.5 };
+            const raw = Number(row.querySelector('.repulsion-pair-distance')?.value);
+            const distance = Number.isFinite(raw) ? Math.max(0, raw) : previous.distance;
+            ranges[key] = {
+                enabled: row.querySelector('.repulsion-pair-enabled')?.checked !== false && distance > 0,
+                distance
+            };
+        });
+        this.state.repulsionPairRanges = ranges;
+        return ranges;
+    }
+
+    renderRepulsionPairControls({ capture = true } = {}) {
+        const root = document.getElementById('repulsion-pair-list');
+        if (!root || !this.state.atoms?.symbols) return;
+        if (capture) this.parseRepulsionPairControls();
+        this.hydrateRepulsionPairRanges();
+        const focused = document.activeElement?.dataset?.repulsionPairKey
+            ? {
+                key: document.activeElement.dataset.repulsionPairKey,
+                field: document.activeElement.dataset.repulsionPairField
+            }
+            : null;
+        const disabled = Boolean(this.state.isRelaxing || this.addAtomsUI?.active?.is_relaxing);
+        root.innerHTML = '';
+        this.uniqueLabelPairs().forEach(([left, right]) => {
+            const key = this.repulsionPairKey(left, right);
+            const record = this.repulsionPairRecord(left, right);
+            this.state.repulsionPairRanges[key] = { ...record };
+            const row = document.createElement('div');
+            row.className = 'repulsion-pair-row';
+            row.dataset.pairKey = key;
+
+            const enabled = document.createElement('input');
+            enabled.type = 'checkbox';
+            enabled.className = 'repulsion-pair-enabled';
+            enabled.checked = record.enabled;
+            enabled.disabled = disabled;
+            enabled.dataset.repulsionPairKey = key;
+            enabled.dataset.repulsionPairField = 'enabled';
+            enabled.setAttribute('aria-label', `Enable ${left} and ${right} repulsion`);
+
+            const label = document.createElement('span');
+            label.className = 'repulsion-pair-label';
+            label.textContent = `${left} – ${right}`;
+            label.title = `${left} – ${right}`;
+
+            const distance = document.createElement('input');
+            distance.type = 'number';
+            distance.className = 'repulsion-pair-distance';
+            distance.min = '0';
+            distance.max = '100';
+            distance.step = '0.05';
+            distance.value = Number(record.distance).toFixed(3);
+            distance.disabled = disabled;
+            distance.dataset.repulsionPairKey = key;
+            distance.dataset.repulsionPairField = 'distance';
+            distance.setAttribute('aria-label', `${left} and ${right} repulsion cutoff in Angstrom`);
+            enabled.addEventListener('change', () => this.safeApplyCalculatorControls());
+            distance.addEventListener('input', () => this.parseRepulsionPairControls());
+            distance.addEventListener('change', () => this.safeApplyCalculatorControls());
+            row.append(enabled, label, distance);
+            root.appendChild(row);
+        });
+        if (focused) {
+            [...root.querySelectorAll('[data-repulsion-pair-key]')].find(element => (
+                element.dataset.repulsionPairKey === focused.key
+                && element.dataset.repulsionPairField === focused.field
+            ))?.focus();
+        }
+    }
+
+    resetRepulsionPairRanges(basis = this.state.repulsionPairBasis) {
+        this.state.repulsionPairBasis = basis === 'vdw' ? 'vdw' : 'covalent';
+        const ranges = {};
+        this.uniqueLabelPairs().forEach(([left, right]) => {
+            ranges[this.repulsionPairKey(left, right)] = {
+                enabled: true,
+                distance: this.repulsionReferencePairCutoff(left, right, this.state.repulsionPairBasis)
+            };
+        });
+        this.state.repulsionPairRanges = ranges;
+        this.state.repulsionPairSourceSignature = '';
+        this.renderRepulsionPairControls({ capture: false });
+    }
+
+    repulsionPairCutoffs() {
+        this.parseRepulsionPairControls();
+        const cutoffs = {};
+        this.uniqueLabelPairs().forEach(([left, right]) => {
+            const key = this.repulsionPairKey(left, right);
+            const record = this.repulsionPairRecord(left, right);
+            cutoffs[key] = record.enabled && record.distance > 0
+                ? Number(record.distance.toFixed(6))
+                : 0;
+        });
+        return cutoffs;
+    }
+
     currentCalculatorPayload() {
         const details = this.repulsionCalculatorDetails();
-        if (!details.is_default_repulsion) return null;
+        if (!details.is_default_repulsion && !this.addAtomsSessionActive()) return null;
         const device = document.getElementById('calc-device')?.value || details.requested_device || 'cpu';
         const cpuThreads = parseInt(document.getElementById('calc-cpus')?.value || details.cpu_threads || '4', 10);
+        const cutoffMode = document.getElementById('calc-cutoff-mode')?.value === 'scaled'
+            ? 'scaled'
+            : 'absolute';
+        const cutoffDistanceValue = Number(
+            document.getElementById('calc-cutoff-distance')?.value
+                ?? details.cutoff_distance
+                ?? 2.0
+        );
         const cutoffScaleValue = Number(
-            document.getElementById('calc-cutoff-scale')?.value ?? details.cutoff_scale ?? 0.7
+            document.getElementById('calc-cutoff-scale')?.value ?? details.cutoff_scale ?? 1.0
         );
         const strengthValue = Number(
             document.getElementById('calc-strength')?.value ?? details.k_repulsion ?? 1.0
@@ -3114,13 +9838,65 @@ class VAseApp {
         return {
             device,
             cpu_threads: Number.isFinite(cpuThreads) ? cpuThreads : 4,
+            cutoff_mode: cutoffMode,
+            cutoff_basis: document.getElementById('calc-cutoff-basis')?.value === 'vdw'
+                ? 'vdw'
+                : 'covalent',
+            cutoff_distance: Number.isFinite(cutoffDistanceValue)
+                ? Math.max(0.01, Math.min(100, cutoffDistanceValue))
+                : 2.0,
             cutoff_scale: Number.isFinite(cutoffScaleValue)
                 ? Math.max(0.05, Math.min(3, cutoffScaleValue))
-                : 0.7,
+                : 1.0,
+            pair_cutoffs: this.repulsionPairCutoffs(),
             k_repulsion: Number.isFinite(strengthValue)
                 ? Math.max(0, Math.min(1000, strengthValue))
                 : 1.0
         };
+    }
+
+    calculatorPayloadWithOverrides(overrides = null) {
+        const baseline = this.currentCalculatorPayload();
+        if (!overrides || typeof overrides !== 'object') return baseline;
+        const requested = {
+            device: overrides.device,
+            cpu_threads: overrides.cpu_threads ?? overrides.cpuThreads,
+            cutoff_mode: overrides.cutoff_mode ?? overrides.cutoffMode,
+            cutoff_basis: overrides.cutoff_basis ?? overrides.cutoffBasis,
+            cutoff_distance: overrides.cutoff_distance ?? overrides.cutoffDistance,
+            cutoff_scale: overrides.cutoff_scale ?? overrides.cutoffScale,
+            pair_cutoffs: overrides.pair_cutoffs ?? overrides.pairCutoffs,
+            k_repulsion: overrides.k_repulsion ?? overrides.kRepulsion ?? overrides.strength,
+            k_boundary: overrides.k_boundary ?? overrides.boundaryStrength
+        };
+        const supplied = Object.fromEntries(
+            Object.entries(requested).filter(([, value]) => value !== undefined)
+        );
+        return baseline ? { ...baseline, ...supplied } : supplied;
+    }
+
+    syncRepulsionCutoffControls() {
+        const mode = document.getElementById('calc-cutoff-mode')?.value === 'scaled'
+            ? 'scaled'
+            : 'absolute';
+        document.getElementById('calc-cutoff-scale-row')?.classList.toggle(
+            'hidden',
+            mode !== 'scaled'
+        );
+        const note = document.getElementById('calc-cutoff-note');
+        if (note) {
+            note.textContent = mode === 'absolute'
+                ? 'Each enabled label pair uses its stated distance in Angstrom, independently from bond visualization. This is a zero-force onset, not a hard minimum separation.'
+                : 'Each enabled label-pair reference distance is multiplied by the contact-distance multiplier. Visual bond settings do not affect repulsion.';
+        }
+    }
+
+    safeApplyCalculatorControls({ quiet = false } = {}) {
+        if (this.state.calculatorApplyTimer) clearTimeout(this.state.calculatorApplyTimer);
+        this.state.calculatorApplyTimer = setTimeout(() => {
+            this.state.calculatorApplyTimer = null;
+            void this.applyCalculatorControls({ quiet });
+        }, 120);
     }
 
     cpuThreadChoices(details) {
@@ -3137,18 +9913,31 @@ class VAseApp {
         const controls = document.getElementById('calc-controls');
         const device = document.getElementById('calc-device');
         const cpus = document.getElementById('calc-cpus');
+        const cutoffMode = document.getElementById('calc-cutoff-mode');
+        const cutoffBasis = document.getElementById('calc-cutoff-basis');
+        const cutoffDistance = document.getElementById('calc-cutoff-distance');
         const cutoffScale = document.getElementById('calc-cutoff-scale');
         const strength = document.getElementById('calc-strength');
-        if (!controls || !device || !cpus || !cutoffScale || !strength) return;
+        if (
+            !controls || !device || !cpus || !cutoffMode || !cutoffBasis
+            || !cutoffDistance || !cutoffScale || !strength
+        ) return;
 
-        const isRepulsion = Boolean(details.is_default_repulsion);
+        const addition = this.addAtomsUI?.active || meta?.atom_addition || null;
+        const additionTarget = Boolean(addition?.active);
+        const isRepulsion = Boolean(details.is_default_repulsion || additionTarget);
         controls.classList.toggle('disabled', !isRepulsion);
-        controls.title = isRepulsion
+        controls.title = additionTarget
+            ? 'These shared settings drive placement relaxation for all staged content.'
+            : isRepulsion
             ? 'Repulsion calculator settings only'
             : 'Device and CPU thread settings are only used by the default repulsion calculator.';
 
-        const cpuValue = String(details.cpu_threads || 4);
-        const choices = this.cpuThreadChoices(details);
+        const cpuValue = String(addition?.cpu_threads || details.cpu_threads || cpus.value || 4);
+        const choices = this.cpuThreadChoices({
+            ...details,
+            cpu_thread_options: addition?.cpu_thread_options || details.cpu_thread_options
+        });
         if (cpus.dataset.options !== choices.join(',')) {
             cpus.innerHTML = '';
             choices.forEach(value => {
@@ -3161,36 +9950,109 @@ class VAseApp {
         }
         cpus.value = choices.includes(Number(cpuValue)) ? cpuValue : String(Math.min(4, choices[choices.length - 1] || 1));
 
-        const requested = details.requested_device || 'cpu';
+        const requested = addition?.requested_device || details.requested_device || device.value || 'cpu';
         device.value = requested === 'cuda' ? 'cuda' : 'cpu';
         const cudaOption = [...device.options].find(option => option.value === 'cuda');
-        if (cudaOption) cudaOption.disabled = !details.cuda_available;
-        device.disabled = !isRepulsion || this.state.isRelaxing;
-        cpus.disabled = !isRepulsion || this.state.isRelaxing || device.value !== 'cpu';
-        if (document.activeElement !== cutoffScale) {
-            cutoffScale.value = Number(details.cutoff_scale ?? 0.7).toFixed(2);
+        if (cudaOption) cudaOption.disabled = !(addition?.cuda_available ?? details.cuda_available);
+        const running = Boolean(this.state.isRelaxing || addition?.is_relaxing);
+        device.disabled = !isRepulsion || running;
+        cpus.disabled = !isRepulsion || running || device.value !== 'cpu';
+        const preserveSharedValues = additionTarget && !details.is_default_repulsion;
+        if (document.activeElement !== cutoffMode && !preserveSharedValues) {
+            cutoffMode.value = ['scaled', 'bonding'].includes(addition?.cutoff_mode || details.cutoff_mode)
+                ? 'scaled'
+                : 'absolute';
         }
-        if (document.activeElement !== strength) {
-            strength.value = Number(details.k_repulsion ?? 1.0).toFixed(2);
+        const basis = addition?.cutoff_basis || details.cutoff_basis || this.state.repulsionPairBasis;
+        if (document.activeElement !== cutoffBasis) cutoffBasis.value = basis === 'vdw' ? 'vdw' : 'covalent';
+        this.state.repulsionPairBasis = cutoffBasis.value;
+        this.hydrateRepulsionPairRanges(
+            addition?.pair_cutoffs || details.pair_cutoffs,
+            this.state.repulsionPairBasis
+        );
+        if (document.activeElement !== cutoffDistance && !preserveSharedValues) {
+            cutoffDistance.value = Number(
+                addition?.cutoff_distance ?? details.cutoff_distance ?? 2.0
+            ).toFixed(2);
         }
-        cutoffScale.disabled = !isRepulsion || this.state.isRelaxing;
-        strength.disabled = !isRepulsion || this.state.isRelaxing;
+        if (document.activeElement !== cutoffScale && !preserveSharedValues) {
+            cutoffScale.value = Number(
+                addition?.cutoff_scale ?? details.cutoff_scale ?? 1.0
+            ).toFixed(2);
+        }
+        if (document.activeElement !== strength && !preserveSharedValues) {
+            strength.value = Number(
+                addition?.k_repulsion ?? details.k_repulsion ?? 1.0
+            ).toFixed(2);
+        }
+        cutoffMode.disabled = !isRepulsion || running;
+        cutoffBasis.disabled = !isRepulsion || running;
+        cutoffDistance.disabled = !isRepulsion || running;
+        cutoffScale.disabled = !isRepulsion || running;
+        strength.disabled = !isRepulsion || running;
+        this.syncRepulsionCutoffControls();
+        this.renderRepulsionPairControls({ capture: false });
     }
 
-    async applyCalculatorControls() {
-        const payload = this.currentCalculatorPayload();
-        if (!payload) return;
-        try {
-            const data = await this.api.updateCalculatorConfig(payload);
-            this.setAtomsData(data);
-            const details = data.metadata?.calculator_details || {};
-            const suffix = details.backend === 'torch'
-                ? `torch/${details.effective_device}`
-                : 'numpy';
-            this.toast(`Repulsion calculator set to ${suffix}.`, 'success');
-        } catch (err) {
-            this.toast(`Calculator settings failed: ${err.message}`, 'error');
+    applyCalculatorResponse(data) {
+        const atoms = this.state.atoms || {};
+        const nextMetadata = data?.metadata || {};
+        atoms.metadata = {
+            ...(atoms.metadata || {}),
+            ...nextMetadata
+        };
+        if (Array.isArray(data?.forces)) atoms.forces = data.forces;
+        this.state.atoms = atoms;
+        this.state.cachedFmax = this.computeFmax(atoms.forces || []);
+        this.invalidateForceVectorData();
+        this.invalidateAtomColorScaleData({ preserveRange: true });
+        this.updateUI();
+        this.syncForceVectorControls();
+        this.updateForceVectorStatus();
+        if (this.state.display.showForceVectors) {
+            this.updateForceVectorsForCurrentFrame().catch(error => {
+                this.toast(`Force vectors could not be refreshed: ${error.message}`, 'warning');
+            });
         }
+        if (this.state.display.atomColorScaleEnabled) {
+            this.updateAtomColorScale({ quiet: true, refreshCatalog: true }).catch(error => {
+                this.handleAtomColorScaleError(error);
+            });
+        }
+    }
+
+    applyCalculatorControls({ quiet = false } = {}) {
+        const payload = this.currentCalculatorPayload();
+        if (!payload) return Promise.resolve();
+        if (
+            this.addAtomsSessionActive()
+            && !this.repulsionCalculatorDetails().is_default_repulsion
+        ) {
+            this.syncRepulsionCutoffControls();
+            return Promise.resolve(payload);
+        }
+        const revision = ++this.calculatorConfigRevision;
+        const task = this.calculatorConfigQueue
+            .catch(() => {})
+            .then(async () => {
+                const data = await this.api.updateCalculatorConfig(payload);
+                if (revision !== this.calculatorConfigRevision) return data;
+                this.applyCalculatorResponse(data);
+                const details = data.metadata?.calculator_details || {};
+                const suffix = details.backend === 'torch'
+                    ? `torch/${details.effective_device}`
+                    : 'numpy';
+                if (!quiet) this.toast(`Repulsion calculator set to ${suffix}.`, 'success');
+                return data;
+            })
+            .catch(err => {
+                if (revision === this.calculatorConfigRevision) {
+                    this.toast(`Calculator settings failed: ${err.message}`, 'error');
+                }
+                return null;
+            });
+        this.calculatorConfigQueue = task;
+        return task;
     }
 
     toast(message, type = 'info') {
@@ -3247,8 +10109,8 @@ class VAseApp {
     }
 
     async rotateSelectionFromPanel() {
-        if (!this.canEditAtoms()) {
-            this.editOnlyToast();
+        if (!this.canTransformSelectedAtoms()) {
+            this.transformUnavailableToast();
             return;
         }
         const editableSelection = [...this.state.selected].filter(index => this.isEditableIndex(index));
@@ -3333,6 +10195,36 @@ class VAseApp {
         return `${this.formatNumber(THREE.MathUtils.radToDeg(angle), 2)} deg`;
     }
 
+    transformScaleFactor() {
+        const numeric = this.transform.getNumericValue();
+        if (numeric !== null) return Number.isFinite(numeric) && numeric > 0 ? numeric : 1;
+        const start = this.state.transformStartPointer;
+        const current = this.state.lastPointer;
+        const pivot = this.state.rotationScreenPivot;
+        const initialDistance = Math.hypot(start.x - pivot.x, start.y - pivot.y);
+        let factor;
+        if (initialDistance >= 8) {
+            factor = Math.hypot(current.x - pivot.x, current.y - pivot.y) / initialDistance;
+        } else {
+            factor = Math.exp((this.transform.pointerDelta.x + this.transform.pointerDelta.y) * 3.5);
+        }
+        return THREE.MathUtils.clamp(Number.isFinite(factor) ? factor : 1, 1e-4, 1e4);
+    }
+
+    scaleVector(factor) {
+        const scale = new THREE.Vector3(1, 1, 1);
+        if (this.transform.axis === 'X') scale.x = factor;
+        else if (this.transform.axis === 'Y') scale.y = factor;
+        else if (this.transform.axis === 'Z') scale.z = factor;
+        else scale.setScalar(factor);
+        return scale;
+    }
+
+    formatScaleReadout(factor) {
+        const axis = this.transform.axis ? ` ${this.transform.axis}` : '';
+        return `scale${axis} = ${this.formatNumber(factor, 4)}`;
+    }
+
     transformMouseLabel() {
         if (this.transform.mode === 'MOVE' && this.state.moveIncrement > 0) {
             return `mouse / ${this.state.moveIncrement.toFixed(2)} A`;
@@ -3340,6 +10232,7 @@ class VAseApp {
         if (this.transform.mode === 'ROTATE' && this.state.rotateIncrementDeg > 0) {
             return `mouse / ${this.state.rotateIncrementDeg} deg`;
         }
+        if (this.transform.mode === 'SCALE') return 'mouse / scale factor';
         return 'mouse';
     }
 
@@ -3348,7 +10241,9 @@ class VAseApp {
             return this.state.transformReadout;
         }
         if (this.transform.buffer) {
-            const unit = this.transform.mode === 'MOVE' ? 'A' : 'deg';
+            const unit = this.transform.mode === 'MOVE'
+                ? 'A'
+                : (this.transform.mode === 'ROTATE' ? 'deg' : 'x');
             return `${this.transform.buffer} ${unit}`;
         }
         return this.state.transformReadout || this.transformMouseLabel();
@@ -3365,6 +10260,8 @@ class VAseApp {
                 'cmd-mode',
                 this.state.transformSubject === 'sun'
                     ? `SUN ${lightHandle.toUpperCase()} ${this.transform.mode}`
+                    : this.state.transformSubject === 'volumetric-plane'
+                        ? `PLANE ${this.transform.mode}`
                     : this.transform.mode
             );
             setHtml('cmd-axis', this.transform.axis || 'NONE');
@@ -3379,14 +10276,58 @@ class VAseApp {
         {
             clearSelection = false,
             preserveDisplay = true,
-            resetTrajectoryIdentity = false
+            preserveRdf = false,
+            resetTrajectoryIdentity = false,
+            preserveColorScaleRange = false
         } = {}
     ) {
-        if (preserveDisplay) this.captureBondSettingsFromControls();
+        const refreshActiveRdf = Boolean(
+            this.state.rdfAutoRefresh
+            && this.state.activeAnalysisPlot === 'rdf'
+        );
+        if (resetTrajectoryIdentity) this.clearViewIdentityOverrides();
+        this.clearCommensurateSupercellProposal({ keepStatus: true });
         this.invalidateScientificResults();
-        this.state.atoms = data;
+        this.invalidateSelectionPropertyData();
+        this.invalidateAtomColorScaleData({ preserveRange: preserveColorScaleRange });
+        this.invalidateForceVectorData();
+        if (!preserveRdf) {
+            this.invalidateRdfResult(
+                'The structure changed; recalculating the active distribution.',
+                { preserveActivePlot: true }
+            );
+        }
+        const previousLatticeSignature = JSON.stringify({
+            cell: this.state.atoms?.cell || null,
+            pbc: this.state.atoms?.pbc || null,
+            guest: this.state.atoms?.metadata?.commensurate_guest?.cell || null
+        });
+        const nextLatticeSignature = JSON.stringify({
+            cell: data?.cell || null,
+            pbc: data?.pbc || null,
+            guest: data?.metadata?.commensurate_guest?.cell || null
+        });
+        const latticeChanged = previousLatticeSignature !== nextLatticeSignature;
+        const topologyChanged = JSON.stringify(this.state.atoms?.symbols || [])
+            !== JSON.stringify(data?.symbols || []);
+        if (latticeChanged) this.clearCommensurateRotation({ keepStatus: true, clearSearch: true });
+        if (this.state.registryResult && (latticeChanged || topologyChanged)) {
+            this.invalidateRegistryResult('Cell, labels, or atom topology changed. Calculate the map again.');
+        }
+        const previousVolumeSignature = JSON.stringify(
+            this.volumetricDatasets().map(dataset => [
+                dataset.id,
+                dataset.shape,
+                dataset.cell
+            ])
+        );
+        if (preserveDisplay) this.captureBondSettingsFromControls();
+        this.state.atoms = this.applyViewIdentityOverridesToData(data);
         this.state.phononModelSummary = data.metadata?.phonon_model ?? null;
         this.renderPhononModelSummary(this.state.phononModelSummary);
+        this.state.isRelaxing = Boolean(data?.metadata?.relaxation?.is_relaxing);
+        this.syncUnitCellControls();
+        this.syncCommensurateWorkspaceControls();
         this.syncTrajectoryIdentity(data, { reset: resetTrajectoryIdentity });
         this.rebuildLabelIndexCache(data.symbols || []);
         this.state.cachedFmax = this.computeFmax(data.forces || []);
@@ -3395,13 +10336,14 @@ class VAseApp {
         this.state.originalPositions = this.state.vizOnly
             ? data.positions
             : data.positions.map(position => [...position]);
-        if (data.trajectory_positions) {
-            this.state.trajectoryBinaryCache = null;
-            this.state.trajectoryBinaryPromise = null;
-        } else if (!data.metadata?.trajectory_positions_binary) {
-            this.state.trajectoryBinaryCache = null;
-            this.state.trajectoryBinaryPromise = null;
-        } else if (!this.state.trajectoryBinaryCache && !this.state.trajectoryBinaryPromise) {
+        // Any structure update may replace or mutate trajectory coordinates
+        // without changing frame/atom counts. A shape-only cache check would
+        // therefore reuse stale data (for example L-mode frames after creating
+        // an equally sized X-mode trajectory).
+        this.state.trajectoryBinaryCache = null;
+        this.state.trajectoryBinaryPromise = null;
+        this.state.trajectoryBinaryGeneration += 1;
+        if (!data.trajectory_positions && data.metadata?.trajectory_positions_binary) {
             this.loadTrajectoryCache({ background: true });
         }
         if (clearSelection) {
@@ -3413,23 +10355,85 @@ class VAseApp {
         this.renderPairwiseBondControls({ capture: preserveDisplay });
         this.renderer.setDisplayOptions(this.state.display, { rebuild: false });
         this.renderer.rebuildAtoms(data, data.metadata.custom_colors || {});
+        this.syncForceVectorControls();
+        this.syncAddAtomsSessionFromData(data);
+        this.syncRegistryRelaxationFromData(data);
+        this.renderVolumetricControls();
+        const nextVolumeSignature = JSON.stringify(
+            this.volumetricDatasets().map(dataset => [
+                dataset.id,
+                dataset.shape,
+                dataset.cell
+            ])
+        );
+        if (nextVolumeSignature !== previousVolumeSignature) {
+            if (!this.volumetricDatasets().length || !this.state.display.showVolumetric) {
+                this.renderer.clearVolumetricSurfaces();
+            } else {
+                queueMicrotask(() => {
+                    this.updateVolumetricSurface({ recordHistory: false }).catch(error => {
+                        this.setVolumeStatus('warning', 'Isosurface unavailable', error.message);
+                        this.renderer.clearVolumetricSurfaces();
+                    });
+                });
+            }
+        }
+        if (this.volumetricPlanes().length) {
+            queueMicrotask(() => {
+                this.renderAllVolumetricPlanes().catch(error => {
+                    this.setVolumetricPlaneStatus('warning', 'Plane update failed', error.message);
+                });
+            });
+        } else {
+            this.renderer.clearVolumetricPlanes();
+        }
         this.renderAppearanceRows();
         this.updateEditingAvailability();
         this.setHoveredAtom(null);
         this.updateSelectionVisuals();
         this.updateUI();
+        this.syncAtomColorScaleControls();
+        if (this.state.display.atomColorScaleEnabled && data?.positions?.length) {
+            queueMicrotask(() => {
+                this.updateAtomColorScale({ refreshCatalog: true }).catch(error => {
+                    this.handleAtomColorScaleError(error);
+                });
+            });
+        }
+        if (latticeChanged && this.state.display.commensurateGuide) {
+            queueMicrotask(() => {
+                this.refreshCommensurateWorkspace({ showBusy: false }).catch(error => {
+                    this.updateCommensurateStatus(error.message, 'warning');
+                });
+            });
+        }
         this.updateDocumentAvailability();
         this.scheduleDisplacementAnalysisRefresh();
+        this.updateForceVectorStatus();
         this.observeCollaborationFrame();
+        if (refreshActiveRdf) {
+            this.scheduleActiveStructureAnalysisRefresh(
+                'The structure changed.',
+                0
+            );
+        }
     }
 
     hasLoadedAtoms() {
         return Boolean(this.state.atoms?.positions?.length);
     }
 
+    hasScratchContent() {
+        return this.hasLoadedAtoms()
+            || this.hasUsableCell()
+            || Boolean(this.addAtomsUI?.active)
+            || Boolean(this.addAtomsUI?.regions?.length)
+            || this.state.atoms?.metadata?.config?.empty_workspace === false;
+    }
+
     updateDocumentAvailability() {
         const hasAtoms = this.hasLoadedAtoms();
-        document.getElementById('empty-workspace')?.classList.toggle('hidden', hasAtoms);
+        document.getElementById('empty-workspace')?.classList.toggle('hidden', this.hasScratchContent());
         document.querySelectorAll('[data-requires-atoms]').forEach(element => {
             if ('disabled' in element) element.disabled = !hasAtoms;
         });
@@ -3441,8 +10445,10 @@ class VAseApp {
         if (!this.state.atoms?.metadata?.trajectory_positions_binary) return null;
         if (this.state.trajectoryBinaryPromise) return this.state.trajectoryBinaryPromise;
 
+        const generation = this.state.trajectoryBinaryGeneration;
         const load = async () => {
             const cache = await this.api.fetchTrajectoryPositions();
+            if (generation !== this.state.trajectoryBinaryGeneration) return null;
             const expectedFrames = this.state.atoms?.metadata?.frame_count || 0;
             const expectedAtoms = this.state.atoms?.positions?.length || 0;
             if (cache.frames !== expectedFrames || cache.atoms !== expectedAtoms) {
@@ -3457,7 +10463,9 @@ class VAseApp {
             this.toast(`Trajectory cache failed: ${err.message}`, 'warning');
             return null;
         }).finally(() => {
-            this.state.trajectoryBinaryPromise = null;
+            if (this.state.trajectoryBinaryPromise === promise) {
+                this.state.trajectoryBinaryPromise = null;
+            }
         });
         this.state.trajectoryBinaryPromise = promise;
         return promise;
@@ -3487,7 +10495,55 @@ class VAseApp {
     }
 
     relaxFrameCount() {
-        return this.state.relaxTrajectory?.frames?.length || 0;
+        return this.state.relaxTrajectory?.active
+            ? (this.state.relaxTrajectory?.frames?.length || 0)
+            : 0;
+    }
+
+    rdfTimelineSource() {
+        const displayed = this.state.displayedTimelineSource;
+        if (displayed === 'relax' && this.relaxFrameCount() > 0) return 'relax';
+        return 'loaded';
+    }
+
+    rdfFrameContext({ source = null, frameIndex = null, positions = null } = {}) {
+        const resolvedSource = source === 'relax' && this.relaxFrameCount() > 0
+            ? 'relax'
+            : source === 'loaded'
+                ? 'loaded'
+                : this.rdfTimelineSource();
+        if (resolvedSource === 'relax') {
+            const frameCount = Math.max(1, this.relaxFrameCount());
+            const requested = frameIndex === null
+                ? Number(this.state.relaxTrajectory?.frame || 0)
+                : Number(frameIndex);
+            const index = Math.max(0, Math.min(
+                frameCount - 1,
+                Number.isInteger(requested) ? requested : 0
+            ));
+            return {
+                source: 'relax',
+                index,
+                frameCount,
+                backendFrameIndex: Number(this.state.relaxTrajectory?.sourceFrame || 0),
+                positions: positions || this.state.relaxTrajectory?.frames?.[index] || null
+            };
+        }
+        const frameCount = Math.max(1, this.loadedFrameCount());
+        const requested = frameIndex === null
+            ? Number(this.state.atoms?.metadata?.current_frame || 0)
+            : Number(frameIndex);
+        const index = Math.max(0, Math.min(
+            frameCount - 1,
+            Number.isInteger(requested) ? requested : 0
+        ));
+        return {
+            source: 'loaded',
+            index,
+            frameCount,
+            backendFrameIndex: index,
+            positions
+        };
     }
 
     timelineSourceAvailable(source) {
@@ -3511,6 +10567,15 @@ class VAseApp {
 
     timelineSourceName(source, { compact = false } = {}) {
         if (source === 'loaded') return compact ? 'SOURCE' : 'Source frames';
+        const mode = this.state.relaxTrajectory || {};
+        if (mode.kind === 'add-atoms') return compact ? 'ADD ATOMS' : 'Add Atoms placement';
+        if (mode.kind === 'registry') {
+            const isCartesian = /3D/i.test(String(mode.label || ''));
+            return compact
+                ? (isCartesian ? '3D SHIFT' : 'PLANE SHIFT')
+                : (mode.label || 'Rigid translation relaxation');
+        }
+        if (mode.label) return compact ? String(mode.label).toUpperCase() : String(mode.label);
         const calculator = String(this.state.atoms?.metadata?.calculator || '').trim();
         const calculatorName = calculator && calculator.toLowerCase() !== 'none'
             ? calculator
@@ -3530,20 +10595,207 @@ class VAseApp {
         return this.state.atoms?.metadata?.current_frame || 0;
     }
 
-    startRelaxTrajectory() {
+    startModeTrajectory(kind = 'relaxation', label = '') {
         const meta = this.state.atoms?.metadata || {};
         const sourceFrame = Number.isFinite(Number(meta.current_frame)) ? Number(meta.current_frame) : 0;
+        this.state.relaxTrajectoryGeneration += 1;
         this.state.relaxTrajectory = {
             frames: [],
             frame: 0,
             sourceFrame,
             active: true,
-            finished: false
+            finished: false,
+            kind,
+            label
         };
         this.state.timelineSource = 'relax';
+        this.state.displayedTimelineSource = 'relax';
         const positions = this.currentPositionsFromScene?.() || this.state.atoms?.positions || [];
         if (positions.length) this.appendRelaxFrame(positions, { force: true });
         this.updateTrajectoryUI();
+    }
+
+    startRelaxTrajectory() {
+        this.startModeTrajectory('relaxation', 'Relaxation');
+    }
+
+    clearModeTrajectory(kind = null) {
+        const trajectory = this.state.relaxTrajectory || {};
+        if (kind && trajectory.kind !== kind) return;
+        this.stopPlayback();
+        this.state.relaxTrajectory = {
+            frames: [],
+            frame: 0,
+            sourceFrame: 0,
+            active: false,
+            finished: false,
+            kind: null,
+            label: ''
+        };
+        if (this.state.timelineSource === 'relax') this.state.timelineSource = 'loaded';
+        if (this.state.displayedTimelineSource === 'relax') {
+            this.state.displayedTimelineSource = 'loaded';
+        }
+        this.updateTrajectoryUI();
+        this.syncRelaxationModeUI();
+    }
+
+    syncRelaxationModeUI() {
+        const backendMode = Boolean(this.state.atoms?.metadata?.relaxation?.active);
+        const addition = this.addAtomsUI?.active || this.state.atoms?.metadata?.atom_addition || null;
+        const additionMode = Boolean(
+            addition?.is_relaxing
+            || (
+                addition?.active
+                && this.state.relaxTrajectory?.active
+                && this.state.relaxTrajectory?.kind === 'add-atoms'
+            )
+        );
+        const generalMode = backendMode || (
+            this.state.relaxTrajectory?.active
+            && this.state.relaxTrajectory?.kind === 'relaxation'
+        );
+        const activeMode = generalMode || additionMode;
+        const running = Boolean(this.state.isRelaxing || addition?.is_relaxing);
+        const badge = document.getElementById('relax-mode-badge');
+        const detail = document.getElementById('relax-mode-detail');
+        badge?.classList.toggle('hidden', !activeMode);
+        if (badge) badge.textContent = running ? 'RUNNING' : 'REVIEW';
+        if (detail) {
+            detail.textContent = addition?.active
+                ? (additionMode
+                    ? (addition.is_relaxing
+                        ? 'Only staged content is moving; the structure present before Add Atoms remains fixed.'
+                        : 'Review the placement timeline. Place more content, relax again, or Finish/Cancel Add Atoms.')
+                    : 'Start here to relax all staged atoms and molecules with the shared calculator, cutoff, device, fmax, and step settings.')
+                : generalMode
+                ? (this.state.isRelaxing
+                    ? 'Optimization steps are being added to the Relaxation timeline.'
+                    : 'Review or play the Relaxation timeline, then exit the mode when finished.')
+                : 'Optimization frames use a separate movie timeline until this mode is closed.';
+        }
+        document.getElementById('btn-exit-relax-mode')?.classList.toggle('hidden', !generalMode);
+        const clearTrajectory = document.getElementById('btn-clear-relax-trajectory');
+        const hasRelaxFrames = Boolean(
+            this.state.relaxTrajectory?.active
+            && this.state.relaxTrajectory?.frames?.length
+        );
+        clearTrajectory?.classList.toggle('hidden', !hasRelaxFrames);
+        if (clearTrajectory) clearTrajectory.disabled = !hasRelaxFrames;
+    }
+
+    chooseRelaxationTrajectoryResult() {
+        const trajectory = this.state.relaxTrajectory || {};
+        const current = Number(trajectory.frame || 0) + 1;
+        const count = trajectory.frames?.length || 0;
+        this.showModal(`
+            <h2>Clear Relaxation Trajectory</h2>
+            <p class="modal-intro">Choose which geometry remains after the ${count}-frame optimization movie is removed. The active mode stays open.</p>
+            <ul class="confirm-list">
+                <li><strong>Use final frame</strong> keeps the last optimized geometry.</li>
+                <li><strong>Keep displayed frame</strong> keeps frame ${current} currently shown in the viewport.</li>
+            </ul>
+        `, `
+            <button id="relax-clear-cancel" class="btn">Cancel</button>
+            <button id="relax-clear-displayed" class="btn">Keep Displayed Frame</button>
+            <button id="relax-clear-final" class="btn primary">Use Final Frame</button>
+        `);
+        return new Promise(resolve => {
+            let settled = false;
+            const done = value => {
+                if (settled) return;
+                settled = true;
+                this.closeModal();
+                resolve(value);
+            };
+            document.getElementById('relax-clear-cancel')?.addEventListener('click', () => done(null), { once: true });
+            document.getElementById('relax-clear-displayed')?.addEventListener('click', () => done(false), { once: true });
+            document.getElementById('relax-clear-final')?.addEventListener('click', () => done(true), { once: true });
+        });
+    }
+
+    async clearRelaxationTrajectoryUsing(useLatest) {
+        const trajectory = this.state.relaxTrajectory || {};
+        const frames = trajectory.frames || [];
+        if (!frames.length) {
+            throw new Error('No relaxation trajectory is available to clear.');
+        }
+        const chosen = useLatest
+            ? frames[frames.length - 1]
+            : frames[Math.max(0, Math.min(frames.length - 1, Number(trajectory.frame) || 0))];
+        const data = await this.api.clearRelaxTrajectory(
+            trajectory.kind || 'relaxation',
+            chosen,
+            useLatest
+        );
+        this.state.isRelaxing = false;
+        this.setAtomsData(data, { clearSelection: false });
+        this.clearModeTrajectory();
+        return data;
+    }
+
+    async clearRelaxationTrajectory() {
+        const useLatest = await this.chooseRelaxationTrajectoryResult();
+        if (useLatest === null) return;
+        try {
+            await this.withBusy(
+                'Clearing the relaxation trajectory...',
+                () => this.clearRelaxationTrajectoryUsing(useLatest)
+            );
+            this.toast(
+                useLatest ? 'Trajectory cleared; final frame retained.' : 'Trajectory cleared; displayed frame retained.',
+                'success'
+            );
+        } catch (error) {
+            this.toast(`Clear trajectory failed: ${error.message}`, 'error');
+        }
+    }
+
+    chooseRelaxationExitResult() {
+        this.showModal(`
+            <h2>Exit Relaxation Mode</h2>
+            <p class="modal-intro">Choose which structure should remain. An active optimization will be stopped safely.</p>
+            <ul class="confirm-list">
+                <li><strong>Keep current</strong> uses the latest relaxed coordinates.</li>
+                <li><strong>Restore before relaxation</strong> returns to the exact structure present when this mode started.</li>
+            </ul>
+        `, `
+            <button id="relax-exit-cancel" class="btn">Continue Relaxing</button>
+            <button id="relax-exit-restore" class="btn">Restore Before Relaxation</button>
+            <button id="relax-exit-keep" class="btn primary">Keep Current</button>
+        `);
+        return new Promise(resolve => {
+            let settled = false;
+            const done = value => {
+                if (settled) return;
+                settled = true;
+                this.closeModal();
+                resolve(value);
+            };
+            document.getElementById('relax-exit-cancel')?.addEventListener('click', () => done(null), { once: true });
+            document.getElementById('relax-exit-restore')?.addEventListener('click', () => done(false), { once: true });
+            document.getElementById('relax-exit-keep')?.addEventListener('click', () => done(true), { once: true });
+        });
+    }
+
+    async exitRelaxationMode() {
+        const keep = await this.chooseRelaxationExitResult();
+        if (keep === null) return;
+        try {
+            const data = await this.withBusy(
+                keep ? 'Keeping the current relaxed structure...' : 'Restoring the pre-relaxation structure...',
+                () => this.api.relaxExit(keep)
+            );
+            this.state.isRelaxing = false;
+            this.clearModeTrajectory('relaxation');
+            this.setAtomsData(data, { clearSelection: false });
+            this.toast(
+                keep ? 'Current relaxed structure kept.' : 'Structure restored to before relaxation.',
+                'success'
+            );
+        } catch (error) {
+            this.toast(`Exit relaxation failed: ${error.message}`, 'error');
+        }
     }
 
     samePositionFrame(a, b) {
@@ -3570,7 +10822,13 @@ class VAseApp {
         if (!force && last && this.samePositionFrame(last, frame)) return;
         trajectory.frames.push(frame);
         trajectory.frame = trajectory.frames.length - 1;
+        this.state.displayedTimelineSource = 'relax';
+        this.state.rdfFrameCacheComplete = false;
         this.updateTrajectoryUI();
+        this.scheduleActiveStructureAnalysisRefresh(
+            `${this.timelineSourceName('relax')} added a new frame.`,
+            this.state.isRelaxing ? 90 : 0
+        );
     }
 
     relaxOverridePositions(frameIndex) {
@@ -3587,11 +10845,13 @@ class VAseApp {
         const normalized = Math.max(0, Math.min(count - 1, parseInt(index, 10) || 0));
         const positions = this.state.relaxTrajectory.frames[normalized];
         if (!positions) return;
+        this.state.displayedTimelineSource = 'relax';
         this.state.relaxTrajectory.frame = normalized;
         this.state.atoms.positions = positions;
         this.state.originalPositions = this.state.vizOnly ? positions : positions.map(p => [...p]);
         this.renderer.updatePositions(positions);
         this.updateUI();
+        await this.completeTrajectoryFrameUpdate();
     }
 
     clearRelaxTrajectoryIfTopologyChanged(data) {
@@ -3604,9 +10864,14 @@ class VAseApp {
             frame: 0,
             sourceFrame: 0,
             active: false,
-            finished: false
+            finished: false,
+            kind: null,
+            label: ''
         };
         if (this.state.timelineSource === 'relax') this.state.timelineSource = 'loaded';
+        if (this.state.displayedTimelineSource === 'relax') {
+            this.state.displayedTimelineSource = 'loaded';
+        }
     }
 
     pruneSelection() {
@@ -3623,6 +10888,7 @@ class VAseApp {
     applyInitialDisplayConfig(data) {
         if (this.state.displayConfigLoaded) return;
         const config = data.metadata?.config || {};
+        this.applyConfiguredTheme(config.theme || 'system');
         this.state.display.showBonds = config.show_bonds !== false;
         this.state.display.showCell = config.show_cell !== false;
         this.state.display.showAxes = config.show_axes !== false;
@@ -3644,6 +10910,9 @@ class VAseApp {
         this.state.display.bondStyle = ['cylinder', 'flat'].includes(config.bond_style)
             ? config.bond_style
             : this.state.display.bondStyle;
+        this.state.display.bondMaterial = this.normalizedBondMaterial(
+            config.bond_material || this.state.display.bondMaterial
+        );
         const initialBondThickness = Number(
             config.bond_thickness ?? this.state.display.bondThickness
         );
@@ -3656,6 +10925,14 @@ class VAseApp {
         if (/^#[0-9A-Fa-f]{6}$/.test(config.bond_custom_color || '')) {
             this.state.display.bondCustomColor = config.bond_custom_color;
         }
+        const initialBondOpacity = Number(config.bond_opacity ?? this.state.display.bondOpacity);
+        this.state.display.bondOpacity = Number.isFinite(initialBondOpacity)
+            ? Math.max(0.05, Math.min(1, initialBondOpacity))
+            : 1;
+        this.state.display.pairwiseBondStyles = config.pairwise_bond_styles
+            && typeof config.pairwise_bond_styles === 'object'
+            ? this.clonePlain(config.pairwise_bond_styles)
+            : {};
         this.state.applyConstraints = config.apply_constraint !== false;
         this.state.antiAliasing = config.anti_aliasing !== false;
         this.state.sphereQuality = config.sphere_quality || 'auto';
@@ -3667,9 +10944,15 @@ class VAseApp {
             : this.state.display.atomRadiusScale;
         this.state.display.labelRadii = config.element_radii || {};
         this.state.display.labelColors = config.element_colors || {};
+        this.state.display.labelOpacities = config.label_opacities || {};
         this.state.display.labelVisible = config.element_visible || {};
         this.state.display.labelMaterials = config.label_materials || {};
+        this.state.display.atomRadiusScales = config.atom_radius_scales || {};
+        this.state.display.atomColors = config.atom_colors || {};
+        this.state.display.atomOpacities = config.atom_opacities || {};
         this.state.display.atomMaterials = config.atom_materials || {};
+        this.state.display.atomBondStyles = config.atom_bond_styles || {};
+        this.state.display.selectedAppearanceAffectsBonds = config.selected_appearance_affects_bonds !== false;
         this.state.display.rotatePivot = config.rotate_pivot || this.state.display.rotatePivot;
         this.state.display.commensurateGuide = Boolean(
             config.commensurate_guide ?? config.unit_cell_aware_rotate ?? this.state.display.commensurateGuide
@@ -3677,8 +10960,23 @@ class VAseApp {
         this.state.display.commensurateSnap = Boolean(
             config.commensurate_snap ?? this.state.display.commensurateSnap
         );
+        this.state.display.commensurateMode = config.commensurate_mode === 'host-guest'
+            ? 'host-guest'
+            : 'same-lattice';
+        this.state.display.commensurateStrainTarget = config.commensurate_strain_target === 'host'
+            ? 'host'
+            : 'guest';
+        this.state.display.commensurateShowAtoms = Boolean(config.commensurate_show_atoms);
+        const initialGuestGap = Number(config.commensurate_guest_gap);
+        this.state.display.commensurateGuestGap = Number.isFinite(initialGuestGap)
+            ? Math.max(0, Math.min(20, initialGuestGap))
+            : this.state.display.commensurateGuestGap;
+        this.state.display.commensurateGuestAngleDeg = Number.isFinite(Number(config.commensurate_guest_angle_deg))
+            ? Number(config.commensurate_guest_angle_deg)
+            : 0;
         const initialStrainTolerance = Number(config.commensurate_strain_tolerance);
         const initialMaxIndex = parseInt(config.commensurate_max_index, 10);
+        const initialMaxArea = parseInt(config.commensurate_max_area_ratio, 10);
         const initialSnapRange = Number(config.commensurate_snap_range_deg);
         this.state.display.commensurateStrainTolerance = Number.isFinite(initialStrainTolerance)
             ? Math.max(0, Math.min(0.25, initialStrainTolerance))
@@ -3686,6 +10984,9 @@ class VAseApp {
         this.state.display.commensurateMaxIndex = Number.isFinite(initialMaxIndex)
             ? Math.max(2, Math.min(64, initialMaxIndex))
             : this.state.display.commensurateMaxIndex;
+        this.state.display.commensurateMaxAreaRatio = Number.isFinite(initialMaxArea)
+            ? Math.max(1, Math.min(MAX_COMMENSURATE_AREA_RATIO, initialMaxArea))
+            : this.state.display.commensurateMaxAreaRatio;
         this.state.display.commensurateSnapRangeDeg = Number.isFinite(initialSnapRange)
             ? Math.max(0, Math.min(15, initialSnapRange))
             : this.state.display.commensurateSnapRangeDeg;
@@ -3700,9 +11001,11 @@ class VAseApp {
         document.getElementById('chk-bonds').checked = this.state.display.showBonds;
         document.getElementById('chk-periodic-bonds').checked = this.state.display.showPeriodicBonds;
         document.getElementById('bond-style').value = this.state.display.bondStyle;
+        document.getElementById('bond-material').value = this.state.display.bondMaterial;
         document.getElementById('bond-thickness').value = this.state.display.bondThickness;
         document.getElementById('bond-color-mode').value = this.state.display.bondColorMode;
         document.getElementById('bond-custom-color').value = this.state.display.bondCustomColor;
+        document.getElementById('bond-opacity').value = this.state.display.bondOpacity;
         document.getElementById('chk-cell').checked = this.state.display.showCell;
         document.getElementById('cell-thickness').value = this.state.display.cellThickness;
         document.getElementById('cell-color').value = this.state.display.cellColor;
@@ -3718,9 +11021,16 @@ class VAseApp {
         document.getElementById('rotate-pivot').value = this.state.display.rotatePivot;
         document.getElementById('chk-commensurate-guide').checked = this.state.display.commensurateGuide;
         document.getElementById('chk-commensurate-snap').checked = this.state.display.commensurateSnap;
+        document.getElementById('commensurate-mode').value = this.state.display.commensurateMode;
+        document.getElementById('commensurate-strain-target').value = this.state.display.commensurateStrainTarget;
+        document.getElementById('chk-commensurate-show-atoms').checked = this.state.display.commensurateShowAtoms;
+        document.getElementById('commensurate-guest-angle').value = this.state.display.commensurateGuestAngleDeg;
+        document.getElementById('commensurate-guest-gap').value = this.state.display.commensurateGuestGap;
         document.getElementById('commensurate-strain').value = this.state.display.commensurateStrainTolerance * 100;
         document.getElementById('commensurate-max-index').value = this.state.display.commensurateMaxIndex;
+        document.getElementById('commensurate-max-area').value = this.state.display.commensurateMaxAreaRatio;
         document.getElementById('commensurate-snap-range').value = this.state.display.commensurateSnapRangeDeg;
+        this.syncCommensurateWorkspaceControls();
         const projectionMode = document.getElementById('projection-mode');
         if (projectionMode) projectionMode.value = this.state.display.projectionMode;
         this.syncViewControls();
@@ -3731,6 +11041,8 @@ class VAseApp {
         this.state.displayConfigLoaded = true;
         if (config.initial_design_settings) {
             this.applyDesignSettings(config.initial_design_settings, { render: false });
+        } else if (this.personalVisualDefaults) {
+            this.applyDesignSettings(this.personalVisualDefaults, { render: false });
         }
     }
 
@@ -3784,6 +11096,7 @@ class VAseApp {
             panel.classList.toggle('hidden', loadedCount <= 1 && relaxCount <= 1);
             panel.dataset.primarySource = source;
         }
+        this.syncRelaxationModeUI();
         this.syncTimelineSourceSelect(source, loadedCount, relaxCount);
         const slider = document.getElementById('frame-slider');
         if (slider) {
@@ -3851,9 +11164,50 @@ class VAseApp {
 
     updateSelectionVisuals() {
         this.renderer.setSelection(this.state.selected);
-        this.renderer.setReplicaSelection(this.state.vizOnly ? this.state.replicaSelected.values() : []);
+        if (this.state.vizOnly) {
+            this.renderer.setReplicaSelection(this.state.replicaSelected.values());
+        } else {
+            this.renderer.setReplicaSelection(
+                this.renderer.equivalentReplicaSelectionReferences(this.state.selected),
+                { muted: true }
+            );
+        }
+        if (
+            this.state.display.atomColorScaleEnabled
+            && this.state.display.atomColorScaleScope === 'selected'
+        ) {
+            const signature = JSON.stringify([
+                [...this.state.selected].sort((a, b) => a - b),
+                [...this.state.replicaSelected.keys()].sort()
+            ]);
+            if (signature !== this.atomColorScaleRuntime.selectionSignature) {
+                this.atomColorScaleRuntime.selectionSignature = signature;
+                this.scheduleAtomColorScaleRefresh();
+            }
+        }
         this.updateSelectionMeasurementOverlay();
         this.observeCollaborationSelection();
+        const selectionKey = this.registrySelectionKey();
+        if (this.state.registryResult && selectionKey !== this.state.registrySelectionSignature) {
+            this.invalidateRegistryResult();
+        }
+        this.scheduleSelectedRdfRefresh();
+        if (
+            this.state.display.commensurateGuide
+            && this.commensurateMode() === 'same-lattice'
+            && this.state.commensurateCandidates.length
+            && this.transform.mode === 'IDLE'
+        ) {
+            const candidate = this.commensurateCandidateAtAngle(this.state.commensuratePreviewAngle || 0);
+            if (candidate && this.state.selected.size > 0) {
+                this.prepareCommensurateSupercellProposal(
+                    this.commensuratePreviewContext(candidate, this.state.commensuratePreviewAngle || 0)
+                ).catch(() => {});
+            } else if (this.state.selected.size === 0) {
+                this.clearCommensurateSupercellProposal({ keepStatus: true });
+                this.updateCommensurateStatus('Select the layer that should rotate.', 'warning');
+            }
+        }
     }
 
     getFixedIndices() {
@@ -4107,6 +11461,100 @@ class VAseApp {
         };
     }
 
+    normalizedCameraSettings(settings = null) {
+        if (!settings || typeof settings !== 'object') return null;
+        const vector = (value, fallback) => (
+            Array.isArray(value)
+            && value.length === 3
+            && value.every(component => Number.isFinite(Number(component)))
+                ? value.map(Number)
+                : [...fallback]
+        );
+        const projection = settings.projection === 'perspective'
+            ? 'perspective'
+            : 'orthographic';
+        const near = Number(settings.near);
+        const far = Number(settings.far);
+        const fov = Number(settings.fov);
+        const zoom = Number(settings.zoom);
+        const orthoScale = Number(settings.ortho_scale);
+        const aspect = Number(settings.aspect);
+        return {
+            position: vector(settings.position, [10, 10, 10]),
+            target: vector(settings.target, [0, 0, 0]),
+            up: vector(settings.up, [0, 0, 1]),
+            projection,
+            fov: Number.isFinite(fov) && fov > 1 && fov < 179 ? fov : 50,
+            zoom: Number.isFinite(zoom) && zoom > 0 ? zoom : 1,
+            ortho_scale: Number.isFinite(orthoScale) && orthoScale > 0 ? orthoScale : 20,
+            near: Number.isFinite(near) && near > 0 ? near : 0.1,
+            far: Number.isFinite(far) && far > Math.max(0, near) ? far : 10000,
+            aspect: Number.isFinite(aspect) && aspect > 0 ? aspect : 1
+        };
+    }
+
+    captureRenderAreaCamera({ syncPreview = true } = {}) {
+        const camera = this.normalizedCameraSettings(this.currentCameraForExport());
+        this.state.exportPreviewCamera = camera;
+        if (this.state.imageExportProfile) {
+            const profile = this.normalizedImageExportProfile(this.state.imageExportProfile);
+            profile.options.camera = this.clonePlain(camera);
+            this.state.imageExportProfile = profile;
+        }
+        if (this.state.exportPreviewProfile) {
+            this.state.exportPreviewProfile.options = {
+                ...(this.state.exportPreviewProfile.options || {}),
+                camera: this.clonePlain(camera)
+            };
+        }
+        if (syncPreview && this.state.exportPreviewEnabled) this.syncImageExportPreview();
+        return camera;
+    }
+
+    setRenderAreaSelected(selected, { update = true } = {}) {
+        const next = Boolean(selected && this.state.exportPreviewEnabled);
+        this.state.renderAreaSelected = next;
+        const frame = document.getElementById('export-preview-frame');
+        const eye = document.getElementById('render-area-eye');
+        frame?.classList.toggle('selected', next);
+        eye?.setAttribute('aria-pressed', next ? 'true' : 'false');
+        this.renderer.setRenderAreaGizmo?.(this.state.exportPreviewCamera, {
+            visible: Boolean(
+                this.state.exportPreviewEnabled
+                && !this.state.exportPreviewFollowViewport
+            ),
+            selected: next
+        });
+        if (next) {
+            this.setSunSelected(false, { update: false });
+            this.setAddAtomsRegionSelected(false);
+            if (this.state.selectedVolumetricPlanes.size) {
+                this.setVolumetricPlaneSelection([], { update: false });
+            }
+            if (this.selectionCount() > 0) this.clearAtomSelection();
+        }
+        if (update) {
+            this.updateSelectionVisuals();
+            this.updateToolState();
+            this.updateUI();
+        }
+    }
+
+    syncRenderAreaControls() {
+        const follow = document.getElementById('render-area-follow-view');
+        if (follow) follow.checked = Boolean(this.state.exportPreviewFollowViewport);
+        const options = document.querySelector('.render-area-options');
+        options?.classList.toggle('active', Boolean(this.state.exportPreviewEnabled));
+        this.renderer.setRenderAreaGizmo?.(this.state.exportPreviewCamera, {
+            visible: Boolean(
+                this.state.exportPreviewEnabled
+                && !this.state.exportPreviewFollowViewport
+            ),
+            selected: Boolean(this.state.renderAreaSelected)
+        });
+        this.setRenderAreaSelected(this.state.renderAreaSelected, { update: false });
+    }
+
     atomicScaleText(value) {
         const scale = Number(value);
         if (!Number.isFinite(scale) || scale <= 0) return '100.00';
@@ -4239,28 +11687,48 @@ class VAseApp {
     }
 
     replicaReferenceIsSelectable(reference) {
-        if (!this.state.vizOnly || !this.isReplicaReference(reference)) return false;
+        if (!this.isReplicaReference(reference)) return false;
         const count = this.state.atoms?.positions?.length || 0;
-        if (reference.index < 0 || reference.index >= count || !this.isAtomVisible(reference.index)) return false;
+        if (
+            reference.index < 0
+            || reference.index >= count
+            || !this.isSelectionReferenceVisible(reference)
+        ) return false;
         const reps = this.state.display.supercell || [1, 1, 1];
         const offset = reference.cellOffset.map(Number);
-        return offset.every((value, axis) => Number.isInteger(value) && value >= 0 && value < (reps[axis] || 1)) &&
+        return offset.every((value, axis) => (
+            Number.isInteger(value)
+            && this.renderer.supercellAxisOffsets(reps[axis] || 1).includes(value)
+        )) &&
             offset.some(value => value !== 0);
     }
 
-    hasSelectionReference(reference) {
+    editableSelectionReference(reference) {
         const normalized = this.normalizeSelectionReference(reference);
+        if (!normalized) return null;
+        if (!this.state.vizOnly && normalized.kind === 'replica') {
+            return { kind: 'atom', index: normalized.index, key: `atom:${normalized.index}` };
+        }
+        return normalized;
+    }
+
+    hasSelectionReference(reference) {
+        const normalized = this.editableSelectionReference(reference);
         if (!normalized) return false;
         if (normalized.kind === 'replica') return this.state.replicaSelected.has(normalized.key);
         return this.state.selected.has(normalized.index);
     }
 
     addSelectionReference(reference) {
-        const normalized = this.normalizeSelectionReference(reference);
-        if (!normalized || !this.isAtomVisible(normalized.index)) return false;
+        const original = this.normalizeSelectionReference(reference);
+        if (original?.kind === 'replica' && !this.replicaReferenceIsSelectable(original)) return false;
+        const normalized = this.editableSelectionReference(original);
+        if (!normalized || !this.isSelectionReferenceVisible(normalized)) return false;
+        if (this.state.selectedVolumetricPlanes.size) {
+            this.setVolumetricPlaneSelection([], { update: false });
+        }
         const alreadySelected = this.hasSelectionReference(normalized);
         if (normalized.kind === 'replica') {
-            if (!this.replicaReferenceIsSelectable(normalized)) return false;
             this.state.replicaSelected.set(normalized.key, normalized);
         } else {
             this.state.selected.add(normalized.index);
@@ -4270,7 +11738,7 @@ class VAseApp {
     }
 
     removeSelectionReference(reference) {
-        const normalized = this.normalizeSelectionReference(reference);
+        const normalized = this.editableSelectionReference(reference);
         if (!normalized) return;
         if (normalized.kind === 'replica') this.state.replicaSelected.delete(normalized.key);
         else this.state.selected.delete(normalized.index);
@@ -4280,6 +11748,17 @@ class VAseApp {
     toggleSelectionReference(reference) {
         if (this.hasSelectionReference(reference)) this.removeSelectionReference(reference);
         else this.addSelectionReference(reference);
+    }
+
+    toggleSelectionReferences(references) {
+        const unique = new Map();
+        (references || []).forEach(reference => {
+            const normalized = this.editableSelectionReference(reference);
+            if (normalized && this.isSelectionReferenceVisible(normalized)) {
+                unique.set(normalized.key, normalized);
+            }
+        });
+        unique.forEach(reference => this.toggleSelectionReference(reference));
     }
 
     selectionReferencePosition(reference) {
@@ -4411,6 +11890,79 @@ class VAseApp {
         )).join(', ');
     }
 
+    formatMeasurePropertyScalar(value) {
+        if (value === null || value === undefined) return '-';
+        if (typeof value === 'boolean') return value ? 'true' : 'false';
+        if (typeof value === 'number') {
+            if (!Number.isFinite(value)) return '-';
+            const magnitude = Math.abs(value);
+            if (magnitude >= 1e6 || (magnitude > 0 && magnitude < 1e-5)) {
+                return value.toExponential(5);
+            }
+            return Number(value.toPrecision(7)).toString();
+        }
+        return String(value).replace(/\s+/g, ' ').trim() || '-';
+    }
+
+    formatMeasurePropertyValue(value) {
+        if (Array.isArray(value)) {
+            return `[${value.map(item => this.formatMeasurePropertyValue(item)).join(', ')}]`;
+        }
+        if (value && typeof value === 'object') {
+            if ('real' in value && 'imag' in value) {
+                const real = this.formatMeasurePropertyScalar(value.real);
+                const imagNumber = Number(value.imag);
+                const sign = Number.isFinite(imagNumber) && imagNumber < 0 ? '-' : '+';
+                return `${real} ${sign} ${this.formatMeasurePropertyScalar(Math.abs(imagNumber))}i`;
+            }
+            return `{${Object.entries(value).map(([key, item]) => (
+                `${key}: ${this.formatMeasurePropertyValue(item)}`
+            )).join(', ')}}`;
+        }
+        return this.formatMeasurePropertyScalar(value);
+    }
+
+    singleSelectionPropertySnapshot(reference) {
+        const key = this.singleSelectionPropertyKey(reference);
+        return key ? this.selectionPropertyRuntime?.cache?.get(key) || null : null;
+    }
+
+    singleSelectionPositionLines(reference) {
+        const normalized = this.normalizeSelectionReference(reference);
+        const position = this.selectionReferencePosition(normalized);
+        if (!normalized || !position) return ['Position: unavailable'];
+        const lines = [
+            `Element: ${this.state.atoms?.chemical_symbols?.[normalized.index] || '-'}`,
+            `Position (Cartesian): ${this.formatVectorTuple(position.toArray(), 6)} A`
+        ];
+        if (this.renderer?.hasValidCell?.()) {
+            const fractional = this.renderer.cartToFrac(position);
+            lines.push(`Position (fractional): ${this.formatVectorTuple(fractional.toArray(), 6)}`);
+        }
+        return lines;
+    }
+
+    singleSelectionPropertyLines(reference) {
+        const snapshot = this.singleSelectionPropertySnapshot(reference);
+        if (!snapshot) return ['Per-atom properties: loading...'];
+        if (snapshot.error) return [`Per-atom properties: ${snapshot.error}`];
+        const properties = Array.isArray(snapshot.properties) ? snapshot.properties : [];
+        if (!properties.length) return ['Per-atom properties: none stored'];
+        const sourceLabels = {
+            ase: 'ASE',
+            array: 'ASE array',
+            calculator: 'Calculator'
+        };
+        return [
+            `Per-atom properties (${properties.length}):`,
+            ...properties.map(property => {
+                const source = sourceLabels[property.source] || property.source || 'Property';
+                const unit = property.unit ? ` ${property.unit}` : '';
+                return `[${source}] ${property.name} = ${this.formatMeasurePropertyValue(property.value)}${unit}`;
+            })
+        ];
+    }
+
     selectionCountText(selectedReferences = this.selectionEntries()) {
         const counts = new Map();
         selectedReferences.forEach(reference => {
@@ -4426,7 +11978,13 @@ class VAseApp {
     getSelectionMeasureText(selectedReferences = this.selectionEntries()) {
         if (!this.state.atoms || selectedReferences.length === 0) return '-';
         const referenceMap = this.selectionMeasurementMap(selectedReferences);
-        if (selectedReferences.length === 1) return referenceMap;
+        if (selectedReferences.length === 1) {
+            return [
+                referenceMap,
+                ...this.singleSelectionPositionLines(selectedReferences[0]),
+                ...this.singleSelectionPropertyLines(selectedReferences[0])
+            ].join('\n');
+        }
         if (selectedReferences.length === 2) {
             const [i, j] = selectedReferences;
             const direct = this.selectionDistance(i, j, { mic: false });
@@ -4472,7 +12030,18 @@ class VAseApp {
     getSelectionMeasureSummary(selectedReferences = this.selectionEntries()) {
         if (!this.state.atoms || selectedReferences.length === 0) return '-';
         if (selectedReferences.length === 1) {
-            return `a1 = #${this.selectionReferenceLabel(selectedReferences[0])}`;
+            const reference = selectedReferences[0];
+            const position = this.selectionReferencePosition(reference);
+            const positionText = position
+                ? this.formatVectorTuple(position.toArray(), 4)
+                : 'unavailable';
+            const snapshot = this.singleSelectionPropertySnapshot(reference);
+            const propertyCount = Array.isArray(snapshot?.properties)
+                ? snapshot.properties.length
+                : null;
+            return `a1 #${this.selectionReferenceLabel(reference)} | Position ${positionText} A | ${
+                propertyCount === null ? 'properties loading' : `${propertyCount} properties`
+            }`;
         }
         if (selectedReferences.length === 2) {
             const direct = this.selectionDistance(selectedReferences[0], selectedReferences[1], { mic: false });
@@ -5044,10 +12613,295 @@ class VAseApp {
         this.updateCommandReadout();
     }
 
+    volumetricPlaneNormalToHkl(normal, plane) {
+        const dataset = this.volumetricPlaneDataset(plane);
+        if (!dataset?.cell || normal.lengthSq() <= 1e-18) return [...plane.hkl];
+        const cell = new THREE.Matrix3().set(...dataset.cell.flat().map(Number));
+        const hkl = normal.clone().normalize().applyMatrix3(cell);
+        const scale = Math.max(Math.abs(hkl.x), Math.abs(hkl.y), Math.abs(hkl.z), 1e-12);
+        return [hkl.x, hkl.y, hkl.z].map(value => {
+            const normalized = value / scale;
+            return Math.abs(normalized) < 1e-8 ? 0 : Number(normalized.toFixed(8));
+        });
+    }
+
+    volumetricPlaneTransformMoveScalar(originals) {
+        const numeric = this.transform.getNumericValue();
+        if (numeric !== null) return numeric;
+        const primary = originals[0];
+        if (!primary) return 0;
+        const normal = new THREE.Vector3(...primary.normal).normalize();
+        const camera = this.renderer.camera;
+        camera.updateMatrixWorld();
+        const right = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 0);
+        const up = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 1);
+        const pivot = new THREE.Vector3(...primary.centroid);
+        const distance = Math.max(pivot.distanceTo(camera.position), 1e-6);
+        const zoom = Math.max(camera.zoom || 1, 1e-6);
+        const height = camera.isOrthographicCamera
+            ? (camera.top - camera.bottom) / zoom
+            : 2 * Math.tan((camera.fov || 50) * Math.PI / 360) * distance;
+        const width = camera.isOrthographicCamera
+            ? (camera.right - camera.left) / zoom
+            : height * (camera.aspect || this.renderer.viewportAspect?.() || 1);
+        const screenDelta = right.clone().multiplyScalar(this.transform.pointerDelta.x * width)
+            .add(up.clone().multiplyScalar(this.transform.pointerDelta.y * height));
+        let scalar = screenDelta.dot(normal);
+        const visibleNormal = Math.hypot(normal.dot(right), normal.dot(up));
+        if (visibleNormal < 0.08) scalar = this.transform.pointerDelta.y * height;
+        return this.state.moveIncrement > 0
+            ? this.snapScalar(scalar, this.state.moveIncrement)
+            : scalar;
+    }
+
+    volumetricPlaneTransformRotation() {
+        const numeric = this.transform.getNumericValue();
+        let angle = numeric === null
+            ? this.snapRotationAngle(this.transform.rotationAngle)
+            : THREE.MathUtils.degToRad(numeric);
+        if (!Number.isFinite(angle)) angle = 0;
+        const axis = new THREE.Vector3();
+        if (this.transform.axis === 'X') axis.set(1, 0, 0);
+        else if (this.transform.axis === 'Y') axis.set(0, 1, 0);
+        else if (this.transform.axis === 'Z') axis.set(0, 0, 1);
+        else {
+            this.renderer.camera.getWorldDirection(axis).normalize();
+            angle *= -1;
+        }
+        return {
+            angle,
+            quaternion: new THREE.Quaternion().setFromAxisAngle(axis, angle)
+        };
+    }
+
+    syncVolumetricPlaneTransformControls() {
+        const selected = this.selectedVolumetricPlaneList();
+        if (!selected.length) return;
+        ['h', 'k', 'l'].forEach((axis, index) => {
+            this.setMixedControl(
+                `volume-plane-${axis}`,
+                this.commonVolumetricPlaneValue(selected, plane => plane.hkl[index])
+            );
+        });
+        this.setMixedControl(
+            'volume-plane-offset',
+            this.commonVolumetricPlaneValue(selected, plane => plane.offsetAngstrom)
+        );
+        const commonOffset = this.commonVolumetricPlaneValue(
+            selected,
+            plane => plane.offsetAngstrom
+        );
+        const commonMinimum = this.commonVolumetricPlaneValue(
+            selected,
+            plane => plane.offsetMinimum
+        );
+        const commonMaximum = this.commonVolumetricPlaneValue(
+            selected,
+            plane => plane.offsetMaximum
+        );
+        const offsetSlider = document.getElementById('volume-plane-offset-slider');
+        if (offsetSlider) {
+            const canSlide = !commonOffset.mixed && !commonMinimum.mixed && !commonMaximum.mixed
+                && Number.isFinite(Number(commonMinimum.value))
+                && Number.isFinite(Number(commonMaximum.value));
+            offsetSlider.disabled = !canSlide;
+            if (canSlide) {
+                offsetSlider.min = `${commonMinimum.value}`;
+                offsetSlider.max = `${commonMaximum.value}`;
+                offsetSlider.step = 'any';
+                if (document.activeElement !== offsetSlider) {
+                    offsetSlider.value = `${commonOffset.value}`;
+                }
+            }
+        }
+        selected.forEach(plane => {
+            const row = document.querySelector(`[data-plane-id="${CSS.escape(plane.id)}"]`);
+            const label = row?.querySelector('.volume-plane-list-hkl');
+            if (label) label.textContent = `(${plane.hkl.map(value => this.formatScalarValue(value)).join(' ')})`;
+        });
+    }
+
+    applyVolumetricPlaneTransformPreview() {
+        const originals = this.state.volumetricPlaneTransformOriginal;
+        if (!Array.isArray(originals) || !originals.length || this.transform.mode === 'IDLE') return;
+        const transforms = {};
+        if (this.transform.mode === 'MOVE') {
+            const scalar = this.volumetricPlaneTransformMoveScalar(originals);
+            originals.forEach(original => {
+                const plane = this.volumetricPlanes().find(candidate => candidate.id === original.id);
+                if (!plane) return;
+                const minimum = Number.isFinite(original.offsetMinimum) ? original.offsetMinimum : -Infinity;
+                const maximum = Number.isFinite(original.offsetMaximum) ? original.offsetMaximum : Infinity;
+                plane.offsetAngstrom = Math.max(minimum, Math.min(maximum, original.offsetAngstrom + scalar));
+                const record = this.renderer.volumetricPlanes.get(plane.id);
+                const renderedOffset = Number.isFinite(Number(record?.offsetAngstrom))
+                    ? Number(record.offsetAngstrom)
+                    : original.offsetAngstrom;
+                const applied = plane.offsetAngstrom - renderedOffset;
+                transforms[plane.id] = {
+                    translation: new THREE.Vector3(...original.normal).multiplyScalar(applied).toArray()
+                };
+            });
+            this.state.transformReadout = `normal ${this.formatNumber(scalar)} A`;
+        } else if (this.transform.mode === 'ROTATE') {
+            const { angle, quaternion } = this.volumetricPlaneTransformRotation();
+            originals.forEach(original => {
+                const plane = this.volumetricPlanes().find(candidate => candidate.id === original.id);
+                if (!plane) return;
+                const normal = new THREE.Vector3(...original.normal).applyQuaternion(quaternion).normalize();
+                const centroid = new THREE.Vector3(...original.centroid);
+                plane.hkl = this.volumetricPlaneNormalToHkl(normal, plane);
+                const dataset = this.volumetricPlaneDataset(plane);
+                const origin = new THREE.Vector3(...(
+                    Array.isArray(dataset?.origin) ? dataset.origin : [0, 0, 0]
+                ));
+                plane.offsetAngstrom = normal.dot(centroid.clone().sub(origin));
+                const metrics = this.volumetricPlaneMetrics(plane);
+                plane.offsetMinimum = metrics?.minimum ?? plane.offsetMinimum;
+                plane.offsetMaximum = metrics?.maximum ?? plane.offsetMaximum;
+                plane.offsetAngstrom = Math.max(
+                    plane.offsetMinimum,
+                    Math.min(plane.offsetMaximum, plane.offsetAngstrom)
+                );
+                const record = this.renderer.volumetricPlanes.get(plane.id);
+                const renderedNormal = record?.normal?.clone() || new THREE.Vector3(...original.normal);
+                const renderedCentroid = record?.centroid?.toArray() || original.centroid;
+                const displayQuaternion = new THREE.Quaternion().setFromUnitVectors(
+                    renderedNormal.normalize(),
+                    normal
+                );
+                transforms[plane.id] = {
+                    quaternion: displayQuaternion.toArray(),
+                    pivot: renderedCentroid
+                };
+            });
+            this.state.transformReadout = this.formatRotateReadout(angle);
+        }
+        this.renderer.previewVolumetricPlaneTransforms(transforms);
+        this.syncVolumetricPlaneTransformControls();
+        this.scheduleVolumetricPlanePreview({
+            planeIds: originals.map(original => original.id)
+        });
+        this.transform.updateGuides(this.renderer.camera);
+        this.updateCommandReadout();
+        this.renderer.requestRender();
+    }
+
+    enterVolumetricPlaneTransformMode(mode) {
+        if (this.state.vizOnly) {
+            this.toast('Switch to Edit mode to move or rotate volumetric planes.', 'warning');
+            return;
+        }
+        const selected = this.selectedVolumetricPlaneList().filter(plane => plane.visible);
+        if (!selected.length) return;
+        const originals = selected.map(plane => {
+            const record = this.renderer.volumetricPlanes.get(plane.id);
+            const metrics = this.volumetricPlaneMetrics(plane);
+            if (metrics) {
+                plane.offsetMinimum = metrics.minimum;
+                plane.offsetMaximum = metrics.maximum;
+                plane.offsetAngstrom = Math.max(
+                    metrics.minimum,
+                    Math.min(metrics.maximum, plane.offsetAngstrom)
+                );
+            }
+            const normal = metrics?.normal?.clone() || record?.normal?.clone() || new THREE.Vector3(0, 0, 1);
+            const centroid = record?.centroid?.clone() || normal.clone().multiplyScalar(plane.offsetAngstrom);
+            return {
+                id: plane.id,
+                hkl: [...plane.hkl],
+                offsetAngstrom: plane.offsetAngstrom,
+                offsetMinimum: plane.offsetMinimum,
+                offsetMaximum: plane.offsetMaximum,
+                normal: normal.normalize().toArray(),
+                centroid: centroid.toArray()
+            };
+        });
+        const pivot = originals.reduce(
+            (sum, original) => sum.add(new THREE.Vector3(...original.centroid)),
+            new THREE.Vector3()
+        ).multiplyScalar(1 / originals.length);
+        this.readTransformSettings();
+        this.state.volumetricPlaneTransformOriginal = originals;
+        this.state.transformSubject = 'volumetric-plane';
+        this.state.transformReadout = '';
+        this.state.transformStartPointer.copy(this.state.lastPointer);
+        this.state.rotationScreenPivot.copy(this.worldToScreen(this.renderer.toVisualAtomPosition(pivot)));
+        this.state.rotationLastAngle = 0;
+        this.state.rotationPointerActive = false;
+        this.renderer.clearConstraintMotionGuides?.();
+        this.transform.enter(mode, pivot, this.renderer.camera, {
+            visualOffset: this.renderer.visualTranslationVector?.() || new THREE.Vector3()
+        });
+        this.renderer.controls.enabled = false;
+        this.updateToolState();
+        this.updateUI();
+    }
+
+    finishVolumetricPlaneTransform() {
+        if (this.state.volumetricPlanePreviewTimer !== null) {
+            clearTimeout(this.state.volumetricPlanePreviewTimer);
+            this.state.volumetricPlanePreviewTimer = null;
+        }
+        if (this.state.volumetricPlaneSettledTimer !== null) {
+            clearTimeout(this.state.volumetricPlaneSettledTimer);
+            this.state.volumetricPlaneSettledTimer = null;
+        }
+        this.renderer.resetVolumetricPlaneTransforms();
+        this.state.volumetricPlaneTransformOriginal = null;
+        this.state.transformReadout = '';
+        this.transform.exit();
+        this.state.transformSubject = null;
+        this.renderer.controls.enabled = true;
+        this.renderVolumetricPlaneControls();
+        this.updateToolState();
+        this.updateUI();
+    }
+
+    commitVolumetricPlaneTransform() {
+        if (this.transform.mode === 'IDLE') return;
+        const planeIds = (this.state.volumetricPlaneTransformOriginal || [])
+            .map(original => original.id);
+        this.finishVolumetricPlaneTransform();
+        this.renderAllVolumetricPlanes({ planeIds }).catch(error => {
+            this.setVolumetricPlaneStatus('warning', 'Plane update failed', error.message);
+        });
+        this.scheduleVisualHistoryCommit('volumetric-plane-transform');
+    }
+
+    cancelVolumetricPlaneTransform() {
+        const originals = this.state.volumetricPlaneTransformOriginal || [];
+        originals.forEach(original => {
+            const plane = this.volumetricPlanes().find(candidate => candidate.id === original.id);
+            if (!plane) return;
+            plane.hkl = [...original.hkl];
+            plane.offsetAngstrom = original.offsetAngstrom;
+            plane.offsetMinimum = original.offsetMinimum;
+            plane.offsetMaximum = original.offsetMaximum;
+        });
+        const planeIds = originals.map(original => original.id);
+        this.finishVolumetricPlaneTransform();
+        this.renderAllVolumetricPlanes({ planeIds }).catch(error => {
+            this.setVolumetricPlaneStatus('warning', 'Plane update failed', error.message);
+        });
+    }
+
     applyTransformPreview() {
         if (this.transform.mode === 'IDLE') return;
         if (this.state.transformSubject === 'sun') {
             this.applySunTransformPreview();
+            return;
+        }
+        if (this.state.transformSubject === 'render-area') {
+            this.applyRenderAreaTransformPreview();
+            return;
+        }
+        if (this.state.transformSubject === 'volumetric-plane') {
+            this.applyVolumetricPlaneTransformPreview();
+            return;
+        }
+        if (this.state.transformSubject === 'add-atoms-region') {
+            this.applyAddAtomsRegionTransformPreview();
             return;
         }
 
@@ -5098,6 +12952,7 @@ class VAseApp {
             if (!hasNum) {
                 moveDelta.copy(this.snapMoveDelta(moveDelta, this.transform.axis ? axisVec : null));
             }
+            this.constrainMoveToRegistryPlane(moveDelta);
             this.state.transformReadout = this.formatMoveReadout(moveDelta);
         }
         
@@ -5114,6 +12969,15 @@ class VAseApp {
             angle = this.snapCommensurateAngle(angle);
             if (!Number.isFinite(angle)) angle = 0;
             appliedRotationAngle = angle;
+            this.state.commensurateLastAngle = angle;
+            if (this.state.display.commensurateGuide) {
+                const angleDeg = THREE.MathUtils.radToDeg(angle);
+                this.state.display.commensurateGuestAngleDeg = angleDeg;
+                const angleInput = document.getElementById('commensurate-guest-angle');
+                if (angleInput && document.activeElement !== angleInput) {
+                    angleInput.value = Number(angleDeg.toFixed(8)).toString();
+                }
+            }
             const snapped = this.state.commensurateSnappedCandidate;
             this.state.transformReadout = snapped
                 ? `${this.formatRotateReadout(angle)} | MATCH e=${(snapped.strain * 100).toFixed(3)}% | N=${snapped.area}`
@@ -5128,6 +12992,15 @@ class VAseApp {
                 // follows the same visible direction as axis-locked rotation.
                 q.setFromAxisAngle(viewAxis, -angle);
             }
+        }
+
+        const scaleFactor = this.transform.mode === 'SCALE'
+            ? this.transformScaleFactor()
+            : 1;
+        const scaleVector = this.scaleVector(scaleFactor);
+        if (this.transform.mode === 'SCALE') {
+            this.transform.scaleFactor = scaleFactor;
+            this.state.transformReadout = this.formatScaleReadout(scaleFactor);
         }
 
         const changed = [];
@@ -5145,6 +13018,11 @@ class VAseApp {
                     const rotatedTarget = this.transform.pivot.clone().add(offset);
                     const constrainedDelta = this.constrainedMoveDelta(idx, rotatedTarget.sub(origVec));
                     mesh.position.copy(origVec).add(constrainedDelta);
+                } else if (this.transform.mode === 'SCALE') {
+                    const offset = origVec.clone().sub(this.transform.pivot).multiply(scaleVector);
+                    const scaledTarget = this.transform.pivot.clone().add(offset);
+                    const constrainedDelta = this.constrainedMoveDelta(idx, scaledTarget.sub(origVec));
+                    mesh.position.copy(origVec).add(constrainedDelta);
                 }
                 if (![mesh.position.x, mesh.position.y, mesh.position.z].every(Number.isFinite)) {
                     mesh.position.copy(origVec);
@@ -5158,9 +13036,15 @@ class VAseApp {
         this.renderer.updateSupercellPositions();
         this.renderer.updateHookeanPositions();
         this.updateSelectionMeasureUI();
+        this.scheduleAtomColorScaleRefresh({ coordinatesOnly: true });
+        this.scheduleActiveStructureAnalysisRefresh(
+            'The atom transform preview changed.',
+            120
+        );
         if (this.transform.mode === 'ROTATE') {
             this.updateRotationReferenceGuide(appliedRotationAngle);
             this.renderCommensurateRotationGuides(appliedRotationAngle);
+            this.scheduleCommensurateLivePreview(appliedRotationAngle);
         }
         
         // Async backend projection is only needed for translation. Rotation
@@ -5176,7 +13060,12 @@ class VAseApp {
     
     async previewConstraints() {
         if (!this.state.applyConstraints) return;
+        if (this.addAtomsSessionActive()) return;
         if (this.state.transformSubject !== 'atoms') return;
+        // Registry translation is a rigid two-degree-of-freedom mode. Applying
+        // per-atom ASE constraints during its preview would deform the selected
+        // component and violate that mode's defining invariant.
+        if (this.state.registryRelaxation) return;
         if (this.transform.mode !== 'MOVE' || this.state.selected.size === 0) return;
         const newPositions = this.currentPositionsFromScene();
         try {
@@ -5196,6 +13085,11 @@ class VAseApp {
                 this.renderer.updateSupercellPositions();
                 this.renderer.updateHookeanPositions();
                 this.updateSelectionMeasureUI();
+                this.scheduleAtomColorScaleRefresh({ coordinatesOnly: true });
+                this.scheduleActiveStructureAnalysisRefresh(
+                    'The constrained atom positions changed.',
+                    80
+                );
                 this.renderer.requestRender();
             }
         } catch (err) {
@@ -5203,15 +13097,74 @@ class VAseApp {
         }
     }
 
+    async commitRegistryTransform() {
+        const coordinates = [...(this.state.registryTranslationCoordinates || [0, 0])];
+        if (this.constraintTimeout) clearTimeout(this.constraintTimeout);
+        const previewPositions = this.currentPositionsFromScene();
+        this.state.atoms.positions = previewPositions.map(position => [...position]);
+        this.state.originalPositions = previewPositions.map(position => [...position]);
+        this.state.transformReadout = '';
+        this.renderer.clearConstraintMotionGuides?.();
+        this.transform.exit();
+        this.state.transformSubject = null;
+        this.state.registryTransformStartCoordinates = null;
+        this.renderer.controls.enabled = true;
+        this.updateToolState();
+        this.updateSelectionVisuals();
+        this.updateUI();
+        try {
+            const data = await this.api.translateRegistryRelaxation(coordinates);
+            this.setAtomsData(data, {
+                clearSelection: false,
+                preserveRdf: true,
+                preserveColorScaleRange: true
+            });
+            this.updateRegistryMapMarker(coordinates);
+            return data;
+        } catch (error) {
+            this.toast(`Rigid translation failed: ${error.message}`, 'error');
+            throw error;
+        }
+    }
+
     commitTransform() {
         if (this.state.transformSubject === 'sun') return this.commitSunTransform();
+        if (this.state.transformSubject === 'render-area') return this.commitRenderAreaTransform();
+        if (this.state.transformSubject === 'volumetric-plane') {
+            return this.commitVolumetricPlaneTransform();
+        }
+        if (this.state.transformSubject === 'add-atoms-region') {
+            return this.commitAddAtomsRegionTransform();
+        }
         if (this.transform.mode === 'IDLE' || this.state.selected.size === 0) return;
-        if (!this.canEditAtoms()) {
-            this.cancelTransform();
-            this.editOnlyToast();
+        if (
+            this.transform.mode === 'SCALE'
+            && this.transform.getNumericValue() !== null
+            && this.transform.getNumericValue() <= 0
+        ) {
+            this.toast('Scale factor must be greater than zero.', 'warning');
             return;
         }
+        if (!this.canTransformSelectedAtoms()) {
+            this.cancelTransform();
+            this.transformUnavailableToast();
+            return;
+        }
+        if (this.state.registryRelaxation && this.transform.mode === 'MOVE') {
+            return this.commitRegistryTransform();
+        }
         if (this.constraintTimeout) clearTimeout(this.constraintTimeout);
+        const proposalCandidate = this.transform.mode === 'ROTATE' && !this.addAtomsSessionActive()
+            ? this.commensurateCandidateForProposal(this.state.commensurateLastAngle)
+            : null;
+        const proposalContext = proposalCandidate ? {
+            candidate: proposalCandidate,
+            selectedIndices: [...this.state.selected].filter(index => this.isEditableIndex(index)),
+            pivot: this.transform.pivot.toArray(),
+            axis: 'Z',
+            displayAngleDeg: THREE.MathUtils.radToDeg(this.state.commensurateLastAngle || 0),
+            positionsIncludeDisplayRotation: true
+        } : null;
         const newPositions = this.currentPositionsFromScene();
         this.state.atoms.positions = newPositions.map(p => [...p]);
         this.state.originalPositions = newPositions.map(p => [...p]);
@@ -5223,13 +13176,17 @@ class VAseApp {
         // and may correct constrained positions authoritatively.
         this.transform.exit();
         this.state.transformSubject = null;
+        this.state.registryTransformStartCoordinates = null;
         this.renderer.controls.enabled = true;
         this.updateToolState();
         this.updateSelectionVisuals();
         this.updateUI();
 
-        this.pendingApply = this.api.applyPositions(newPositions, this.state.applyConstraints).then(data => {
+        this.pendingApply = this.api.applyPositions(newPositions, this.state.applyConstraints).then(async data => {
             this.setAtomsData(data);
+            if (proposalContext) {
+                await this.prepareCommensurateSupercellProposal(proposalContext);
+            }
             return data;
         }).catch(err => {
             this.toast(`Apply failed: ${err.message}`, 'error');
@@ -5239,16 +13196,62 @@ class VAseApp {
     }
 
     enterTransformMode(mode) {
+        if (this.state.renderAreaSelected) {
+            if (mode !== 'MOVE') {
+                this.toast('The Render Area eye can be moved with G.', 'warning');
+                return;
+            }
+            this.enterRenderAreaTransformMode();
+            return;
+        }
+        if (this.selectedAddAtomsRegionIds().size) {
+            if (mode === 'ROTATE') {
+                this.toast('Insertion regions can be moved with G or scaled with S, but cannot be rotated.', 'warning');
+                return;
+            }
+            this.enterAddAtomsRegionTransform(mode);
+            return;
+        }
+        if (this.state.selectedVolumetricPlanes.size) {
+            if (mode === 'SCALE') {
+                this.toast('Volumetric planes can be moved with G or rotated with R; scaling is not defined.', 'warning');
+                return;
+            }
+            this.enterVolumetricPlaneTransformMode(mode);
+            return;
+        }
         if (this.state.sunSelected) {
+            if (mode === 'SCALE') {
+                this.toast('Sun handles can be moved with G or rotated with R; scaling is not defined.', 'warning');
+                return;
+            }
             this.enterSunTransformMode(mode);
             return;
         }
-        if (!this.canEditAtoms()) {
-            this.editOnlyToast();
+        if (!this.canTransformSelectedAtoms()) {
+            this.transformUnavailableToast();
             return;
         }
         const editableSelection = [...this.state.selected].filter(idx => this.isEditableIndex(idx));
         if (editableSelection.length === 0) return;
+        if (this.state.registryRelaxation) {
+            if (mode !== 'MOVE') {
+                this.toast('Rigid translation mode only permits G. Finish or cancel it before another transform.', 'warning');
+                return;
+            }
+            if (this.state.registryRelaxation.is_relaxing) {
+                this.toast('Stop the rigid translation optimization before moving the component manually.', 'warning');
+                return;
+            }
+            const required = [...(this.state.registryRelaxation.selected_indices || [])]
+                .map(Number)
+                .sort((left, right) => left - right);
+            const current = [...editableSelection].map(Number).sort((left, right) => left - right);
+            if (JSON.stringify(required) !== JSON.stringify(current)) {
+                this.toast('Select exactly the component used to activate rigid translation before pressing G.', 'warning');
+                return;
+            }
+        }
 
         this.state.originalPositions = this.currentPositionsFromScene().map(p => [...p]);
         this.readTransformSettings();
@@ -5262,16 +13265,22 @@ class VAseApp {
         this.state.rotationLastAngle = 0;
         this.state.rotationPointerActive = false;
         this.state.transformSubject = 'atoms';
+        this.state.registryTransformStartCoordinates = mode === 'MOVE' && this.state.registryRelaxation
+            ? [...(this.state.registryTranslationCoordinates || [0, 0])]
+            : null;
         this.transform.enter(mode, pivot, this.renderer.camera, {
             visualOffset: this.renderer.visualTranslationVector?.() || new THREE.Vector3()
         });
+        if (mode === 'ROTATE' && this.state.display.commensurateGuide && !this.addAtomsSessionActive()) {
+            this.transform.setAxis('Z', this.renderer.camera);
+        }
         this.renderer.setConstraintMotionGuides?.({
             mode,
             indices: editableSelection,
             originalPositions: this.state.originalPositions,
             applyConstraints: this.state.applyConstraints
         });
-        if (mode === 'ROTATE') {
+        if (mode === 'ROTATE' && !this.addAtomsSessionActive()) {
             this.configureRotationReference(editableSelection);
             this.prepareCommensurateRotation(editableSelection);
         } else {
@@ -5287,6 +13296,18 @@ class VAseApp {
             this.cancelSunTransform();
             return;
         }
+        if (this.state.transformSubject === 'render-area') {
+            this.cancelRenderAreaTransform();
+            return;
+        }
+        if (this.state.transformSubject === 'volumetric-plane') {
+            this.cancelVolumetricPlaneTransform();
+            return;
+        }
+        if (this.state.transformSubject === 'add-atoms-region') {
+            this.cancelAddAtomsRegionTransform();
+            return;
+        }
         if (this.constraintTimeout) clearTimeout(this.constraintTimeout);
         this.renderer.updatePositions(this.state.originalPositions);
         this.state.transformReadout = '';
@@ -5294,9 +13315,161 @@ class VAseApp {
         this.renderer.clearConstraintMotionGuides?.();
         this.transform.exit();
         this.state.transformSubject = null;
+        if (this.state.registryTransformStartCoordinates) {
+            this.updateRegistryMapMarker(this.state.registryTransformStartCoordinates);
+        }
+        this.state.registryTransformStartCoordinates = null;
         this.renderer.controls.enabled = true;
         this.updateToolState();
         this.updateUI();
+        this.scheduleActiveStructureAnalysisRefresh(
+            'The atom transform was cancelled.',
+            0
+        );
+    }
+
+    addAtomsRegionMoveDelta() {
+        const numeric = this.transform.getNumericValue();
+        const axis = new THREE.Vector3();
+        if (this.transform.axis === 'X') axis.set(1, 0, 0);
+        else if (this.transform.axis === 'Y') axis.set(0, 1, 0);
+        else if (this.transform.axis === 'Z') axis.set(0, 0, 1);
+        if (numeric !== null && this.transform.axis) return axis.multiplyScalar(numeric);
+
+        const camera = this.renderer.camera;
+        camera.updateMatrixWorld();
+        const right = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 0);
+        const up = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 1);
+        const distance = Math.max(this.transform.pivot.distanceTo(camera.position), 1e-6);
+        const zoom = Math.max(camera.zoom || 1, 1e-6);
+        const height = camera.isOrthographicCamera
+            ? (camera.top - camera.bottom) / zoom
+            : 2 * Math.tan((camera.fov || 50) * Math.PI / 360) * distance;
+        const width = camera.isOrthographicCamera
+            ? (camera.right - camera.left) / zoom
+            : height * (camera.aspect || this.renderer.viewportAspect?.() || 1);
+        const screen = right.multiplyScalar(this.transform.pointerDelta.x * width)
+            .add(up.multiplyScalar(this.transform.pointerDelta.y * height));
+        const axisUnit = axis.clone().normalize();
+        const delta = this.transform.axis
+            ? axisUnit.clone().multiplyScalar(screen.dot(axisUnit))
+            : screen;
+        return this.snapMoveDelta(delta, this.transform.axis ? axisUnit : null);
+    }
+
+    enterAddAtomsRegionTransform(mode = 'MOVE') {
+        const selected = this.selectedAddAtomsRegionIds();
+        if (!selected.size || this.addAtomsUI?.active?.is_relaxing) {
+            if (this.addAtomsUI?.active?.is_relaxing) {
+                this.toast('Stop repulsive placement before moving insertion regions.', 'warning');
+            }
+            return;
+        }
+        const regions = this.addAtomsRegions().map(region => ({
+            ...region,
+            bounds: region.bounds.map(Number)
+        }));
+        const moving = regions.filter(region => selected.has(String(region.id)));
+        const lower = [0, 1, 2].map(axis => Math.min(...moving.map(region => region.bounds[axis * 2])));
+        const upper = [0, 1, 2].map(axis => Math.max(...moving.map(region => region.bounds[axis * 2 + 1])));
+        const pivot = new THREE.Vector3(
+            0.5 * (lower[0] + upper[0]),
+            0.5 * (lower[1] + upper[1]),
+            0.5 * (lower[2] + upper[2])
+        );
+        this.readTransformSettings();
+        this.state.addAtomsRegionTransformOriginal = { regions, selected };
+        this.state.transformSubject = 'add-atoms-region';
+        this.state.transformReadout = '';
+        this.state.transformStartPointer.copy(this.state.lastPointer);
+        this.state.rotationScreenPivot.copy(
+            this.worldToScreen(this.renderer.toVisualAtomPosition(pivot))
+        );
+        this.transform.enter(mode, pivot, this.renderer.camera, {
+            visualOffset: this.renderer.visualTranslationVector?.() || new THREE.Vector3()
+        });
+        this.renderer.controls.enabled = false;
+        this.updateToolState();
+        this.updateUI();
+    }
+
+    applyAddAtomsRegionTransformPreview() {
+        const original = this.state.addAtomsRegionTransformOriginal;
+        if (!original?.regions || !(original.selected instanceof Set)) return;
+        const delta = this.transform.mode === 'MOVE'
+            ? this.addAtomsRegionMoveDelta()
+            : new THREE.Vector3();
+        const scaleFactor = this.transform.mode === 'SCALE'
+            ? this.transformScaleFactor()
+            : 1;
+        const scale = this.scaleVector(scaleFactor);
+        const pivot = this.transform.pivot;
+        this.addAtomsUI.regions = original.regions.map(region => {
+            if (!original.selected.has(String(region.id))) return { ...region, bounds: [...region.bounds] };
+            if (this.transform.mode === 'SCALE') {
+                const lower = new THREE.Vector3(region.bounds[0], region.bounds[2], region.bounds[4]);
+                const upper = new THREE.Vector3(region.bounds[1], region.bounds[3], region.bounds[5]);
+                lower.sub(pivot).multiply(scale).add(pivot);
+                upper.sub(pivot).multiply(scale).add(pivot);
+                return {
+                    ...region,
+                    bounds: [lower.x, upper.x, lower.y, upper.y, lower.z, upper.z]
+                };
+            }
+            return {
+                ...region,
+                bounds: [
+                    region.bounds[0] + delta.x, region.bounds[1] + delta.x,
+                    region.bounds[2] + delta.y, region.bounds[3] + delta.y,
+                    region.bounds[4] + delta.z, region.bounds[5] + delta.z
+                ]
+            };
+        });
+        this.renderAddAtomsRegions();
+        this.state.transformReadout = this.transform.mode === 'SCALE'
+            ? this.formatScaleReadout(scaleFactor)
+            : this.formatMoveReadout(delta);
+        this.updateAddAtomsRegionPreview();
+        this.transform.updateGuides(this.renderer.camera);
+        this.updateCommandReadout();
+    }
+
+    finishAddAtomsRegionTransform() {
+        this.state.addAtomsRegionTransformOriginal = null;
+        this.state.transformReadout = '';
+        this.transform.exit();
+        this.state.transformSubject = null;
+        this.renderer.controls.enabled = true;
+        this.updateToolState();
+        this.updateUI();
+    }
+
+    async commitAddAtomsRegionTransform() {
+        if (this.transform.mode === 'IDLE') return;
+        if (
+            this.transform.mode === 'SCALE'
+            && this.transform.getNumericValue() !== null
+            && this.transform.getNumericValue() <= 0
+        ) {
+            this.toast('Scale factor must be greater than zero.', 'warning');
+            return;
+        }
+        this.finishAddAtomsRegionTransform();
+        await this.commitAddAtomsRegionControls();
+        this.updateAddAtomsRegionPreview();
+    }
+
+    cancelAddAtomsRegionTransform() {
+        const original = this.state.addAtomsRegionTransformOriginal;
+        if (Array.isArray(original?.regions)) {
+            this.addAtomsUI.regions = original.regions.map(region => ({
+                ...region,
+                bounds: [...region.bounds]
+            }));
+        }
+        this.finishAddAtomsRegionTransform();
+        this.renderAddAtomsRegions();
+        this.updateAddAtomsRegionPreview();
     }
 
     enterSunTransformMode(mode) {
@@ -5352,14 +13525,427 @@ class VAseApp {
         this.updateUI();
     }
 
+    enterRenderAreaTransformMode() {
+        if (!this.state.renderAreaSelected || !this.state.exportPreviewEnabled) return;
+        if (!this.canEditAtoms()) {
+            this.toast('Switch to Edit mode to move the Render Area eye.', 'warning');
+            return;
+        }
+        if (!this.state.exportPreviewCamera) {
+            this.captureRenderAreaCamera({ syncPreview: false });
+        }
+        const camera = this.normalizedCameraSettings(this.state.exportPreviewCamera);
+        if (!camera) return;
+        this.state.exportPreviewFollowViewport = false;
+        this.state.renderAreaTransformOriginal = this.clonePlain(camera);
+        this.state.transformSubject = 'render-area';
+        this.state.transformReadout = '';
+        this.state.transformStartPointer.copy(this.state.lastPointer);
+        const pivot = new THREE.Vector3(...camera.target);
+        this.readTransformSettings();
+        this.transform.enter('MOVE', pivot, this.renderer.camera);
+        this.renderer.controls.enabled = false;
+        this.syncRenderAreaControls();
+        this.updateToolState();
+        this.updateUI();
+    }
+
+    applyRenderAreaTransformPreview() {
+        const original = this.state.renderAreaTransformOriginal;
+        if (!original) return;
+        const delta = this.sunTransformMoveDelta();
+        const position = new THREE.Vector3(...original.position).add(delta);
+        const target = new THREE.Vector3(...original.target).add(delta);
+        this.state.exportPreviewCamera = this.normalizedCameraSettings({
+            ...original,
+            position: position.toArray(),
+            target: target.toArray()
+        });
+        if (this.state.imageExportProfile) {
+            this.state.imageExportProfile.options.camera = this.clonePlain(
+                this.state.exportPreviewCamera
+            );
+        }
+        this.state.transformReadout = `Render Area eye Δ ${delta.x.toFixed(3)}, ${delta.y.toFixed(3)}, ${delta.z.toFixed(3)} Å`;
+        this.syncImageExportPreview();
+        this.transform.updateGuides(this.renderer.camera);
+        this.updateCommandReadout();
+    }
+
+    finishRenderAreaTransform() {
+        this.state.renderAreaTransformOriginal = null;
+        this.state.transformReadout = '';
+        this.transform.exit();
+        this.state.transformSubject = null;
+        this.renderer.controls.enabled = true;
+        this.syncRenderAreaControls();
+        this.updateToolState();
+        this.updateUI();
+    }
+
+    commitRenderAreaTransform() {
+        if (this.transform.mode === 'IDLE') return;
+        this.finishRenderAreaTransform();
+        this.scheduleVisualHistoryCommit('render-area-camera');
+    }
+
+    cancelRenderAreaTransform() {
+        if (this.state.renderAreaTransformOriginal) {
+            this.state.exportPreviewCamera = this.clonePlain(
+                this.state.renderAreaTransformOriginal
+            );
+            if (this.state.imageExportProfile) {
+                this.state.imageExportProfile.options.camera = this.clonePlain(
+                    this.state.exportPreviewCamera
+                );
+            }
+        }
+        this.finishRenderAreaTransform();
+        this.syncImageExportPreview();
+    }
+
     updateToolState() {
         document.getElementById('tool-select')?.classList.toggle('active', this.transform.mode === 'IDLE');
         document.getElementById('tool-move')?.classList.toggle('active', this.transform.mode === 'MOVE');
         document.getElementById('tool-rotate')?.classList.toggle('active', this.transform.mode === 'ROTATE');
+        document.getElementById('tool-scale')?.classList.toggle('active', this.transform.mode === 'SCALE');
+    }
+
+    setupAseBulkBuilder() {
+        const formula = document.getElementById('ase-bulk-formula');
+        const structure = document.getElementById('ase-bulk-structure');
+        const cellMode = document.getElementById('ase-bulk-cell-mode');
+        if (!formula || !structure || !cellMode) return;
+
+        formula.addEventListener('input', () => {
+            this.refreshAseBulkBuilderCompatibility({ preserveStructure: true });
+            this.scheduleAseBulkPreview();
+        });
+        [structure, cellMode].forEach(control => {
+            control.addEventListener('change', () => {
+                this.refreshAseBulkBuilderCompatibility({ preserveStructure: true });
+                this.scheduleAseBulkPreview({ immediate: true });
+            });
+        });
+        [
+            'ase-bulk-a', 'ase-bulk-b', 'ase-bulk-c', 'ase-bulk-alpha',
+            'ase-bulk-covera', 'ase-bulk-u', 'ase-bulk-basis'
+        ].forEach(id => {
+            const control = document.getElementById(id);
+            control?.addEventListener('input', () => this.scheduleAseBulkPreview());
+            control?.addEventListener('change', () => this.scheduleAseBulkPreview({ immediate: true }));
+        });
+        document.getElementById('btn-ase-bulk-preview')?.addEventListener('click', () => {
+            this.previewAseBulkStructure({ announceErrors: true }).catch(error => {
+                this.setAseBulkPreviewState('error', 'Preview failed', error.message);
+            });
+        });
+        document.getElementById('btn-ase-bulk-build')?.addEventListener('click', () => {
+            this.buildAseBulkStructure().catch(error => {
+                this.setAseBulkPreviewState('error', 'Build failed', error.message);
+                this.toast(`ASE build failed: ${error.message}`, 'error');
+            });
+        });
+
+        this.ensureAseBulkCatalog().catch(error => {
+            this.setAseBulkPreviewState('error', 'ASE catalog unavailable', error.message);
+        });
+    }
+
+    async ensureAseBulkCatalog() {
+        const runtime = this.bulkBuilderRuntime;
+        if (runtime.catalog) return runtime.catalog;
+        if (!runtime.catalogPromise) {
+            runtime.catalogPromise = this.api.fetchBulkBuilderCatalog().then(catalog => {
+                runtime.catalog = catalog;
+                runtime.catalogPromise = null;
+                const badge = document.getElementById('ase-bulk-version');
+                if (badge) badge.textContent = `ASE ${catalog.ase_version || ''}`.trim();
+                this.refreshAseBulkBuilderCompatibility({ preserveStructure: true });
+                this.scheduleAseBulkPreview({ immediate: true });
+                return catalog;
+            }).catch(error => {
+                runtime.catalogPromise = null;
+                throw error;
+            });
+        }
+        return await runtime.catalogPromise;
+    }
+
+    aseBulkReferenceMaterial(formula = null) {
+        const catalog = this.bulkBuilderRuntime.catalog;
+        const value = String(
+            formula ?? document.getElementById('ase-bulk-formula')?.value ?? ''
+        ).trim();
+        return (catalog?.reference_materials || []).find(item => item.formula === value) || null;
+    }
+
+    aseBulkStructureSpec(structure = null) {
+        const catalog = this.bulkBuilderRuntime.catalog;
+        let identifier = structure ?? document.getElementById('ase-bulk-structure')?.value ?? '';
+        if (!identifier) identifier = this.aseBulkReferenceMaterial()?.crystalstructure || '';
+        return (catalog?.structures || []).find(item => item.id === identifier) || null;
+    }
+
+    refreshAseBulkBuilderCompatibility({ preserveStructure = true } = {}) {
+        const catalog = this.bulkBuilderRuntime.catalog;
+        if (!catalog) return;
+        const structureSelect = document.getElementById('ase-bulk-structure');
+        const formulaList = document.getElementById('ase-bulk-formulas');
+        const formulaHint = document.getElementById('ase-bulk-formula-hint');
+        const cellMode = document.getElementById('ase-bulk-cell-mode')?.value || 'primitive';
+        const requestedStructure = preserveStructure ? structureSelect?.value || '' : '';
+
+        if (structureSelect) {
+            structureSelect.replaceChildren(new Option('Automatic from ASE', ''));
+            (catalog.structures || []).forEach(spec => {
+                if (!(spec.cell_modes || []).includes(cellMode)) return;
+                structureSelect.appendChild(new Option(spec.label, spec.id));
+            });
+            structureSelect.value = [...structureSelect.options].some(option => option.value === requestedStructure)
+                ? requestedStructure
+                : '';
+        }
+
+        const selectedStructure = structureSelect?.value || '';
+        const spec = this.aseBulkStructureSpec(selectedStructure);
+        const suggestions = [];
+        if (!selectedStructure) {
+            (catalog.reference_materials || []).forEach(item => {
+                if ((item.compatible_cell_modes || []).includes(cellMode)) {
+                    suggestions.push({ value: item.formula, label: `${item.formula} · ${item.crystalstructure}` });
+                }
+            });
+            if (formulaHint) {
+                formulaHint.textContent = `${suggestions.length} ASE reference elements support this cell shape. Type a custom formula to use an explicit prototype.`;
+            }
+        } else if (spec?.formula_atoms === 1) {
+            (catalog.elements || []).forEach(symbol => suggestions.push({ value: symbol, label: symbol }));
+            if (formulaHint) formulaHint.textContent = `${spec.formula_hint}. A non-reference prototype requires lattice parameter a.`;
+        } else {
+            (catalog.examples || [])
+                .filter(item => item.crystalstructure === selectedStructure)
+                .forEach(item => suggestions.push({
+                    value: item.formula,
+                    label: `${item.formula} · example`
+                }));
+            if (formulaHint) formulaHint.textContent = `${spec?.formula_hint || 'Enter a compatible formula'}. Lattice parameter a is required.`;
+        }
+        if (formulaList) {
+            formulaList.replaceChildren(...suggestions.map(item => {
+                const option = document.createElement('option');
+                option.value = item.value;
+                option.label = item.label;
+                return option;
+            }));
+        }
+
+        const visibleParameters = new Set(spec?.parameters || ['a']);
+        visibleParameters.add('a');
+        document.querySelectorAll('[data-bulk-parameter]').forEach(label => {
+            label.classList.toggle('hidden', !visibleParameters.has(label.dataset.bulkParameter));
+        });
+        const advanced = document.getElementById('ase-bulk-advanced');
+        advanced?.classList.toggle('hidden', !visibleParameters.has('basis'));
+        if (!visibleParameters.has('basis')) advanced?.removeAttribute('open');
+    }
+
+    aseBulkPayload() {
+        const payload = {
+            formula: String(document.getElementById('ase-bulk-formula')?.value || '').trim(),
+            cell_mode: document.getElementById('ase-bulk-cell-mode')?.value || 'primitive'
+        };
+        const structure = document.getElementById('ase-bulk-structure')?.value || '';
+        if (structure) payload.crystalstructure = structure;
+        const fields = {
+            a: 'ase-bulk-a',
+            b: 'ase-bulk-b',
+            c: 'ase-bulk-c',
+            alpha: 'ase-bulk-alpha',
+            covera: 'ase-bulk-covera',
+            u: 'ase-bulk-u'
+        };
+        Object.entries(fields).forEach(([key, id]) => {
+            const raw = document.getElementById(id)?.value;
+            if (raw !== undefined && String(raw).trim() !== '') payload[key] = Number(raw);
+        });
+        const basis = String(document.getElementById('ase-bulk-basis')?.value || '').trim();
+        if (basis) payload.basis = basis;
+        return payload;
+    }
+
+    aseBulkPayloadSignature(payload = null) {
+        return JSON.stringify(payload || this.aseBulkPayload());
+    }
+
+    setAseBulkPreviewState(state, title, detail = '') {
+        const preview = document.getElementById('ase-bulk-preview');
+        if (preview) preview.dataset.state = state;
+        const titleElement = document.getElementById('ase-bulk-preview-title');
+        const detailElement = document.getElementById('ase-bulk-preview-detail');
+        if (titleElement) titleElement.textContent = title;
+        if (detailElement) detailElement.textContent = detail;
+        const build = document.getElementById('btn-ase-bulk-build');
+        if (build) build.disabled = state !== 'valid' || this.state.vizOnly;
+    }
+
+    markAseBulkRequiredFields(fields = []) {
+        const required = new Set(fields);
+        document.querySelectorAll('[data-bulk-parameter]').forEach(label => {
+            label.classList.toggle('is-required', required.has(label.dataset.bulkParameter));
+        });
+        document.getElementById('ase-bulk-formula')?.classList.toggle('is-required', required.has('formula'));
+        document.getElementById('ase-bulk-structure')?.classList.toggle('is-required', required.has('crystalstructure'));
+    }
+
+    scheduleAseBulkPreview({ immediate = false } = {}) {
+        const runtime = this.bulkBuilderRuntime;
+        const signature = this.aseBulkPayloadSignature();
+        if (
+            runtime.lastPreview
+            && runtime.lastPreviewSignature === signature
+        ) {
+            return;
+        }
+        if (runtime.previewTimer !== null) clearTimeout(runtime.previewTimer);
+        this.setAseBulkPreviewState('loading', 'Checking this crystal', 'Validating against the installed ASE build contract...');
+        runtime.previewTimer = setTimeout(() => {
+            runtime.previewTimer = null;
+            this.previewAseBulkStructure().catch(error => {
+                this.setAseBulkPreviewState('error', 'Preview failed', error.message);
+            });
+        }, immediate ? 0 : 180);
+    }
+
+    async previewAseBulkStructure({ announceErrors = false } = {}) {
+        await this.ensureAseBulkCatalog();
+        const token = ++this.bulkBuilderRuntime.previewToken;
+        const payload = this.aseBulkPayload();
+        const signature = this.aseBulkPayloadSignature(payload);
+        const result = await this.api.previewBulkStructure(payload);
+        if (token !== this.bulkBuilderRuntime.previewToken) return null;
+        this.bulkBuilderRuntime.lastPreview = result;
+        this.bulkBuilderRuntime.lastPreviewSignature = signature;
+        this.markAseBulkRequiredFields(result.missing_fields || []);
+        if (!result.valid) {
+            const title = (result.missing_fields || []).length
+                ? 'More information required'
+                : 'Combination unavailable';
+            this.setAseBulkPreviewState('invalid', title, result.message || 'Check the selected arguments.');
+            if (announceErrors) this.toast(result.message || 'Check the selected arguments.', 'warning');
+            return result;
+        }
+        const cell = result.cell_parameters || {};
+        const lengths = [cell.a, cell.b, cell.c]
+            .map(value => Number(value).toFixed(3))
+            .join(' × ');
+        const angles = [cell.alpha, cell.beta, cell.gamma]
+            .map(value => Number(value).toFixed(1))
+            .join('°, ');
+        this.setAseBulkPreviewState(
+            'valid',
+            `${result.atom_count} atoms · ${result.crystalstructure} · ${result.cell_mode}`,
+            `Cell ${lengths} Å · angles ${angles}°`
+        );
+        return result;
+    }
+
+    async buildAseBulkStructure() {
+        this.aiRequireEdit('Build with ASE');
+        const payload = this.aseBulkPayload();
+        const signature = this.aseBulkPayloadSignature(payload);
+        let preview = this.bulkBuilderRuntime.lastPreview;
+        if (
+            !preview?.valid
+            || this.bulkBuilderRuntime.lastPreviewSignature !== signature
+        ) {
+            preview = await this.previewAseBulkStructure({ announceErrors: true });
+        }
+        if (!preview?.valid) return;
+        const replacing = Boolean(
+            Number(this.state.atoms?.metadata?.natoms || 0) > 0 || this.hasUsableCell()
+        );
+        if (replacing) {
+            const confirmed = await this.showConfirmModal({
+                title: 'Replace with this ASE crystal?',
+                intro: 'The generated bulk cell becomes the active single-frame structure.',
+                items: [
+                    'The current structure and trajectory are replaced.',
+                    'Current visualization settings remain active.',
+                    'Undo restores the replaced structure and trajectory.'
+                ],
+                confirmText: 'Replace and Build',
+                cancelText: 'Keep Current',
+                danger: true
+            });
+            if (!confirmed) return;
+        }
+        const buildPayload = {
+            ...payload,
+            replace_existing: replacing
+        };
+        const data = await this.withBusy(
+            `Building ${preview.formula} with ASE...`,
+            () => this.api.buildBulkStructure(buildPayload)
+        );
+        this.stopPlayback();
+        this.renderer.needsInitialCameraFit = true;
+        this.setAtomsData(data, { clearSelection: true });
+        this.updateUI();
+        this.toast(
+            `Built ${preview.formula} as ${preview.crystalstructure} (${preview.cell_mode}).`,
+            'success'
+        );
     }
 
     hasUsableCell() {
         return this.state.atoms?.cell?.some(v => new THREE.Vector3(...v).lengthSq() > 1e-12);
+    }
+
+    syncUnitCellControls() {
+        const cell = Array.isArray(this.state.atoms?.cell) ? this.state.atoms.cell : [];
+        for (let row = 0; row < 3; row++) {
+            for (let column = 0; column < 3; column++) {
+                const input = document.getElementById(`cell-${row}${column}`);
+                if (!input || document.activeElement === input) continue;
+                const value = Number(cell?.[row]?.[column] || 0);
+                input.value = String(Math.abs(value) < 5e-13 ? 0 : Number(value.toFixed(10)));
+            }
+        }
+        const pbc = Array.isArray(this.state.atoms?.pbc)
+            ? this.state.atoms.pbc
+            : [true, true, true];
+        ['x', 'y', 'z'].forEach((axis, index) => {
+            const input = document.getElementById(`cell-pbc-${axis}`);
+            if (input) input.checked = Boolean(pbc[index]);
+        });
+    }
+
+    async setUnitCellFromControls() {
+        const cell = [];
+        for (let row = 0; row < 3; row++) {
+            const vector = [];
+            for (let column = 0; column < 3; column++) {
+                const value = Number(document.getElementById(`cell-${row}${column}`)?.value);
+                if (!Number.isFinite(value)) {
+                    this.toast('Cell entries must be finite numbers.', 'warning');
+                    return;
+                }
+                vector.push(value);
+            }
+            cell.push(vector);
+        }
+        const pbc = ['x', 'y', 'z'].map(axis => (
+            Boolean(document.getElementById(`cell-pbc-${axis}`)?.checked)
+        ));
+        try {
+            const data = await this.api.setUnitCell(cell, pbc, false);
+            this.renderer.needsInitialCameraFit = true;
+            this.setAtomsData(data, { clearSelection: false });
+            this.toast('Unit cell updated without moving atoms.', 'success');
+        } catch (error) {
+            this.toast(`Set unit cell failed: ${error.message}`, 'error');
+        }
     }
 
     wrapVisibleAtomsIntoCell() {
@@ -5410,6 +13996,132 @@ class VAseApp {
 
     labelPairKey(a, b) {
         return [a, b].sort().join('-');
+    }
+
+    normalizedBondMaterial(value) {
+        return ['standard', 'metal', 'rubber', 'unlit'].includes(value)
+            ? value
+            : 'standard';
+    }
+
+    normalizedBondPairStyle(value = {}) {
+        const thickness = Number(value.thickness);
+        return {
+            style: value.style === 'flat' ? 'flat' : 'cylinder',
+            material: this.normalizedBondMaterial(value.material),
+            thickness: Math.max(0.02, Math.min(0.6, Number.isFinite(thickness)
+                ? thickness
+                : Number(this.state.display.bondThickness) || 0.25)),
+            colorMode: value.colorMode === 'custom' ? 'custom' : 'split',
+            color: this.validHexColor(value.color) ? value.color : '#c8ccd0',
+            opacity: Math.max(0.05, Math.min(1, Number.isFinite(Number(value.opacity))
+                ? Number(value.opacity)
+                : 1))
+        };
+    }
+
+    bondPairStyleForKey(key) {
+        const source = this.state.display.pairwiseBondStyles?.[key];
+        return source && typeof source === 'object'
+            ? this.normalizedBondPairStyle(source)
+            : null;
+    }
+
+    populateBondPairStyleSelector() {
+        const select = document.getElementById('bond-pair-style-key');
+        if (!select) return;
+        const previous = select.value;
+        const pairs = this.uniqueLabelPairs().map(([left, right]) => this.labelPairKey(left, right));
+        select.innerHTML = '';
+        pairs.forEach(key => {
+            const option = document.createElement('option');
+            option.value = key;
+            option.textContent = key;
+            select.appendChild(option);
+        });
+        select.value = pairs.includes(previous) ? previous : (pairs[0] || '');
+        this.syncBondPairStyleEditor();
+    }
+
+    syncBondPairStyleEditor() {
+        const key = document.getElementById('bond-pair-style-key')?.value;
+        const explicit = key ? this.bondPairStyleForKey(key) : null;
+        const fallback = this.normalizedBondPairStyle({
+            style: this.state.display.bondStyle,
+            material: this.state.display.bondMaterial,
+            thickness: this.state.display.bondThickness,
+            colorMode: this.state.display.bondColorMode,
+            color: this.state.display.bondCustomColor,
+            opacity: this.state.display.bondOpacity
+        });
+        const style = explicit || fallback;
+        const enabled = document.getElementById('bond-pair-style-enabled');
+        if (enabled) enabled.checked = Boolean(explicit);
+        const fields = document.getElementById('bond-pair-style-fields');
+        fields?.classList.toggle('disabled', !explicit);
+        fields?.querySelectorAll('input, select').forEach(control => {
+            control.disabled = !explicit;
+        });
+        const setValue = (id, value) => {
+            const element = document.getElementById(id);
+            if (element) element.value = value;
+        };
+        setValue('bond-pair-style', style.style);
+        setValue('bond-pair-material', style.material);
+        setValue('bond-pair-thickness', style.thickness);
+        setValue('bond-pair-color-mode', style.colorMode);
+        setValue('bond-pair-custom-color', style.color);
+        setValue('bond-pair-opacity', style.opacity);
+        document.getElementById('bond-pair-custom-color-row')?.classList.toggle(
+            'hidden', style.colorMode !== 'custom'
+        );
+        const opacityOutput = document.getElementById('bond-pair-opacity-value');
+        if (opacityOutput) opacityOutput.textContent = `${Math.round(style.opacity * 100)}%`;
+        const thicknessOutput = document.getElementById('bond-pair-thickness-value');
+        if (thicknessOutput) thicknessOutput.textContent = `${style.thickness.toFixed(2)} A`;
+    }
+
+    bondPairStyleFromEditor() {
+        return this.normalizedBondPairStyle({
+            style: document.getElementById('bond-pair-style')?.value,
+            material: document.getElementById('bond-pair-material')?.value,
+            thickness: document.getElementById('bond-pair-thickness')?.value,
+            colorMode: document.getElementById('bond-pair-color-mode')?.value,
+            color: document.getElementById('bond-pair-custom-color')?.value,
+            opacity: document.getElementById('bond-pair-opacity')?.value
+        });
+    }
+
+    applyBondPairStyle({ all = false } = {}) {
+        const selectedKey = document.getElementById('bond-pair-style-key')?.value;
+        const enabled = document.getElementById('bond-pair-style-enabled')?.checked === true;
+        if (!selectedKey && !all) return;
+        const next = { ...(this.state.display.pairwiseBondStyles || {}) };
+        const keys = all
+            ? this.uniqueLabelPairs().map(([left, right]) => this.labelPairKey(left, right))
+            : [selectedKey];
+        const style = this.bondPairStyleFromEditor();
+        keys.forEach(key => {
+            if (enabled || all) next[key] = { ...style };
+            else delete next[key];
+        });
+        this.state.display.pairwiseBondStyles = next;
+        if (all) {
+            const checkbox = document.getElementById('bond-pair-style-enabled');
+            if (checkbox) checkbox.checked = true;
+        }
+        this.syncBondPairStyleEditor();
+        this.applyBondOptions();
+    }
+
+    resetBondPairStyle() {
+        const key = document.getElementById('bond-pair-style-key')?.value;
+        if (!key) return;
+        const next = { ...(this.state.display.pairwiseBondStyles || {}) };
+        delete next[key];
+        this.state.display.pairwiseBondStyles = next;
+        this.syncBondPairStyleEditor();
+        this.applyBondOptions();
     }
 
     uniqueAtomLabels() {
@@ -5543,6 +14255,119 @@ class VAseApp {
         this.state.trajectoryLabelElements = elements;
     }
 
+    clearViewIdentityOverrides() {
+        this.state.viewIdentityGlobalLabels = null;
+        this.state.viewIdentityFrameLabels = new Map();
+    }
+
+    viewIdentityOverridesSnapshot() {
+        if (!Array.isArray(this.state.atoms?.symbols)) return null;
+        const frame = this.currentTrajectoryFrame();
+        if (this.trajectoryIdentityCompatible()) {
+            return {
+                schema: 'v_ase.view_identity.v1',
+                scope: 'trajectory',
+                labels: [...this.state.atoms.symbols]
+            };
+        }
+        const frames = Object.fromEntries(
+            [...this.state.viewIdentityFrameLabels.entries()]
+                .map(([index, labels]) => [String(index), [...labels]])
+        );
+        frames[String(frame)] = [...this.state.atoms.symbols];
+        return {
+            schema: 'v_ase.view_identity.v1',
+            scope: 'frames',
+            frames
+        };
+    }
+
+    restoreViewIdentityOverrides(source) {
+        if (!source || !Array.isArray(this.state.atoms?.symbols)) return false;
+        const frame = this.currentTrajectoryFrame();
+        const atomCount = this.state.atoms.symbols.length;
+        this.clearViewIdentityOverrides();
+        if (source.scope === 'trajectory' && Array.isArray(source.labels)) {
+            if (source.labels.length !== atomCount) return false;
+            this.state.viewIdentityGlobalLabels = [...source.labels];
+        } else if (source.scope === 'frames' && source.frames && typeof source.frames === 'object') {
+            Object.entries(source.frames).forEach(([index, labels]) => {
+                if (Array.isArray(labels) && labels.length === atomCount) {
+                    this.state.viewIdentityFrameLabels.set(Number(index), [...labels]);
+                }
+            });
+        } else {
+            return false;
+        }
+        const labels = this.state.viewIdentityGlobalLabels
+            || this.state.viewIdentityFrameLabels.get(frame);
+        if (!Array.isArray(labels) || labels.length !== atomCount) return false;
+        this.state.atoms.symbols = [...labels];
+        if (Array.isArray(this.state.atoms.atom_types)) {
+            this.state.atoms.atom_types = [...labels];
+        }
+        this.syncTrajectoryIdentity(this.state.atoms);
+        this.rebuildLabelIndexCache(labels);
+        this.reconcileLabelOrder(labels);
+        return true;
+    }
+
+    trajectoryIdentityCompatible(data = this.state.atoms) {
+        const frameCount = Number(data?.metadata?.frame_count) || 1;
+        if (frameCount <= 1) return true;
+        return data?.metadata?.trajectory_identity_compatible === true;
+    }
+
+    currentTrajectoryFrame(data = this.state.atoms) {
+        return Math.max(0, Number(data?.metadata?.current_frame) || 0);
+    }
+
+    applyViewIdentityOverridesToData(data) {
+        if (!this.state.vizOnly || !data?.symbols) return data;
+        const frame = this.currentTrajectoryFrame(data);
+        const compatible = this.trajectoryIdentityCompatible(data);
+        if (!compatible && Array.isArray(this.state.viewIdentityGlobalLabels)) {
+            this.state.viewIdentityFrameLabels.set(
+                frame,
+                [...this.state.viewIdentityGlobalLabels]
+            );
+            this.state.viewIdentityGlobalLabels = null;
+        }
+        const labels = compatible
+            ? this.state.viewIdentityGlobalLabels
+            : this.state.viewIdentityFrameLabels.get(frame);
+        if (!Array.isArray(labels) || labels.length !== data.symbols.length) return data;
+        data.symbols = [...labels];
+        if (Array.isArray(data.atom_types)) data.atom_types = [...labels];
+        return data;
+    }
+
+    recordViewIdentityOverride() {
+        if (!this.state.vizOnly || !Array.isArray(this.state.atoms?.symbols)) return;
+        const labels = [...this.state.atoms.symbols];
+        if (this.trajectoryIdentityCompatible()) {
+            this.state.viewIdentityGlobalLabels = labels;
+            this.state.viewIdentityFrameLabels.clear();
+            return;
+        }
+        this.state.viewIdentityGlobalLabels = null;
+        this.state.viewIdentityFrameLabels.set(this.currentTrajectoryFrame(), labels);
+    }
+
+    showTrajectoryLabelScopeNotice() {
+        this.showModal(`
+            <h2>Label changed on this frame only</h2>
+            <p class="modal-intro">
+                This trajectory does not keep the same atom count and element sequence in every frame.
+                The selected atom indices were relabelled only in the current frame.
+            </p>
+            <ul class="confirm-list">
+                <li>Coordinates and ASE element types were not changed.</li>
+                <li>Frames with a different topology keep their existing labels.</li>
+            </ul>
+        `, '<button id="modal-close" class="btn primary">Understood</button>');
+    }
+
     labelIndices(symbol) {
         return this.state.labelIndexCache?.get(symbol) || [];
     }
@@ -5553,7 +14378,20 @@ class VAseApp {
 
     isAtomVisible(index) {
         const symbol = this.state.atoms?.symbols?.[index];
-        return !symbol || this.isLabelVisible(symbol);
+        return (!symbol || this.isLabelVisible(symbol))
+            && !this.hiddenAtomReferenceSet().has(`atom:${index}`);
+    }
+
+    hiddenAtomReferenceSet() {
+        return new Set(this.state.display.hiddenAtomReferences || []);
+    }
+
+    isSelectionReferenceVisible(reference) {
+        const normalized = this.normalizeSelectionReference(reference);
+        if (!normalized) return false;
+        const symbol = this.state.atoms?.symbols?.[normalized.index];
+        if (symbol && !this.isLabelVisible(symbol)) return false;
+        return !this.hiddenAtomReferenceSet().has(normalized.key);
     }
 
     visibleLabelIndices(symbol) {
@@ -5566,7 +14404,7 @@ class VAseApp {
             if (!this.isAtomVisible(index)) this.state.selected.delete(index);
         });
         this.state.replicaSelected.forEach((reference, key) => {
-            if (!this.isAtomVisible(reference.index)) this.state.replicaSelected.delete(key);
+            if (!this.isSelectionReferenceVisible(reference)) this.state.replicaSelected.delete(key);
         });
     }
 
@@ -5601,6 +14439,15 @@ class VAseApp {
 
     normalizedTypeLabel(value) {
         return String(value || '').trim();
+    }
+
+    syncElementSelectFromLabel(labelInput, typeSelect) {
+        if (!labelInput || !typeSelect) return false;
+        const inferred = this.detectedElementForLabel(labelInput.value);
+        if (!inferred || !this.chemicalElementOptions().includes(inferred)) return false;
+        if (typeSelect.value === inferred) return false;
+        typeSelect.value = inferred;
+        return true;
     }
 
     chemicalElementOptions() {
@@ -5657,7 +14504,11 @@ class VAseApp {
     ) {
         if (!oldSymbol || !newSymbol || oldSymbol === newSymbol) return;
         const maps = [
-            ...(appearance ? [this.state.display.labelRadii, this.state.display.labelColors] : []),
+            ...(appearance ? [
+                this.state.display.labelRadii,
+                this.state.display.labelColors,
+                this.state.display.labelOpacities
+            ] : []),
             this.state.display.labelMaterials,
             this.state.display.labelVisible
         ];
@@ -5668,6 +14519,8 @@ class VAseApp {
         });
         const cutoffs = this.state.display.pairwiseBondCutoffs || {};
         const ranges = this.state.display.pairwiseBondRanges || {};
+        const pairStyles = this.state.display.pairwiseBondStyles || {};
+        const repulsionRanges = this.state.repulsionPairRanges || {};
         const partners = new Set([
             oldSymbol,
             newSymbol,
@@ -5684,11 +14537,21 @@ class VAseApp {
             if (copySource && oldKey in ranges && !(newKey in ranges)) {
                 ranges[newKey] = { ...ranges[oldKey] };
             }
+            if (copySource && oldKey in pairStyles && !(newKey in pairStyles)) {
+                pairStyles[newKey] = { ...pairStyles[oldKey] };
+            }
+            const oldRepulsionKey = this.repulsionPairKey(oldSymbol, partner);
+            const newRepulsionKey = this.repulsionPairKey(newSymbol, mappedPartner);
+            if (copySource && oldRepulsionKey in repulsionRanges && !(newRepulsionKey in repulsionRanges)) {
+                repulsionRanges[newRepulsionKey] = { ...repulsionRanges[oldRepulsionKey] };
+            }
         });
         if (removeSource) {
             partners.forEach(partner => {
                 delete cutoffs[this.labelPairKey(oldSymbol, partner)];
                 delete ranges[this.labelPairKey(oldSymbol, partner)];
+                delete pairStyles[this.labelPairKey(oldSymbol, partner)];
+                delete repulsionRanges[this.repulsionPairKey(oldSymbol, partner)];
             });
         }
     }
@@ -5846,9 +14709,15 @@ class VAseApp {
             field: active?.dataset?.appearanceField
         };
         root.innerHTML = '';
+        this.state.display.labelOpacities = {
+            ...(this.state.display.labelOpacities || {})
+        };
         this.uniqueAtomLabels().forEach(symbol => {
             if (!(symbol in this.state.display.labelRadii)) {
                 this.state.display.labelRadii[symbol] = Number(this.labelVisualRadius(symbol).toFixed(4));
+            }
+            if (!(symbol in this.state.display.labelOpacities)) {
+                this.state.display.labelOpacities[symbol] = 1;
             }
             if (!(symbol in this.state.display.labelVisible)) {
                 this.state.display.labelVisible[symbol] = true;
@@ -5868,7 +14737,10 @@ class VAseApp {
             typeSelect.title = `${labelAtomIndices.length} atom${labelAtomIndices.length === 1 ? '' : 's'} with label ${symbol}`;
             typeSelect.value = currentElement || '';
             typeSelect.placeholder = currentElements.length > 1 ? 'Mixed' : 'Element';
-            typeSelect.disabled = labelAtomIndices.length === 0;
+            typeSelect.disabled = this.state.vizOnly || labelAtomIndices.length === 0;
+            typeSelect.title = this.state.vizOnly
+                ? 'Switch to Edit mode to change the ASE element type.'
+                : typeSelect.title;
 
             const visibleBox = document.createElement('input');
             visibleBox.type = 'checkbox';
@@ -5916,6 +14788,7 @@ class VAseApp {
             nameInput.value = symbol;
             nameInput.disabled = labelAtomIndices.length === 0;
             const previewDetectedBase = () => {
+                if (this.state.vizOnly) return;
                 const next = this.normalizedTypeLabel(nameInput.value);
                 const inferredBase = this.detectedElementForLabel(next);
                 if (inferredBase) {
@@ -5935,6 +14808,7 @@ class VAseApp {
                 if (!applied && nameInput.isConnected) renameRequestKey = null;
             };
             typeSelect.addEventListener('change', () => {
+                if (this.state.vizOnly) return;
                 if (!this.chemicalElementOptions().includes(typeSelect.value)) {
                     const invalidType = typeSelect.value;
                     typeSelect.value = currentElement || '';
@@ -5988,6 +14862,34 @@ class VAseApp {
             input.addEventListener('change', () => this.safeApplyDisplayOptions());
             input.addEventListener('input', () => this.safeApplyDisplayOptions());
 
+            const opacity = document.createElement('input');
+            opacity.type = 'number';
+            opacity.id = this.safeControlId('label-opacity', symbol);
+            opacity.className = 'label-opacity-input';
+            opacity.dataset.atomLabel = symbol;
+            opacity.dataset.appearanceField = 'opacity';
+            opacity.min = '0';
+            opacity.max = '1';
+            opacity.step = '0.05';
+            opacity.value = Number(this.state.display.labelOpacities[symbol]).toFixed(2);
+            opacity.title = `Opacity for ${symbol} (0 transparent, 1 opaque)`;
+            const commitOpacity = () => {
+                const value = Number(opacity.value);
+                if (!Number.isFinite(value)) {
+                    opacity.value = Number(this.state.display.labelOpacities[symbol] ?? 1).toFixed(2);
+                    return;
+                }
+                opacity.value = Math.max(0, Math.min(1, value)).toFixed(2);
+                this.safeApplyDisplayOptions();
+            };
+            opacity.addEventListener('change', commitOpacity);
+            opacity.addEventListener('keydown', event => {
+                if (event.key !== 'Enter') return;
+                event.preventDefault();
+                commitOpacity();
+                opacity.blur();
+            });
+
             const material = document.createElement('select');
             material.className = 'appearance-material-select';
             material.dataset.atomLabel = symbol;
@@ -6024,7 +14926,7 @@ class VAseApp {
                 this.updateSelectedAppearanceControls();
             });
 
-            row.append(typeSelect, visibleBox, selectBox, nameInput, color, input, material);
+            row.append(typeSelect, visibleBox, selectBox, nameInput, color, input, opacity, material);
             root.appendChild(row);
         });
         const focusMatch = [...root.querySelectorAll('[data-atom-label][data-appearance-field]')]
@@ -6057,6 +14959,18 @@ class VAseApp {
             if (this.validHexColor(color) && !(symbol in colors)) colors[symbol] = color;
         });
         return colors;
+    }
+
+    parseLabelOpacities() {
+        const opacities = {};
+        document.querySelectorAll('.label-opacity-input').forEach(input => {
+            const value = Number(input.value);
+            if (!Number.isFinite(value)) return;
+            const opacity = Math.max(0, Math.min(1, value));
+            input.value = opacity.toFixed(2);
+            opacities[input.dataset.atomLabel] = opacity;
+        });
+        return opacities;
     }
 
     parseLabelVisibility() {
@@ -6127,13 +15041,17 @@ class VAseApp {
         )];
         const targetExists = targetIndices.length > 0;
         const inferredBase = this.detectedElementForLabel(label);
-        const base = baseSymbol || (targetBases.length === 1 ? targetBases[0] : inferredBase);
+        const base = this.state.vizOnly
+            ? null
+            : (baseSymbol || (targetBases.length === 1 ? targetBases[0] : inferredBase));
         const oldBases = [...new Set(
             indices
                 .map(index => this.state.atoms?.chemical_symbols?.[index])
                 .filter(symbol => CHEMICAL_ELEMENT_SET.has(symbol))
         )];
-        const preserveAppearance = !base || (oldBases.length === 1 && oldBases[0] === base);
+        const preserveAppearance = this.state.vizOnly
+            || !base
+            || (oldBases.length === 1 && oldBases[0] === base);
         if (label === oldSymbol && !baseSymbol && (!base || preserveAppearance)) return true;
         this.state.pendingLabelRenames.add(oldSymbol);
         try {
@@ -6186,26 +15104,14 @@ class VAseApp {
         { preserveAppearance = true, targetExists = false } = {}
     ) {
         if (!this.state.atoms || !indices.length) return;
-        const radius = baseSymbol ? this.defaultElementRadius(baseSymbol) : null;
-        const color = baseSymbol ? this.defaultElementColor(baseSymbol) : null;
+        const appliesToTrajectory = this.trajectoryIdentityCompatible();
         indices.forEach(index => {
             this.state.atoms.symbols[index] = label;
             if (Array.isArray(this.state.atoms.atom_types)) {
                 this.state.atoms.atom_types[index] = label;
             }
-            if (baseSymbol && Array.isArray(this.state.atoms.chemical_symbols)) {
-                this.state.atoms.chemical_symbols[index] = baseSymbol;
-            }
-            if (!preserveAppearance && Number.isFinite(radius) && radius > 0 && Array.isArray(this.state.atoms.visual?.radii)) {
-                this.state.atoms.visual.radii[index] = radius;
-            }
-            if (!preserveAppearance && Number.isFinite(radius) && radius > 0 && Array.isArray(this.state.atoms.visual?.covalent_radii)) {
-                this.state.atoms.visual.covalent_radii[index] = radius;
-            }
-            if (!preserveAppearance && color && Array.isArray(this.state.atoms.visual?.colors)) {
-                this.state.atoms.visual.colors[index] = color;
-            }
         });
+        this.recordViewIdentityOverride();
         this.rebuildLabelIndexCache(this.state.atoms.symbols || []);
         const selected = new Set();
         this.state.selected.forEach(index => {
@@ -6217,26 +15123,28 @@ class VAseApp {
             removeSource: label !== oldSymbol,
             copySource: !targetExists
         });
-        if (!preserveAppearance && !targetExists && baseSymbol) {
-            this.setElementBaseDefaults(label, baseSymbol, { color: true });
-        }
-        this.updateLocalTrajectoryIdentity(oldSymbol, label, baseSymbol);
+        this.updateLocalTrajectoryIdentity(oldSymbol, label, null);
         if (label !== oldSymbol) this.replaceLabelOrder(oldSymbol, label);
         this.renderPairwiseBondControls();
-        this.renderer.renameAtomLabel(oldSymbol, label, indices, this.state.display, baseSymbol);
+        this.renderer.renameAtomLabel(oldSymbol, label, indices, this.state.display, null);
         this.renderAppearanceRows();
         this.updateLabelSelectionControls();
         this.pruneSelection();
         this.updateSelectionVisuals();
         this.updateUI();
+        this.scheduleVisualHistoryCommit('atom-label');
         this.toast(
-            label === oldSymbol
-                ? `Updated ${label} element type to ${baseSymbol} for this visualization.`
-                : (targetExists
+            targetExists
                     ? `Merged ${oldSymbol} into label ${label} for this visualization.`
-                    : `Renamed ${oldSymbol} to ${label} for this visualization.`),
+                    : `Renamed ${oldSymbol} to ${label} for this visualization.`,
             'success'
         );
+        if (
+            Number(this.state.atoms?.metadata?.frame_count || 1) > 1
+            && !appliesToTrajectory
+        ) {
+            this.showTrajectoryLabelScopeNotice();
+        }
     }
 
     prepareLabelOrderForIdentityChange(indices, targetLabel) {
@@ -6261,24 +15169,85 @@ class VAseApp {
         this.state.labelOrder = [...new Set(next)];
     }
 
-    async applySelectedLabelEdit() {
-        if (!this.canEditAtoms()) {
-            this.editOnlyToast();
-            return;
+    applySelectedLabelForVisualization(indices, label) {
+        const appliesToTrajectory = this.trajectoryIdentityCompatible();
+        const selected = new Set(indices);
+        const previousLabels = [...new Set(
+            indices.map(index => this.state.atoms?.symbols?.[index]).filter(Boolean)
+        )];
+        const targetExists = this.labelIndices(label).some(index => !selected.has(index));
+        const previousMaterials = new Map(
+            indices.map(index => [index, this.atomMaterialPreset(index)])
+        );
+        this.prepareLabelOrderForIdentityChange(indices, label);
+        indices.forEach(index => {
+            this.state.atoms.symbols[index] = label;
+            if (Array.isArray(this.state.atoms.atom_types)) {
+                this.state.atoms.atom_types[index] = label;
+            }
+        });
+        this.recordViewIdentityOverride();
+        this.rebuildLabelIndexCache(this.state.atoms.symbols || []);
+
+        let appearanceCopied = targetExists;
+        previousLabels.filter(source => source !== label).forEach(source => {
+            const sourceStillPresent = this.labelIndices(source).length > 0;
+            this.transferLabelDisplaySettings(source, label, {
+                appearance: true,
+                removeSource: !sourceStillPresent,
+                copySource: !appearanceCopied
+            });
+            appearanceCopied = true;
+            this.updateLocalTrajectoryIdentity(source, label, null);
+        });
+
+        const inheritedMaterial = this.normalizedAtomMaterialPreset(
+            this.state.display.labelMaterials?.[label]
+        );
+        const atomMaterials = { ...(this.state.display.atomMaterials || {}) };
+        indices.forEach(index => {
+            const previous = previousMaterials.get(index) || 'standard';
+            if (previous === inheritedMaterial) delete atomMaterials[index];
+            else atomMaterials[index] = previous;
+        });
+        this.state.display.atomMaterials = atomMaterials;
+        this.renderPairwiseBondControls();
+        this.renderer.renameAtomLabel(null, label, indices, this.state.display, null);
+        this.renderAppearanceRows();
+        this.updateLabelSelectionControls();
+        this.updateSelectionVisuals();
+        this.updateUI();
+        this.scheduleVisualHistoryCommit('selected-label');
+        this.toast(
+            `Assigned ${indices.length} selected atom${indices.length === 1 ? '' : 's'} to label ${label}.`,
+            'success'
+        );
+        if (
+            Number(this.state.atoms?.metadata?.frame_count || 1) > 1
+            && !appliesToTrajectory
+        ) {
+            this.showTrajectoryLabelScopeNotice();
         }
+    }
+
+    async applySelectedLabelEdit({ reportErrors = true } = {}) {
         const indices = this.selectedAtomIndices();
         if (!indices.length) {
             this.toast('Select atoms before changing their label.', 'warning');
-            return;
+            return false;
         }
         const input = document.getElementById('selected-atom-label');
         const label = this.normalizedTypeLabel(input?.value);
         if (!label) {
             this.toast('Atom label cannot be empty.', 'warning');
-            return;
+            return false;
         }
         const previousLabels = [...new Set(indices.map(index => this.state.atoms.symbols[index]))];
-        if (previousLabels.length === 1 && previousLabels[0] === label) return;
+        if (previousLabels.length === 1 && previousLabels[0] === label) return true;
+        if (!this.canEditAtoms()) {
+            this.applySelectedLabelForVisualization(indices, label);
+            return true;
+        }
 
         const selectedSet = new Set(indices);
         const targetIndices = this.labelIndices(label);
@@ -6345,8 +15314,13 @@ class VAseApp {
                     : `Assigned selected atoms to label ${label}.`,
                 'success'
             );
+            return true;
         } catch (err) {
-            this.toast(`Selected label update failed: ${err.message}`, 'error');
+            if (reportErrors) {
+                this.toast(`Selected label update failed: ${err.message}`, 'error');
+                return false;
+            }
+            throw err;
         }
     }
 
@@ -6415,6 +15389,7 @@ class VAseApp {
             target?.focus();
         }
         this.updateBondModeUI();
+        this.populateBondPairStyleSelector();
     }
 
     normalizedPairwiseLabelColumnWidth(value = this.state.display.pairwiseLabelColumnWidth) {
@@ -6519,6 +15494,9 @@ class VAseApp {
         }
         const style = document.getElementById('bond-style')?.value;
         if (['cylinder', 'flat'].includes(style)) this.state.display.bondStyle = style;
+        this.state.display.bondMaterial = this.normalizedBondMaterial(
+            document.getElementById('bond-material')?.value
+        );
         const thickness = Number(document.getElementById('bond-thickness')?.value);
         if (Number.isFinite(thickness) && thickness > 0) {
             this.state.display.bondThickness = Math.max(0.02, Math.min(0.6, thickness));
@@ -6528,6 +15506,10 @@ class VAseApp {
         const customColor = document.getElementById('bond-custom-color')?.value;
         if (/^#[0-9A-Fa-f]{6}$/.test(customColor || '')) {
             this.state.display.bondCustomColor = customColor;
+        }
+        const opacity = Number(document.getElementById('bond-opacity')?.value);
+        if (Number.isFinite(opacity)) {
+            this.state.display.bondOpacity = Math.max(0.05, Math.min(1, opacity));
         }
         const parsedSpecifications = this.parsePairwiseBondRanges();
         this.state.display.pairwiseBondRanges = {
@@ -6568,6 +15550,12 @@ class VAseApp {
         const thickness = Number.isFinite(rawThickness) ? rawThickness : 0.25;
         const output = document.getElementById('bond-thickness-value');
         if (output) output.innerText = `${thickness.toFixed(2)} A`;
+        const opacity = Math.max(0.05, Math.min(1, Number(
+            document.getElementById('bond-opacity')?.value || this.state.display.bondOpacity || 1
+        )));
+        const opacityOutput = document.getElementById('bond-opacity-value');
+        if (opacityOutput) opacityOutput.textContent = `${Math.round(opacity * 100)}%`;
+        this.syncBondPairStyleEditor();
     }
 
     parseBondPairs() {
@@ -6605,6 +15593,7 @@ class VAseApp {
             cancelAnimationFrame(this.state.displayApplyRequest);
             this.state.displayApplyRequest = null;
         }
+        const previousPlaneRepetitions = JSON.stringify(this.volumetricPlaneRepetitions());
         this.state.display.showBonds = document.getElementById('chk-bonds').checked;
         this.state.display.showCell = document.getElementById('chk-cell').checked;
         const cellThickness = Number(document.getElementById('cell-thickness')?.value);
@@ -6638,6 +15627,21 @@ class VAseApp {
         this.state.display.rotatePivot = document.getElementById('rotate-pivot')?.value || 'selection';
         this.state.display.commensurateGuide = Boolean(document.getElementById('chk-commensurate-guide')?.checked);
         this.state.display.commensurateSnap = document.getElementById('chk-commensurate-snap')?.checked !== false;
+        this.state.display.commensurateMode = document.getElementById('commensurate-mode')?.value === 'host-guest'
+            ? 'host-guest'
+            : 'same-lattice';
+        this.state.display.commensurateStrainTarget = document.getElementById('commensurate-strain-target')?.value === 'host'
+            ? 'host'
+            : 'guest';
+        this.state.display.commensurateShowAtoms = Boolean(
+            document.getElementById('chk-commensurate-show-atoms')?.checked
+        );
+        const guestGap = Number(document.getElementById('commensurate-guest-gap')?.value ?? 3);
+        this.state.display.commensurateGuestGap = Number.isFinite(guestGap)
+            ? Math.max(0, Math.min(20, guestGap))
+            : 3.0;
+        const guestAngle = Number(document.getElementById('commensurate-guest-angle')?.value || 0);
+        this.state.display.commensurateGuestAngleDeg = Number.isFinite(guestAngle) ? guestAngle : 0;
         const strainPercent = parseFloat(document.getElementById('commensurate-strain')?.value || '1');
         this.state.display.commensurateStrainTolerance = Number.isFinite(strainPercent) && strainPercent >= 0
             ? Math.min(25, strainPercent) / 100
@@ -6646,6 +15650,10 @@ class VAseApp {
         this.state.display.commensurateMaxIndex = Number.isFinite(maxIndex)
             ? Math.max(2, Math.min(64, maxIndex))
             : 32;
+        const maxArea = parseInt(document.getElementById('commensurate-max-area')?.value || '16', 10);
+        this.state.display.commensurateMaxAreaRatio = Number.isFinite(maxArea)
+            ? Math.max(1, Math.min(MAX_COMMENSURATE_AREA_RATIO, maxArea))
+            : 16;
         const snapRange = parseFloat(document.getElementById('commensurate-snap-range')?.value || '2');
         this.state.display.commensurateSnapRangeDeg = Number.isFinite(snapRange)
             ? Math.max(0, Math.min(15, snapRange))
@@ -6657,6 +15665,7 @@ class VAseApp {
             : 0.6;
         this.state.display.labelRadii = this.parseLabelRadii();
         this.state.display.labelColors = this.parseLabelColors();
+        this.state.display.labelOpacities = this.parseLabelOpacities();
         this.state.display.labelVisible = this.parseLabelVisibility();
         this.state.display.supercell = this.normalizeSupercellInputs();
         this.state.display.antiAliasing = this.state.antiAliasing;
@@ -6668,6 +15677,12 @@ class VAseApp {
         this.syncViewControls();
         this.pruneSelection();
         this.renderer.setDisplayOptions(this.state.display);
+        if (
+            this.volumetricPlanes().length
+            && previousPlaneRepetitions !== JSON.stringify(this.volumetricPlaneRepetitions())
+        ) {
+            this.scheduleVolumetricPlanePreview({ settle: true });
+        }
         this.updateSelectionVisuals();
         this.updateLabelSelectionControls();
         this.updateBondModeUI();
@@ -6692,6 +15707,15 @@ class VAseApp {
             cancelAnimationFrame(this.state.bondApplyRequest);
             this.state.bondApplyRequest = null;
         }
+        const rdfPairMode = this.state.display.rdfPairMode;
+        const previousRdfPairs = (
+            this.state.rdfResult
+            && ['active', 'selected'].includes(rdfPairMode)
+        ) ? JSON.stringify(
+                rdfPairMode === 'selected'
+                    ? this.selectedActiveRdfPairs()
+                    : this.activeRdfPairs()
+            ) : null;
         this.state.display.showBonds = Boolean(document.getElementById('chk-bonds')?.checked);
         this.state.display.showPeriodicBonds = Boolean(
             document.getElementById('chk-periodic-bonds')?.checked
@@ -6706,11 +15730,33 @@ class VAseApp {
             manualBondPairs: this.state.display.manualBondPairs,
             pairwiseBondCutoffs: this.state.display.pairwiseBondCutoffs,
             pairwiseBondRanges: this.state.display.pairwiseBondRanges,
+            pairwiseBondStyles: this.state.display.pairwiseBondStyles,
             bondStyle: this.state.display.bondStyle,
+            bondMaterial: this.state.display.bondMaterial,
             bondThickness: this.state.display.bondThickness,
             bondColorMode: this.state.display.bondColorMode,
-            bondCustomColor: this.state.display.bondCustomColor
+            bondCustomColor: this.state.display.bondCustomColor,
+            bondOpacity: this.state.display.bondOpacity
         });
+        const nextRdfPairs = rdfPairMode === 'selected'
+            ? this.selectedActiveRdfPairs()
+            : this.activeRdfPairs();
+        if (previousRdfPairs !== null && previousRdfPairs !== JSON.stringify(nextRdfPairs)) {
+            if (rdfPairMode === 'selected') {
+                this.scheduleSelectedRdfRefresh();
+            } else {
+                const keptOpen = this.invalidateRdfResult(
+                    'Active bond-pair settings changed; recalculating the distribution.',
+                    { preserveActivePlot: true }
+                );
+                if (keptOpen) {
+                    this.scheduleActiveStructureAnalysisRefresh(
+                        'Active bond-pair settings changed.',
+                        80
+                    );
+                }
+            }
+        }
         if (this.state.exportPreviewEnabled) this.syncImageExportPreview();
         this.scheduleVisualHistoryCommit('bonds');
     }
@@ -6798,6 +15844,11 @@ class VAseApp {
             ['/api/calculator/', ['structure'], ['calculator'], 'The ASE calculator configuration changed.'],
             ['/api/relax/start/', ['structure', 'trajectory'], ['relaxation.status'], 'Structure relaxation started.'],
             ['/api/relax/stop/', ['structure', 'trajectory'], ['relaxation.status'], 'Structure relaxation stopped.'],
+            ['/api/add-session/start/', ['structure'], ['structure.topology', 'addAtoms.status'], 'Atom or molecule insertion was staged.'],
+            ['/api/add-session/relax/', ['structure'], ['structure.positions', 'addAtoms.status'], 'Repulsive placement started.'],
+            ['/api/add-session/stop/', ['structure'], ['addAtoms.status'], 'Repulsive placement stop was requested.'],
+            ['/api/add-session/finish/', ['structure'], ['structure.topology', 'addAtoms.status'], 'Staged insertion content was committed.'],
+            ['/api/add-session/cancel/', ['structure'], ['structure', 'addAtoms.status'], 'Staged insertion was cancelled and the baseline was restored.'],
             ['/api/atom-identity/', ['structure'], ['structure.identity'], 'Atom identity changed.'],
             ['/api/constraints/', ['constraints'], ['constraints'], 'ASE constraints changed.'],
             ['/api/supercell/', ['structure'], ['structure.cell', 'structure.positions'], 'The working supercell changed.'],
@@ -6891,26 +15942,29 @@ class VAseApp {
     }
 
     async flushCollaborationEvents(source = null) {
-        const actors = source
-            ? [source]
-            : [...this.collaborationPending.keys()];
-        for (const actor of actors) {
-            const pending = this.collaborationPending.get(actor);
-            if (!pending) continue;
-            if (pending.timer !== null) clearTimeout(pending.timer);
-            this.collaborationPending.delete(actor);
-            const categories = [...pending.categories];
-            await this.publishCollaborationEvent({
-                type: pending.type,
-                source: pending.source,
-                categories,
-                changedPaths: [...pending.changedPaths],
-                summary: this.collaborationSummary(
-                    pending.source,
+        while (true) {
+            const actors = source
+                ? (this.collaborationPending.has(source) ? [source] : [])
+                : [...this.collaborationPending.keys()];
+            if (!actors.length) break;
+            for (const actor of actors) {
+                const pending = this.collaborationPending.get(actor);
+                if (!pending) continue;
+                if (pending.timer !== null) clearTimeout(pending.timer);
+                this.collaborationPending.delete(actor);
+                const categories = [...pending.categories];
+                await this.publishCollaborationEvent({
+                    type: pending.type,
+                    source: pending.source,
                     categories,
-                    pending.summaries
-                )
-            });
+                    changedPaths: [...pending.changedPaths],
+                    summary: this.collaborationSummary(
+                        pending.source,
+                        categories,
+                        pending.summaries
+                    )
+                });
+            }
         }
         return this.collaborationRevision;
     }
@@ -6918,6 +15972,15 @@ class VAseApp {
     observeCollaborationCamera(source = 'camera') {
         const signature = this.collaborationCameraKey();
         if (signature === null) return;
+        // Workspace activation and ordinary browser resizing change the
+        // framebuffer aspect, not the researcher's intended camera.  Adopt
+        // that layout-derived state as the new baseline without publishing a
+        // phantom human edit that can invalidate an immediately preceding
+        // describe()/expectedRevision pair.
+        if (source === 'resize') {
+            this.collaborationCameraSignature = signature;
+            return;
+        }
         if (this.collaborationCameraSignature === null) {
             this.collaborationCameraSignature = signature;
             return;
@@ -6988,6 +16051,11 @@ class VAseApp {
             categories.add('camera');
             changedPaths.add('camera');
         }
+        if (command.renderArea !== undefined) {
+            categories.add('camera');
+            categories.add('display');
+            changedPaths.add('renderArea');
+        }
         if (command.selection !== undefined) {
             categories.add('selection');
             changedPaths.add('selection.references');
@@ -6997,16 +16065,40 @@ class VAseApp {
                 ? command.operation
                 : command.operation?.name;
             if (operation === 'set-constraints') categories.add('constraints');
-            else if (
-                operation === 'refresh-displacements'
-                || operation === 'analyze-symmetry'
-                || operation === 'symmetry-path'
-                || operation === 'phonon-band-structure'
-                || operation === 'inspect-phonon-modes'
-            ) {
-                categories.add('analysis');
+            else if ([
+                'refresh-displacements',
+                'load-volumetric',
+                'show-volumetric',
+                'add-volumetric-plane',
+                'update-volumetric-planes',
+                'remove-volumetric-planes',
+                'combine-volumetric',
+                'remove-volumetric',
+                'calculate-rdf',
+                'analyze-symmetry',
+                'symmetry-path',
+                'phonon-band-structure',
+                'inspect-phonon-modes'
+            ].includes(operation)) categories.add('analysis');
+            else if ([
+                'set-interface-theme',
+                'set-personal-visual-default',
+                'restore-app-visual-defaults'
+            ].includes(operation)) {
+                categories.add('display');
+                changedPaths.add('preferences');
             }
-            else if (['start-relaxation', 'stop-relaxation'].includes(operation)) {
+            else if ([
+                'start-relaxation',
+                'stop-relaxation',
+                'clear-relaxation-trajectory',
+                'exit-relaxation-mode',
+                'start-registry-relaxation',
+                'run-registry-relaxation',
+                'stop-registry-relaxation',
+                'finish-registry-relaxation',
+                'cancel-registry-relaxation'
+            ].includes(operation)) {
                 categories.add('trajectory');
                 categories.add('structure');
             } else {
@@ -7060,6 +16152,13 @@ class VAseApp {
         (atoms.chemical_symbols || []).forEach(symbol => {
             elementCounts[symbol] = (elementCounts[symbol] || 0) + 1;
         });
+        const displayedFrame = Number(atoms.metadata?.current_frame || 0);
+        const volumetricAssignments = this.volumetricDatasetFrameAssignments();
+        const surfaceDatasetId = this.state.volumetricSurfaceSummary?.datasetId || null;
+        const surfaceFrame = surfaceDatasetId === null
+            ? null
+            : (volumetricAssignments.get(surfaceDatasetId) ?? null);
+        const displacement = this.state.displacementStats;
         const result = {
             protocol: 'v_ase.ai.v1',
             units: { length: 'angstrom', angle: 'degree' },
@@ -7076,6 +16175,7 @@ class VAseApp {
             cell: this.clonePlain(atoms.cell || []),
             pbc: [...(atoms.pbc || [])],
             constraints: this.clonePlain(atoms.constraints || {}),
+            addAtoms: this.clonePlain(this.addAtomsUI?.active || atoms.metadata?.atom_addition || null),
             tags: [...(atoms.tags || [])],
             charges: [...(atoms.charges || [])],
             magneticMoments: [...(atoms.magmoms || [])],
@@ -7085,12 +16185,104 @@ class VAseApp {
                 name: atoms.metadata?.calculator || null,
                 details: this.clonePlain(atoms.metadata?.calculator_details || {})
             },
+            relaxation: {
+                active: Boolean(
+                    atoms.metadata?.relaxation?.active
+                    || this.state.relaxTrajectory?.active
+                ),
+                running: Boolean(this.state.isRelaxing),
+                kind: this.state.relaxTrajectory?.kind || null,
+                frame: Number(this.state.relaxTrajectory?.frame || 0),
+                frameCount: Number(this.state.relaxTrajectory?.frames?.length || 0),
+                finished: Boolean(this.state.relaxTrajectory?.finished)
+            },
             selection: this.aiSelectionSnapshot(),
             measurement: this.getSelectionMeasureText(),
             display: this.clonePlain(this.state.display),
             camera: this.cameraSettingsSnapshot(),
+            renderArea: {
+                enabled: Boolean(this.state.exportPreviewEnabled),
+                followViewport: Boolean(this.state.exportPreviewFollowViewport),
+                camera: this.clonePlain(
+                    this.state.exportPreviewCamera
+                    || this.currentImageExportProfile()?.options?.camera
+                    || null
+                ),
+                width: Number(this.currentImageExportProfile()?.width || 0),
+                height: Number(this.currentImageExportProfile()?.height || 0)
+            },
+            preferences: {
+                interfaceTheme: this.clonePlain(window.v_aseTheme?.info?.() || {}),
+                personalVisualDefaults: this.hasPersonalVisualDefaults
+            },
             imageExport: this.clonePlain(this.currentImageExportProfile()),
             analysis: {
+                frameSynchronization: {
+                    displayedFrame,
+                    rdfFrame: this.state.rdfResult?.frame_index ?? null,
+                    atomColorScaleFrame: this.state.display.atomColorScaleEnabled
+                        ? this.atomColorScaleRuntime.renderedFrame
+                        : null,
+                    forceVectorFrame: this.state.display.showForceVectors
+                        ? this.forceVectorRuntime.renderedFrame
+                        : null,
+                    displacementFrame: displacement?.current_frame ?? null,
+                    volumetricSurfaceFrame: surfaceFrame,
+                    volumetricSurfaceDatasetId: surfaceDatasetId
+                },
+                volumetricDatasets: this.clonePlain(this.volumetricDatasets()),
+                volumetricSurface: this.clonePlain(this.state.volumetricSurfaceSummary),
+                volumetricPlanes: this.clonePlain(this.volumetricPlanes().map(plane => ({
+                    id: plane.id,
+                    name: plane.name,
+                    datasetId: plane.datasetId,
+                    visible: plane.visible,
+                    hkl: [...plane.hkl],
+                    offsetAngstrom: plane.offsetAngstrom,
+                    offsetRangeAngstrom: [plane.offsetMinimum, plane.offsetMaximum],
+                    repetitions: this.volumetricPlaneRepetitions(),
+                    resolution: plane.resolution,
+                    colormap: plane.colormap,
+                    reverse: plane.reverse,
+                    autoRange: plane.autoRange,
+                    vmin: plane.vmin,
+                    vmax: plane.vmax,
+                    opacity: plane.opacity
+                }))),
+                rdf: this.state.rdfResult ? {
+                    schema: this.state.rdfResult.schema,
+                    bins: this.state.rdfResult.bins,
+                    requestedCutoff: this.state.rdfResult.requested_cutoff,
+                    cutoff: this.state.rdfResult.cutoff,
+                    uniqueMicCutoff: (
+                        this.state.rdfResult.unique_mic_cutoff
+                        ?? this.state.rdfResult.safe_cutoff
+                    ),
+                    // Retained for agents written against v_ase <= 0.1.1.
+                    safeCutoff: this.state.rdfResult.safe_cutoff,
+                    periodicImageExtent: [
+                        ...(this.state.rdfResult.periodic_image_extent || [])
+                    ],
+                    periodicImageSpan: [
+                        ...(this.state.rdfResult.periodic_image_span || [])
+                    ],
+                    pairMode: this.state.rdfResult.pair_mode,
+                    partialCurves: Object.keys(this.state.rdfResult.partial || {}),
+                    warnings: [...(this.state.rdfResult.warnings || [])],
+                    frame: this.state.rdfResult.frame_index
+                } : null,
+                displacement: displacement ? {
+                    currentFrame: displacement.current_frame,
+                    referenceFrame: displacement.reference_frame,
+                    referenceMode: displacement.reference_mode,
+                    mapping: displacement.mapping,
+                    micApplied: displacement.mic_applied,
+                    matched: displacement.matched,
+                    unmatchedCurrent: displacement.unmatched_current,
+                    unmatchedReference: displacement.unmatched_reference,
+                    stats: this.clonePlain(displacement.stats || {}),
+                    warnings: [...(displacement.warnings || [])]
+                } : null,
                 symmetry: this.aiSymmetrySummary(this.state.symmetryResult),
                 symmetryPath: this.aiSymmetryPathSummary(this.state.symmetryPath),
                 phononModel: this.clonePlain(this.state.phononModelSummary),
@@ -7098,7 +16290,63 @@ class VAseApp {
                     this.state.phononBandStructure,
                     this.state.phononBandSelection
                 ),
-                phononModes: this.aiPhononModesSummary(this.state.phononModes)
+                phononModes: this.aiPhononModesSummary(this.state.phononModes),
+                commensurate: {
+                    enabled: Boolean(this.state.display.commensurateGuide),
+                    mode: this.commensurateMode(),
+                    axis: 'Z',
+                    guest: this.clonePlain(this.commensurateGuestMetadata()),
+                    currentAngleDeg: Number(this.state.display.commensurateGuestAngleDeg || 0),
+                    strainTarget: this.state.display.commensurateStrainTarget || 'guest',
+                    strainTolerance: Number(this.state.display.commensurateStrainTolerance || 0.01),
+                    maxAreaRatio: Number(this.state.display.commensurateMaxAreaRatio || 16),
+                    showPreviewAtoms: Boolean(this.state.display.commensurateShowAtoms),
+                    candidateCount: Number(this.state.commensurateSearch?.candidates?.length || 0),
+                    references: this.clonePlain(this.state.commensurateSearch?.references || [])
+                },
+                commensurateProposal: this.state.commensurateProposal ? {
+                    candidate: this.clonePlain(this.state.commensurateProposal.data?.candidate || {}),
+                    coreAtomCount: Number(
+                        this.state.commensurateProposal.data?.preview?.core_atom_count || 0
+                    ),
+                    previewAtomCount: Number(
+                        this.state.commensurateProposal.data?.preview?.preview_atom_count || 0
+                    ),
+                    paddingCells: Number(
+                        this.state.commensurateProposal.data?.preview?.padding_cells || 0
+                    ),
+                    materializationSupported: (
+                        this.state.commensurateProposal.data?.materialization_supported !== false
+                    ),
+                    materializationReason: (
+                        this.state.commensurateProposal.data?.materialization_reason || null
+                    )
+                } : null,
+                registryMap: this.state.registryResult ? {
+                    schema: this.state.registryResult.schema,
+                    metric: this.state.registryResult.metric,
+                    metricLabel: this.state.registryResult.metric_label,
+                    grid: [
+                        Number(this.state.registryResult.x_fractional?.length || 0),
+                        Number(this.state.registryResult.y_fractional?.length || 0)
+                    ],
+                    selectedIndices: [...(this.state.registryResult.selected_indices || [])],
+                    hkl: [...(this.state.registryResult.hkl || [0, 0, 1])],
+                    periodicAxes: [...(this.state.registryResult.periodic_axes || [])],
+                    planeIntegerBasis: this.clonePlain(
+                        this.state.registryResult.plane_integer_basis || []
+                    ),
+                    translationBasisAngstrom: this.clonePlain(
+                        this.state.registryResult.translation_basis_angstrom || []
+                    ),
+                    optimumFractional: [...(this.state.registryResult.optimum_fractional || [])],
+                    optimumValue: Number(this.state.registryResult.optimum_value),
+                    currentFractional: [...(this.state.registryTranslationFractional || [0, 0])],
+                    currentCoordinates: [...(this.state.registryTranslationCoordinates || [0, 0])],
+                    lowerIsBetter: this.state.registryResult.lower_is_better !== false,
+                    warnings: [...(this.state.registryResult.warnings || [])]
+                } : null,
+                registryRelaxation: this.clonePlain(this.state.registryRelaxation)
             },
             collaboration: {
                 protocol: 'v_ase.collaboration.v1',
@@ -7230,42 +16478,184 @@ class VAseApp {
 
     async aiCapabilities() {
         const schemaUrl = new URL('/api/ai/schema', window.location.origin).href;
+        const bulkBuilderCatalogUrl = new URL(
+            `/api/build/bulk/catalog/${this.sessionId}`,
+            window.location.origin
+        ).href;
+        const bulkBuilderPreviewUrl = new URL(
+            `/api/build/bulk/preview/${this.sessionId}`,
+            window.location.origin
+        ).href;
+        const moleculeCatalogUrl = new URL(
+            `/api/add-session/molecules/${this.sessionId}`,
+            window.location.origin
+        ).href;
+        const insertionDomainPreviewUrl = new URL(
+            `/api/add-session/domain/${this.sessionId}`,
+            window.location.origin
+        ).href;
         let discovery = {};
+        let moleculeCatalog = [];
         try {
             const response = await fetch(schemaUrl);
             if (response.ok) discovery = await response.json();
         } catch {
             // The static capability lists below remain usable offline.
         }
+        try {
+            const response = await fetch(moleculeCatalogUrl);
+            if (response.ok) {
+                const payload = await response.json();
+                moleculeCatalog = Array.isArray(payload.molecules)
+                    ? payload.molecules
+                    : [];
+            }
+        } catch {
+            // The URL remains available for a later retry.
+        }
+        const operationParameters = this.clonePlain(discovery.operation_parameters || {});
+        const exportParameters = this.clonePlain(discovery.export_parameters || {});
+        const fallbackOperations = [
+            'wrap', 'translate-all', 'center-selection-at-origin', 'set-unit-cell', 'build-bulk', 'set-supercell', 'make-supercell',
+            'add-atom', 'scatter-atoms', 'scatter-molecules',
+            'update-add-atoms-region', 'scale-add-atoms-regions', 'relax-added-atoms',
+            'stop-added-atoms', 'finish-add-atoms', 'cancel-add-atoms',
+            'delete-selection', 'set-identity', 'set-constraints',
+            'move-selection', 'rotate-selection', 'scale-selection', 'rotate-to-commensurate',
+            'load-commensurate-guest', 'remove-commensurate-guest',
+            'calculate-commensurate', 'apply-commensurate-cell',
+            'dismiss-commensurate-cell', 'calculate-registry-map',
+            'start-registry-relaxation', 'run-registry-relaxation',
+            'set-registry-translation',
+            'stop-registry-relaxation', 'finish-registry-relaxation',
+            'cancel-registry-relaxation', 'undo', 'redo',
+            'reset-coordinates', 'start-relaxation', 'stop-relaxation',
+            'clear-relaxation-trajectory', 'exit-relaxation-mode',
+            'refresh-displacements', 'load-volumetric', 'show-volumetric',
+            'add-volumetric-plane', 'update-volumetric-planes',
+            'remove-volumetric-planes',
+            'combine-volumetric', 'remove-volumetric', 'calculate-rdf',
+            'set-interface-theme', 'set-personal-visual-default',
+            'restore-app-visual-defaults', 'set-atom-colorscale',
+            'analyze-symmetry', 'symmetry-path', 'standardize-symmetry',
+            'generate-phonon-displacements', 'phonon-band-structure',
+            'inspect-phonon-modes', 'generate-phonon-mode'
+        ];
+        const fallbackExports = [
+            'image', 'video', 'poscar', 'pickle', 'blender', '3dm', 'obj',
+            'html', 'project', 'settings', 'rdf-csv', 'commensurate-csv',
+            'registry-csv'
+        ];
         return {
             protocol: 'v_ase.ai.v1',
             schemaUrl,
-            operationParameters: this.clonePlain(discovery.operation_parameters || {}),
-            exportParameters: this.clonePlain(discovery.export_parameters || {}),
+            operationParameters,
+            exportParameters,
             state: [
                 'atoms', 'labels', 'elements', 'positions', 'cell', 'pbc',
                 'constraints', 'forces', 'charges', 'tags', 'magnetic-moments',
                 'selection', 'measurement', 'trajectory', 'camera', 'display',
-                'symmetry', 'phonons', 'collaboration'
+                'render-area', 'add-atoms', 'relaxation',
+                'volumetric-data', 'volumetric-planes', 'rdf', 'commensurate',
+                'commensurate-proposal',
+                'registry-map', 'registry-relaxation', 'atom-colorscale', 'force-vectors',
+                'symmetry', 'phonons', 'preferences', 'collaboration'
             ],
             apply: [
-                'frame', 'mode', 'display', 'quality', 'applyConstraints',
-                'camera', 'selection', 'operation'
+                'expectedRevision', 'frame', 'mode', 'display', 'quality',
+                'applyConstraints', 'camera', 'renderArea', 'selection', 'operation'
             ],
-            operations: [
-                'wrap', 'translate-all', 'set-supercell', 'make-supercell',
-                'add-atom', 'delete-selection', 'set-identity', 'set-constraints',
-                'move-selection', 'rotate-selection', 'undo', 'redo',
-                'reset-coordinates', 'start-relaxation', 'stop-relaxation',
-                'refresh-displacements', 'analyze-symmetry', 'symmetry-path',
-                'standardize-symmetry', 'generate-phonon-displacements',
-                'phonon-band-structure', 'inspect-phonon-modes',
-                'generate-phonon-mode'
-            ],
-            exports: [
-                'image', 'video', 'poscar', 'pickle', 'blender', '3dm', 'obj',
-                'html', 'project', 'settings'
-            ]
+            operations: Object.keys(operationParameters).length
+                ? Object.keys(operationParameters)
+                : fallbackOperations,
+            exports: Object.keys(exportParameters).length
+                ? Object.keys(exportParameters)
+                : fallbackExports,
+            atomColorScale: {
+                provider: 'Matplotlib',
+                providers: ['Matplotlib', 'Custom'],
+                scalarCatalogUrl: new URL(
+                    `/api/analysis/atom-scalars/catalog/${this.sessionId}`,
+                    window.location.origin
+                ).href,
+                colormapCatalogUrl: new URL(
+                    `/api/analysis/colormaps/${this.sessionId}`,
+                    window.location.origin
+                ).href,
+                rangeUrl: new URL(
+                    `/api/analysis/atom-scalars/range/${this.sessionId}`,
+                    window.location.origin
+                ).href,
+                rangeModes: ['current', 'trajectory', 'manual'],
+                gammaRange: [0.1, 5],
+                customMap: {
+                    modes: ['continuous', 'discrete'],
+                    minimumStops: 2,
+                    maximumStops: MAX_CUSTOM_COLORMAP_STOPS,
+                    stop: { position: 'number in [0, 1]', color: '#RRGGBB' }
+                },
+                note: 'Preset previews and catalogs are lazy; custom maps are sampled locally. Every rendered frame shares one resolved vmin/vmax.'
+            },
+            atomProperties: {
+                baseUrl: new URL(
+                    `/api/analysis/atom-properties/${this.sessionId}`,
+                    window.location.origin
+                ).href,
+                pathTemplate: '/{atomIndex}?frame_index={frameIndex}',
+                note: 'One selected atom is inspected lazily. The response contains standard ASE attributes, arbitrary per-atom arrays, and stored calculator results without evaluating a calculator.'
+            },
+            bulkBuilder: {
+                generator: 'ase.build.bulk',
+                catalogUrl: bulkBuilderCatalogUrl,
+                previewUrl: bulkBuilderPreviewUrl,
+                replacementOperation: 'build-bulk',
+                note: 'Query the installed-ASE catalog, preview the exact request, and obtain human approval before replacing a non-empty document.'
+            },
+            addAtoms: {
+                moleculeCatalogUrl,
+                insertionDomainPreviewUrl,
+                moleculeCatalog,
+                placementModes: ['random', 'homogeneous', 'regular'],
+                coordinateBases: ['cartesian', 'fractional'],
+                regionRoles: ['allow', 'reject'],
+                maxRegions: 32,
+                densityUnit: 'g/cm3',
+                defaults: {
+                    placementMode: 'random',
+                    coordinateBasis: 'cartesian',
+                    pbcAware: true,
+                    regionMic: true,
+                    quantityMode: 'count',
+                    randomOrientation: true,
+                    rigidMolecules: true,
+                    freezeExisting: true,
+                    constrainToDomain: false,
+                    allowEscape: true
+                },
+                note: 'The exact insertion domain is the unit cell intersected with the Allow union, or the complete cell when no Allow exists, minus the Reject union. A structure without a finite cell requires at least one Allow region. constrainToDomain is false by default; when enabled, rigid molecules are constrained by the native ASE template origin. allowEscape is the inverse compatibility field.'
+            },
+            repulsion: {
+                defaultMode: 'absolute',
+                modes: ['absolute', 'scaled'],
+                bases: ['covalent', 'vdw'],
+                pairKey: 'unordered visual labels',
+                disabledValue: 0,
+                note: 'Repulsion pair distances are independent from visual bond connectivity. Absolute values are Angstrom onset distances; scaled values are reference distances multiplied by cutoff_scale.'
+            },
+            bondAppearance: {
+                globalDisplayKeys: [
+                    'bondStyle', 'bondMaterial', 'bondOpacity',
+                    'bondColorMode', 'bondCustomColor'
+                ],
+                pairDisplayKey: 'pairwiseBondStyles',
+                pairFields: ['style', 'material', 'thickness', 'colorMode', 'color', 'opacity'],
+                atomDisplayKeys: [
+                    'atomRadiusScales', 'atomColors', 'atomOpacities',
+                    'atomMaterials', 'atomBondStyles'
+                ],
+                styles: ['cylinder', 'flat'],
+                materials: ['standard', 'metal', 'rubber', 'unlit']
+            }
         };
     }
 
@@ -7293,6 +16683,140 @@ class VAseApp {
             throw new Error(`Operation indices must be integers inside 0..${Math.max(0, atomCount - 1)}.`);
         }
         return indices;
+    }
+
+    aiSelectIndices(indices) {
+        this.clearAtomSelection();
+        indices.forEach(index => this.addSelectionReference(index));
+        this.updateSelectionVisuals();
+        this.updateUI();
+    }
+
+    aiCommensurateConfig(operation = {}) {
+        const axis = String(operation.axis || 'Z').trim().toUpperCase();
+        if (axis !== 'Z') {
+            throw new Error(
+                'Commensurate atoms is rigorously restricted to in-plane matching about global Z.'
+            );
+        }
+        const mode = operation.mode === 'host-guest' ? 'host-guest' : 'same-lattice';
+        const strainTarget = operation.strainTarget === 'host' ? 'host' : 'guest';
+        const strainTolerance = Number(
+            operation.strainTolerance
+            ?? this.state.display.commensurateStrainTolerance
+            ?? 0.01
+        );
+        if (!Number.isFinite(strainTolerance) || strainTolerance < 0 || strainTolerance > 0.25) {
+            throw new Error('strainTolerance must be a fraction from 0 through 0.25.');
+        }
+        const maxIndex = Math.max(2, Math.min(64, Math.round(
+            Number(operation.maxIndex ?? this.state.display.commensurateMaxIndex ?? 32)
+        )));
+        const maxAreaRatio = Math.max(1, Math.min(MAX_COMMENSURATE_AREA_RATIO, Math.round(
+            Number(operation.maxAreaRatio ?? this.state.display.commensurateMaxAreaRatio ?? 16)
+        )));
+        const angleDeg = Number(
+            operation.angleDeg
+            ?? this.state.display.commensurateGuestAngleDeg
+            ?? 0
+        );
+        if (!Number.isFinite(angleDeg)) throw new Error('angleDeg must be finite.');
+        const guestGap = Number(
+            operation.gap
+            ?? operation.guestGap
+            ?? this.state.display.commensurateGuestGap
+            ?? 3.0
+        );
+        if (!Number.isFinite(guestGap) || guestGap < 0 || guestGap > 20) {
+            throw new Error('gap must be an angstrom value from 0 through 20.');
+        }
+        return {
+            axis,
+            mode,
+            strainTarget,
+            strainTolerance,
+            maxIndex,
+            maxAreaRatio,
+            angleDeg,
+            guestGap,
+            showAtoms: operation.showAtoms === undefined
+                ? Boolean(this.state.display.commensurateShowAtoms)
+                : operation.showAtoms === true
+        };
+    }
+
+    applyAICommensurateConfig(config) {
+        Object.assign(this.state.display, {
+            commensurateGuide: true,
+            commensurateMode: config.mode,
+            commensurateStrainTarget: config.strainTarget,
+            commensurateStrainTolerance: config.strainTolerance,
+            commensurateMaxIndex: config.maxIndex,
+            commensurateMaxAreaRatio: config.maxAreaRatio,
+            commensurateGuestAngleDeg: config.angleDeg,
+            commensurateGuestGap: config.guestGap,
+            commensurateShowAtoms: config.showAtoms
+        });
+        this.state.commensurateLastAngle = THREE.MathUtils.degToRad(config.angleDeg);
+        const values = {
+            'commensurate-mode': config.mode,
+            'commensurate-strain-target': config.strainTarget,
+            'commensurate-strain': `${config.strainTolerance * 100}`,
+            'commensurate-max-index': `${config.maxIndex}`,
+            'commensurate-max-area': `${config.maxAreaRatio}`,
+            'commensurate-guest-angle': `${config.angleDeg}`,
+            'commensurate-guest-gap': `${config.guestGap}`
+        };
+        Object.entries(values).forEach(([id, value]) => {
+            const element = document.getElementById(id);
+            if (element) element.value = value;
+        });
+        const guide = document.getElementById('chk-commensurate-guide');
+        if (guide) guide.checked = true;
+        const showAtoms = document.getElementById('chk-commensurate-show-atoms');
+        if (showAtoms) showAtoms.checked = config.showAtoms;
+        this.syncCommensurateWorkspaceControls();
+    }
+
+    aiRotationPivot(operation, indices, positions) {
+        if (Array.isArray(operation.pivot)) {
+            return new THREE.Vector3(...this.aiFiniteVector(operation.pivot, 'pivot'));
+        }
+        if (operation.pivot === 'active') {
+            return new THREE.Vector3(...positions[indices[indices.length - 1]]);
+        }
+        if (operation.pivot === 'origin') return new THREE.Vector3(0, 0, 0);
+        if (operation.pivot === 'cell') {
+            const cell = this.state.atoms?.cell || [];
+            if (cell.length !== 3) throw new Error('A cell pivot requires a defined unit cell.');
+            const pivot = new THREE.Vector3();
+            cell.forEach(row => pivot.add(new THREE.Vector3(...row).multiplyScalar(0.5)));
+            return pivot;
+        }
+        const pivot = new THREE.Vector3();
+        indices.forEach(index => pivot.add(new THREE.Vector3(...positions[index])));
+        return pivot.multiplyScalar(1 / indices.length);
+    }
+
+    aiRotatedPositions(positions, indices, axis, angleDeg, pivot) {
+        const axisVector = new THREE.Vector3(...axis);
+        if (axisVector.lengthSq() <= 1e-16) throw new Error('Rotation axis must be non-zero.');
+        axisVector.normalize();
+        const angle = Number(angleDeg);
+        if (!Number.isFinite(angle)) throw new Error('Rotation angle must be finite.');
+        const next = positions.map(position => [...position]);
+        const quaternion = new THREE.Quaternion().setFromAxisAngle(
+            axisVector,
+            THREE.MathUtils.degToRad(angle)
+        );
+        indices.forEach(index => {
+            const point = new THREE.Vector3(...next[index])
+                .sub(pivot)
+                .applyQuaternion(quaternion)
+                .add(pivot);
+            next[index] = point.toArray();
+        });
+        return next;
     }
 
     aiRequireEdit(operationName) {
@@ -7350,6 +16874,31 @@ class VAseApp {
             throw new Error('operation must be a string or object with a name.');
         }
         const name = String(operation.name || '').trim().toLowerCase();
+        const addAtomsControls = new Set([
+            'scatter-atoms', 'scatter-molecules',
+            'relax-added-atoms', 'stop-added-atoms',
+            'start-relaxation', 'stop-relaxation',
+            'finish-add-atoms', 'cancel-add-atoms', 'update-add-atoms-region',
+            'scale-add-atoms-regions',
+            'move-selection', 'rotate-selection', 'scale-selection'
+        ]);
+        if (this.addAtomsSessionActive() && !addAtomsControls.has(name)) {
+            throw new Error(
+                'Finish or cancel the active Add Atoms session before applying another operation.'
+            );
+        }
+        const registryRelaxationControls = new Set([
+            'set-registry-translation',
+            'run-registry-relaxation',
+            'stop-registry-relaxation',
+            'finish-registry-relaxation',
+            'cancel-registry-relaxation'
+        ]);
+        if (this.state.registryRelaxation && !registryRelaxationControls.has(name)) {
+            throw new Error(
+                'Finish or cancel the active rigid translation before applying another operation.'
+            );
+        }
         const applyConstraints = operation.applyConstraints ?? this.state.applyConstraints;
         const positions = () => this.backendPositionsPayload().map(position => [...position]);
         const setData = (data, clearSelection = false) => {
@@ -7357,6 +16906,108 @@ class VAseApp {
             return data;
         };
 
+        if (name === 'set-interface-theme') {
+            const theme = String(operation.theme || '').trim().toLowerCase();
+            if (!['system', 'light', 'dark'].includes(theme)) {
+                throw new Error('set-interface-theme requires system, light, or dark.');
+            }
+            this.applyThemePreference(theme);
+            return;
+        }
+        if (name === 'center-selection-at-origin') {
+            if (Array.isArray(operation.indices)) {
+                this.aiSelectIndices(this.aiOperationIndices(operation));
+            }
+            this.centerSelectionAtOrigin();
+            return;
+        }
+        if (name === 'set-personal-visual-default') {
+            await this.setCurrentVisualDefaults();
+            return;
+        }
+        if (name === 'restore-app-visual-defaults') {
+            if (operation.confirm !== true) {
+                throw new Error(
+                    'restore-app-visual-defaults permanently deletes the saved personal '
+                    + 'visual default. Obtain human approval, then retry with confirm: true.'
+                );
+            }
+            await this.applyBuiltInVisualDefaults();
+            return;
+        }
+        if (name === 'set-atom-colorscale') {
+            const enabled = operation.enabled !== false;
+            this.scheduleVisualHistoryCommit('ai-atom-colorscale');
+            if (!enabled) {
+                this.state.display.atomColorScaleEnabled = false;
+                this.syncAtomColorScaleControls();
+                await this.updateAtomColorScale({ quiet: true });
+                return;
+            }
+            const field = String(
+                operation.field || this.state.display.atomColorScaleField || 'position:z'
+            );
+            const map = String(
+                operation.map
+                || (operation.customMap ? CUSTOM_ATOM_COLORMAP : '')
+                || this.state.display.atomColorScaleMap
+                || 'viridis'
+            );
+            const catalog = await this.ensureAtomColorScaleCatalog({ refresh: true });
+            if (!(catalog?.fields || []).some(item => item.id === field)) {
+                throw new Error(
+                    `Per-atom color field '${field}' is unavailable. Call capabilities() `
+                    + 'or inspect the scalar catalog before retrying.'
+                );
+            }
+            if (
+                map !== CUSTOM_ATOM_COLORMAP
+                && !(this.atomColorScaleRuntime.colormapCatalog?.maps || []).some(item => item.name === map)
+            ) {
+                throw new Error(`Matplotlib colormap '${map}' is unavailable.`);
+            }
+            const customMap = map === CUSTOM_ATOM_COLORMAP
+                ? this.normalizedCustomAtomColormap(
+                    operation.customMap || this.state.display.atomColorScaleCustomMap,
+                    { strict: true }
+                )
+                : this.normalizedCustomAtomColormap(
+                    this.state.display.atomColorScaleCustomMap
+                );
+            const scope = operation.scope === 'selected' ? 'selected' : 'all';
+            const rangeMode = ['current', 'trajectory', 'manual'].includes(operation.rangeMode)
+                ? operation.rangeMode
+                : (operation.autoRange === false ? 'manual' : 'current');
+            const minimum = Number(operation.minimum ?? this.state.display.atomColorScaleMin ?? 0);
+            const maximum = Number(operation.maximum ?? this.state.display.atomColorScaleMax ?? 1);
+            const gamma = Number(operation.gamma ?? this.state.display.atomColorScaleGamma ?? 1);
+            if (rangeMode === 'manual' && (!Number.isFinite(minimum) || !Number.isFinite(maximum) || maximum <= minimum)) {
+                throw new Error('Manual atom colorscale requires maximum greater than minimum.');
+            }
+            if (!Number.isFinite(gamma) || gamma < 0.1 || gamma > 5) {
+                throw new Error('Atom colorscale gamma must be between 0.1 and 5.');
+            }
+            Object.assign(this.state.display, {
+                atomColorScaleEnabled: true,
+                atomColorScaleField: field,
+                atomColorScaleMap: map,
+                atomColorScaleCustomMap: customMap,
+                atomColorScaleReverse: operation.reverse === true,
+                atomColorScaleScope: scope,
+                atomColorScaleAutoRange: rangeMode !== 'manual',
+                atomColorScaleRangeMode: rangeMode,
+                atomColorScaleMin: minimum,
+                atomColorScaleMax: maximum,
+                atomColorScaleGamma: gamma
+            });
+            this.atomColorScaleRuntime.rangeSignature = '';
+            this.syncAtomColorScaleControls();
+            await this.updateAtomColorScale({ quiet: true, forceRange: rangeMode !== 'manual' });
+            if (rangeMode === 'trajectory') {
+                await this.preloadAtomColorScaleTrajectoryValues();
+            }
+            return;
+        }
         if (name === 'wrap') {
             if (!this.hasUsableCell()) throw new Error('Wrap requires a defined unit cell.');
             if (this.state.vizOnly) {
@@ -7377,6 +17028,63 @@ class VAseApp {
             ));
             return;
         }
+        if (name === 'set-unit-cell') {
+            this.aiRequireEdit('set-unit-cell');
+            if (!Array.isArray(operation.cell) || operation.cell.length !== 3) {
+                throw new Error('set-unit-cell requires a finite 3 x 3 cell matrix.');
+            }
+            const cell = operation.cell.map((row, index) => {
+                if (!Array.isArray(row) || row.length !== 3) {
+                    throw new Error(`set-unit-cell row ${index + 1} must contain three numbers.`);
+                }
+                return row.map(value => {
+                    const number = Number(value);
+                    if (!Number.isFinite(number)) {
+                        throw new Error('set-unit-cell requires a finite 3 x 3 cell matrix.');
+                    }
+                    return number;
+                });
+            });
+            const pbc = operation.pbc === undefined
+                ? [true, true, true]
+                : operation.pbc;
+            if (!Array.isArray(pbc) || pbc.length !== 3) {
+                throw new Error('set-unit-cell pbc must contain three booleans.');
+            }
+            setData(await this.api.setUnitCell(cell, pbc.map(Boolean)), true);
+            return;
+        }
+        if (name === 'build-bulk') {
+            this.aiRequireEdit('build-bulk');
+            const replacing = Boolean(
+                Number(this.state.atoms?.metadata?.natoms || 0) > 0
+                || this.hasUsableCell()
+            );
+            if (replacing && operation.confirmReplace !== true) {
+                throw new Error(
+                    'build-bulk replaces the current structure and trajectory. '
+                    + 'Obtain human approval, then retry with confirmReplace: true.'
+                );
+            }
+            const payload = {
+                formula: String(operation.formula || '').trim(),
+                cell_mode: operation.cellMode || 'primitive',
+                replace_existing: replacing
+            };
+            if (operation.crystalStructure) {
+                payload.crystalstructure = operation.crystalStructure;
+            }
+            ['a', 'b', 'c', 'alpha', 'covera', 'u', 'basis'].forEach(key => {
+                if (operation[key] !== undefined && operation[key] !== null) {
+                    payload[key] = operation[key];
+                }
+            });
+            const data = await this.api.buildBulkStructure(payload);
+            this.stopPlayback();
+            this.renderer.needsInitialCameraFit = true;
+            setData(data, true);
+            return;
+        }
         if (name === 'set-supercell') {
             this.aiRequireEdit('set-supercell');
             const reps = this.aiFiniteVector(operation.reps, 'reps');
@@ -7384,7 +17092,7 @@ class VAseApp {
                 throw new Error('Supercell repetitions must be integers from 1 to 64.');
             }
             setData(await this.api.applySupercell(positions(), reps, applyConstraints), true);
-            this.state.display.supercell = [1, 1, 1];
+            this.finalizeMaterializedSupercellDisplay();
             return;
         }
         if (name === 'make-supercell') {
@@ -7406,7 +17114,7 @@ class VAseApp {
                 matrix.map(row => row.map(Number)),
                 applyConstraints
             ), true);
-            this.state.display.supercell = [1, 1, 1];
+            this.finalizeMaterializedSupercellDisplay();
             return;
         }
         if (name === 'add-atom') {
@@ -7417,8 +17125,283 @@ class VAseApp {
             setData(await this.api.addAtom(label, position, operation.element || null));
             return;
         }
+        if (name === 'scatter-atoms' || name === 'scatter-molecules') {
+            this.aiRequireEdit(name);
+            const molecules = name === 'scatter-molecules';
+            const hasEntries = Array.isArray(molecules ? operation.molecules : operation.entries);
+            const singleName = String(
+                (molecules ? operation.molecule : operation.element) || ''
+            ).trim();
+            if (!hasEntries && (!singleName || operation.count == null)) {
+                throw new Error(
+                    molecules
+                        ? 'scatter-molecules requires molecules or both molecule and count.'
+                        : 'scatter-atoms requires entries or both element and count.'
+                );
+            }
+            const entries = hasEntries
+                ? (molecules ? operation.molecules : operation.entries)
+                : [{
+                ...(molecules ? { name: singleName } : { element: singleName }),
+                label: operation.label || singleName,
+                count: operation.count
+            }];
+            if (!entries.length) {
+                throw new Error(`${name} requires at least one entry.`);
+            }
+            const hasRegions = Array.isArray(operation.regions);
+            const regionMode = hasRegions
+                ? 'regions'
+                : (operation.regionMode === 'box' ? 'box' : 'cell');
+            const bounds = regionMode === 'box' ? operation.bounds : undefined;
+            if (regionMode === 'box') {
+                if (!Array.isArray(bounds) || bounds.length !== 6 || !bounds.every(value => Number.isFinite(Number(value)))) {
+                    throw new Error('Cartesian box bounds must contain six finite numbers.');
+                }
+            }
+            const payload = {
+                content_kind: molecules ? 'molecules' : 'atoms',
+                entries: molecules ? undefined : entries,
+                molecules: molecules ? entries : undefined,
+                region_mode: regionMode,
+                regions: hasRegions ? operation.regions : undefined,
+                bounds: bounds?.map(Number),
+                region_role: regionMode === 'box' && operation.regionRole === 'prohibited'
+                    ? 'prohibited'
+                    : 'allowed',
+                constrain_to_domain: operation.constrainToDomain !== undefined
+                    ? operation.constrainToDomain === true
+                    : operation.allowEscape === false,
+                placement_mode: ['homogeneous', 'regular'].includes(operation.placementMode)
+                    ? operation.placementMode
+                    : 'random',
+                regular_spacing: operation.regularSpacing ?? null,
+                coordinate_basis: operation.coordinateBasis === 'fractional'
+                    ? 'fractional'
+                    : 'cartesian',
+                pbc_aware: operation.pbcAware !== false,
+                region_mic: operation.regionMic !== false,
+                random_orientation: operation.randomOrientation !== false,
+                rigid_molecules: operation.rigidMolecules !== false,
+                molecule_quantity_mode: operation.quantityMode === 'density' ? 'density' : 'count',
+                target_density_g_cm3: operation.targetDensityGcm3,
+                seed: operation.seed ?? null,
+                freeze_existing: operation.freezeExisting !== false,
+                cutoff_basis: operation.cutoffBasis || 'covalent',
+                cutoff_scale: Number(operation.cutoffScale ?? 1.0),
+                pair_cutoffs: operation.pairCutoffs || undefined
+            };
+            const data = setData(await this.api.startAtomAddition(payload), true);
+            this.syncAddAtomsSessionFromData(data);
+            this.startModeTrajectory('add-atoms', 'Add Atoms placement');
+            const summary = data.metadata?.atom_addition;
+            (summary?.new_indices || []).forEach(index => this.state.selected.add(index));
+            this.updateSelectionVisuals();
+            this.updateUI();
+            return;
+        }
+        if (name === 'update-add-atoms-region') {
+            this.aiRequireEdit('update-add-atoms-region');
+            if (!this.addAtomsSessionActive()) {
+                throw new Error('Start an Add Atoms or Add Molecules session before updating its region.');
+            }
+            const current = this.addAtomsUI?.active || {};
+            let regions = Array.isArray(operation.regions)
+                ? operation.regions
+                : (current.regions || []);
+            const regionId = operation.regionId == null ? null : String(operation.regionId);
+            if (!Array.isArray(operation.regions) && regionId) {
+                let found = false;
+                regions = regions.map(region => {
+                    if (String(region.id) !== regionId) return region;
+                    found = true;
+                    return {
+                        ...region,
+                        name: operation.regionName ?? region.name,
+                        role: operation.regionRole === 'reject' || operation.regionRole === 'prohibited'
+                            ? 'reject'
+                            : (operation.regionRole === 'allow' || operation.regionRole === 'allowed'
+                                ? 'allow'
+                                : region.role),
+                        bounds: operation.bounds ?? region.bounds
+                    };
+                });
+                if (!found) throw new Error(`Insertion region '${regionId}' was not found.`);
+            }
+            const data = await this.api.updateAtomAdditionRegion({
+                regions,
+                region_mic: operation.regionMic ?? current.domain?.pbc_aware ?? true,
+                constrain_to_domain: operation.constrainToDomain !== undefined
+                    ? operation.constrainToDomain === true
+                    : operation.allowEscape !== undefined
+                        ? operation.allowEscape === false
+                        : current.constrain_to_domain === true
+            });
+            const summary = data?.metadata?.atom_addition || null;
+            if (this.state.atoms?.metadata) {
+                this.state.atoms.metadata.atom_addition = summary;
+            }
+            this.syncAddAtomsSessionFromData(data);
+            const constrainDomain = document.getElementById('add-atoms-constrain-domain');
+            if (constrainDomain) constrainDomain.checked = summary.constrain_to_domain === true;
+            this.updateAddAtomsRegionPreview();
+            this.syncAddAtomsActionState();
+            return;
+        }
+        if (name === 'scale-add-atoms-regions') {
+            this.aiRequireEdit('scale-add-atoms-regions');
+            if (!this.addAtomsSessionActive()) {
+                throw new Error('Start an Add Atoms or Add Molecules session before scaling its regions.');
+            }
+            const factor = Number(operation.factor);
+            if (!Number.isFinite(factor) || factor <= 0) {
+                throw new Error('scale-add-atoms-regions requires factor greater than zero.');
+            }
+            const axis = String(operation.axis || 'ALL').trim().toUpperCase();
+            if (!['ALL', 'X', 'Y', 'Z'].includes(axis)) {
+                throw new Error('scale-add-atoms-regions axis must be ALL, X, Y, or Z.');
+            }
+            const ids = new Set((operation.regionIds || []).map(String));
+            if (!ids.size) {
+                throw new Error('scale-add-atoms-regions requires at least one regionId.');
+            }
+            const current = (this.addAtomsUI?.active?.regions || []).map(region => ({
+                ...region,
+                bounds: region.bounds.map(Number)
+            }));
+            const selected = current.filter(region => ids.has(String(region.id)));
+            if (selected.length !== ids.size) {
+                const available = new Set(current.map(region => String(region.id)));
+                const missing = [...ids].filter(id => !available.has(id));
+                throw new Error(`Insertion regions not found: ${missing.join(', ')}.`);
+            }
+            let pivot;
+            if (Array.isArray(operation.pivot)) {
+                pivot = this.aiFiniteVector(operation.pivot, 'pivot');
+            } else {
+                const lower = [0, 1, 2].map(component => Math.min(
+                    ...selected.map(region => region.bounds[component * 2])
+                ));
+                const upper = [0, 1, 2].map(component => Math.max(
+                    ...selected.map(region => region.bounds[component * 2 + 1])
+                ));
+                pivot = lower.map((value, component) => 0.5 * (value + upper[component]));
+            }
+            const factors = axis === 'ALL'
+                ? [factor, factor, factor]
+                : ['X', 'Y', 'Z'].map(candidate => candidate === axis ? factor : 1);
+            const regions = current.map(region => {
+                if (!ids.has(String(region.id))) return region;
+                const bounds = [];
+                for (let component = 0; component < 3; component += 1) {
+                    bounds.push(
+                        pivot[component] + (region.bounds[component * 2] - pivot[component]) * factors[component],
+                        pivot[component] + (region.bounds[component * 2 + 1] - pivot[component]) * factors[component]
+                    );
+                }
+                return { ...region, bounds };
+            });
+            const data = await this.api.updateAtomAdditionRegion({
+                regions,
+                region_mic: operation.regionMic ?? this.addAtomsUI.active.domain?.pbc_aware ?? true,
+                constrain_to_domain: operation.constrainToDomain !== undefined
+                    ? operation.constrainToDomain === true
+                    : operation.allowEscape !== undefined
+                        ? operation.allowEscape === false
+                        : this.addAtomsUI.active.constrain_to_domain === true
+            });
+            if (this.state.atoms?.metadata) {
+                this.state.atoms.metadata.atom_addition = data?.metadata?.atom_addition || null;
+            }
+            this.syncAddAtomsSessionFromData(data);
+            this.setAddAtomsRegionSelection([...ids]);
+            this.updateAddAtomsRegionPreview();
+            return;
+        }
+        if (name === 'relax-added-atoms') {
+            this.aiRequireEdit('relax-added-atoms');
+            if (!this.addAtomsSessionActive()) {
+                throw new Error('Start an Add Atoms or Add Molecules session before repulsive placement.');
+            }
+            const freezeExisting = document.getElementById('add-atoms-freeze-existing');
+            const mic = document.getElementById('add-atoms-mic');
+            const constrainDomain = document.getElementById('add-atoms-constrain-domain');
+            if (freezeExisting && operation.freezeExisting !== undefined) {
+                freezeExisting.checked = operation.freezeExisting !== false;
+            }
+            if (mic && operation.mic !== undefined) mic.checked = operation.mic !== false;
+            if (constrainDomain && (operation.constrainToDomain !== undefined || operation.allowEscape !== undefined)) {
+                constrainDomain.checked = operation.constrainToDomain !== undefined
+                    ? operation.constrainToDomain === true
+                    : operation.allowEscape === false;
+            }
+            await this.relaxAddedAtomsFromWidget({
+                calculator: {
+                    ...(operation.calculator || {}),
+                    device: operation.device,
+                    cpu_threads: operation.cpuThreads,
+                    pair_cutoffs: operation.pairCutoffs,
+                    cutoff_mode: operation.cutoffMode,
+                    cutoff_distance: operation.cutoffDistance,
+                    cutoff_scale: operation.cutoffScale,
+                    k_repulsion: operation.strength,
+                    k_boundary: operation.boundaryStrength
+                },
+                fmax: operation.fmax,
+                steps: operation.steps,
+                throwOnError: true
+            });
+            return;
+        }
+        if (name === 'stop-added-atoms') {
+            this.aiRequireEdit('stop-added-atoms');
+            await this.api.stopAtomAdditionRelaxation();
+            return;
+        }
+        if (name === 'finish-add-atoms') {
+            this.aiRequireEdit('finish-add-atoms');
+            const data = setData(await this.api.finishAtomAddition(), true);
+            this.addAtomsHistoryToken = null;
+            this.addAtomsUI.active = null;
+            this.setAddAtomsRegionSelected(false, { update: false });
+            this.clearModeTrajectory('add-atoms');
+            this.setAddAtomsPane('single');
+            this.setCreateAtomWidgetExpanded(false);
+            return;
+        }
+        if (name === 'cancel-add-atoms') {
+            this.aiRequireEdit('cancel-add-atoms');
+            const historyScope = this.addAtomsHistoryToken;
+            const data = setData(await this.api.cancelAtomAddition(), true);
+            this.removeHistoryScope(historyScope);
+            this.addAtomsHistoryToken = null;
+            this.addAtomsUI.active = null;
+            this.setAddAtomsRegionSelected(false, { update: false });
+            this.clearModeTrajectory('add-atoms');
+            this.setAddAtomsStatus(
+                'idle',
+                this.addAtomsUI?.contentKind === 'molecules'
+                    ? 'Ready to place molecules'
+                    : 'Ready to place atoms'
+            );
+            this.updateAddAtomsRegionPreview();
+            this.setAddAtomsPane('single');
+            this.setCreateAtomWidgetExpanded(false);
+            return;
+        }
         if (name === 'delete-selection') {
-            this.aiRequireEdit('delete-selection');
+            if (this.state.vizOnly) {
+                if (Array.isArray(operation.indices)) {
+                    this.clearAtomSelection();
+                    operation.indices.forEach(index => {
+                        if (!this.addSelectionReference(Number(index))) {
+                            throw new Error(`delete-selection index ${index} could not be selected.`);
+                        }
+                    });
+                }
+                this.hideSelectedVisualReferences();
+                return;
+            }
             setData(await this.api.deleteAtoms(this.aiOperationIndices(operation)), true);
             return;
         }
@@ -7463,41 +17446,307 @@ class VAseApp {
         if (name === 'rotate-selection') {
             this.aiRequireEdit('rotate-selection');
             const axis = this.aiFiniteVector(operation.axis || [0, 0, 1], 'axis');
-            const axisVector = new THREE.Vector3(...axis);
-            if (axisVector.lengthSq() <= 1e-16) throw new Error('Rotation axis must be non-zero.');
-            axisVector.normalize();
             const angle = Number(operation.angleDeg);
             if (!Number.isFinite(angle)) throw new Error('rotate-selection requires finite angleDeg.');
             const indices = this.aiOperationIndices(operation);
-            const next = positions();
-            let pivot;
-            if (Array.isArray(operation.pivot)) {
-                pivot = new THREE.Vector3(...this.aiFiniteVector(operation.pivot, 'pivot'));
-            } else if (operation.pivot === 'active') {
-                pivot = new THREE.Vector3(...next[indices[indices.length - 1]]);
-            } else if (operation.pivot === 'origin') {
-                pivot = new THREE.Vector3(0, 0, 0);
-            } else if (operation.pivot === 'cell') {
-                const cell = this.state.atoms?.cell || [];
-                pivot = new THREE.Vector3();
-                cell.forEach(row => pivot.add(new THREE.Vector3(...row).multiplyScalar(0.5)));
-            } else {
-                pivot = new THREE.Vector3();
-                indices.forEach(index => pivot.add(new THREE.Vector3(...next[index])));
-                pivot.multiplyScalar(1 / indices.length);
-            }
-            const quaternion = new THREE.Quaternion().setFromAxisAngle(
-                axisVector,
-                THREE.MathUtils.degToRad(angle)
-            );
-            indices.forEach(index => {
-                const point = new THREE.Vector3(...next[index])
-                    .sub(pivot)
-                    .applyQuaternion(quaternion)
-                    .add(pivot);
-                next[index] = point.toArray();
-            });
+            const current = positions();
+            const pivot = this.aiRotationPivot(operation, indices, current);
+            const next = this.aiRotatedPositions(current, indices, axis, angle, pivot);
             setData(await this.api.applyPositions(next, applyConstraints));
+            return;
+        }
+        if (name === 'scale-selection') {
+            this.aiRequireEdit('scale-selection');
+            const factor = Number(operation.factor);
+            if (!Number.isFinite(factor) || factor <= 0) {
+                throw new Error('scale-selection requires factor greater than zero.');
+            }
+            const axis = String(operation.axis || 'ALL').trim().toUpperCase();
+            if (!['ALL', 'X', 'Y', 'Z'].includes(axis)) {
+                throw new Error('scale-selection axis must be ALL, X, Y, or Z.');
+            }
+            const indices = this.aiOperationIndices(operation);
+            const current = positions();
+            const pivot = this.aiRotationPivot(operation, indices, current);
+            const pivotComponents = pivot.toArray();
+            const scale = axis === 'ALL'
+                ? [factor, factor, factor]
+                : ['X', 'Y', 'Z'].map(candidate => candidate === axis ? factor : 1);
+            indices.forEach(index => {
+                current[index] = current[index].map(
+                    (value, component) => (
+                        pivotComponents[component]
+                        + (value - pivotComponents[component]) * scale[component]
+                    )
+                );
+            });
+            setData(await this.api.applyPositions(current, applyConstraints));
+            return;
+        }
+        if (name === 'load-commensurate-guest') {
+            const path = String(operation.path || '').trim();
+            if (!path) throw new Error('load-commensurate-guest requires a path.');
+            const loaded = await this.api.loadCommensurateGuestPath(
+                path,
+                String(operation.format || '')
+            );
+            if (Array.isArray(loaded?.guest?.suggested_offset)) {
+                this.state.display.commensurateGuestOffset = loaded.guest.suggested_offset.map(Number);
+            }
+            await this.refresh();
+            const config = this.aiCommensurateConfig({
+                ...operation,
+                mode: 'host-guest'
+            });
+            this.applyAICommensurateConfig(config);
+            this.state.commensurateSuggestionArmed = operation.calculate !== false;
+            if (operation.calculate !== false) {
+                await this.refreshCommensurateWorkspace({
+                    showBusy: true,
+                    preferSmallest: operation.angleDeg === undefined
+                });
+            }
+            return;
+        }
+        if (name === 'remove-commensurate-guest') {
+            await this.api.removeCommensurateGuest();
+            await this.refresh();
+            this.state.display.commensurateMode = 'same-lattice';
+            const modeControl = document.getElementById('commensurate-mode');
+            if (modeControl) modeControl.value = 'same-lattice';
+            this.clearCommensurateRotation({ keepStatus: true, clearSearch: true });
+            this.clearCommensurateSupercellProposal({ keepStatus: true });
+            this.syncCommensurateWorkspaceControls();
+            if (this.state.display.commensurateGuide) {
+                await this.refreshCommensurateWorkspace({ showBusy: true, preferSmallest: true });
+            }
+            return;
+        }
+        if (name === 'calculate-commensurate') {
+            if (operation.indices !== undefined) {
+                this.aiSelectIndices(this.aiOperationIndices(operation));
+            }
+            const config = this.aiCommensurateConfig(operation);
+            this.applyAICommensurateConfig(config);
+            this.state.commensurateSuggestionArmed = true;
+            if (operation.snap !== undefined) {
+                this.state.display.commensurateSnap = Boolean(operation.snap);
+                const snap = document.getElementById('chk-commensurate-snap');
+                if (snap) snap.checked = this.state.display.commensurateSnap;
+            }
+            await this.refreshCommensurateWorkspace({
+                showBusy: true,
+                preferSmallest: operation.angleDeg === undefined
+            });
+            return;
+        }
+        if (name === 'rotate-to-commensurate') {
+            this.aiRequireEdit('rotate-to-commensurate');
+            const axis = String(operation.axis || 'Z').trim().toUpperCase();
+            if (axis !== 'Z') {
+                throw new Error('rotate-to-commensurate is restricted to global Z.');
+            }
+            const targetAngle = Number(operation.angleDeg);
+            if (!Number.isFinite(targetAngle)) {
+                throw new Error('rotate-to-commensurate requires finite angleDeg.');
+            }
+            const maxIndex = Math.max(2, Math.min(64, Math.round(
+                Number(operation.maxIndex ?? this.state.display.commensurateMaxIndex ?? 32)
+            )));
+            const strainTolerance = Number(
+                operation.strainTolerance
+                ?? this.state.display.commensurateStrainTolerance
+                ?? 0.01
+            );
+            if (!Number.isFinite(strainTolerance) || strainTolerance < 0 || strainTolerance > 0.25) {
+                throw new Error('strainTolerance must be a fraction from 0 through 0.25.');
+            }
+            const maxAreaRatio = Math.max(1, Math.min(MAX_COMMENSURATE_AREA_RATIO, Math.round(
+                Number(operation.maxAreaRatio ?? this.state.display.commensurateMaxAreaRatio ?? 16)
+            )));
+            const showAtoms = operation.showAtoms === undefined
+                ? Boolean(this.state.display.commensurateShowAtoms)
+                : operation.showAtoms === true;
+            const maxAngleDifference = Number(operation.maxAngleDifferenceDeg ?? 2);
+            if (!Number.isFinite(maxAngleDifference) || maxAngleDifference < 0 || maxAngleDifference > 30) {
+                throw new Error('maxAngleDifferenceDeg must be from 0 through 30 degrees.');
+            }
+            const search = await this.api.commensurateAngles(
+                axis, maxIndex, strainTolerance, maxAreaRatio
+            );
+            const ranked = (search.candidates || [])
+                .filter(candidate => (
+                    candidate.supercell_supported !== false
+                    && Number(candidate.area_ratio ?? candidate.area) <= maxAreaRatio
+                ))
+                .map(candidate => this.candidateInstanceNearAngle(candidate, targetAngle))
+                .sort((first, second) => (
+                    Math.abs(first.deltaDeg) - Math.abs(second.deltaDeg)
+                    || Number(first.area_ratio ?? first.area) - Number(second.area_ratio ?? second.area)
+                    || Number(first.strain) - Number(second.strain)
+                ));
+            const candidate = ranked[0];
+            if (!candidate || Math.abs(candidate.deltaDeg) > maxAngleDifference) {
+                const nearest = candidate
+                    ? ` The nearest bounded candidate is ${candidate.targetAngleDeg.toFixed(6)} degrees.`
+                    : '';
+                throw new Error(
+                    `No commensurate cell lies within ${maxAngleDifference} degrees of ${targetAngle}.${nearest}`
+                );
+            }
+            const indices = this.aiOperationIndices(operation);
+            const current = positions();
+            const pivot = this.aiRotationPivot(operation, indices, current);
+            const axisVector = {
+                X: [1, 0, 0],
+                Y: [0, 1, 0],
+                Z: [0, 0, 1]
+            }[axis];
+            const next = this.aiRotatedPositions(
+                current, indices, axisVector, candidate.targetAngleDeg, pivot
+            );
+            setData(await this.api.applyPositions(next, applyConstraints));
+            Object.assign(this.state.display, {
+                commensurateGuide: true,
+                commensurateSnap: true,
+                commensurateStrainTolerance: strainTolerance,
+                commensurateMaxIndex: maxIndex,
+                commensurateMaxAreaRatio: maxAreaRatio,
+                commensurateShowAtoms: showAtoms
+            });
+            const showAtomsControl = document.getElementById('chk-commensurate-show-atoms');
+            if (showAtomsControl) showAtomsControl.checked = showAtoms;
+            this.state.commensurateSearch = search;
+            this.state.commensurateCandidates = search.candidates || [];
+            this.state.commensurateSnappedCandidate = candidate;
+            this.state.commensurateSuggestionArmed = true;
+            this.state.commensurateLastAngle = THREE.MathUtils.degToRad(candidate.targetAngleDeg);
+            await this.prepareCommensurateSupercellProposal({
+                candidate,
+                selectedIndices: indices,
+                pivot: pivot.toArray(),
+                axis,
+                displayAngleDeg: candidate.targetAngleDeg,
+                positionsIncludeDisplayRotation: true
+            });
+            this.updateUI();
+            return;
+        }
+        if (name === 'apply-commensurate-cell') {
+            this.aiRequireEdit('apply-commensurate-cell');
+            await this.applyCommensurateSupercellProposal({ propagateErrors: true });
+            return;
+        }
+        if (name === 'dismiss-commensurate-cell') {
+            this.clearCommensurateSupercellProposal();
+            return;
+        }
+        if (name === 'calculate-registry-map') {
+            if (operation.indices !== undefined) {
+                this.aiSelectIndices(this.aiOperationIndices(operation));
+            }
+            const indices = this.aiOperationIndices(operation);
+            const metric = operation.metric === 'bond-strain' ? 'bond-strain' : 'short-contact';
+            const gridX = Math.max(4, Math.min(160, Math.round(Number(operation.gridX) || 32)));
+            const gridY = Math.max(4, Math.min(160, Math.round(Number(operation.gridY) || 32)));
+            const metricControl = document.getElementById('registry-metric');
+            const gridXControl = document.getElementById('registry-grid-x');
+            const gridYControl = document.getElementById('registry-grid-y');
+            const hkl = this.registryHkl({ hkl: operation.hkl || this.state.display.registryHkl });
+            if (metricControl) metricControl.value = metric;
+            if (gridXControl) gridXControl.value = `${gridX}`;
+            if (gridYControl) gridYControl.value = `${gridY}`;
+            ['registry-h', 'registry-k', 'registry-l'].forEach((id, index) => {
+                const control = document.getElementById(id);
+                if (control) control.value = `${hkl[index]}`;
+            });
+            await this.calculateRegistryMap({
+                selectedIndices: indices,
+                metric,
+                gridX,
+                gridY,
+                hkl,
+                pairCutoffs: operation.pairCutoffs
+            });
+            return;
+        }
+        if (name === 'start-registry-relaxation') {
+            this.aiRequireEdit('start-registry-relaxation');
+            if (this.state.registryRelaxation) {
+                throw new Error('Rigid translation mode is already active.');
+            }
+            const indices = this.aiOperationIndices(operation);
+            this.aiSelectIndices(indices);
+            const space = this.registryTranslationSpace({ space: operation.space });
+            const spaceControl = document.getElementById('registry-translation-space');
+            if (spaceControl) spaceControl.value = space;
+            if (space === 'plane') {
+                const hkl = this.registryHkl({ hkl: operation.hkl || this.state.display.registryHkl });
+                ['registry-h', 'registry-k', 'registry-l'].forEach((id, index) => {
+                    const control = document.getElementById(id);
+                    if (control) control.value = `${hkl[index]}`;
+                });
+            } else if (operation.maxDisplacement !== undefined) {
+                const limit = this.registryMaxDisplacement(operation);
+                const control = document.getElementById('registry-max-displacement');
+                if (control) control.value = `${limit}`;
+            }
+            this.syncRegistrySpaceControls();
+            await this.activateRegistryRelaxation(indices, {
+                space,
+                hkl: operation.hkl,
+                maxDisplacement: operation.maxDisplacement
+            });
+            return;
+        }
+        if (name === 'set-registry-translation') {
+            this.aiRequireEdit('set-registry-translation');
+            if (!this.state.registryRelaxation) {
+                throw new Error('Activate rigid translation before setting its coordinates.');
+            }
+            const coordinates = operation.coordinates;
+            const expected = this.state.registryRelaxation.translation_space === 'cartesian' ? 3 : 2;
+            if (
+                !Array.isArray(coordinates)
+                || coordinates.length !== expected
+                || !coordinates.every(value => Number.isFinite(Number(value)))
+            ) {
+                throw new Error(
+                    `set-registry-translation requires ${expected} finite ${expected === 3 ? 'Cartesian' : 'plane-lattice'} coordinates.`
+                );
+            }
+            const normalized = coordinates.map(Number);
+            const data = await this.api.translateRegistryRelaxation(normalized);
+            this.setAtomsData(data, {
+                clearSelection: false,
+                preserveRdf: true,
+                preserveColorScaleRange: true
+            });
+            this.updateRegistryMapMarker(normalized);
+            return;
+        }
+        if (name === 'run-registry-relaxation') {
+            this.aiRequireEdit('run-registry-relaxation');
+            await this.runRegistryRelaxation({
+                fmax: operation.fmax,
+                steps: operation.steps,
+                calculator: operation.calculator
+            });
+            return;
+        }
+        if (name === 'stop-registry-relaxation') {
+            this.aiRequireEdit('stop-registry-relaxation');
+            await this.stopRegistryRelaxation();
+            return;
+        }
+        if (name === 'finish-registry-relaxation') {
+            this.aiRequireEdit('finish-registry-relaxation');
+            await this.finishRegistryRelaxation();
+            return;
+        }
+        if (name === 'cancel-registry-relaxation') {
+            this.aiRequireEdit('cancel-registry-relaxation');
+            await this.cancelRegistryRelaxation();
             return;
         }
         if (name === 'undo') {
@@ -7515,6 +17764,15 @@ class VAseApp {
         }
         if (name === 'start-relaxation') {
             this.aiRequireEdit('start-relaxation');
+            if (this.addAtomsSessionActive()) {
+                await this.relaxAddedAtomsFromWidget({
+                    calculator: operation.calculator,
+                    fmax: operation.fmax,
+                    steps: operation.steps,
+                    throwOnError: true
+                });
+                return;
+            }
             if (!this.state.atoms?.metadata?.has_calculator) {
                 throw new Error('Relaxation requires an attached ASE calculator.');
             }
@@ -7524,14 +17782,37 @@ class VAseApp {
                 Number(operation.fmax) || 0.05,
                 Math.max(1, Math.round(Number(operation.steps) || 200)),
                 applyConstraints,
-                operation.calculator || this.currentCalculatorPayload()
+                this.calculatorPayloadWithOverrides(operation.calculator)
             );
-            this.state.isRelaxing = ['started', 'restarting'].includes(response.status);
+            const completionArrivedFirst = (
+                this.state.relaxTrajectory?.kind === 'relaxation'
+                && this.state.relaxTrajectory?.finished === true
+                && this.state.isRelaxing === false
+            );
+            this.state.isRelaxing = !completionArrivedFirst
+                && ['started', 'restarting'].includes(response.status);
             this.updateUI();
             return;
         }
         if (name === 'stop-relaxation') {
-            await this.api.relaxStop();
+            if (this.addAtomsSessionActive()) await this.stopAddedAtomsRelaxation();
+            else await this.api.relaxStop();
+            return;
+        }
+        if (name === 'clear-relaxation-trajectory') {
+            const retain = String(operation.retain || 'final').trim().toLowerCase();
+            if (!['displayed', 'final'].includes(retain)) {
+                throw new Error("clear-relaxation-trajectory retain must be 'displayed' or 'final'.");
+            }
+            await this.clearRelaxationTrajectoryUsing(retain === 'final');
+            return;
+        }
+        if (name === 'exit-relaxation-mode') {
+            this.aiRequireEdit('exit-relaxation-mode');
+            const data = await this.api.relaxExit(operation.keep !== false);
+            this.state.isRelaxing = false;
+            this.clearModeTrajectory('relaxation');
+            setData(data, false);
             return;
         }
         if (name === 'refresh-displacements') {
@@ -7611,6 +17892,8 @@ class VAseApp {
                 positions: positions()
             });
             setData(result, true);
+            this.state.display.displacementReferenceMode = 'phonon';
+            this.syncDisplacementControls();
             return result.phonon;
         }
         if (name === 'phonon-band-structure') {
@@ -7703,6 +17986,9 @@ class VAseApp {
             });
             setData(result, true);
             Object.assign(this.state, scientificState);
+            this.state.display.displacementReferenceMode = 'phonon';
+            this.syncDisplacementControls();
+            this.state.phononTrajectoryMetadata = { ...(result.phonon || {}) };
             this.renderPhononModelSummary(scientificState.phononModelSummary);
             if (scientificState.phononBandStructure) {
                 const bands = scientificState.phononBandStructure;
@@ -7718,6 +18004,284 @@ class VAseApp {
                 this.renderPhononModes(scientificState.phononModes, result.phonon?.band);
             }
             return result.phonon;
+        }
+        if (name === 'load-volumetric') {
+            const path = String(operation.path || '').trim();
+            if (!path) throw new Error('load-volumetric requires a path.');
+            const requestedPrecision = operation.precision === 'float64'
+                || operation.precision === 'fp64'
+                ? 'float64'
+                : operation.precision === 'float32'
+                    || operation.precision === 'fp32'
+                    ? 'float32'
+                    : this.volumetricImportPrecision();
+            const data = await this.api.appendStructurePath(
+                path,
+                String(operation.format || ''),
+                ':',
+                requestedPrecision,
+                { emitMutation: false }
+            );
+            if (data.loaded_file?.source_kind !== 'volumetric') {
+                throw new Error('The requested path did not contain supported volumetric data.');
+            }
+            this.state.display.volumetricPrecision = requestedPrecision;
+            this.setAtomsData(data, {
+                clearSelection: !this.hasLoadedAtoms(),
+                preserveDisplay: true,
+                preserveRdf: true
+            });
+            this.activateNewestVolumetricDataset();
+            await this.updateVolumetricSurface();
+            return;
+        }
+        if (name === 'show-volumetric') {
+            const datasetId = String(operation.datasetId || '').trim();
+            const dataset = this.volumetricDatasets().find(item => item.id === datasetId);
+            if (!dataset) throw new Error(`Volumetric dataset '${datasetId}' was not found.`);
+            const level = Number(operation.level);
+            if (!Number.isFinite(level)) throw new Error('show-volumetric requires a finite level.');
+            const surfaceMode = operation.surfaceMode === undefined
+                ? this.state.display.volumetricSurfaceMode
+                : String(operation.surfaceMode);
+            if (!['single', 'signed'].includes(surfaceMode)) {
+                throw new Error("surfaceMode must be 'single' or 'signed'.");
+            }
+            if (surfaceMode === 'signed' && level === 0) {
+                throw new Error('A signed isosurface requires a non-zero level magnitude.');
+            }
+            const stepSize = operation.stepSize === undefined
+                ? this.state.display.volumetricStepSize
+                : Number(operation.stepSize);
+            if (![1, 2, 4].includes(stepSize)) {
+                throw new Error('stepSize must be 1, 2, or 4.');
+            }
+            const smearingSigma = operation.smearingSigma === undefined
+                ? this.state.display.volumetricSmearingSigma
+                : Number(operation.smearingSigma);
+            if (
+                !Number.isFinite(smearingSigma)
+                || smearingSigma < 0
+                || smearingSigma > 8
+            ) {
+                throw new Error('smearingSigma must be between 0 and 8 grid voxels.');
+            }
+            const smoothingIterations = operation.smoothingIterations === undefined
+                ? this.state.display.volumetricSmoothingIterations
+                : Number(operation.smoothingIterations);
+            if (
+                !Number.isInteger(smoothingIterations)
+                || smoothingIterations < 0
+                || smoothingIterations > 30
+            ) {
+                throw new Error('smoothingIterations must be an integer from 0 through 30.');
+            }
+            const opacity = operation.opacity === undefined
+                ? this.state.display.volumetricOpacity
+                : Number(operation.opacity);
+            if (!Number.isFinite(opacity) || opacity < 0.05 || opacity > 1) {
+                throw new Error('opacity must be between 0.05 and 1.');
+            }
+            if (
+                operation.positiveColor !== undefined
+                && !this.validHexColor(operation.positiveColor)
+            ) {
+                throw new Error('positiveColor must be a six-digit hexadecimal color.');
+            }
+            if (
+                operation.negativeColor !== undefined
+                && !this.validHexColor(operation.negativeColor)
+            ) {
+                throw new Error('negativeColor must be a six-digit hexadecimal color.');
+            }
+            Object.assign(this.state.display, {
+                showVolumetric: true,
+                volumetricDatasetId: datasetId,
+                volumetricLevel: level,
+                volumetricSurfaceMode: surfaceMode,
+                volumetricStepSize: stepSize,
+                volumetricSmearingSigma: smearingSigma,
+                volumetricSmoothingIterations: smoothingIterations,
+                volumetricOpacity: opacity,
+                volumetricPositiveColor: this.validHexColor(operation.positiveColor)
+                    ? operation.positiveColor
+                    : this.state.display.volumetricPositiveColor,
+                volumetricNegativeColor: this.validHexColor(operation.negativeColor)
+                    ? operation.negativeColor
+                    : this.state.display.volumetricNegativeColor
+            });
+            this.renderVolumetricControls();
+            await this.updateVolumetricSurface();
+            return;
+        }
+        if (name === 'add-volumetric-plane') {
+            const patch = this.volumetricPlanePatchFromOperation(operation);
+            if (!patch.datasetId) throw new Error('add-volumetric-plane requires datasetId.');
+            if (!patch.hkl) throw new Error('add-volumetric-plane requires hkl.');
+            const index = this.volumetricPlanes().length;
+            const dataset = this.volumetricDatasets().find(item => item.id === patch.datasetId);
+            const plane = this.normalizedVolumetricPlane({
+                name: `Plane ${index + 1}`,
+                datasetId: patch.datasetId,
+                hkl: patch.hkl,
+                vmin: dataset?.minimum,
+                vmax: dataset?.maximum,
+                ...patch
+            }, index);
+            const metrics = this.volumetricPlaneMetrics(plane);
+            plane.offsetMinimum = metrics?.minimum ?? null;
+            plane.offsetMaximum = metrics?.maximum ?? null;
+            if (!Object.prototype.hasOwnProperty.call(operation, 'offsetAngstrom') && metrics) {
+                plane.offsetAngstrom = (metrics.minimum + metrics.maximum) / 2;
+            }
+            this.volumetricPlanes().push(plane);
+            try {
+                await this.renderVolumetricPlane(plane);
+            } catch (error) {
+                this.state.display.volumetricPlanes = this.volumetricPlanes()
+                    .filter(candidate => candidate.id !== plane.id);
+                this.state.volumetricPlanePayloads.delete(plane.id);
+                this.renderer.clearVolumetricPlanes([plane.id]);
+                throw error;
+            }
+            this.setVolumetricPlaneSelection([plane.id], { update: false });
+            this.renderVolumetricPlaneControls();
+            this.scheduleVisualHistoryCommit('volumetric-plane-add');
+            return;
+        }
+        if (name === 'update-volumetric-planes') {
+            const planes = this.volumetricPlanesByOperationIds(operation);
+            const patches = planes.map(plane => this.volumetricPlanePatchFromOperation(operation, plane));
+            const snapshots = planes.map(plane => this.clonePlain(plane));
+            planes.forEach((plane, index) => {
+                const patch = patches[index];
+                const datasetChanged = patch.datasetId && patch.datasetId !== plane.datasetId;
+                Object.assign(plane, patch);
+                if (datasetChanged && !Object.prototype.hasOwnProperty.call(operation, 'autoRange')) {
+                    plane.autoRange = true;
+                }
+                const dataset = this.volumetricPlaneDataset(plane);
+                if (datasetChanged && !Object.prototype.hasOwnProperty.call(operation, 'vmin')) {
+                    plane.vmin = Number(dataset?.minimum);
+                }
+                if (datasetChanged && !Object.prototype.hasOwnProperty.call(operation, 'vmax')) {
+                    plane.vmax = Number(dataset?.maximum);
+                }
+                const metrics = this.volumetricPlaneMetrics(plane);
+                plane.offsetMinimum = metrics?.minimum ?? null;
+                plane.offsetMaximum = metrics?.maximum ?? null;
+                if (metrics) {
+                    plane.offsetAngstrom = Math.max(
+                        metrics.minimum,
+                        Math.min(metrics.maximum, plane.offsetAngstrom)
+                    );
+                }
+            });
+            try {
+                await Promise.all(planes.map(plane => this.renderVolumetricPlane(plane)));
+            } catch (error) {
+                planes.forEach((plane, index) => Object.assign(plane, snapshots[index]));
+                await Promise.allSettled(planes.map(plane => this.renderVolumetricPlane(plane)));
+                throw error;
+            }
+            this.setVolumetricPlaneSelection(planes.map(plane => plane.id), { update: false });
+            this.renderVolumetricPlaneControls();
+            this.scheduleVisualHistoryCommit('volumetric-plane-update');
+            return;
+        }
+        if (name === 'remove-volumetric-planes') {
+            const planes = this.volumetricPlanesByOperationIds(operation);
+            const ids = new Set(planes.map(plane => plane.id));
+            this.state.display.volumetricPlanes = this.volumetricPlanes()
+                .filter(plane => !ids.has(plane.id));
+            ids.forEach(id => {
+                this.state.volumetricPlanePayloads.delete(id);
+                this.state.selectedVolumetricPlanes.delete(id);
+            });
+            this.renderer.clearVolumetricPlanes([...ids]);
+            this.renderVolumetricPlaneControls();
+            this.scheduleVisualHistoryCommit('volumetric-plane-remove');
+            return;
+        }
+        if (name === 'combine-volumetric') {
+            if (
+                !Array.isArray(operation.datasetIds)
+                || !Array.isArray(operation.coefficients)
+                || operation.datasetIds.length < 2
+                || operation.datasetIds.length !== operation.coefficients.length
+            ) {
+                throw new Error(
+                    'combine-volumetric requires matching datasetIds and coefficients arrays.'
+                );
+            }
+            const result = await this.api.createVolumetricDifference({
+                dataset_ids: operation.datasetIds.map(value => String(value)),
+                coefficients: operation.coefficients.map(Number),
+                name: String(operation.name || 'Charge density difference'),
+                precision: operation.precision === 'float64' || operation.precision === 'fp64'
+                    ? 'float64'
+                    : operation.precision === 'float32' || operation.precision === 'fp32'
+                        ? 'float32'
+                        : undefined
+            });
+            this.state.atoms.metadata.volumetric_datasets = result.volumetric_datasets || [];
+            this.state.display.volumetricDatasetId = result.dataset.id;
+            this.state.display.volumetricLevel = this.defaultVolumetricLevel(result.dataset);
+            this.renderVolumetricControls();
+            return;
+        }
+        if (name === 'remove-volumetric') {
+            const datasetId = String(operation.datasetId || '').trim();
+            if (!datasetId) throw new Error('remove-volumetric requires datasetId.');
+            const result = await this.api.deleteVolumetricDataset(datasetId);
+            this.state.atoms.metadata.volumetric_datasets = result.volumetric_datasets || [];
+            if (this.state.display.volumetricDatasetId === datasetId) {
+                this.state.display.volumetricDatasetId = '';
+                this.state.display.showVolumetric = false;
+                this.renderer.clearVolumetricSurfaces();
+            }
+            this.renderVolumetricControls();
+            return;
+        }
+        if (name === 'calculate-rdf') {
+            const pairMode = ['active', 'selected', 'all', 'none'].includes(operation.pairMode)
+                ? operation.pairMode
+                : this.state.display.rdfPairMode;
+            const cutoffInput = document.getElementById('rdf-cutoff');
+            const binsInput = document.getElementById('rdf-bins');
+            const modeInput = document.getElementById('rdf-pair-mode');
+            if (cutoffInput) {
+                cutoffInput.value = operation.cutoff === undefined || operation.cutoff === null
+                    ? ''
+                    : `${Number(operation.cutoff)}`;
+            }
+            if (binsInput && operation.bins !== undefined) binsInput.value = `${Number(operation.bins)}`;
+            if (modeInput) modeInput.value = pairMode;
+            const options = this.rdfOptions();
+            if (Array.isArray(operation.activePairs)) {
+                options.active_pairs = this.clonePlain(operation.activePairs);
+            }
+            const token = ++this.state.rdfRequestToken;
+            const result = await this.api.fetchRdf(options);
+            if (token !== this.state.rdfRequestToken) {
+                throw new Error(
+                    'The structure or trajectory frame changed while RDF was being '
+                    + 'calculated. Inspect the current state and retry.'
+                );
+            }
+            this.state.rdfResult = result;
+            this.state.rdfSelectionSignature = options.pair_mode === 'selected'
+                ? this.rdfPairSignature(options.active_pairs)
+                : '';
+            this.state.rdfSelectionPendingSignature = '';
+            await this.plotRdf(result);
+            const warning = (result.warnings || []).join(' ');
+            this.setRdfStatus(
+                warning ? 'warning' : 'ready',
+                `${result.bins} bins · cutoff ${Number(result.cutoff).toFixed(3)} Å`,
+                warning || `${Object.keys(result.partial || {}).length} pair curves plus total.`
+            );
+            return;
         }
         throw new Error(`Unsupported AI operation '${name}'.`);
     }
@@ -7830,6 +18394,32 @@ class VAseApp {
             }
             this.adoptCameraViewWithoutHistory();
         }
+        if (command.renderArea !== undefined) {
+            const renderArea = command.renderArea;
+            if (!renderArea || typeof renderArea !== 'object' || Array.isArray(renderArea)) {
+                throw new Error('renderArea must be an object.');
+            }
+            if (renderArea.enabled !== undefined) {
+                this.state.exportPreviewEnabled = Boolean(renderArea.enabled);
+            }
+            if (renderArea.followViewport !== undefined) {
+                this.state.exportPreviewFollowViewport = Boolean(renderArea.followViewport);
+            }
+            if (renderArea.camera !== undefined) {
+                const camera = this.normalizedCameraSettings(renderArea.camera);
+                if (!camera) throw new Error('renderArea.camera must be a valid camera object.');
+                this.state.exportPreviewCamera = camera;
+                this.state.exportPreviewFollowViewport = false;
+            }
+            if (renderArea.fromCurrentView) {
+                this.state.exportPreviewFollowViewport = false;
+                this.captureRenderAreaCamera({ syncPreview: false });
+            }
+            if (!this.state.exportPreviewEnabled) {
+                this.setRenderAreaSelected(false, { update: false });
+            }
+            this.syncImageExportPreview();
+        }
         if (command.selection !== undefined) {
             const selection = command.selection;
             if (!selection || typeof selection !== 'object' || Array.isArray(selection)) {
@@ -7919,7 +18509,7 @@ class VAseApp {
 
         const positions = this.backendPositionsPayload();
         const includeCell = request.includeCell ?? this.state.display.exportIncludeCell !== false;
-        const display = this.clonePlain(this.state.display);
+        const display = this.geometryExportDisplaySnapshot();
         const camera = this.currentCameraForExport();
         const bonds = this.renderer.bondPairs || [];
         const bridges = this.renderer.supercellBridgeBondRecords || [];
@@ -7985,7 +18575,7 @@ class VAseApp {
             const rendered = await this.renderHtmlCompositionPreview(profile);
             blob = await this.api.exportHtml(
                 positions,
-                this.designSettingsSnapshot(),
+                this.designSettingsSnapshot({ includeIdentityOverrides: true }),
                 this.state.applyConstraints,
                 [...this.state.selected],
                 this.workspaceDocumentTitle(),
@@ -7998,7 +18588,7 @@ class VAseApp {
         } else if (format === 'project') {
             blob = await this.api.saveProject(
                 positions,
-                this.designSettingsSnapshot(),
+                this.designSettingsSnapshot({ includeIdentityOverrides: true }),
                 this.state.applyConstraints
             );
             filename = this.projectFilename();
@@ -8007,9 +18597,71 @@ class VAseApp {
             blob = await this.api.saveVisualSettings(this.designSettingsSnapshot());
             filename = 'v_ase-settings.json';
             mimeType = 'application/json';
+        } else if (format === 'rdf-csv') {
+            const options = this.rdfOptions();
+            if (request.cutoff !== undefined) options.cutoff = request.cutoff;
+            if (request.bins !== undefined) options.bins = request.bins;
+            if (request.pairMode !== undefined) {
+                options.pair_mode = request.pairMode;
+                if (request.activePairs === undefined) {
+                    options.active_pairs = request.pairMode === 'selected'
+                        ? this.selectedActiveRdfPairs()
+                        : this.activeRdfPairs();
+                }
+            }
+            if (request.activePairs !== undefined) {
+                options.active_pairs = this.clonePlain(request.activePairs);
+            }
+            blob = await this.api.exportRdfCsv(options);
+            filename = 'v_ase_rdf.csv';
+            mimeType = 'text/csv';
+        } else if (format === 'commensurate-csv') {
+            if (!this.state.commensurateSearch) {
+                throw new Error('Run calculate-commensurate before exporting common-cell data.');
+            }
+            const options = {
+                axis: 'Z',
+                max_index: Number(
+                    request.maxIndex ?? this.state.display.commensurateMaxIndex ?? 32
+                ),
+                strain_tolerance: Number(
+                    request.strainTolerance
+                    ?? this.state.display.commensurateStrainTolerance
+                    ?? 0.01
+                ),
+                max_area_ratio: Number(
+                    request.maxAreaRatio
+                    ?? this.state.display.commensurateMaxAreaRatio
+                    ?? 16
+                ),
+                mode: request.mode === 'host-guest'
+                    ? 'host-guest'
+                    : this.commensurateMode(),
+                strain_target: request.strainTarget === 'host'
+                    ? 'host'
+                    : this.state.display.commensurateStrainTarget || 'guest'
+            };
+            blob = await this.api.exportCommensurateCsv(options);
+            filename = 'v_ase_commensurate.csv';
+            mimeType = 'text/csv';
+        } else if (format === 'registry-csv') {
+            if (!this.state.registryResult) {
+                throw new Error('Run calculate-registry-map before exporting translation-map data.');
+            }
+            blob = await this.api.exportRegistryCsv(this.registryOptions(null, {
+                selectedIndices: request.indices ?? this.state.registryResult.selected_indices,
+                metric: request.metric ?? this.state.registryResult.metric,
+                gridX: request.gridX ?? this.state.registryResult.x_fractional?.length,
+                gridY: request.gridY ?? this.state.registryResult.y_fractional?.length,
+                pairCutoffs: request.pairCutoffs
+            }));
+            filename = 'v_ase_registry_map.csv';
+            mimeType = 'text/csv';
         } else {
             throw new Error(
-                "export format must be image, video, poscar, pickle, blender, 3dm, obj, html, project, or settings."
+                "export format must be image, video, poscar, pickle, blender, "
+                + "3dm, obj, html, project, settings, rdf-csv, commensurate-csv, "
+                + "or registry-csv."
             );
         }
         return {
@@ -8055,7 +18707,7 @@ class VAseApp {
             this.scheduleCollaborationEvent(this.collaborationCommandDetails(command));
         } finally {
             this.flushVisualHistoryCommit();
-            await this.flushCollaborationEvents('agent');
+            await this.flushCollaborationEvents();
             this.collaborationActorDepth = Math.max(0, this.collaborationActorDepth - 1);
         }
         return completed ? this.aiDescribe() : null;
@@ -8077,6 +18729,8 @@ class VAseApp {
             },
             describe: async options => {
                 await app.ready;
+                app.flushVisualHistoryCommit();
+                await app.flushCollaborationEvents();
                 return app.aiDescribe(options);
             },
             capabilities: async () => {
@@ -8159,22 +18813,148 @@ class VAseApp {
         return true;
     }
 
-    designSettingsSnapshot({ includeAtomOverrides = true } = {}) {
+    updateVisualDefaultStatus() {
+        const status = document.getElementById('visual-default-status');
+        const row = status?.closest('.personal-defaults-row');
+        const state = this.hasPersonalVisualDefaults ? 'personal' : 'app';
+        if (status) {
+            status.dataset.state = state;
+            status.textContent = this.hasPersonalVisualDefaults
+                ? 'Applied to new structures and tabs'
+                : 'Using v_ase defaults';
+        }
+        if (row) row.dataset.state = state;
+    }
+
+    notifyWorkspaceVisualDefaults() {
+        if (!this.workspaceChild || window.parent === window) return;
+        window.parent.postMessage({
+            type: 'v_ase:document-visual-defaults',
+            sessionId: this.sessionId,
+            configured: this.hasPersonalVisualDefaults,
+            settings: this.personalVisualDefaults
+                ? this.clonePlain(this.personalVisualDefaults)
+                : null
+        }, window.location.origin);
+    }
+
+    async loadUserVisualDefaults() {
+        try {
+            const response = await this.api.fetchUserVisualDefaults();
+            this.hasPersonalVisualDefaults = response?.configured === true
+                && Boolean(response.settings);
+            this.personalVisualDefaults = this.hasPersonalVisualDefaults
+                ? this.clonePlain(response.settings)
+                : null;
+        } catch (error) {
+            console.warn('Could not load personal visual defaults:', error);
+            this.hasPersonalVisualDefaults = false;
+            this.personalVisualDefaults = null;
+        }
+        this.updateVisualDefaultStatus();
+    }
+
+    personalVisualDefaultsSnapshot() {
+        return this.designSettingsSnapshot({
+            includeAtomOverrides: false,
+            includeCamera: false
+        });
+    }
+
+    async setCurrentVisualDefaults() {
+        this.applyDisplayOptions();
+        const settings = this.personalVisualDefaultsSnapshot();
+        const response = await this.api.saveUserVisualDefaults(settings);
+        this.personalVisualDefaults = this.clonePlain(response.settings || settings);
+        this.hasPersonalVisualDefaults = true;
+        this.updateVisualDefaultStatus();
+        this.notifyWorkspaceVisualDefaults();
+        this.toast('Current visual settings will be used for new structures and tabs.', 'success');
+        return this.personalVisualDefaults;
+    }
+
+    async restoreAppVisualDefaults() {
+        const confirmed = await this.showConfirmModal({
+            title: 'Restore app defaults?',
+            intro: 'This removes your saved personal default and applies the built-in v_ase appearance to this tab.',
+            items: [
+                'Saved personal visualization defaults will be deleted.',
+                'Appearance, bonds, lighting, replication, translation, and render quality will reset.',
+                'Atom coordinates, trajectory frames, and unit-cell contents will stay unchanged.'
+            ],
+            confirmText: 'Proceed',
+            cancelText: 'Cancel',
+            danger: true
+        });
+        if (!confirmed) return false;
+        await this.applyBuiltInVisualDefaults();
+        return true;
+    }
+
+    async applyBuiltInVisualDefaults() {
+        await this.api.clearUserVisualDefaults();
+        this.personalVisualDefaults = null;
+        this.hasPersonalVisualDefaults = false;
+        this.applyDesignSettings(this.clonePlain(this.factoryDesignSettings));
+        this.initialDesignSettings = this.designSettingsSnapshot();
+        this.updateVisualDefaultStatus();
+        this.notifyWorkspaceVisualDefaults();
+        this.toast('Built-in v_ase visual defaults restored.', 'success');
+        return this.clonePlain(this.factoryDesignSettings);
+    }
+
+    designSettingsSnapshot({
+        includeAtomOverrides = true,
+        includeCamera = true,
+        includeIdentityOverrides = false
+    } = {}) {
         this.readTransformSettings();
         this.syncAtomicScaleFromCamera({ forceInput: true, syncPreview: false });
         const display = this.clonePlain(this.state.display);
-        if (!includeAtomOverrides) display.atomMaterials = {};
-        return {
+        if (!includeAtomOverrides) {
+            display.atomRadiusScales = {};
+            display.atomColors = {};
+            display.atomOpacities = {};
+            display.atomMaterials = {};
+            display.atomBondStyles = {};
+            display.hiddenAtomReferences = [];
+        }
+        const snapshot = {
             schema: 'v_ase.visual_settings.v3',
             display,
-            camera: this.currentCameraForExport(),
             applyConstraints: this.state.applyConstraints,
             antiAliasing: this.state.antiAliasing,
             sphereQuality: this.state.sphereQuality,
             moveIncrement: this.state.moveIncrement,
             rotateIncrementDeg: this.state.rotateIncrementDeg,
-            imageExportProfile: this.clonePlain(this.currentImageExportProfile())
+            imageExportProfile: this.clonePlain(this.currentImageExportProfile()),
+            renderArea: {
+                followViewport: Boolean(this.state.exportPreviewFollowViewport),
+                camera: this.clonePlain(
+                    this.state.exportPreviewCamera
+                    || this.currentImageExportProfile()?.options?.camera
+                    || null
+                )
+            }
         };
+        if (includeIdentityOverrides) {
+            snapshot.viewIdentityOverrides = this.viewIdentityOverridesSnapshot();
+        }
+        if (includeCamera) snapshot.camera = this.currentCameraForExport();
+        return snapshot;
+    }
+
+    geometryExportDisplaySnapshot() {
+        const display = this.clonePlain(this.state.display);
+        const colors = this.renderer.atomColorScaleColors;
+        if (display.atomColorScaleEnabled && Array.isArray(colors)) {
+            display.atomColorScaleColors = colors.map(color => (
+                this.validHexColor(color) ? color : null
+            ));
+        } else {
+            delete display.atomColorScaleColors;
+        }
+        return display;
     }
 
     setSupercellInputs(reps = [1, 1, 1]) {
@@ -8245,20 +19025,35 @@ class VAseApp {
         setValue('rotate-pivot', display.rotatePivot || 'selection');
         setChecked('chk-commensurate-guide', display.commensurateGuide);
         setChecked('chk-commensurate-snap', display.commensurateSnap !== false);
+        setChecked('chk-commensurate-show-atoms', Boolean(display.commensurateShowAtoms));
+        setValue('commensurate-mode', display.commensurateMode === 'host-guest' ? 'host-guest' : 'same-lattice');
+        setValue('commensurate-strain-target', display.commensurateStrainTarget === 'host' ? 'host' : 'guest');
+        setValue('commensurate-guest-angle', Number(display.commensurateGuestAngleDeg) || 0);
+        setValue('commensurate-guest-gap', Number.isFinite(Number(display.commensurateGuestGap))
+            ? Number(display.commensurateGuestGap)
+            : 3.0);
         setValue('commensurate-strain', (display.commensurateStrainTolerance ?? 0.01) * 100);
         setValue('commensurate-max-index', display.commensurateMaxIndex ?? 32);
+        setValue('commensurate-max-area', display.commensurateMaxAreaRatio ?? 16);
         setValue('commensurate-snap-range', display.commensurateSnapRangeDeg ?? 2);
         setValue('bond-mode', display.bondMode || 'auto');
         setValue('bond-cutoff', display.bondCutoffScale || 1.0);
         setValue('bond-style', display.bondStyle || 'cylinder');
+        setValue('bond-material', this.normalizedBondMaterial(display.bondMaterial));
         setValue('bond-thickness', display.bondThickness || 0.25);
         setValue('bond-color-mode', display.bondColorMode || 'split');
         setValue('bond-custom-color', display.bondCustomColor || '#c8ccd0');
+        setValue('bond-opacity', Math.max(0.05, Math.min(1, Number(display.bondOpacity) || 1)));
         setValue('blender-export-mode', display.blenderExportMode || 'instanced');
         setValue('atom-radius-scale', display.atomRadiusScale || 0.6);
+        setChecked(
+            'selected-atom-update-bonds',
+            display.selectedAppearanceAffectsBonds !== false
+        );
         setValue('move-increment', this.state.moveIncrement || 0);
         setValue('rotate-increment', this.state.rotateIncrementDeg || 0);
         this.syncDisplacementControls(display);
+        this.syncForceVectorControls(display);
         this.setSupercellInputs(display.supercell || [1, 1, 1]);
         this.setTranslationCoordinateMode(
             display.translationMode === 'fractional' ? 'fractional' : 'cartesian',
@@ -8270,6 +19065,8 @@ class VAseApp {
         this.syncLightingControls(display);
         this.updateRadiusScaleLabel();
         this.updateBondAppearanceUI();
+        this.syncCommensurateWorkspaceControls();
+        this.syncAtomColorScaleControls();
     }
 
     reconcileDesignDisplay(nextDisplay = {}) {
@@ -8350,6 +19147,10 @@ class VAseApp {
         Object.keys(labelColors).forEach(label => {
             if (!this.validHexColor(labelColors[label])) delete labelColors[label];
         });
+        const labelOpacities = pickLabelMap(nextDisplay.labelOpacities);
+        labels.forEach(label => {
+            labelOpacities[label] = finiteClamped(labelOpacities[label], 1, 0, 1);
+        });
         const labelVisible = pickLabelMap(nextDisplay.labelVisible);
         labels.forEach(label => {
             labelVisible[label] = labelVisible[label] !== false;
@@ -8357,6 +19158,27 @@ class VAseApp {
         const labelMaterials = pickLabelMap(nextDisplay.labelMaterials);
         labels.forEach(label => {
             labelMaterials[label] = this.normalizedAtomMaterialPreset(labelMaterials[label]);
+        });
+        const pickAtomMap = (source, normalize) => {
+            const result = {};
+            Object.entries(source || {}).forEach(([rawIndex, value]) => {
+                const index = Number(rawIndex);
+                if (!Number.isInteger(index) || index < 0 || index >= atomCount) return;
+                const normalized = normalize(value);
+                if (normalized !== null && normalized !== undefined) result[index] = normalized;
+            });
+            return result;
+        };
+        const atomRadiusScales = pickAtomMap(nextDisplay.atomRadiusScales, value => {
+            const scale = Number(value);
+            return Number.isFinite(scale) && scale >= 0.25 && scale <= 2.5 ? scale : null;
+        });
+        const atomColors = pickAtomMap(nextDisplay.atomColors, value => (
+            this.validHexColor(value) ? String(value).toLowerCase() : null
+        ));
+        const atomOpacities = pickAtomMap(nextDisplay.atomOpacities, value => {
+            const opacity = Number(value);
+            return Number.isFinite(opacity) ? Math.max(0, Math.min(1, opacity)) : null;
         });
         const atomMaterials = {};
         Object.entries(nextDisplay.atomMaterials || {}).forEach(([rawIndex, preset]) => {
@@ -8370,11 +19192,35 @@ class VAseApp {
                 atomMaterials[index] = preset;
             }
         });
+        const atomBondStyles = pickAtomMap(nextDisplay.atomBondStyles, value => {
+            if (!value || typeof value !== 'object') return null;
+            const style = {};
+            if (ATOM_MATERIAL_PRESETS.includes(value.material) || value.material === 'unlit') {
+                style.material = value.material;
+            }
+            const opacity = Number(value.opacity);
+            if (Number.isFinite(opacity)) style.opacity = Math.max(0, Math.min(1, opacity));
+            if (this.validHexColor(value.color)) style.color = String(value.color).toLowerCase();
+            return Object.keys(style).length ? style : null;
+        });
+        const hiddenAtomReferences = [...new Set(
+            (Array.isArray(nextDisplay.hiddenAtomReferences)
+                ? nextDisplay.hiddenAtomReferences
+                : [])
+                .map(value => String(value))
+                .filter(key => {
+                    const atomMatch = key.match(/^atom:(\d+)$/);
+                    if (atomMatch) return Number(atomMatch[1]) < atomCount;
+                    const replicaMatch = key.match(/^replica:(\d+):(-?\d+),(-?\d+),(-?\d+)$/);
+                    return Boolean(replicaMatch && Number(replicaMatch[1]) < atomCount);
+                })
+        )];
 
         const savedCutoffs = nextDisplay.pairwiseBondCutoffs || {};
         const savedRanges = nextDisplay.pairwiseBondRanges || {};
         const pairwiseBondCutoffs = {};
         const pairwiseBondRanges = {};
+        const pairwiseBondStyles = {};
         for (let i = 0; i < labels.length; i++) {
             for (let j = i; j < labels.length; j++) {
                 const key = this.labelPairKey(labels[i], labels[j]);
@@ -8384,6 +19230,10 @@ class VAseApp {
                 });
                 pairwiseBondRanges[key] = range;
                 pairwiseBondCutoffs[key] = range.enabled ? range.max : 0;
+                const style = nextDisplay.pairwiseBondStyles?.[key];
+                if (style && typeof style === 'object') {
+                    pairwiseBondStyles[key] = this.normalizedBondPairStyle(style);
+                }
             }
         }
 
@@ -8409,6 +19259,17 @@ class VAseApp {
             translationMode = 'cartesian';
             translation = [0, 0, 0];
         }
+        const availableVolumeIds = new Set(this.volumetricDatasets().map(dataset => dataset.id));
+        const seenPlaneIds = new Set();
+        const volumetricPlanes = (Array.isArray(nextDisplay.volumetricPlanes)
+            ? nextDisplay.volumetricPlanes
+            : [])
+            .map((plane, index) => this.normalizedVolumetricPlane(plane, index))
+            .filter(plane => {
+                if (!availableVolumeIds.has(plane.datasetId) || seenPlaneIds.has(plane.id)) return false;
+                seenPlaneIds.add(plane.id);
+                return true;
+            });
 
         return {
             ...this.clonePlain(nextDisplay),
@@ -8419,13 +19280,34 @@ class VAseApp {
             cellMaterial: ['unlit', 'standard', 'metal'].includes(nextDisplay.cellMaterial)
                 ? nextDisplay.cellMaterial
                 : 'unlit',
-            commensurateGuide: nextDisplay.commensurateGuide !== false,
+            commensurateGuide: Boolean(nextDisplay.commensurateGuide),
             commensurateSnap: Boolean(nextDisplay.commensurateSnap),
+            commensurateMode: nextDisplay.commensurateMode === 'host-guest'
+                ? 'host-guest'
+                : 'same-lattice',
+            commensurateStrainTarget: nextDisplay.commensurateStrainTarget === 'host'
+                ? 'host'
+                : 'guest',
+            commensurateShowAtoms: Boolean(nextDisplay.commensurateShowAtoms),
+            commensurateGuestGap: finiteClamped(
+                nextDisplay.commensurateGuestGap, 3.0, 0, 20
+            ),
+            commensurateGuestOffset: Array.isArray(nextDisplay.commensurateGuestOffset)
+                && nextDisplay.commensurateGuestOffset.length === 3
+                && nextDisplay.commensurateGuestOffset.every(value => Number.isFinite(Number(value)))
+                ? nextDisplay.commensurateGuestOffset.map(Number)
+                : [0, 0, 3.0],
+            commensurateGuestAngleDeg: Number.isFinite(Number(nextDisplay.commensurateGuestAngleDeg))
+                ? Number(nextDisplay.commensurateGuestAngleDeg)
+                : 0,
             commensurateStrainTolerance: finiteClamped(
                 nextDisplay.commensurateStrainTolerance, 0.01, 0, 0.25
             ),
             commensurateMaxIndex: integerClamped(
                 nextDisplay.commensurateMaxIndex, 32, 2, 64
+            ),
+            commensurateMaxAreaRatio: integerClamped(
+                nextDisplay.commensurateMaxAreaRatio, 16, 1, MAX_COMMENSURATE_AREA_RATIO
             ),
             commensurateSnapRangeDeg: finiteClamped(
                 nextDisplay.commensurateSnapRangeDeg, 2, 0, 15
@@ -8433,11 +19315,48 @@ class VAseApp {
             manualBondPairs,
             pairwiseBondCutoffs,
             pairwiseBondRanges,
+            pairwiseBondStyles,
+            bondMaterial: this.normalizedBondMaterial(nextDisplay.bondMaterial),
+            bondOpacity: finiteClamped(nextDisplay.bondOpacity, 1, 0.05, 1),
             labelRadii,
             labelColors,
+            labelOpacities,
             labelVisible,
             labelMaterials,
+            atomRadiusScales,
+            atomColors,
+            atomOpacities,
             atomMaterials,
+            atomBondStyles,
+            selectedAppearanceAffectsBonds: nextDisplay.selectedAppearanceAffectsBonds !== false,
+            hiddenAtomReferences,
+            atomColorScaleEnabled: Boolean(nextDisplay.atomColorScaleEnabled),
+            atomColorScaleField: String(nextDisplay.atomColorScaleField || 'position:z'),
+            atomColorScaleMap: String(nextDisplay.atomColorScaleMap || 'viridis'),
+            atomColorScaleCustomMap: this.normalizedCustomAtomColormap(
+                nextDisplay.atomColorScaleCustomMap
+            ),
+            atomColorScaleReverse: Boolean(nextDisplay.atomColorScaleReverse),
+            atomColorScaleScope: nextDisplay.atomColorScaleScope === 'selected' ? 'selected' : 'all',
+            atomColorScaleAutoRange: ['current', 'trajectory'].includes(nextDisplay.atomColorScaleRangeMode)
+                || (
+                    !['current', 'trajectory', 'manual'].includes(nextDisplay.atomColorScaleRangeMode)
+                    && nextDisplay.atomColorScaleAutoRange !== false
+                ),
+            atomColorScaleRangeMode: ['current', 'trajectory', 'manual'].includes(
+                nextDisplay.atomColorScaleRangeMode
+            )
+                ? nextDisplay.atomColorScaleRangeMode
+                : (nextDisplay.atomColorScaleAutoRange === false ? 'manual' : 'current'),
+            atomColorScaleMin: Number.isFinite(Number(nextDisplay.atomColorScaleMin))
+                ? Number(nextDisplay.atomColorScaleMin)
+                : 0,
+            atomColorScaleMax: Number.isFinite(Number(nextDisplay.atomColorScaleMax))
+                ? Number(nextDisplay.atomColorScaleMax)
+                : 1,
+            atomColorScaleGamma: finiteClamped(
+                nextDisplay.atomColorScaleGamma, 1, 0.1, 5
+            ),
             imageFramingMode: nextDisplay.imageFramingMode === 'physical' ? 'physical' : 'viewport',
             atomicScalePixelsPerAngstrom: (() => {
                 const value = Number(nextDisplay.atomicScalePixelsPerAngstrom);
@@ -8467,17 +19386,64 @@ class VAseApp {
             showDisplacements: Boolean(nextDisplay.showDisplacements),
             displacementReferenceMode: nextDisplay.displacementReferenceMode === 'frame'
                 ? 'frame'
-                : 'previous',
+                : (nextDisplay.displacementReferenceMode === 'phonon' ? 'phonon' : 'previous'),
             displacementReferenceFrame: integerClamped(
                 nextDisplay.displacementReferenceFrame, 0, 0, Math.max(0, this.loadedFrameCount() - 1)
             ),
             displacementMic: nextDisplay.displacementMic !== false,
             displacementStyle: nextDisplay.displacementStyle === '2d' ? '2d' : '3d',
-            displacementScale: finiteClamped(nextDisplay.displacementScale, 1, 0.05, 10),
+            displacementScale: finiteClamped(nextDisplay.displacementScale, 1, 0.05, 40),
             displacementThickness: finiteClamped(nextDisplay.displacementThickness, 0.08, 0.01, 0.5),
             displacementColor: this.validHexColor(nextDisplay.displacementColor)
                 ? nextDisplay.displacementColor
                 : '#e58b2a',
+            showForceVectors: Boolean(nextDisplay.showForceVectors),
+            forceVectorStyle: nextDisplay.forceVectorStyle === '2d' ? '2d' : '3d',
+            forceVectorScale: finiteClamped(nextDisplay.forceVectorScale, 1, 0.02, 5),
+            forceVectorThickness: finiteClamped(nextDisplay.forceVectorThickness, 0.08, 0.01, 0.5),
+            forceVectorColor: this.validHexColor(nextDisplay.forceVectorColor)
+                ? nextDisplay.forceVectorColor
+                : '#c43f5e',
+            showVolumetric: Boolean(nextDisplay.showVolumetric),
+            volumetricPrecision: nextDisplay.volumetricPrecision === 'float64'
+                ? 'float64'
+                : 'float32',
+            volumetricDatasetId: String(nextDisplay.volumetricDatasetId || ''),
+            volumetricLevel: Number.isFinite(Number(nextDisplay.volumetricLevel))
+                ? Number(nextDisplay.volumetricLevel)
+                : null,
+            volumetricSurfaceMode: nextDisplay.volumetricSurfaceMode === 'signed'
+                ? 'signed'
+                : 'single',
+            volumetricStepSize: [1, 2, 4].includes(Number(nextDisplay.volumetricStepSize))
+                ? Number(nextDisplay.volumetricStepSize)
+                : 1,
+            volumetricSmearingSigma: finiteClamped(
+                nextDisplay.volumetricSmearingSigma, 0, 0, 8
+            ),
+            volumetricSmoothingIterations: integerClamped(
+                nextDisplay.volumetricSmoothingIterations, 4, 0, 30
+            ),
+            volumetricOpacity: finiteClamped(nextDisplay.volumetricOpacity, 0.72, 0.05, 1),
+            volumetricPositiveColor: this.validHexColor(nextDisplay.volumetricPositiveColor)
+                ? nextDisplay.volumetricPositiveColor
+                : '#2f8fdb',
+            volumetricNegativeColor: this.validHexColor(nextDisplay.volumetricNegativeColor)
+                ? nextDisplay.volumetricNegativeColor
+                : '#e05b78',
+            volumetricPlanes,
+            rdfCutoff: Number.isFinite(Number(nextDisplay.rdfCutoff)) && Number(nextDisplay.rdfCutoff) > 0
+                ? Number(nextDisplay.rdfCutoff)
+                : null,
+            rdfBins: integerClamped(nextDisplay.rdfBins, 200, 8, 5000),
+            rdfPairMode: ['active', 'selected', 'all', 'none'].includes(nextDisplay.rdfPairMode)
+                ? nextDisplay.rdfPairMode
+                : 'active',
+            registryMetric: nextDisplay.registryMetric === 'bond-strain'
+                ? 'bond-strain'
+                : 'short-contact',
+            registryGridX: integerClamped(nextDisplay.registryGridX, 32, 4, 160),
+            registryGridY: integerClamped(nextDisplay.registryGridY, 32, 4, 160),
             pairwiseLabelColumnWidth: finiteClamped(
                 nextDisplay.pairwiseLabelColumnWidth, 210, 120, 520
             ),
@@ -8532,6 +19498,10 @@ class VAseApp {
     applyDesignSettings(settings, { render = true } = {}) {
         if (!settings) return;
         const source = settings.settings || settings;
+        const identityChanged = Object.prototype.hasOwnProperty.call(
+            source,
+            'viewIdentityOverrides'
+        ) && this.restoreViewIdentityOverrides(source.viewIdentityOverrides);
         const nextDisplay = this.reconcileDesignDisplay(source.display || source);
         const requestedAtomicScale = Number(nextDisplay.atomicScalePixelsPerAngstrom);
         this.state.display = {
@@ -8540,13 +19510,20 @@ class VAseApp {
             manualBondPairs: this.clonePlain(nextDisplay.manualBondPairs),
             pairwiseBondCutoffs: this.clonePlain(nextDisplay.pairwiseBondCutoffs),
             pairwiseBondRanges: this.clonePlain(nextDisplay.pairwiseBondRanges),
+            pairwiseBondStyles: this.clonePlain(nextDisplay.pairwiseBondStyles),
             labelRadii: this.clonePlain(nextDisplay.labelRadii),
             labelColors: this.clonePlain(nextDisplay.labelColors),
+            labelOpacities: this.clonePlain(nextDisplay.labelOpacities),
             labelVisible: this.clonePlain(nextDisplay.labelVisible),
             labelMaterials: this.clonePlain(nextDisplay.labelMaterials),
+            atomRadiusScales: this.clonePlain(nextDisplay.atomRadiusScales),
+            atomColors: this.clonePlain(nextDisplay.atomColors),
+            atomOpacities: this.clonePlain(nextDisplay.atomOpacities),
             atomMaterials: this.clonePlain(nextDisplay.atomMaterials),
+            atomBondStyles: this.clonePlain(nextDisplay.atomBondStyles),
             supercell: this.clonePlain(nextDisplay.supercell),
-            translation: this.clonePlain(nextDisplay.translation)
+            translation: this.clonePlain(nextDisplay.translation),
+            volumetricPlanes: this.clonePlain(nextDisplay.volumetricPlanes)
         };
         if ('applyConstraints' in source) this.state.applyConstraints = Boolean(source.applyConstraints);
         if ('antiAliasing' in source) {
@@ -8562,12 +19539,27 @@ class VAseApp {
         this.state.imageExportProfile = source.imageExportProfile
             ? this.normalizedImageExportProfile(source.imageExportProfile)
             : null;
+        if (source.renderArea && typeof source.renderArea === 'object') {
+            this.state.exportPreviewFollowViewport = source.renderArea.followViewport !== false;
+            this.state.exportPreviewCamera = this.normalizedCameraSettings(source.renderArea.camera);
+        } else if (this.state.imageExportProfile?.options?.camera) {
+            this.state.exportPreviewCamera = this.normalizedCameraSettings(
+                this.state.imageExportProfile.options.camera
+            );
+        }
         if (this.state.imageExportProfile) {
             this.setImageExportProfile(this.state.imageExportProfile, { syncPreview: false });
+            if (this.state.exportPreviewCamera) {
+                this.state.imageExportProfile.options.camera = this.clonePlain(
+                    this.state.exportPreviewCamera
+                );
+            }
         }
         this.syncDesignControls();
+        this.syncRenderAreaControls();
         this.renderPairwiseBondControls({ capture: false });
         this.renderAppearanceRows();
+        this.syncRdfControls();
         this.syncDesignControls();
         if (source.camera) this.applyCameraSettings(source.camera, { syncScale: false });
         if (Number.isFinite(requestedAtomicScale) && requestedAtomicScale > 0) {
@@ -8577,10 +19569,36 @@ class VAseApp {
         }
         if (render) {
             this.renderer.setDisplayOptions(this.state.display);
+            if (identityChanged) {
+                this.renderer.rebuildAtoms(
+                    this.state.atoms,
+                    this.state.atoms?.metadata?.custom_colors || {}
+                );
+            }
+            this.renderVolumetricControls();
+            if (this.state.display.showVolumetric) {
+                this.updateVolumetricSurface({ recordHistory: false }).catch(error => {
+                    this.setVolumeStatus('warning', 'Isosurface unavailable', error.message);
+                });
+            } else {
+                this.renderer.setVolumetricSurfaceVisibility(false);
+                this.setVolumeStatus('idle', 'Isosurface hidden', '');
+            }
+            this.renderAllVolumetricPlanes().catch(error => {
+                this.setVolumetricPlaneStatus('warning', 'Plane update failed', error.message);
+            });
             this.updateSelectionVisuals();
             this.updateBondModeUI();
             this.updateUI();
             this.scheduleDisplacementAnalysisRefresh();
+            if (this.state.display.atomColorScaleEnabled) {
+                this.updateAtomColorScale({ refreshCatalog: true }).catch(error => {
+                    this.handleAtomColorScaleError(error);
+                });
+            } else {
+                this.renderer.setAtomColorScaleColors(null);
+                this.updateAtomColorScaleLegend(null);
+            }
         }
         if (this.state.exportPreviewEnabled) this.syncImageExportPreview();
         this.scheduleVisualHistoryCommit('visual-settings');
@@ -8613,6 +19631,87 @@ class VAseApp {
             document.getElementById('modal-confirm-action')?.addEventListener('click', () => done(true), { once: true });
             container?.addEventListener('pointerdown', cancelOnBackdrop);
         });
+    }
+
+    hiddenAnalysisSignature() {
+        return [...(this.state.display.hiddenAtomReferences || [])].sort().join('|');
+    }
+
+    showHiddenAnalysisModal() {
+        const hiddenCount = (this.state.display.hiddenAtomReferences || []).length;
+        this.showModal(`
+            <h2>Hidden atoms remain in analysis</h2>
+            <p class="modal-intro">
+                ${hiddenCount} atom instance${hiddenCount === 1 ? ' is' : 's are'} hidden only from the View-mode scene.
+                Structural analyses still use the complete ASE structure.
+            </p>
+            <ul class="confirm-list">
+                <li>Continue keeps the hidden atoms in RDF, displacement, and other structural calculations.</li>
+                <li>Switch to Edit &amp; Delete removes the corresponding base atom indices from the physical structure first.</li>
+                <li>Multiple hidden periodic images of one atom are deleted only once.</li>
+            </ul>
+        `, `
+            <button id="modal-hidden-analysis-cancel" class="btn">Cancel</button>
+            <button id="modal-hidden-analysis-edit" class="btn danger">Switch to Edit &amp; Delete</button>
+            <button id="modal-hidden-analysis-continue" class="btn primary">Continue Analysis</button>
+        `);
+        return new Promise(resolve => {
+            const container = document.getElementById('modal-container');
+            let settled = false;
+            const done = value => {
+                if (settled) return;
+                settled = true;
+                container?.removeEventListener('pointerdown', cancelOnBackdrop);
+                this.closeModal();
+                resolve(value);
+            };
+            const cancelOnBackdrop = event => {
+                if (event.target?.id === 'modal-container') done('cancel');
+            };
+            document.getElementById('modal-hidden-analysis-cancel')?.addEventListener('click', () => done('cancel'), { once: true });
+            document.getElementById('modal-hidden-analysis-edit')?.addEventListener('click', () => done('edit'), { once: true });
+            document.getElementById('modal-hidden-analysis-continue')?.addEventListener('click', () => done('continue'), { once: true });
+            container?.addEventListener('pointerdown', cancelOnBackdrop);
+        });
+    }
+
+    async deleteHiddenAtomsInEditMode() {
+        const hidden = [...(this.state.display.hiddenAtomReferences || [])];
+        const indices = [...new Set(hidden.map(key => {
+            const match = key.match(/^(?:atom|replica):(\d+)(?::|$)/);
+            return match ? Number(match[1]) : null;
+        }).filter(Number.isInteger))].sort((a, b) => a - b);
+        if (!indices.length) return true;
+
+        this.state.display.hiddenAtomReferences = [];
+        this.renderer.setDisplayOptions(this.state.display);
+        await this.switchRuntimeMode(false);
+        if (this.state.vizOnly) {
+            this.state.display.hiddenAtomReferences = hidden;
+            this.renderer.setDisplayOptions(this.state.display);
+            return false;
+        }
+        const data = await this.api.deleteAtoms(indices);
+        this.setAtomsData(data, { clearSelection: true });
+        this.state.hiddenAnalysisWarningSignature = '';
+        this.toast(
+            `Deleted ${indices.length} corresponding base atom${indices.length === 1 ? '' : 's'} in Edit mode.`,
+            'success'
+        );
+        return true;
+    }
+
+    async confirmAnalysisWithHiddenAtoms() {
+        if (!this.state.vizOnly) return true;
+        const signature = this.hiddenAnalysisSignature();
+        if (!signature || signature === this.state.hiddenAnalysisWarningSignature) return true;
+        const action = await this.showHiddenAnalysisModal();
+        if (action === 'continue') {
+            this.state.hiddenAnalysisWarningSignature = signature;
+            return true;
+        }
+        if (action === 'edit') return this.deleteHiddenAtomsInEditMode();
+        return false;
     }
 
     confirmFullReset() {
@@ -8685,7 +19784,10 @@ class VAseApp {
         bar.dataset.mode = 'determinate';
         bar.setAttribute('aria-valuemin', '0');
         bar.setAttribute('aria-valuemax', '100');
-        bar.setAttribute('aria-valuenow', `${Math.round(next)}`);
+        const roundedNext = `${Math.round(next)}`;
+        if (bar.getAttribute('aria-valuenow') !== roundedNext) {
+            bar.setAttribute('aria-valuenow', roundedNext);
+        }
         fill.style.width = `${next}%`;
         percent.textContent = `${Math.floor(next)}%`;
         eta.textContent = complete && next >= 100
@@ -8752,13 +19854,23 @@ class VAseApp {
                 () => this.api.applySupercell(this.backendPositionsPayload(), reps, this.state.applyConstraints)
             );
             this.setAtomsData(data, { clearSelection: true });
-            ['super-x', 'super-y', 'super-z'].forEach(id => { document.getElementById(id).value = '1'; });
-            this.state.display.supercell = [1, 1, 1];
-            this.renderer.setDisplayOptions(this.state.display);
+            this.finalizeMaterializedSupercellDisplay();
             this.toast(`Set ${reps.join(' x ')} supercell as editable cell for all frames.`, 'success');
         } catch (err) {
             this.toast(`Set supercell failed: ${err.message}`, 'error');
         }
+    }
+
+    finalizeMaterializedSupercellDisplay() {
+        ['super-x', 'super-y', 'super-z'].forEach(id => {
+            const input = document.getElementById(id);
+            if (input) input.value = '1';
+        });
+        this.state.display.supercell = [1, 1, 1];
+        this.renderer.setDisplayOptions(this.state.display);
+        // The preview reset belongs to the same physical supercell operation.
+        // Starting a new visual-history entry here would make Undo require two steps.
+        this.resetVisualHistoryBaseline();
     }
 
     normalizedTranslationVector(vector = [0, 0, 0]) {
@@ -8848,6 +19960,56 @@ class VAseApp {
         return vector;
     }
 
+    selectionCenterOfMass(references = this.selectionEntries()) {
+        if (!references.length) return null;
+        const masses = this.state.atoms?.masses || [];
+        const weighted = new THREE.Vector3();
+        let totalMass = 0;
+        references.forEach(reference => {
+            const normalized = this.normalizeSelectionReference(reference);
+            const position = this.selectionReferencePosition(normalized);
+            if (!normalized || !position) return;
+            const requestedMass = Number(masses[normalized.index]);
+            const mass = Number.isFinite(requestedMass) && requestedMass > 0
+                ? requestedMass
+                : 1;
+            weighted.addScaledVector(position, mass);
+            totalMass += mass;
+        });
+        return totalMass > 0 ? weighted.multiplyScalar(1 / totalMass) : null;
+    }
+
+    centerSelectionAtOrigin() {
+        try {
+            const references = this.selectionEntries();
+            if (!references.length) {
+                throw new Error('Select one or more atoms first.');
+            }
+            const center = this.selectionCenterOfMass(references);
+            if (!center) throw new Error('The selected center of mass is unavailable.');
+            const cartesian = center.multiplyScalar(-1).toArray();
+            const mode = this.state.translationCoordinateMode === 'fractional'
+                ? 'fractional'
+                : 'cartesian';
+            const vector = this.translationVectorFromCartesian(cartesian, mode);
+            this.state.display.translation = [...vector];
+            this.state.display.translationMode = mode;
+            this.renderer.setDisplayOptions({
+                translation: this.state.display.translation,
+                translationMode: mode
+            });
+            this.writeTranslationControls(vector);
+            this.updateSelectionMeasurementOverlay();
+            if (this.state.exportPreviewEnabled) this.syncImageExportPreview();
+            this.scheduleVisualHistoryCommit('selection-com-origin');
+            this.toast('Selected center of mass placed at the visual origin; ASE coordinates are unchanged.', 'success');
+            return vector;
+        } catch (error) {
+            this.toast(`Center selection failed: ${error.message}`, 'error');
+            throw error;
+        }
+    }
+
     async applyAtomTranslation() {
         try {
             const vector = this.translationVectorFromControls();
@@ -8864,6 +20026,7 @@ class VAseApp {
             this.writeTranslationControls(vector);
             this.updateSelectionMeasurementOverlay();
             if (this.state.exportPreviewEnabled) this.syncImageExportPreview();
+            this.scheduleVisualHistoryCommit('visual-translation');
             const unit = mode === 'fractional' ? 'fractional' : 'Å';
             const reset = vector.every(value => Math.abs(value) < 1e-12);
             this.toast(
@@ -8912,15 +20075,16 @@ class VAseApp {
             this.toast('No atoms selected to copy.', 'warning');
             return;
         }
-        const positions = indices.map(i => [...this.state.atoms.positions[i]]);
-        const symbols = indices.map(i => this.state.atoms.symbols[i]);
-        const center = positions.reduce((acc, p) => [acc[0] + p[0], acc[1] + p[1], acc[2] + p[2]], [0, 0, 0])
-            .map(v => v / positions.length);
         this.state.clipboard = {
-            symbols,
-            offsets: positions.map(p => [p[0] - center[0], p[1] - center[1], p[2] - center[2]])
+            indices,
+            appearanceOverrides: Object.fromEntries(
+                ['atomRadiusScales', 'atomColors', 'atomOpacities', 'atomMaterials', 'atomBondStyles']
+                    .map(key => [key, Object.fromEntries(indices
+                        .filter(index => Object.prototype.hasOwnProperty.call(this.state.display[key] || {}, index))
+                        .map(index => [index, this.clonePlain(this.state.display[key][index])]))])
+            )
         };
-        this.toast(`Copied ${symbols.length} atom${symbols.length > 1 ? 's' : ''}.`, 'success');
+        this.toast(`Copied ${indices.length} atom${indices.length > 1 ? 's' : ''}.`, 'success');
     }
 
     async pasteSelection() {
@@ -8932,29 +20096,35 @@ class VAseApp {
             this.toast('Clipboard is empty.', 'warning');
             return;
         }
-        const base = this.getSceneCenter();
-        const offset = new THREE.Vector3(0.45, 0.45, 0);
-        const positions = this.state.clipboard.offsets.map(p => [
-            base.x + offset.x + p[0],
-            base.y + offset.y + p[1],
-            base.z + offset.z + p[2]
-        ]);
         try {
-            const before = this.state.atoms.positions.length;
-            const data = await this.api.addAtoms(this.state.clipboard.symbols, positions);
+            const sourceIndices = [...this.state.clipboard.indices];
+            const data = await this.api.duplicateAtoms(sourceIndices);
+            const newIndices = (data.duplicated_indices || []).map(Number);
+            ['atomRadiusScales', 'atomColors', 'atomOpacities', 'atomMaterials', 'atomBondStyles'].forEach(key => {
+                const next = this.clonePlain(this.state.display[key] || {});
+                const copied = this.state.clipboard.appearanceOverrides?.[key] || {};
+                sourceIndices.forEach((sourceIndex, offset) => {
+                    const newIndex = newIndices[offset];
+                    if (!Number.isInteger(newIndex)) return;
+                    if (Object.prototype.hasOwnProperty.call(copied, sourceIndex)) {
+                        next[newIndex] = this.clonePlain(copied[sourceIndex]);
+                    }
+                });
+                this.state.display[key] = next;
+            });
             this.setAtomsData(data, { clearSelection: true });
-            for (let i = before; i < data.positions.length; i++) this.state.selected.add(i);
+            newIndices.forEach(index => this.addSelectionReference(index));
             this.updateSelectionVisuals();
             this.updateUI();
-            this.toast(`Pasted ${positions.length} atom${positions.length > 1 ? 's' : ''}.`, 'success');
+            this.toast(`Pasted ${newIndices.length} atom${newIndices.length > 1 ? 's' : ''} at the copied coordinates.`, 'success');
         } catch (err) {
             this.toast(`Paste failed: ${err.message}`, 'error');
         }
     }
 
     async deleteSelection() {
-        if (!this.canEditAtoms()) {
-            this.editOnlyToast();
+        if (this.state.vizOnly) {
+            this.hideSelectedVisualReferences();
             return;
         }
         if (!this.state.selected.size) {
@@ -8974,6 +20144,32 @@ class VAseApp {
         } catch (err) {
             this.toast(`Delete failed: ${err.message}`, 'error');
         }
+    }
+
+    hideSelectedVisualReferences() {
+        const references = this.selectionEntries();
+        if (!references.length) {
+            this.toast('No atoms selected to hide.', 'warning');
+            return;
+        }
+        const hidden = new Set(this.state.display.hiddenAtomReferences || []);
+        references.forEach(reference => hidden.add(reference.key));
+        this.state.display.hiddenAtomReferences = [...hidden].sort();
+        this.clearAtomSelection();
+        this.renderer.setDisplayOptions(this.state.display);
+        this.updateSelectionVisuals();
+        this.updateUI();
+        this.scheduleVisualHistoryCommit('hidden-atoms');
+        this.scheduleCollaborationEvent({
+            source: this.currentCollaborationActor(),
+            categories: ['display', 'selection'],
+            changedPaths: ['display.hiddenAtomReferences'],
+            summary: `${references.length} visual atom instance${references.length === 1 ? '' : 's'} hidden in View mode.`
+        });
+        this.toast(
+            `Hidden ${references.length} visual atom instance${references.length === 1 ? '' : 's'}. The ASE structure was not changed.`,
+            'success'
+        );
     }
 
     getSceneCenter() {
@@ -9047,6 +20243,468 @@ class VAseApp {
         return pivot.divideScalar(Math.max(1, editableSelection.length));
     }
 
+    commensurateMode() {
+        return this.state.display.commensurateMode === 'host-guest'
+            ? 'host-guest'
+            : 'same-lattice';
+    }
+
+    commensurateGuestMetadata() {
+        return this.state.atoms?.metadata?.commensurate_guest || null;
+    }
+
+    commensurateGuestGap() {
+        const value = Number(this.state.display.commensurateGuestGap);
+        return Number.isFinite(value) ? Math.max(0, Math.min(20, value)) : 3.0;
+    }
+
+    commensurateGuestOffsetForGap(metadata = this.commensurateGuestMetadata()) {
+        if (!metadata) return [0, 0, 0];
+        const positions = this.backendPositionsPayload() || this.state.atoms?.positions || [];
+        const hostMaxZ = positions.length
+            ? Math.max(...positions.map(position => Number(position?.[2]) || 0))
+            : 0;
+        const guestMinZ = Number(metadata.min_z);
+        const safeGuestMinZ = Number.isFinite(guestMinZ) ? guestMinZ : 0;
+        return [0, 0, hostMaxZ - safeGuestMinZ + this.commensurateGuestGap()];
+    }
+
+    commensurateSelectedGuestIndices() {
+        return this.selectedAtomIndices();
+    }
+
+    syncCommensurateSelectionPreview() {
+        this.syncCommensurateWorkspaceControls();
+        if (!this.state.display.commensurateGuide || this.commensurateMode() !== 'same-lattice') return;
+        const selected = this.commensurateSelectedGuestIndices();
+        const signature = selected.join(',');
+        if (signature === this.state.commensurateSelectionSignature) return;
+        this.state.commensurateSelectionSignature = signature;
+        const currentDeg = Number(this.state.display.commensurateGuestAngleDeg || 0);
+        const candidate = selected.length ? this.commensurateCandidateAtAngle(currentDeg) : null;
+        if (!candidate) {
+            this.renderPrimitiveCommensurateCells();
+            return;
+        }
+        this.prepareCommensurateSupercellProposal(
+            this.commensuratePreviewContext(candidate, currentDeg)
+        ).catch(error => {
+            this.updateCommensurateStatus(`Preview unavailable: ${error.message}`, 'warning');
+        });
+    }
+
+    syncCommensurateWorkspaceControls() {
+        const enabled = Boolean(this.state.display.commensurateGuide);
+        const mode = this.commensurateMode();
+        document.getElementById('commensurate-workspace')?.classList.toggle('hidden', !enabled);
+        document.getElementById('commensurate-guest-controls')?.classList.toggle('hidden', !enabled);
+        document.querySelectorAll('[data-commensurate-external-guest]').forEach(element => {
+            element.classList.toggle('hidden', mode !== 'host-guest');
+        });
+        document.querySelectorAll('[data-commensurate-same-lattice]').forEach(element => {
+            element.classList.toggle('hidden', mode !== 'same-lattice');
+        });
+        const guest = this.commensurateGuestMetadata();
+        const selectedCount = this.commensurateSelectedGuestIndices().length;
+        const summary = document.getElementById('commensurate-guest-summary');
+        if (summary) {
+            summary.textContent = guest
+                ? `Loaded guest: ${guest.name || 'Guest structure'} · ${Number(guest.natoms || 0).toLocaleString()} atoms`
+                : selectedCount
+                    ? `Selected guest layer · ${selectedCount.toLocaleString()} atoms · host lattice inherited`
+                    : 'Host cell only · select a guest layer or load a separate structure';
+        }
+        document.getElementById('btn-remove-commensurate-guest')?.classList.toggle('hidden', !guest);
+    }
+
+    commensurateSearchOptions(jobId = null) {
+        return {
+            mode: this.commensurateMode(),
+            strainTarget: this.state.display.commensurateStrainTarget,
+            selectedIndices: this.commensurateSelectedGuestIndices(),
+            jobId
+        };
+    }
+
+    commensurateRequestPayload(context, positions = this.backendPositionsPayload()) {
+        return {
+            positions,
+            selected_indices: [...(context?.selectedIndices || [])],
+            pivot: [...(context?.pivot || [0, 0, 0])],
+            axis: 'Z',
+            candidate: context?.candidate || null,
+            display_angle_deg: Number(context?.displayAngleDeg || 0),
+            mode: this.commensurateMode(),
+            strain_target: this.state.display.commensurateStrainTarget,
+            max_index: this.state.display.commensurateMaxIndex,
+            strain_tolerance: this.state.display.commensurateStrainTolerance,
+            max_area_ratio: this.state.display.commensurateMaxAreaRatio,
+            parent_grid_radius: this.commensurateParentGridRadius(),
+            show_atoms: Boolean(this.state.display.commensurateShowAtoms),
+            positions_include_display_rotation: Boolean(
+                context?.positionsIncludeDisplayRotation
+            ),
+            guest_offset: this.commensurateMode() === 'host-guest'
+                ? this.commensurateGuestOffsetForGap()
+                : [0, 0, 0],
+            apply_constraint: this.state.applyConstraints
+        };
+    }
+
+    commensurateCandidateAtAngle(angleDeg = 0) {
+        const maxArea = Math.max(1, Number(this.state.display.commensurateMaxAreaRatio) || 16);
+        let best = null;
+        let bestDelta = Infinity;
+        let bestArea = Infinity;
+        let bestStrain = Infinity;
+        for (const candidate of this.state.commensurateCandidates || []) {
+            const area = Number(candidate.area_ratio ?? candidate.area);
+            if (candidate.supercell_supported === false || !(area <= maxArea)) continue;
+            const instance = this.candidateInstanceNearAngle(candidate, angleDeg);
+            const delta = Math.abs(Number(instance.deltaDeg));
+            const strain = Number(instance.strain);
+            if (
+                best === null
+                || delta < bestDelta
+                || (delta === bestDelta && area < bestArea)
+                || (delta === bestDelta && area === bestArea && strain < bestStrain)
+            ) {
+                best = instance;
+                bestDelta = delta;
+                bestArea = area;
+                bestStrain = strain;
+            }
+        }
+        return best;
+    }
+
+    commensurateSmallestCandidate() {
+        const maxArea = Math.max(1, Number(this.state.display.commensurateMaxAreaRatio) || 16);
+        let best = null;
+        let bestArea = Infinity;
+        let bestCombinedArea = Infinity;
+        let bestStrain = Infinity;
+        let bestAngle = Infinity;
+        for (const candidate of this.state.commensurateCandidates || []) {
+            const area = Number(candidate.area_ratio ?? candidate.area);
+            if (candidate.supercell_supported === false || !(area <= maxArea)) continue;
+            const instance = this.candidateInstanceNearAngle(candidate, 0);
+            const combinedArea = (
+                Number(instance.host_area_ratio ?? instance.area_ratio ?? instance.area)
+                + Number(instance.guest_area_ratio ?? instance.area_ratio ?? instance.area)
+            );
+            const strain = Number(instance.strain);
+            const angle = Math.abs(Number(instance.targetAngleDeg));
+            if (
+                best === null
+                || area < bestArea
+                || (area === bestArea && combinedArea < bestCombinedArea)
+                || (
+                    area === bestArea
+                    && combinedArea === bestCombinedArea
+                    && strain < bestStrain
+                )
+                || (
+                    area === bestArea
+                    && combinedArea === bestCombinedArea
+                    && strain === bestStrain
+                    && angle < bestAngle
+                )
+            ) {
+                best = instance;
+                bestArea = area;
+                bestCombinedArea = combinedArea;
+                bestStrain = strain;
+                bestAngle = angle;
+            }
+        }
+        return best;
+    }
+
+    useCommensurateSuggestedAngle(candidate) {
+        const angle = Number(candidate?.targetAngleDeg ?? candidate?.angle_deg ?? 0);
+        const safeAngle = Number.isFinite(angle) ? angle : 0;
+        this.state.display.commensurateGuestAngleDeg = safeAngle;
+        this.state.commensuratePreviewAngle = safeAngle;
+        this.state.commensurateLastAngle = THREE.MathUtils.degToRad(safeAngle);
+        const input = document.getElementById('commensurate-guest-angle');
+        if (input) input.value = Number(safeAngle.toFixed(8)).toString();
+        return safeAngle;
+    }
+
+    commensurateParentGridRadius() {
+        const maxArea = Math.max(1, Number(this.state.display.commensurateMaxAreaRatio) || 16);
+        let radius = Math.ceil(Math.sqrt(maxArea)) + 2;
+        const matrixKeys = [
+            'source_matrix', 'target_matrix', 'host_matrix', 'guest_matrix',
+            'source_matrix_3d', 'target_matrix_3d', 'host_matrix_3d', 'guest_matrix_3d'
+        ];
+        for (const candidate of this.state.commensurateCandidates || []) {
+            const area = Number(candidate?.area_ratio ?? candidate?.area);
+            if (candidate?.supercell_supported === false || !(area <= maxArea)) continue;
+            for (const key of matrixKeys) {
+                const matrix = candidate?.[key];
+                if (!Array.isArray(matrix) || matrix.length < 2) continue;
+                const first = [Number(matrix[0]?.[0]), Number(matrix[0]?.[1])];
+                const second = [Number(matrix[1]?.[0]), Number(matrix[1]?.[1])];
+                if (![...first, ...second].every(Number.isFinite)) continue;
+                const corners = [first, second, [first[0] + second[0], first[1] + second[1]]];
+                const extent = Math.max(...corners.flatMap(values => values.map(value => Math.abs(value))));
+                radius = Math.max(radius, Math.ceil(extent) + 2);
+            }
+        }
+        return THREE.MathUtils.clamp(radius, 2, 64);
+    }
+
+    commensurateRotatedCell(cell, angleDeg) {
+        const angle = THREE.MathUtils.degToRad(Number(angleDeg) || 0);
+        const cosine = Math.cos(angle);
+        const sine = Math.sin(angle);
+        return (cell || []).map(values => {
+            const x = Number(values?.[0]) || 0;
+            const y = Number(values?.[1]) || 0;
+            return [
+                x * cosine - y * sine,
+                x * sine + y * cosine,
+                Number(values?.[2]) || 0
+            ];
+        });
+    }
+
+    commensurateParentGridOrigins(cell, offset = [0, 0, 0], radius = 2) {
+        if (!Array.isArray(cell) || cell.length < 2) return [];
+        const first = cell[0].map(Number);
+        const second = cell[1].map(Number);
+        const origin = offset.map(Number);
+        const origins = [];
+        // Each origin starts a full primitive parallelogram.  The half-open
+        // integer window [-r, r) therefore centres the complete tiled area,
+        // not merely the origin points, on the shared crystallographic origin.
+        for (let i = -radius; i < radius; i += 1) {
+            for (let j = -radius; j < radius; j += 1) {
+                origins.push([0, 1, 2].map(axis => (
+                    origin[axis] + i * first[axis] + j * second[axis]
+                )));
+            }
+        }
+        return origins;
+    }
+
+    commensuratePreviewContext(candidate, displayAngleDeg = 0, options = {}) {
+        const selectedIndices = this.commensurateSelectedGuestIndices();
+        const transformAlreadyRotated = (
+            this.transform.mode === 'ROTATE'
+            && this.state.transformSubject === 'atoms'
+        );
+        const pivot = transformAlreadyRotated
+            ? this.transform.pivot.toArray()
+            : this.rotationPivotPosition(selectedIndices).toArray();
+        return {
+            candidate,
+            selectedIndices,
+            pivot,
+            axis: 'Z',
+            displayAngleDeg,
+            positionsIncludeDisplayRotation: options.positionsIncludeDisplayRotation
+                ?? transformAlreadyRotated
+        };
+    }
+
+    renderPrimitiveCommensurateCells() {
+        const cell = this.state.atoms?.cell;
+        if (!this.state.display.commensurateGuide || !Array.isArray(cell) || cell.length !== 3) return;
+        const guest = this.commensurateGuestMetadata();
+        const selectedGuestIndices = this.commensurateSelectedGuestIndices();
+        const hasSelectedGuest = selectedGuestIndices.length > 0;
+        const guestParentCell = guest?.cell || (hasSelectedGuest ? cell : null);
+        const angle = Number(this.state.display.commensurateGuestAngleDeg || 0);
+        const guestCell = guestParentCell
+            ? this.commensurateRotatedCell(guestParentCell, angle)
+            : null;
+        // Parent lattice vectors are anchored at one shared in-plane origin.
+        // Rotation-pivot translation belongs to the atomic basis/registry and
+        // must not make the guest unit-cell grid drift across the viewport.
+        const guestOffset = guest ? this.commensurateGuestOffsetForGap(guest) : [0, 0, 0];
+        const gridRadius = this.commensurateParentGridRadius();
+        const gridShape = [gridRadius * 2, gridRadius * 2];
+        this.renderer.setCommensurateSupercellPreview?.({
+            preview: {
+                mode: this.commensurateMode(),
+                positions: [],
+                atom_indices: [],
+                core_mask: [],
+                cell,
+                common_cell: null,
+                host_cell: cell,
+                guest_cell: guestCell,
+                host_lattice_origins: [[0, 0, 0]],
+                host_grid_lattice_origins: this.commensurateParentGridOrigins(
+                    cell,
+                    [0, 0, 0],
+                    gridRadius
+                ),
+                host_grid_shape: gridShape,
+                host_primitive_vectors: cell.slice(0, 2),
+                guest_lattice_origins: guestCell ? [guestOffset] : [],
+                guest_grid_lattice_origins: guestCell
+                    ? this.commensurateParentGridOrigins(guestCell, guestOffset, gridRadius)
+                    : [],
+                guest_grid_shape: guestCell ? gridShape : [0, 0],
+                guest_primitive_vectors: guestCell ? guestCell.slice(0, 2) : [],
+                guest_offset: guestOffset,
+                host_notation: 'parent lattice',
+                guest_notation: guestCell ? 'parent lattice' : '',
+                parent_grid_radius: gridRadius,
+                parent_lattices_fixed: true,
+                has_suggestion: false,
+                include_atoms: false,
+                preview_atom_count: 0
+            }
+        });
+    }
+
+    async loadCommensurateGuest(file) {
+        if (!file) return;
+        const data = await this.withBusy(
+            `Loading guest lattice from ${file.name}...`,
+            () => this.api.loadCommensurateGuest(file)
+        );
+        this.state.display.commensurateGuestGap = 3.0;
+        await this.refresh({ preserveSelection: true });
+        this.state.display.commensurateMode = 'host-guest';
+        this.state.commensurateSuggestionArmed = false;
+        this.state.display.commensurateGuestOffset = this.commensurateGuestOffsetForGap();
+        const mode = document.getElementById('commensurate-mode');
+        if (mode) mode.value = 'host-guest';
+        this.syncCommensurateWorkspaceControls();
+        await this.refreshCommensurateWorkspace({ showBusy: true, preferSmallest: false });
+    }
+
+    async removeCommensurateGuest() {
+        await this.withBusy('Removing the guest lattice...', () => this.api.removeCommensurateGuest());
+        await this.refresh({ preserveSelection: true });
+        this.state.display.commensurateMode = 'same-lattice';
+        this.state.commensurateSuggestionArmed = false;
+        const mode = document.getElementById('commensurate-mode');
+        if (mode) mode.value = 'same-lattice';
+        this.syncCommensurateWorkspaceControls();
+        await this.refreshCommensurateWorkspace({ showBusy: true, preferSmallest: false });
+    }
+
+    async refreshCommensurateWorkspace({ showBusy = true, preferSmallest = false } = {}) {
+        this.applyDisplayOptions();
+        this.syncCommensurateWorkspaceControls();
+        if (!this.state.display.commensurateGuide) {
+            this.clearCommensurateRotation({ clearSearch: true });
+            this.clearCommensurateSupercellProposal();
+            return;
+        }
+        if (!this.hasUsableCell() || (this.state.atoms?.pbc || []).filter(Boolean).length < 2) {
+            this.clearCommensurateSupercellProposal({ keepStatus: true });
+            this.updateCommensurateStatus('Commensurate atoms requires two periodic vectors in the global XY plane.', 'warning');
+            return;
+        }
+        if (this.commensurateMode() === 'host-guest' && !this.commensurateGuestMetadata()) {
+            this.clearCommensurateSupercellProposal({ keepStatus: true });
+            this.renderPrimitiveCommensurateCells();
+            this.updateCommensurateStatus('Load a guest structure to search host/guest common cells.', 'warning');
+            return;
+        }
+        const token = ++this.state.commensurateRequestToken;
+        const jobId = crypto.randomUUID?.() || `commensurate-${Date.now()}-${token}`;
+        this.state.commensurateJobId = jobId;
+        this.renderPrimitiveCommensurateCells();
+        this.updateCommensurateStatus('Searching bounded integer supercells...', 'ready');
+        if (showBusy) {
+            this.setBusy('Projecting periodic lattices...', {
+                title: 'Commensurate atoms',
+                progress: 1
+            });
+            await new Promise(resolve => requestAnimationFrame(resolve));
+        }
+        try {
+            const result = await this.api.commensurateAngles(
+                'Z',
+                this.state.display.commensurateMaxIndex,
+                this.state.display.commensurateStrainTolerance,
+                this.state.display.commensurateMaxAreaRatio,
+                this.commensurateSearchOptions(jobId)
+            );
+            if (token !== this.state.commensurateRequestToken) return;
+            this.state.commensurateSearch = result;
+            this.state.commensurateCandidates = Array.isArray(result.candidates) ? result.candidates : [];
+            if (showBusy) {
+                this.setBusyProgress(100, {
+                    message: 'Common-cell search complete. Preparing the interactive graph...',
+                    complete: true
+                });
+            }
+            if (Array.isArray(result?.guest?.suggested_offset)) {
+                this.state.display.commensurateGuestOffset = this.commensurateGuestOffsetForGap();
+            }
+            let currentDeg = Number(this.state.display.commensurateGuestAngleDeg || 0);
+            const hasGuestComponent = (
+                this.commensurateMode() === 'host-guest'
+                || this.commensurateSelectedGuestIndices().length > 0
+            );
+            const suggested = preferSmallest && hasGuestComponent
+                ? this.commensurateSmallestCandidate()
+                : null;
+            if (suggested) {
+                currentDeg = this.useCommensurateSuggestedAngle(suggested);
+                this.state.commensurateSuggestionArmed = true;
+            }
+            await this.plotCommensurateSearch(result, THREE.MathUtils.degToRad(currentDeg));
+            const candidate = suggested || this.commensurateCandidateAtAngle(currentDeg);
+            if (candidate && (this.commensurateMode() === 'host-guest' || this.state.selected.size > 0)) {
+                await this.prepareCommensurateSupercellProposal(
+                    this.commensuratePreviewContext(candidate, currentDeg)
+                );
+            } else if (candidate) {
+                this.renderPrimitiveCommensurateCells();
+                this.updateCommensurateStatus(
+                    'Host cell shown. Select the guest layer to preview a same-lattice match, or load a separate guest structure.',
+                    'warning'
+                );
+            } else {
+                this.renderPrimitiveCommensurateCells();
+                this.updateCommensurateStatus(
+                    result.warning || 'No common cell satisfies the current strain and area limits.',
+                    'warning'
+                );
+            }
+        } catch (error) {
+            if (token !== this.state.commensurateRequestToken) return;
+            this.state.commensurateCandidates = [];
+            this.state.commensurateSearch = null;
+            this.renderPrimitiveCommensurateCells();
+            this.updateCommensurateStatus(error.message, 'warning');
+            throw error;
+        } finally {
+            if (showBusy && token === this.state.commensurateRequestToken) this.clearBusy();
+            if (token === this.state.commensurateRequestToken) this.state.commensurateJobId = null;
+        }
+    }
+
+    scheduleCommensurateLivePreview(angle) {
+        if (!this.state.display.commensurateGuide || !this.state.commensurateCandidates.length) return;
+        const angleDeg = THREE.MathUtils.radToDeg(Number(angle) || 0);
+        if (this.transform.mode === 'ROTATE') this.state.commensurateSuggestionArmed = true;
+        this.state.commensuratePreviewAngle = angleDeg;
+        this.updateCommensuratePlotAngle(angleDeg);
+        if (this.state.commensuratePreviewTimer) clearTimeout(this.state.commensuratePreviewTimer);
+        this.state.commensuratePreviewTimer = setTimeout(() => {
+            this.state.commensuratePreviewTimer = null;
+            const candidate = this.commensurateCandidateAtAngle(this.state.commensuratePreviewAngle);
+            if (!candidate) return;
+            this.prepareCommensurateSupercellProposal(
+                this.commensuratePreviewContext(candidate, this.state.commensuratePreviewAngle)
+            ).catch(error => {
+                this.updateCommensurateStatus(`Preview unavailable: ${error.message}`, 'warning');
+            });
+        }, this.state.display.commensurateShowAtoms ? 150 : 55);
+    }
+
     updateCommensurateStatus(message, state = '') {
         const element = document.getElementById('commensurate-status');
         if (!element) return;
@@ -9055,16 +20713,206 @@ class VAseApp {
         else delete element.dataset.state;
     }
 
-    clearCommensurateRotation({ keepStatus = false } = {}) {
-        this.state.commensurateRequestToken += 1;
-        this.state.commensurateCandidates = [];
-        this.state.commensurateSearch = null;
+    clearCommensurateSupercellProposal({ keepStatus = false, preserveCamera = false } = {}) {
+        this.state.commensurateProposalToken = (this.state.commensurateProposalToken || 0) + 1;
+        this.state.commensurateProposal = null;
+        this.renderer.clearCommensurateSupercellPreview?.({ restoreCamera: !preserveCamera });
+        document.getElementById('commensurate-supercell-proposal')?.classList.add('hidden');
+        if (!keepStatus && this.state.display.commensurateGuide) {
+            this.updateCommensurateStatus('Searching and rotation are restricted to the global XY plane about Z.');
+        }
+    }
+
+    commensurateCandidateForProposal(angle) {
+        if (!this.state.display.commensurateGuide || !Number.isFinite(angle)) return null;
+        const maxArea = Math.max(1, Number(this.state.display.commensurateMaxAreaRatio) || 16);
+        const snapped = this.state.commensurateSnappedCandidate;
+        if (snapped?.identity) return null;
+        if (snapped && Number(snapped.area_ratio ?? snapped.area) <= maxArea) return snapped;
+        const angleDeg = THREE.MathUtils.radToDeg(angle);
+        const exact = (this.state.commensurateCandidates || [])
+            .map(candidate => this.candidateInstanceNearAngle(candidate, angleDeg))
+            .filter(candidate => (
+                candidate.supercell_supported !== false
+                && Number(candidate.area_ratio ?? candidate.area) <= maxArea
+                && Math.abs(candidate.deltaDeg) <= 0.03
+            ))
+            .sort((first, second) => (
+                Number(first.area_ratio ?? first.area) - Number(second.area_ratio ?? second.area)
+                || Number(first.strain) - Number(second.strain)
+                || Math.abs(first.deltaDeg) - Math.abs(second.deltaDeg)
+            ));
+        return exact[0] || null;
+    }
+
+    commensurateProposalPayload(context, positions = this.backendPositionsPayload()) {
+        return this.commensurateRequestPayload(context, positions);
+    }
+
+    renderCommensurateSupercellProposal(proposal) {
+        const panel = document.getElementById('commensurate-supercell-proposal');
+        if (!panel || !proposal) return;
+        const candidate = proposal.data.candidate || {};
+        const preview = proposal.data.preview || {};
+        const notation = document.getElementById('commensurate-proposal-notation');
+        const metrics = document.getElementById('commensurate-proposal-metrics');
+        const matrices = document.getElementById('commensurate-proposal-matrices');
+        const applyButton = document.getElementById('btn-apply-commensurate-cell');
+        const reason = document.getElementById('commensurate-proposal-reason');
+        if (notation) {
+            notation.textContent = `${candidate.guest_notation || candidate.source_notation || candidate.source_matrix_text} → ${candidate.host_notation || candidate.target_notation || candidate.target_matrix_text}`;
+        }
+        if (metrics) {
+            metrics.replaceChildren();
+            [
+                `Angle = ${Number(proposal.context.displayAngleDeg ?? candidate.angle_deg).toFixed(4)}°`,
+                `Suggested match = ${Number(candidate.angle_deg).toFixed(4)}°`,
+                `Host area = ${candidate.host_area_ratio ?? candidate.area_ratio ?? candidate.area}×`,
+                `Guest area = ${candidate.guest_area_ratio ?? candidate.area_ratio ?? candidate.area}×`,
+                `Residual strain = ${(Number(candidate.strain) * 100).toFixed(4)}%`,
+                `Strained lattice = ${candidate.strain_target || this.state.display.commensurateStrainTarget}`
+            ].forEach(text => {
+                const item = document.createElement('span');
+                item.textContent = text;
+                metrics.appendChild(item);
+            });
+        }
+        if (matrices) {
+            matrices.textContent = `guest M = ${candidate.guest_matrix_text || candidate.source_matrix_text}   host N = ${candidate.host_matrix_text || candidate.target_matrix_text}`;
+        }
+        const supported = proposal.data.materialization_supported !== false;
+        if (applyButton) applyButton.disabled = !supported;
+        if (reason) {
+            reason.textContent = proposal.data.materialization_reason || '';
+            reason.classList.toggle('hidden', supported);
+        }
+        panel.classList.remove('hidden');
+        const hostAreaRatio = candidate.host_area_ratio ?? candidate.area_ratio ?? candidate.area;
+        const guestAreaRatio = candidate.guest_area_ratio ?? candidate.area_ratio ?? candidate.area;
+        const snapped = this.state.commensurateSnappedCandidate;
+        const snapPrefix = this.transform.mode === 'ROTATE' && snapped
+            ? `Snapped: ${Number(snapped.targetAngleDeg).toFixed(6)} deg | `
+            : '';
+        this.updateCommensurateStatus(
+            `${snapPrefix}${candidate.host_notation || candidate.target_notation || candidate.target_matrix_text} (N=${hostAreaRatio}) / ${candidate.guest_notation || candidate.source_notation || candidate.source_matrix_text} (N=${guestAreaRatio}); ${(Number(candidate.strain) * 100).toFixed(4)}% residual strain.${preview.include_atoms ? ` ${Number(preview.preview_atom_count || 0).toLocaleString()} preview atoms.` : ' Cell vectors only.'}`,
+            snapPrefix ? 'snap' : 'ready'
+        );
+    }
+
+    commensurateProposalIsResolved(context) {
+        const candidate = context?.candidate;
+        if (!candidate || candidate.identity) return false;
+        const displayAngle = Number(context?.displayAngleDeg || 0);
+        if (
+            this.commensurateMode() === 'same-lattice'
+            && Math.abs(displayAngle) <= 0.03
+        ) return false;
+        const target = Number(candidate.targetAngleDeg ?? candidate.angle_deg);
+        if (Number.isFinite(target)) return Math.abs(target - displayAngle) <= 0.03;
+        const delta = Number(candidate.deltaDeg);
+        return Number.isFinite(delta) && Math.abs(delta) <= 0.03;
+    }
+
+    async prepareCommensurateSupercellProposal(context) {
+        if (!context?.candidate || !this.state.display.commensurateGuide) return;
+        const token = ++this.state.commensurateProposalToken;
+        this.updateCommensurateStatus('Updating host, guest, and suggested common-cell vectors...', 'ready');
+        try {
+            const payload = this.commensurateProposalPayload(context);
+            const data = await this.api.previewCommensurateSupercell(payload);
+            if (token !== this.state.commensurateProposalToken) return;
+            const resolved = this.commensurateProposalIsResolved(context);
+            const suggestionVisible = resolved && Boolean(this.state.commensurateSuggestionArmed);
+            if (data.preview) data.preview.has_suggestion = suggestionVisible;
+            data.match_resolved = resolved;
+            data.suggestion_visible = suggestionVisible;
+            const proposal = { context, data };
+            this.state.commensurateProposal = proposal;
+            this.renderer.setCommensurateSupercellPreview?.(data);
+            if (suggestionVisible) {
+                this.renderCommensurateSupercellProposal(proposal);
+            } else {
+                document.getElementById('commensurate-supercell-proposal')?.classList.add('hidden');
+                const candidate = data.candidate || context.candidate || {};
+                const target = Number(candidate.targetAngleDeg ?? candidate.angle_deg);
+                const delta = Number.isFinite(target)
+                    ? Math.abs(target - Number(context.displayAngleDeg || 0))
+                    : NaN;
+                const strain = Number(candidate.max_principal_strain ?? candidate.strain);
+                const strainText = Number.isFinite(strain)
+                    ? `; max principal strain ${(strain * 100).toFixed(4)}%`
+                    : '';
+                const area = Number(candidate.area ?? candidate.area_ratio);
+                const areaText = Number.isFinite(area) ? `; N=${area}` : '';
+                this.updateCommensurateStatus(
+                    resolved && !this.state.commensurateSuggestionArmed
+                        ? 'Host and guest parent lattices are shown. Rotate the mobile lattice to reveal a validated common cell.'
+                        : Number.isFinite(delta)
+                        ? `Host and guest lattices at ${Number(context.displayAngleDeg || 0).toFixed(4)} deg. Nearest bounded match: ${target.toFixed(4)} deg (delta ${delta.toFixed(4)} deg${strainText}${areaText}).`
+                        : 'Host and guest primitive lattices are shown; rotate the guest to a bounded match.',
+                    'ready'
+                );
+            }
+        } catch (error) {
+            if (token !== this.state.commensurateProposalToken) return;
+            this.state.commensurateProposal = null;
+            this.renderer.clearCommensurateSupercellPreview?.();
+            document.getElementById('commensurate-supercell-proposal')?.classList.add('hidden');
+            this.updateCommensurateStatus(`No bounded common-cell preview: ${error.message}`, 'warning');
+        }
+    }
+
+    async applyCommensurateSupercellProposal({ propagateErrors = false } = {}) {
+        const proposal = this.state.commensurateProposal;
+        if (!proposal) {
+            this.toast('No commensurate common-cell proposal is active.', 'warning');
+            return;
+        }
+        if (!this.canEditAtoms()) {
+            this.editOnlyToast();
+            return;
+        }
+        try {
+            const data = await this.withBusy(
+                'Materializing the validated common cell...',
+                () => this.api.applyCommensurateSupercell(
+                    this.commensurateProposalPayload(proposal.context)
+                )
+            );
+            this.state.display.commensurateGuide = false;
+            const guideToggle = document.getElementById('chk-commensurate-guide');
+            if (guideToggle) guideToggle.checked = false;
+            this.clearCommensurateSupercellProposal({ keepStatus: true, preserveCamera: true });
+            this.clearCommensurateRotation({ keepStatus: true, clearSearch: true });
+            this.state.display.supercell = [1, 1, 1];
+            this.setSupercellInputs([1, 1, 1]);
+            this.setAtomsData(data, { clearSelection: true });
+            this.updateCommensurateStatus('The suggested common cell is now the editable unit cell.', 'ready');
+            this.toast('Set the commensurate common cell as the editable unit cell.', 'success');
+        } catch (error) {
+            this.toast(`Commensurate cell failed: ${error.message}`, 'error');
+            if (propagateErrors) throw error;
+        }
+    }
+
+    clearCommensurateRotation({ keepStatus = false, clearSearch = false } = {}) {
+        if (clearSearch) {
+            this.state.commensurateRequestToken += 1;
+            this.state.commensurateCandidates = [];
+            this.state.commensurateSearch = null;
+            if (this.state.commensuratePreviewTimer) clearTimeout(this.state.commensuratePreviewTimer);
+            this.state.commensuratePreviewTimer = null;
+            const plot = this.analysisPlotElement('commensurate');
+            if (plot && window.Plotly?.purge) window.Plotly.purge(plot);
+            if (this.state.activeAnalysisPlot === 'commensurate') this.closeAnalysisDrawer();
+        }
         this.state.commensurateReferenceDirection = null;
         this.state.commensurateSnappedCandidate = null;
+        this.state.commensurateLastAngle = null;
         this.renderer.clearCommensurateGuides?.();
         this.updateCommensurateCandidatesReadout([]);
         if (!keepStatus) {
-            this.updateCommensurateStatus('Lock X, Y, or Z during R to scan periodic cell matches.');
+            this.updateCommensurateStatus('Searching and rotation are restricted to the global XY plane about Z.');
         }
     }
 
@@ -9072,7 +20920,7 @@ class VAseApp {
         return Boolean(
             this.transform.mode === 'ROTATE'
             && this.state.display.commensurateGuide
-            && this.transform.axis
+            && this.transform.axis === 'Z'
             && this.hasUsableCell()
             && (this.state.atoms?.pbc || []).filter(Boolean).length >= 2
         );
@@ -9239,9 +21087,6 @@ class VAseApp {
     }
 
     async prepareCommensurateRotation(editableSelection = [...this.state.selected]) {
-        const token = ++this.state.commensurateRequestToken;
-        this.state.commensurateCandidates = [];
-        this.state.commensurateSearch = null;
         this.state.commensurateSnappedCandidate = null;
         this.renderer.clearCommensurateGuides?.();
 
@@ -9249,9 +21094,12 @@ class VAseApp {
             this.updateCommensurateStatus('Commensurate cell guide is disabled.');
             return;
         }
-        if (this.transform.mode !== 'ROTATE' || !this.transform.axis) {
-            this.updateCommensurateStatus('Lock X, Y, or Z during R to scan periodic cell matches.');
+        if (this.transform.mode !== 'ROTATE') {
+            this.updateCommensurateStatus('Press R to rotate the matched layer about global Z.');
             return;
+        }
+        if (this.transform.axis !== 'Z') {
+            this.transform.setAxis('Z', this.renderer.camera);
         }
         if (!this.hasUsableCell() || (this.state.atoms?.pbc || []).filter(Boolean).length < 2) {
             this.updateCommensurateStatus('A defined cell with at least two periodic directions is required.', 'warning');
@@ -9264,25 +21112,15 @@ class VAseApp {
             ? this.state.rotationReferenceDirection.clone()
             : this.commensurateReferenceForSelection(editableSelection, axis);
         this.state.commensurateGuideRadius = Math.max(3.2, this.state.rotationGuideRadius * 0.82);
-        this.updateCommensurateStatus('Scanning integer periodic-cell boundaries...', 'ready');
-        try {
-            const result = await this.api.commensurateAngles(
-                this.transform.axis,
-                this.state.display.commensurateMaxIndex,
-                this.state.display.commensurateStrainTolerance
-            );
-            if (token !== this.state.commensurateRequestToken || this.transform.mode !== 'ROTATE') return;
-            this.state.commensurateSearch = result;
-            this.state.commensurateCandidates = Array.isArray(result.candidates) ? result.candidates : [];
-            const tolerance = (Number(result.strain_tolerance || 0) * 100).toFixed(2);
-            const family = String(result.lattice_family || '2D').replace('-', ' ');
-            const summary = `${family}: ${this.state.commensurateCandidates.length} matches, boundary strain <= ${tolerance}%.`;
-            this.updateCommensurateStatus(result.warning ? `${summary} ${result.warning}` : summary, result.warning ? 'warning' : 'ready');
-            this.applyTransformPreview();
-        } catch (error) {
-            if (token !== this.state.commensurateRequestToken) return;
-            this.updateCommensurateStatus(error.message, 'warning');
+        if (!this.state.commensurateCandidates.length) {
+            try {
+                await this.refreshCommensurateWorkspace({ showBusy: true });
+            } catch {
+                return;
+            }
         }
+        this.updateCommensurateStatus('Rotate about Z; the nearest valid common cell updates continuously.', 'ready');
+        this.applyTransformPreview();
     }
 
     candidateInstanceNearAngle(candidate, angleDeg) {
@@ -9442,15 +21280,13 @@ class VAseApp {
         const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
         const ws = new WebSocket(`${protocol}://${window.location.host}/ws/${this.sessionId}`);
         this.ws = ws;
-        const closeSocket = () => {
+        this.closeSocket = () => {
             try {
                 if (this.ws && this.ws.readyState <= WebSocket.OPEN) this.ws.close(1000, 'page closing');
             } catch {
                 // Page teardown path; ignore browser-specific close races.
             }
         };
-        window.addEventListener('pagehide', closeSocket, { once: true });
-        window.addEventListener('beforeunload', closeSocket, { once: true });
         ws.onmessage = (event) => {
             let msg;
             try {
@@ -9461,6 +21297,20 @@ class VAseApp {
             if (msg.type === 'ai_command') {
                 void this.handleAICommandMessage(msg);
                 return;
+            }
+            if (msg.type === 'analysis_progress') {
+                const activeJob = msg.analysis === 'commensurate'
+                    ? this.state.commensurateJobId
+                    : msg.analysis === 'registry'
+                        ? this.state.registryJobId
+                        : null;
+                if (activeJob && msg.job_id === activeJob) {
+                    const progress = Math.max(0, Math.min(1, Number(msg.progress) || 0));
+                    this.setBusyProgress(progress * 100, {
+                        message: String(msg.stage || 'Calculating analysis...'),
+                        etaSeconds: null
+                    });
+                }
             }
             if (
                 msg.type === 'video_export_progress'
@@ -9523,6 +21373,152 @@ class VAseApp {
                     }
                     this.updateTrajectoryUI();
                 });
+            }
+            if (msg.type === 'registry_relax_step') {
+                if (!this.state.registryRelaxation) return;
+                this.state.registryRelaxation = this.registryRelaxationFromMessage(msg);
+                const registryLabel = this.state.registryRelaxation.translation_space === 'cartesian'
+                    ? 'Rigid 3D translation relaxation'
+                    : 'Rigid planar translation relaxation';
+                if (Array.isArray(msg.positions)) {
+                    this.state.atoms.positions = msg.positions;
+                    this.state.originalPositions = msg.positions.map(position => [...position]);
+                    if (
+                        !this.state.relaxTrajectory?.active
+                        || this.state.relaxTrajectory?.kind !== 'registry'
+                    ) {
+                        this.startModeTrajectory('registry', registryLabel);
+                    }
+                    this.appendRelaxFrame(msg.positions);
+                    if (this.workspaceActive) this.renderer.updatePositions(msg.positions);
+                    else this.workspaceNeedsRefresh = true;
+                }
+                this.updateRegistryMapMarker(
+                    msg.translation_coordinates || (this.state.registryRelaxation.translation_space === 'cartesian' ? [0, 0, 0] : [0, 0]),
+                    { refreshTrials: true }
+                );
+                this.syncRegistryRelaxationControls();
+            }
+            if (msg.type === 'registry_relax_finished') {
+                if (!this.state.registryRelaxation) return;
+                this.state.registryRelaxation = this.registryRelaxationFromMessage(msg);
+                const registry3d = this.state.registryRelaxation.translation_space === 'cartesian';
+                const registryLabel = registry3d
+                    ? 'Rigid 3D translation relaxation'
+                    : 'Rigid planar translation relaxation';
+                if (Array.isArray(msg.positions)) {
+                    this.state.atoms.positions = msg.positions;
+                    this.state.originalPositions = msg.positions.map(position => [...position]);
+                    if (
+                        !this.state.relaxTrajectory?.active
+                        || this.state.relaxTrajectory?.kind !== 'registry'
+                    ) {
+                        this.startModeTrajectory('registry', registryLabel);
+                    }
+                    this.appendRelaxFrame(msg.positions, { force: this.relaxFrameCount() <= 1 });
+                    if (this.workspaceActive) this.renderer.updatePositions(msg.positions);
+                    else this.workspaceNeedsRefresh = true;
+                }
+                if (this.state.relaxTrajectory?.kind === 'registry') {
+                    this.state.relaxTrajectory.finished = true;
+                    this.updateTrajectoryUI();
+                }
+                this.updateRegistryMapMarker(
+                    msg.translation_coordinates || (registry3d ? [0, 0, 0] : [0, 0]),
+                    { refreshTrials: true }
+                );
+                this.syncRegistryRelaxationControls();
+                const failed = msg.status === 'error';
+                this.toast(
+                    failed
+                        ? `Rigid translation optimization failed: ${msg.message || 'unknown error'}`
+                        : `Rigid translation optimization ${msg.status}.`,
+                    failed ? 'error' : 'success'
+                );
+                this.scheduleCollaborationEvent({
+                    source: 'system',
+                    categories: ['structure', 'trajectory', 'analysis'],
+                    changedPaths: ['structure.positions', 'analysis.registryRelaxation'],
+                    summary: `Rigid translation optimization ${msg.status}.`
+                });
+            }
+            if (msg.type === 'add_atoms_relax_step') {
+                const addition = this.addAtomsUI?.active;
+                if (!addition || (msg.addition_id && addition.id !== msg.addition_id)) return;
+                if (Array.isArray(msg.positions)) {
+                    this.state.atoms.positions = msg.positions;
+                    this.state.originalPositions = msg.positions.map(position => [...position]);
+                    if (
+                        !this.state.relaxTrajectory?.active
+                        || this.state.relaxTrajectory?.kind !== 'add-atoms'
+                    ) {
+                        this.startModeTrajectory('add-atoms', 'Add Atoms placement');
+                    }
+                    this.appendRelaxFrame(msg.positions);
+                    if (this.workspaceActive) this.renderer.updatePositions(msg.positions);
+                    else this.workspaceNeedsRefresh = true;
+                }
+                addition.is_relaxing = true;
+                addition.step = Number(msg.step) || 0;
+                addition.max_steps = Number(msg.max_steps) || addition.max_steps || 0;
+                if (this.state.atoms?.metadata) {
+                    this.state.atoms.metadata.atom_addition = { ...addition };
+                }
+                const fmax = Number(msg.fmax);
+                const suffix = Number.isFinite(fmax) ? ` · fmax ${fmax.toFixed(3)}` : '';
+                this.setAddAtomsStatus(
+                    'running',
+                    `Relaxing staged content · ${addition.step}/${addition.max_steps}${suffix}`
+                );
+                this.syncAddAtomsActionState();
+            }
+            if (msg.type === 'add_atoms_relax_finished') {
+                const addition = this.addAtomsUI?.active;
+                if (!addition || (msg.addition_id && addition.id !== msg.addition_id)) return;
+                if (Array.isArray(msg.positions)) {
+                    this.state.atoms.positions = msg.positions;
+                    this.state.originalPositions = msg.positions.map(position => [...position]);
+                    if (
+                        !this.state.relaxTrajectory?.active
+                        || this.state.relaxTrajectory?.kind !== 'add-atoms'
+                    ) {
+                        this.startModeTrajectory('add-atoms', 'Add Atoms placement');
+                    }
+                    this.appendRelaxFrame(msg.positions, { force: this.relaxFrameCount() <= 1 });
+                    if (this.workspaceActive) this.renderer.updatePositions(msg.positions);
+                    else this.workspaceNeedsRefresh = true;
+                }
+                addition.is_relaxing = false;
+                addition.step = Number(msg.step) || addition.step || 0;
+                addition.status = msg.status;
+                if (this.state.relaxTrajectory?.kind === 'add-atoms') {
+                    this.state.relaxTrajectory.finished = true;
+                    this.updateTrajectoryUI();
+                }
+                if (this.state.atoms?.metadata) {
+                    this.state.atoms.metadata.atom_addition = { ...addition };
+                }
+                const failed = msg.status === 'error';
+                this.setAddAtomsStatus(
+                    failed ? 'error' : 'active',
+                    failed
+                        ? (msg.message || 'Repulsive placement failed')
+                        : `Placement ${msg.status} · ${addition.step} steps`
+                );
+                this.syncAddAtomsActionState();
+                // The shared Relaxation controls also depend on the Add-session
+                // running state, so refresh them in the same completion tick.
+                this.updateUI();
+                this.scheduleCollaborationEvent({
+                    source: 'system',
+                    categories: ['structure'],
+                    changedPaths: ['structure.positions', 'addAtoms.status'],
+                    summary: `Staged-content relaxation ${msg.status}.`
+                });
+                this.toast(
+                    failed ? `Repulsive placement failed: ${msg.message || 'unknown error'}` : `Placement ${msg.status}.`,
+                    failed ? 'error' : 'success'
+                );
             }
         };
     }
@@ -9643,9 +21639,14 @@ class VAseApp {
         if (!container || !content || !actions) return;
         container.querySelector('.modal')?.classList.remove(
             'export-image-modal',
-            'html-export-modal'
+            'html-export-modal',
+            'project-save-modal',
+            'custom-colormap-modal',
+            'help-modal'
         );
         content.innerHTML = contentHtml;
+        content.scrollTop = 0;
+        content.tabIndex = 0;
         actions.innerHTML = actionsHtml;
         container.classList.remove('hidden');
         actions.querySelector('#modal-close')?.addEventListener('click', () => this.closeModal());
@@ -9702,72 +21703,123 @@ class VAseApp {
         };
     }
 
+    async saveCompactProject() {
+        try {
+            this.applyDisplayOptions();
+            const saved = await this.saveBlobFromAction(
+                () => this.api.saveProject(
+                    this.backendPositionsPayload(),
+                    this.designSettingsSnapshot({ includeIdentityOverrides: true }),
+                    this.state.applyConstraints
+                ),
+                this.projectFilename(),
+                'application/vnd.v-ase.project+zip',
+                'Saving compact v_ase project...'
+            );
+            if (saved) this.toast('Complete .vase project saved.', 'success');
+        } catch (err) {
+            this.toast(`Save project failed: ${err.message}`, 'error');
+        }
+    }
+
     showHtmlExportModal({ projectSave = false } = {}) {
-        const title = projectSave ? 'Save HTML Project' : 'Export HTML View';
+        const title = projectSave ? 'Save Project' : 'Export HTML View';
         const intro = projectSave
-            ? 'Save an interactive browser document and, by default, embed the complete editable v_ase project.'
-            : 'Export a lightweight, offline 3D view. It uses the same composition as Preview Area and remains orbitable after opening.';
+            ? 'Save the complete editable state as a compact v_ase project, or include an offline interactive rendered view in an HTML file.'
+            : 'Export a lightweight, offline 3D view. It uses the same composition as Render Area and remains orbitable after opening.';
         const initialProfile = this.htmlExportProfile();
         this.showModal(`
             <h2>${title}</h2>
             <p class="modal-intro">${intro}</p>
-            <div class="html-export-layout">
-                <figure class="html-view-preview loading">
-                    <img id="html-export-preview" alt="Exact exported HTML structure frame">
-                    <figcaption id="html-export-preview-caption">Shared export frame</figcaption>
-                </figure>
-                <div class="html-export-controls">
-                    <div class="export-section-title">Framing</div>
-                    <div class="html-composition-readout">
-                        <span>Preview Area crop</span>
-                        <strong>${initialProfile.width} x ${initialProfile.height}</strong>
+            ${projectSave ? `
+                <div class="project-save-format" id="project-save-format" data-format="vase">
+                    <div class="project-save-format-head">
+                        <div>
+                            <span>Output format</span>
+                            <strong id="project-output-format-name">Compact v_ase project</strong>
+                        </div>
+                        <span class="project-format-extension" id="project-output-extension">.vase</span>
                     </div>
-                    <p class="html-composition-note">
-                        HTML uses the exact Preview Area camera and aspect ratio. Its live
-                        WebGL resolution adapts to the browser display; v_ase embeds an
-                        optimized high-resolution poster automatically.
-                    </p>
-                    <div class="export-section-title">Scene overlays</div>
-                    <label class="check-row" for="html-include-grid">
-                        <span>Include grid</span>
-                        <input id="html-include-grid" type="checkbox"
-                               ${initialProfile.options.includeGrid ? 'checked' : ''}>
-                    </label>
-                    <label class="check-row" for="html-include-axes">
-                        <span>Include axes</span>
-                        <input id="html-include-axes" type="checkbox"
-                               ${initialProfile.options.includeAxes ? 'checked' : ''}>
-                    </label>
-                    <label class="check-row" for="html-include-cell">
-                        <span>Include unit cell</span>
-                        <input id="html-include-cell" type="checkbox"
-                               ${initialProfile.options.includeCell ? 'checked' : ''}>
-                    </label>
+                    <code id="project-output-filename"></code>
+                    <p id="project-output-format-detail"></p>
                 </div>
+                <label class="project-viewer-option" for="project-include-interactive-viewer">
+                    <input id="project-include-interactive-viewer" type="checkbox">
+                    <span>
+                        <strong>Include interactive rendered view</strong>
+                        <small>Adds an offline rotatable 3D scene and rendered poster. The complete editable project remains embedded, and the output format changes to HTML.</small>
+                    </span>
+                </label>
+            ` : ''}
+            <div id="html-rendering-options" ${projectSave ? 'hidden' : ''}>
+                <div class="html-export-layout">
+                    <figure class="html-view-preview loading">
+                        <img id="html-export-preview" alt="Exact exported HTML structure frame">
+                        <figcaption id="html-export-preview-caption">Shared export frame</figcaption>
+                    </figure>
+                    <div class="html-export-controls">
+                        <div class="export-section-title">Framing</div>
+                        <div class="html-composition-readout">
+                            <span>Render Area crop</span>
+                            <strong>${initialProfile.width} x ${initialProfile.height}</strong>
+                        </div>
+                        <p class="html-composition-note">
+                            HTML uses the exact Render Area camera and aspect ratio. Its live
+                            WebGL resolution adapts to the browser display; v_ase embeds an
+                            optimized high-resolution poster automatically.
+                        </p>
+                        <div class="export-section-title">Scene overlays</div>
+                        <label class="check-row" for="html-include-grid">
+                            <span>Include grid</span>
+                            <input id="html-include-grid" type="checkbox"
+                                   ${initialProfile.options.includeGrid ? 'checked' : ''}>
+                        </label>
+                        <label class="check-row" for="html-include-axes">
+                            <span>Include axes</span>
+                            <input id="html-include-axes" type="checkbox"
+                                   ${initialProfile.options.includeAxes ? 'checked' : ''}>
+                        </label>
+                        <label class="check-row" for="html-include-cell">
+                            <span>Include unit cell</span>
+                            <input id="html-include-cell" type="checkbox"
+                                   ${initialProfile.options.includeCell ? 'checked' : ''}>
+                        </label>
+                    </div>
+                </div>
+                ${projectSave ? '' : `
+                    <label class="html-project-option" for="html-embed-project">
+                        <input id="html-embed-project" type="checkbox">
+                        <span>
+                            <strong>Embed editable .vase project</strong>
+                            <small id="html-embed-project-detail"></small>
+                        </span>
+                    </label>
+                `}
             </div>
-            <label class="html-project-option" for="html-embed-project">
-                <input id="html-embed-project" type="checkbox"
-                       ${projectSave ? 'checked' : ''}>
-                <span>
-                    <strong>Embed editable .vase project</strong>
-                    <small id="html-embed-project-detail"></small>
-                </span>
-            </label>
             <div class="html-export-summary" id="html-export-summary">
                 <strong></strong>
                 <span></span>
             </div>
         `, `
             <button id="html-export-cancel" class="btn">Cancel</button>
-            <button id="html-export-confirm" class="btn primary">Save HTML</button>
+            <button id="html-export-confirm" class="btn primary">${projectSave ? 'Save .vase' : 'Save HTML'}</button>
         `);
-        document.querySelector('#modal-container .modal')?.classList.add('html-export-modal');
+        const modal = document.querySelector('#modal-container .modal');
+        modal?.classList.add(projectSave ? 'project-save-modal' : 'html-export-modal');
         const previewImage = document.getElementById('html-export-preview');
         const previewFigure = previewImage?.closest('.html-view-preview');
         const previewCaption = document.getElementById('html-export-preview-caption');
+        const htmlOptions = document.getElementById('html-rendering-options');
+        const interactiveViewer = document.getElementById('project-include-interactive-viewer');
+        const projectFormat = document.getElementById('project-save-format');
+        const formatName = document.getElementById('project-output-format-name');
+        const formatExtension = document.getElementById('project-output-extension');
+        const formatFilename = document.getElementById('project-output-filename');
+        const formatDetail = document.getElementById('project-output-format-detail');
         const embed = document.getElementById('html-embed-project');
         const detail = document.getElementById('html-embed-project-detail');
         const summary = document.getElementById('html-export-summary');
+        const confirmButton = document.getElementById('html-export-confirm');
         let previewGeneration = 0;
         let previewTimer = null;
 
@@ -9785,7 +21837,42 @@ class VAseApp {
             });
         };
 
-        const syncProjectOption = () => {
+        const syncProjectOption = ({ refresh = false } = {}) => {
+            if (projectSave) {
+                const includeViewer = interactiveViewer?.checked === true;
+                if (htmlOptions) htmlOptions.hidden = !includeViewer;
+                modal?.classList.toggle('html-export-modal', includeViewer);
+                if (projectFormat) projectFormat.dataset.format = includeViewer ? 'html' : 'vase';
+                if (formatName) {
+                    formatName.textContent = includeViewer
+                        ? 'Interactive HTML project'
+                        : 'Compact v_ase project';
+                }
+                if (formatExtension) formatExtension.textContent = includeViewer ? '.html' : '.vase';
+                if (formatFilename) {
+                    formatFilename.textContent = includeViewer
+                        ? this.htmlProjectFilename()
+                        : this.projectFilename();
+                }
+                if (formatDetail) {
+                    formatDetail.textContent = includeViewer
+                        ? 'Browser-ready and fully restorable in v_ase. Larger because it contains the viewer, rendered poster, scene data, and the complete project.'
+                        : 'Smallest complete editable project. Opens in v_ase and contains no browser renderer or rendered poster.';
+                }
+                if (confirmButton) confirmButton.textContent = includeViewer ? 'Save .html' : 'Save .vase';
+                if (summary) {
+                    summary.innerHTML = includeViewer
+                        ? '<strong>Interactive rendered view included</strong><span>Output format: HTML. Opens directly in a browser and restores the complete editable project in v_ase.</span>'
+                        : '<strong>Compact project</strong><span>Output format: .vase. Recommended as the smallest editable source of truth.</span>';
+                }
+                if (!includeViewer) {
+                    previewGeneration += 1;
+                    if (previewTimer !== null) window.clearTimeout(previewTimer);
+                } else if (refresh) {
+                    refreshPreview();
+                }
+                return;
+            }
             const enabled = embed?.checked === true;
             if (detail) {
                 detail.textContent = enabled
@@ -9800,6 +21887,7 @@ class VAseApp {
         };
 
         const refreshPreview = async () => {
+            if (htmlOptions?.hidden) return;
             const generation = ++previewGeneration;
             const profile = this.setImageExportProfile(readProfile());
             if (this.state.exportPreviewEnabled) this.syncImageExportPreview();
@@ -9823,15 +21911,19 @@ class VAseApp {
         };
 
         const schedulePreview = () => {
+            if (htmlOptions?.hidden) return;
             if (previewTimer !== null) window.clearTimeout(previewTimer);
             previewTimer = window.setTimeout(refreshPreview, 120);
         };
         embed?.addEventListener('change', syncProjectOption);
+        interactiveViewer?.addEventListener('change', () => {
+            syncProjectOption({ refresh: true });
+        });
         ['html-include-grid', 'html-include-axes', 'html-include-cell'].forEach(id => {
             document.getElementById(id)?.addEventListener('change', schedulePreview);
         });
         syncProjectOption();
-        refreshPreview();
+        if (!projectSave) refreshPreview();
 
         document.getElementById('html-export-cancel')?.addEventListener(
             'click',
@@ -9843,7 +21935,15 @@ class VAseApp {
             { once: true }
         );
         document.getElementById('html-export-confirm')?.addEventListener('click', async () => {
-            const embedProject = embed?.checked === true;
+            const includeViewer = !projectSave || interactiveViewer?.checked === true;
+            if (projectSave && !includeViewer) {
+                previewGeneration += 1;
+                if (previewTimer !== null) window.clearTimeout(previewTimer);
+                this.closeModal();
+                await this.saveCompactProject();
+                return;
+            }
+            const embedProject = projectSave || embed?.checked === true;
             const profile = this.setImageExportProfile(readProfile());
             previewGeneration += 1;
             if (previewTimer !== null) window.clearTimeout(previewTimer);
@@ -9858,7 +21958,7 @@ class VAseApp {
                         );
                         return await this.api.exportHtml(
                             this.backendPositionsPayload(),
-                            this.designSettingsSnapshot(),
+                            this.designSettingsSnapshot({ includeIdentityOverrides: true }),
                             this.state.applyConstraints,
                             [...this.state.selected],
                             this.workspaceDocumentTitle(),
@@ -9896,8 +21996,10 @@ class VAseApp {
     }
 
     chooseSystemStructureFile() {
+        if (performance.now() < this.filePickerSuppressUntil) return;
         const input = document.getElementById('structure-file');
         if (!input) return;
+        if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
         input.value = '';
         input.click();
     }
@@ -9908,6 +22010,8 @@ class VAseApp {
 
     showOpenFileModal(file) {
         const newTabAvailable = this.workspaceChild && window.parent !== window;
+        const hasDocument = this.hasScratchContent();
+        const currentRuntimeMode = this.state.vizOnly ? 'view' : 'edit';
         this.showModal(`
             <h2>Open File</h2>
             <div class="open-file-summary">
@@ -9933,7 +22037,15 @@ class VAseApp {
                 <input id="open-file-index" type="text" value=":" autocomplete="off" spellcheck="false">
             </div>
             <p class="modal-intro">Use <strong>:</strong> for all frames, <strong>-1</strong> for the last frame, or an integer frame index.</p>
-            <fieldset class="open-file-modes">
+            <fieldset class="open-file-runtime">
+                <legend>Mode</legend>
+                <div class="segmented-control" role="radiogroup" aria-label="Open document mode">
+                    <label><input type="radio" name="open-runtime-mode" value="view"${currentRuntimeMode === 'view' ? ' checked' : ''}><span>View</span></label>
+                    <label><input type="radio" name="open-runtime-mode" value="edit"${currentRuntimeMode === 'edit' ? ' checked' : ''}><span>Edit</span></label>
+                </div>
+                <p class="modal-intro">View prioritizes large-data inspection. Edit enables ASE-backed structure changes and calculators.</p>
+            </fieldset>
+            <fieldset class="open-file-modes${hasDocument ? '' : ' hidden'}">
                 <legend>Open as</legend>
                 <label class="open-file-mode">
                     <input type="radio" name="open-file-mode" value="replace" checked>
@@ -9987,19 +22099,22 @@ class VAseApp {
         confirm?.addEventListener('click', async () => {
             const inputFormat = document.getElementById('open-file-format')?.value || '';
             const index = document.getElementById('open-file-index')?.value.trim() || ':';
-            const mode = document.querySelector('input[name="open-file-mode"]:checked')?.value || 'replace';
+            const mode = hasDocument
+                ? (document.querySelector('input[name="open-file-mode"]:checked')?.value || 'replace')
+                : 'replace';
+            const runtimeMode = document.querySelector('input[name="open-runtime-mode"]:checked')?.value || currentRuntimeMode;
             this.closeModal();
             if (mode === 'append') {
-                await this.appendStructureFile(file, inputFormat, index);
+                await this.appendStructureFile(file, inputFormat, index, runtimeMode);
             } else if (mode === 'new-tab') {
-                await this.openStructureFileInNewTab(file, inputFormat, index);
+                await this.openStructureFileInNewTab(file, inputFormat, index, runtimeMode);
             } else {
-                await this.loadStructureFile(file, inputFormat, index);
+                await this.loadStructureFile(file, inputFormat, index, runtimeMode);
             }
         }, { once: true });
     }
 
-    async loadStructureFile(file, inputFormat = '', index = ':') {
+    async loadStructureFile(file, inputFormat = '', index = ':', runtimeMode = null) {
         try {
             this.stopPlayback();
             if (this.transform.mode !== 'IDLE') this.cancelTransform();
@@ -10017,7 +22132,13 @@ class VAseApp {
             }
             const data = await this.withBusy(
                 `Reading ${file.name}...`,
-                () => this.api.loadStructureFile(file, inputFormat, index)
+                () => this.api.loadStructureFile(
+                    file,
+                    inputFormat,
+                    index,
+                    this.volumetricImportPrecision(),
+                    runtimeMode
+                )
             );
             this.resetHistoryTimeline();
             const isProject = data.loaded_file?.kind === 'project' || Boolean(data.project);
@@ -10027,7 +22148,15 @@ class VAseApp {
             this.state.trajectoryBinaryCache = null;
             this.state.trajectoryBinaryPromise = null;
             this.state.timelineSource = 'loaded';
-            this.state.relaxTrajectory = { frames: [], frame: 0, sourceFrame: 0, active: false, finished: false };
+            this.state.relaxTrajectory = {
+                frames: [],
+                frame: 0,
+                sourceFrame: 0,
+                active: false,
+                finished: false,
+                kind: null,
+                label: ''
+            };
             this.renderer.needsInitialCameraFit = !settings?.camera;
             this.setAtomsData(data, {
                 clearSelection: true,
@@ -10042,6 +22171,14 @@ class VAseApp {
             } else {
                 this.initialDesignSettings = this.designSettingsSnapshot();
             }
+            if (!isProject && data.loaded_file?.source_kind === 'volumetric') {
+                this.activateNewestVolumetricDataset();
+                await this.updateVolumetricSurface();
+                this.initialDesignSettings = this.designSettingsSnapshot();
+            }
+            if (runtimeMode === 'view' || runtimeMode === 'edit') {
+                await this.switchRuntimeMode(runtimeMode === 'view');
+            }
             this.resetVisualHistoryBaseline();
             const frameCount = data.metadata?.frame_count || 1;
             this.toast(
@@ -10054,7 +22191,7 @@ class VAseApp {
         }
     }
 
-    async appendStructureFile(file, inputFormat = '', index = ':') {
+    async appendStructureFile(file, inputFormat = '', index = ':', runtimeMode = null) {
         try {
             this.stopPlayback();
             if (this.transform.mode !== 'IDLE') this.cancelTransform();
@@ -10066,7 +22203,13 @@ class VAseApp {
             }
             const data = await this.withBusy(
                 `Adding ${file.name} to trajectory...`,
-                () => this.api.appendStructureFile(file, inputFormat, index)
+                () => this.api.appendStructureFile(
+                    file,
+                    inputFormat,
+                    index,
+                    this.volumetricImportPrecision(),
+                    { emitMutation: false }
+                )
             );
             this.resetHistoryTimeline();
             this.state.trajectoryBinaryCache = null;
@@ -10077,15 +22220,45 @@ class VAseApp {
                 frame: 0,
                 sourceFrame: 0,
                 active: false,
-                finished: false
+                finished: false,
+                kind: null,
+                label: ''
             };
             this.renderer.needsInitialCameraFit = wasEmpty;
             this.setAtomsData(data, {
                 clearSelection: wasEmpty,
-                preserveDisplay: true
+                preserveDisplay: true,
+                preserveRdf: data.loaded_file?.source_kind === 'volumetric'
             });
+            if (runtimeMode === 'view' || runtimeMode === 'edit') {
+                await this.switchRuntimeMode(runtimeMode === 'view');
+            }
             if (wasEmpty) this.initialDesignSettings = this.designSettingsSnapshot();
             this.resetVisualHistoryBaseline();
+            if (data.loaded_file?.source_kind === 'volumetric') {
+                const addedVolumes = Number(data.loaded_file?.appended_volumetric_datasets) || 0;
+                this.activateNewestVolumetricDataset();
+                await this.updateVolumetricSurface();
+                this.scheduleCollaborationEvent({
+                    source: this.currentCollaborationActor(),
+                    categories: ['analysis'],
+                    changedPaths: ['analysis.volumetricDatasets'],
+                    summary: 'A volumetric dataset was added.'
+                });
+                this.toast(
+                    `Added ${addedVolumes} scalar field${addedVolumes === 1 ? '' : 's'} `
+                    + `from ${data.loaded_file?.filename || file.name}.`,
+                    'success'
+                );
+                this.notifyWorkspaceDocument();
+                return;
+            }
+            this.scheduleCollaborationEvent({
+                source: this.currentCollaborationActor(),
+                categories: ['document', 'trajectory'],
+                changedPaths: ['trajectory.frames'],
+                summary: 'Structures were appended to the trajectory.'
+            });
             const added = Number(data.loaded_file?.appended_frames) || 0;
             const total = Number(data.metadata?.frame_count) || 1;
             const projectNote = data.loaded_file?.project_settings_ignored
@@ -10102,7 +22275,7 @@ class VAseApp {
         }
     }
 
-    async openStructureFileInNewTab(file, inputFormat = '', index = ':') {
+    async openStructureFileInNewTab(file, inputFormat = '', index = ':', runtimeMode = null) {
         if (!this.workspaceChild || window.parent === window) {
             this.toast('New structure tabs are available in the v_ase workspace.', 'warning');
             return;
@@ -10121,7 +22294,9 @@ class VAseApp {
                         serverPath: null,
                         fileName: file.name,
                         inputFormat,
-                        index
+                        index,
+                        volumetricPrecision: this.volumetricImportPrecision(),
+                        runtimeMode: runtimeMode || (this.state.vizOnly ? 'view' : 'edit')
                     }, window.location.origin);
                 })
             );
@@ -10137,8 +22312,10 @@ class VAseApp {
             <h2>Shortcuts</h2>
             <div class="shortcut-grid">
                 <span>Left click</span><label>Select / confirm transform</label>
-                <span>Shift + click</span><label>Add or remove selection</label>
+                <span>Shift + click / drag</span><label>Invert selection for clicked atoms or every atom inside the box</label>
                 <span>Left drag</span><label>Box select</label>
+                <span>Ctrl+A</span><label>Select all visible atoms</label>
+                <span>Shift+Ctrl+A</span><label>Invert selection for all visible atoms</label>
                 <span>Middle drag</span><label>Orbit viewport</label>
                 <span>Shift + middle drag</span><label>Pan viewport</label>
                 <span>Space</span><label>Play or pause the selected timeline</label>
@@ -10146,11 +22323,12 @@ class VAseApp {
                 <span>Tab / Esc</span><label>Open the control panel while it is collapsed</label>
                 <span>G</span><label>Move selected atoms or Sun handle</label>
                 <span>R</span><label>Rotate selected atoms or Sun direction</label>
+                <span>S</span><label>Scale selected atom spacing or insertion regions about the pivot</label>
                 <span>Sun source + G</span><label>Move source and target together</label>
                 <span>Sun target + G</span><label>Move target only</label>
                 <span>Sun handle + R</span><label>Rotate target around source</label>
                 <span>X / Y / Z</span><label>Align view in select mode</label>
-                <span>X / Y / Z</span><label>Lock transform axis in G/R mode</label>
+                <span>X / Y / Z</span><label>Lock the global Cartesian axis in G/R/S mode</label>
                 <span>Enter</span><label>Confirm transform</label>
                 <span>Esc</span><label>Cancel a transform, close a modal, or close the open control panel and return focus to the viewport</label>
                 <span>Ctrl+C / V / Z</span><label>Copy, paste, undo an edit or visual setting</label>
@@ -10185,7 +22363,14 @@ class VAseApp {
                 <strong>v_ase Project (.vase)</strong>
                 <span>Complete working state: structures or trajectory, current frame, coordinates, cell, constraints, labels, cached results, and visual setup.</span>
             </div>
+            <h3 class="help-section-title">License</h3>
+            <div class="help-save-grid">
+                <strong>AGPL-3.0-or-later</strong>
+                <span>Copyright (C) 2026 v_ase contributors. This software is provided without warranty. <a href="/license" target="_blank" rel="noopener">View license</a> · <a href="https://github.com/lgyEthan/v_ase" target="_blank" rel="noopener">Get source</a></span>
+            </div>
         `);
+        document.querySelector('#modal-container .modal')?.classList.add('help-modal');
+        requestAnimationFrame(() => document.getElementById('modal-content')?.focus());
     }
 
     imageOutputDimensions() {
@@ -10231,7 +22416,10 @@ class VAseApp {
             renderMode: display.lightingMode || 'modeling',
             sunIntensity: Number(display.sunIntensity ?? 2.2),
             sunPosition: [...(display.sunPosition || [8, -10, 14])],
-            sunTarget: [...(display.sunTarget || [0, 0, 0])]
+            sunTarget: [...(display.sunTarget || [0, 0, 0])],
+            camera: this.state.exportPreviewCamera
+                ? this.clonePlain(this.state.exportPreviewCamera)
+                : null
         };
     }
 
@@ -10281,7 +22469,8 @@ class VAseApp {
                 renderMode,
                 sunIntensity: Math.max(0, Number(source.sunIntensity ?? fallback.sunIntensity)),
                 sunPosition: vector(source.sunPosition, fallback.sunPosition),
-                sunTarget: vector(source.sunTarget, fallback.sunTarget)
+                sunTarget: vector(source.sunTarget, fallback.sunTarget),
+                camera: this.normalizedCameraSettings(source.camera || fallback.camera)
             }
         };
     }
@@ -10310,6 +22499,20 @@ class VAseApp {
         const profile = this.state.exportPreviewProfile || this.currentImageExportProfile();
         const { width, height } = profile;
         const enabled = Boolean(this.state.exportPreviewEnabled && this.state.atoms?.positions?.length);
+        if (this.state.exportPreviewFollowViewport || !this.state.exportPreviewCamera) {
+            this.state.exportPreviewCamera = this.normalizedCameraSettings(
+                this.currentCameraForExport()
+            );
+        }
+        profile.options = {
+            ...(profile.options || {}),
+            camera: this.clonePlain(this.state.exportPreviewCamera)
+        };
+        if (this.state.exportPreviewProfile) {
+            this.state.exportPreviewProfile = profile;
+        } else {
+            this.state.imageExportProfile = this.normalizedImageExportProfile(profile);
+        }
         this.renderer.setExportPreview({
             enabled,
             width,
@@ -10319,8 +22522,10 @@ class VAseApp {
         const button = document.getElementById('btn-preview-image');
         if (button) {
             button.setAttribute('aria-pressed', enabled ? 'true' : 'false');
-            button.title = enabled ? 'Hide export image preview' : 'Preview the exact export image area';
+            button.title = enabled ? 'Hide Render Area' : 'Show the exact exported Render Area';
         }
+        if (!enabled) this.setRenderAreaSelected(false, { update: false });
+        this.syncRenderAreaControls();
     }
 
     showExportImageModal() {
@@ -10489,7 +22694,7 @@ class VAseApp {
                     : 'Orthographic scale is uniform at every depth.';
                 scaleNote.textContent = mode === 'physical'
                     ? `Uses View > Atomic scale (${ppa.toFixed(2)} px/Å). Frame span: ${(outputWidth / ppa).toFixed(2)} Å × ${(outputHeight / ppa).toFixed(2)} Å. ${projectionNote}`
-                    : 'Uses the live camera direction and scale, then crops its projection to fill the requested output aspect ratio. Preview Area shows the exact exported region.';
+                    : 'Uses the Render Area camera direction and scale, then crops its projection to fill the requested output aspect ratio.';
             }
 
             const qualityInput = document.getElementById('export-sphere-quality');
@@ -10505,7 +22710,7 @@ class VAseApp {
             );
             const smoothnessNote = document.getElementById('export-smoothness-note');
             if (smoothnessNote) {
-                smoothnessNote.textContent = `${segments} sphere segments at ${multiplier.toFixed(2)}× in both Preview Area and the exported image.`;
+                smoothnessNote.textContent = `${segments} sphere segments at ${multiplier.toFixed(2)}× in both Render Area and the exported image.`;
             }
         };
         [
@@ -10563,7 +22768,7 @@ class VAseApp {
                     event => {
                         const ratio = Math.max(0, Math.min(1, Number(event?.ratio) || 0));
                         if (event?.phase === 'render') {
-                            updateProgress(8, 'Rendering the exact Preview Area...');
+                            updateProgress(8, 'Rendering the exact Render Area...');
                         } else if (event?.phase === 'capture') {
                             updateProgress(48, 'Captured the full-resolution scene.');
                         } else if (event?.phase === 'upload') {
@@ -10630,7 +22835,7 @@ class VAseApp {
         const selected = (value, current) => value === current ? 'selected' : '';
         this.showModal(`
             <h2>Export Video</h2>
-            <p class="modal-intro">Render every loaded trajectory frame using the exact Preview Area camera and crop.</p>
+            <p class="modal-intro">Render every loaded trajectory frame using the exact Render Area camera and crop.</p>
             <div class="export-image-columns">
                 <div class="export-image-column">
                     <div class="export-grid">
@@ -11195,19 +23400,104 @@ class VAseApp {
         }
     }
 
-    completeTrajectoryFrameUpdate() {
-        this.pruneSelection();
-        this.updateSelectionVisuals();
+    async completeTrajectoryFrameUpdate() {
+        // Position updates already move selection outlines and constraint guides.
+        // Rebuilding those geometries for an unchanged selection dominated large
+        // trajectory playback, especially when no atoms were selected.
+        if (this.state.selected.size || this.state.replicaSelected.size) {
+            this.pruneSelection();
+            this.updateSelectionMeasureUI(this.selectionEntries());
+        }
+        if (this.state.display.atomColorScaleEnabled) {
+            await this.updateAtomColorScale({
+                quiet: true,
+                refreshBonds: !this.state.trajectoryTimer
+            });
+        }
+        if (this.state.display.showForceVectors) {
+            await this.updateForceVectorsForCurrentFrame();
+        }
         this.observeCollaborationFrame();
         if (this.state.display.showDisplacements) {
             this.renderer.clearDisplacementVectors();
         }
         this.scheduleDisplacementAnalysisRefresh();
+        this.scheduleFrameDependentAnalysisRefresh();
+    }
+
+    scheduleFrameDependentAnalysisRefresh(delay = this.state.trajectoryTimer ? 20 : 35) {
+        if (this.state.frameAnalysisRefreshTimer !== null) {
+            clearTimeout(this.state.frameAnalysisRefreshTimer);
+        }
+        const token = ++this.state.frameAnalysisRequestToken;
+        this.hideStaleVolumetricDataForCurrentFrame();
+        const refreshRdf = this.state.rdfAutoRefresh
+            && this.state.activeAnalysisPlot === 'rdf';
+        let rdfOptions = null;
+        let cachedRdf = null;
+        if (this.state.rdfAutoRefresh && !refreshRdf) {
+            this.state.rdfRequestToken += 1;
+            this.state.rdfAutoRefresh = false;
+            this.state.rdfResult = null;
+        }
+        if (refreshRdf) {
+            this.state.rdfRequestToken += 1;
+            const context = this.rdfFrameContext();
+            rdfOptions = this.rdfOptions({
+                source: context.source,
+                frameIndex: context.index
+            });
+            this.ensureRdfFrameCache(rdfOptions, context);
+            cachedRdf = this.state.rdfFrameCache.get(
+                this.rdfFrameCacheKey(context)
+            ) || null;
+            if (cachedRdf) {
+                this.state.rdfResult = cachedRdf;
+                this.setRdfReadyStatus(cachedRdf);
+                this.plotRdf(cachedRdf).catch(error => {
+                    this.setRdfStatus('warning', 'Distribution display failed', error.message);
+                });
+                this.precomputeRdfTrajectory(rdfOptions, {
+                    showBusy: false,
+                    source: context.source
+                }).catch(error => {
+                    console.warn('RDF trajectory prefetch failed', error);
+                });
+            } else {
+                this.setRdfStatus(
+                    'loading',
+                    'Preparing structural distribution',
+                    `Keeping the current graph visible while ${this.timelineSourceName(context.source).toLowerCase()} frame ${context.index + 1} is calculated.`
+                );
+            }
+        }
+        this.state.frameAnalysisRefreshTimer = setTimeout(() => {
+            this.state.frameAnalysisRefreshTimer = null;
+            if (token !== this.state.frameAnalysisRequestToken) return;
+            this.refreshVolumetricDataForCurrentFrame().catch(error => {
+                this.setVolumeStatus('warning', 'Frame field update failed', error.message);
+            });
+            if (refreshRdf && !cachedRdf && this.state.activeAnalysisPlot === 'rdf') {
+                this.calculateRdf({ quiet: true }).catch(error => {
+                    this.setRdfStatus('warning', 'Distribution update failed', error.message);
+                });
+            }
+        }, Math.max(0, delay));
     }
 
     async loadFrame(index) {
-        if (this.transform.mode !== 'IDLE') this.cancelTransform();
+        if (
+            this.transform.mode !== 'IDLE'
+            && !['sun', 'render-area'].includes(this.state.transformSubject)
+        ) this.cancelTransform();
+        this.state.displayedTimelineSource = 'loaded';
         const meta = this.state.atoms?.metadata || {};
+        if (
+            this.state.registryResult
+            && Number(index) !== Number(meta.current_frame || 0)
+        ) {
+            this.invalidateRegistryResult('Trajectory frame changed. Calculate the map for the new frame.');
+        }
 
         if (meta.virtual_trajectory) {
             const count = meta.frame_count || 1;
@@ -11228,7 +23518,7 @@ class VAseApp {
                     this.renderer.updatePositionsFlat(binaryCache.values, offset, binaryCache.atoms);
                 }
                 this.updateTrajectoryUI();
-                this.completeTrajectoryFrameUpdate();
+                await this.completeTrajectoryFrameUpdate();
                 return;
             }
             const frame = await this.api.fetchFramePositions(normalized);
@@ -11244,7 +23534,7 @@ class VAseApp {
                 this.state.originalPositions = this.state.vizOnly ? override : override.map(p => [...p]);
                 this.renderer.updatePositions(override);
                 this.updateUI();
-                this.completeTrajectoryFrameUpdate();
+                await this.completeTrajectoryFrameUpdate();
                 return;
             }
             this.renderer.updatePositionsFlat(frame.values, 0, frame.atoms);
@@ -11256,7 +23546,7 @@ class VAseApp {
                 this.state.originalPositions = this.state.vizOnly ? positions : positions.map(p => [...p]);
                 this.updateUI();
             }
-            this.completeTrajectoryFrameUpdate();
+            await this.completeTrajectoryFrameUpdate();
             return;
         }
 
@@ -11275,7 +23565,7 @@ class VAseApp {
             } else {
                 this.updateUI();
             }
-            this.completeTrajectoryFrameUpdate();
+            await this.completeTrajectoryFrameUpdate();
             return;
         }
 
@@ -11299,7 +23589,7 @@ class VAseApp {
                 this.state.originalPositions = this.state.vizOnly ? framePositions : framePositions.map(p => [...p]);
                 this.updateUI();
             }
-            this.completeTrajectoryFrameUpdate();
+            await this.completeTrajectoryFrameUpdate();
             return;
         }
 
@@ -11321,10 +23611,15 @@ class VAseApp {
             } else {
                 this.updateUI();
             }
-            this.completeTrajectoryFrameUpdate();
+            await this.completeTrajectoryFrameUpdate();
             return;
         }
-        this.setAtomsData(data, { clearSelection: false });
+        this.setAtomsData(data, {
+            clearSelection: false,
+            preserveRdf: true,
+            preserveColorScaleRange: true
+        });
+        await this.completeTrajectoryFrameUpdate();
     }
 
     queueFrameLoad(index, source = this.primaryTimelineSource()) {
@@ -11371,9 +23666,9 @@ class VAseApp {
     requestFrameStep(delta) {
         const source = this.primaryTimelineSource();
         if (this.timelineFrameCount(source) <= 1) return Promise.resolve();
-        this.stopPlayback();
         this.timelineStepQueue = this.timelineStepQueue
             .catch(() => {})
+            .then(() => this.stopPlayback())
             .then(() => this.stepFrame(delta, source));
         return this.timelineStepQueue;
     }
@@ -11393,20 +23688,41 @@ class VAseApp {
     }
 
     stopPlayback() {
+        if (this.state.trajectoryStopPromise) return this.state.trajectoryStopPromise;
+        const playbackTask = this.state.trajectoryPlaybackTask;
+        const source = this.state.trajectoryPlaybackSource || this.primaryTimelineSource();
+        const wasPlaying = Boolean(this.state.trajectoryTimer || playbackTask);
         if (this.state.trajectoryTimer) {
             clearTimeout(this.state.trajectoryTimer);
             this.state.trajectoryTimer = null;
-            const source = this.state.trajectoryPlaybackSource || this.primaryTimelineSource();
-            this.state.trajectoryPlaybackSource = null;
-            this.updateTrajectoryUI();
-            if (source === 'loaded' && this.state.atoms?.metadata?.current_frame !== undefined) {
-                if (this.state.atoms.metadata.virtual_trajectory) {
-                    this.loadFrame(this.state.atoms.metadata.current_frame).catch(err => console.warn("Failed to sync frame", err));
-                } else {
-                    this.api.setFrame(this.state.atoms.metadata.current_frame).catch(err => console.warn("Failed to sync frame", err));
-                }
-            }
         }
+        this.state.trajectoryPlaybackSource = null;
+        this.updateTrajectoryUI();
+        if (!wasPlaying) return Promise.resolve();
+
+        const stopPromise = Promise.resolve(playbackTask)
+            .catch(error => {
+                console.warn('Trajectory frame did not finish cleanly before stop.', error);
+            })
+            .then(async () => {
+                if (source !== 'loaded' || this.state.atoms?.metadata?.current_frame === undefined) return;
+                const currentFrame = this.state.atoms.metadata.current_frame;
+                if (this.state.atoms.metadata.virtual_trajectory) {
+                    await this.loadFrame(currentFrame);
+                } else {
+                    await this.api.setFrame(currentFrame);
+                }
+            })
+            .catch(error => {
+                console.warn('Failed to synchronize the stopped trajectory frame.', error);
+            })
+            .finally(() => {
+                if (this.state.trajectoryStopPromise === stopPromise) {
+                    this.state.trajectoryStopPromise = null;
+                }
+            });
+        this.state.trajectoryStopPromise = stopPromise;
+        return stopPromise;
     }
 
     async startPlayback() {
@@ -11420,15 +23736,34 @@ class VAseApp {
             );
             if (!cache) return;
         }
+        if (
+            this.state.rdfAutoRefresh
+            && this.state.activeAnalysisPlot === 'rdf'
+        ) {
+            await this.precomputeRdfTrajectory(
+                this.rdfOptions({ source }),
+                { showBusy: true, source }
+            );
+        }
         this.state.trajectoryPlaybackSource = source;
         const tick = async () => {
             if (!this.state.trajectoryTimer) return;
+            let playbackTask = null;
             try {
-                await this.stepFrame(this.currentPlaybackStep(), this.state.trajectoryPlaybackSource || source);
+                playbackTask = this.stepFrame(
+                    this.currentPlaybackStep(),
+                    this.state.trajectoryPlaybackSource || source
+                );
+                this.state.trajectoryPlaybackTask = playbackTask;
+                await playbackTask;
             } catch (err) {
                 this.toast(`Movie playback failed: ${err.message}`, 'error');
                 this.stopPlayback();
                 return;
+            } finally {
+                if (this.state.trajectoryPlaybackTask === playbackTask) {
+                    this.state.trajectoryPlaybackTask = null;
+                }
             }
             if (!this.state.trajectoryTimer) return;
             this.state.trajectoryTimer = setTimeout(tick, 1000 / this.currentPlaybackFps());
@@ -11439,13 +23774,13 @@ class VAseApp {
 
     async restartPlayback() {
         if (!this.state.trajectoryTimer) return;
-        this.stopPlayback();
+        await this.stopPlayback();
         await this.startPlayback();
     }
 
     async togglePlayback() {
         if (this.state.trajectoryTimer) {
-            this.stopPlayback();
+            await this.stopPlayback();
             return;
         }
         await this.startPlayback();
@@ -11453,18 +23788,30 @@ class VAseApp {
     }
 
     setupEventListeners() {
-        window.addEventListener('resize', () => this.renderer.onResize());
+        this.handleWindowResize = () => this.renderer?.onResize?.();
+        window.addEventListener('resize', this.handleWindowResize, { passive: true });
+
+        const headerActions = document.querySelector('.action-group');
+        headerActions?.addEventListener('wheel', event => {
+            if (headerActions.scrollWidth <= headerActions.clientWidth + 1) return;
+            const delta = Math.abs(event.deltaX) >= Math.abs(event.deltaY)
+                ? event.deltaX
+                : event.deltaY;
+            if (!delta) return;
+            headerActions.scrollLeft += delta;
+            event.preventDefault();
+        }, { passive: false });
 
         document.getElementById('btn-open-file')?.addEventListener('click', () => this.chooseStructureFile());
         document.getElementById('btn-empty-open')?.addEventListener('click', () => this.chooseStructureFile());
         document.getElementById('structure-file')?.addEventListener('change', event => {
             const file = event.target.files?.[0];
             event.target.value = '';
+            // Native pickers can return an Enter key activation to the button
+            // that opened them. Ignore that trailing activation so the picker
+            // does not immediately reopen after a file is accepted.
+            this.filePickerSuppressUntil = performance.now() + 750;
             if (!file) return;
-            if (!this.hasLoadedAtoms()) {
-                this.loadStructureFile(file, '', ':');
-                return;
-            }
             this.showOpenFileModal(file);
         });
         
@@ -11590,7 +23937,7 @@ class VAseApp {
                         this.backendPositionsPayload(),
                         this.state.applyConstraints,
                         this.currentCameraForExport(),
-                        this.clonePlain(this.state.display),
+                        this.geometryExportDisplaySnapshot(),
                         this.renderer.bondPairs || [],
                         this.currentLightingForExport(),
                         this.state.display.exportIncludeCell !== false
@@ -11611,7 +23958,7 @@ class VAseApp {
                     () => this.api.export3dm(
                         this.backendPositionsPayload(),
                         this.state.applyConstraints,
-                        this.clonePlain(this.state.display),
+                        this.geometryExportDisplaySnapshot(),
                         this.renderer.bondPairs || [],
                         this.renderer.supercellBridgeBondRecords || [],
                         this.currentCameraForExport(),
@@ -11633,7 +23980,7 @@ class VAseApp {
                     () => this.api.exportObj(
                         this.backendPositionsPayload(),
                         this.state.applyConstraints,
-                        this.clonePlain(this.state.display),
+                        this.geometryExportDisplaySnapshot(),
                         this.renderer.bondPairs || [],
                         this.renderer.supercellBridgeBondRecords || [],
                         this.currentCameraForExport(),
@@ -11657,8 +24004,33 @@ class VAseApp {
         document.getElementById('btn-preview-image').onclick = () => {
             this.state.exportPreviewProfile = null;
             this.state.exportPreviewEnabled = !this.state.exportPreviewEnabled;
+            if (this.state.exportPreviewEnabled) {
+                this.captureRenderAreaCamera({ syncPreview: false });
+            } else {
+                this.setRenderAreaSelected(false, { update: false });
+            }
             this.syncImageExportPreview();
         };
+        document.getElementById('render-area-follow-view')?.addEventListener('change', event => {
+            this.state.exportPreviewFollowViewport = Boolean(event.target.checked);
+            if (this.state.exportPreviewFollowViewport) {
+                this.captureRenderAreaCamera({ syncPreview: false });
+            }
+            this.syncImageExportPreview();
+            this.scheduleVisualHistoryCommit('render-area-follow');
+        });
+        document.getElementById('btn-render-area-from-view')?.addEventListener('click', () => {
+            this.state.exportPreviewFollowViewport = false;
+            this.captureRenderAreaCamera({ syncPreview: false });
+            this.syncImageExportPreview();
+            this.scheduleVisualHistoryCommit('render-area-camera');
+        });
+        document.getElementById('render-area-eye')?.addEventListener('click', event => {
+            event.preventDefault();
+            event.stopPropagation();
+            this.setRenderAreaSelected(!this.state.renderAreaSelected);
+            this.renderer.domElement.focus({ preventScroll: true });
+        });
         ['image-width', 'image-height'].forEach(id => {
             document.getElementById(id)?.addEventListener('input', () => {
                 const dimensions = this.imageOutputDimensions();
@@ -11673,25 +24045,7 @@ class VAseApp {
         document.getElementById('btn-export-video').onclick = () => {
             this.showExportVideoModal();
         };
-        document.getElementById('btn-save-project').onclick = async () => {
-            try {
-                this.applyDisplayOptions();
-                const saved = await this.saveBlobFromAction(
-                    () => this.api.saveProject(
-                        this.backendPositionsPayload(),
-                        this.designSettingsSnapshot(),
-                        this.state.applyConstraints
-                    ),
-                    this.projectFilename(),
-                    'application/vnd.v-ase.project+zip',
-                    'Saving complete v_ase project...'
-                );
-                if (saved) this.toast('Complete .vase project saved.', 'success');
-            } catch (err) {
-                this.toast(`Save project failed: ${err.message}`, 'error');
-            }
-        };
-        document.getElementById('btn-save-project-html').onclick = () => {
+        document.getElementById('btn-save-project').onclick = () => {
             this.showHtmlExportModal({ projectSave: true });
         };
         document.getElementById('btn-load-project').onclick = () => {
@@ -11702,6 +24056,20 @@ class VAseApp {
             event.target.value = '';
             if (!file) return;
             await this.loadStructureFile(file, '', ':');
+        };
+        document.getElementById('btn-set-visual-default').onclick = async () => {
+            try {
+                await this.setCurrentVisualDefaults();
+            } catch (err) {
+                this.toast(`Could not save personal defaults: ${err.message}`, 'error');
+            }
+        };
+        document.getElementById('btn-restore-visual-default').onclick = async () => {
+            try {
+                await this.restoreAppVisualDefaults();
+            } catch (err) {
+                this.toast(`Could not restore app defaults: ${err.message}`, 'error');
+            }
         };
         document.getElementById('btn-save-settings').onclick = async () => {
             try {
@@ -11735,6 +24103,11 @@ class VAseApp {
             }
         };
         document.getElementById('btn-relax').onclick = async () => {
+            if (this.addAtomsSessionActive()) {
+                await this.relaxAddedAtomsFromWidget();
+                this.updateUI();
+                return;
+            }
             if (!this.state.atoms.metadata.has_calculator) {
                 this.toast('Relax requires an attached ASE calculator.', 'warning');
                 return;
@@ -11742,6 +24115,13 @@ class VAseApp {
             const fmax = parseFloat(document.getElementById('relax-fmax').value || '0.05');
             const steps = parseInt(document.getElementById('relax-steps').value || '200', 10);
             try {
+                const enteringRelaxationMode = !Boolean(
+                    this.state.atoms?.metadata?.relaxation?.active
+                    || (
+                        this.state.relaxTrajectory?.active
+                        && this.state.relaxTrajectory?.kind === 'relaxation'
+                    )
+                );
                 this.startRelaxTrajectory();
                 const response = await this.api.relaxStart(
                     this.backendPositionsPayload(),
@@ -11751,34 +24131,78 @@ class VAseApp {
                     this.currentCalculatorPayload()
                 );
                 if (response.status === 'started' || response.status === 'restarting') {
-                    this.state.isRelaxing = true;
-                    this.toast(response.status === 'restarting' ? 'Relaxation restarting.' : 'Relaxation started.', 'success');
+                    if (response.status === 'started' && enteringRelaxationMode) {
+                        this.recordStructureHistoryAction('/api/relax/start/');
+                    }
+                    const completionArrivedFirst = (
+                        this.state.relaxTrajectory?.kind === 'relaxation'
+                        && this.state.relaxTrajectory?.finished === true
+                        && this.state.isRelaxing === false
+                    );
+                    if (!completionArrivedFirst) {
+                        this.state.isRelaxing = true;
+                        this.toast(response.status === 'restarting' ? 'Relaxation restarting.' : 'Relaxation started.', 'success');
+                    }
                 } else {
-                    this.state.relaxTrajectory.active = false;
+                    this.clearModeTrajectory('relaxation');
                     this.toast(response.message || 'Relaxation did not start.', 'warning');
                 }
                 this.updateUI();
             } catch (err) {
-                this.state.relaxTrajectory.active = false;
+                this.clearModeTrajectory('relaxation');
                 this.toast(`Relax failed: ${err.message}`, 'error');
             }
         };
         document.getElementById('btn-stop-relax').onclick = async () => {
             try {
-                await this.api.relaxStop();
+                if (this.addAtomsSessionActive()) {
+                    await this.stopAddedAtomsRelaxation();
+                } else {
+                    await this.api.relaxStop();
+                }
                 this.toast('Stopping relaxation...', 'warning');
             } catch (err) {
                 this.toast(`Stop relax failed: ${err.message}`, 'error');
             }
         };
+        document.getElementById('btn-exit-relax-mode').onclick = () => this.exitRelaxationMode();
+        document.getElementById('btn-clear-relax-trajectory').onclick = () => this.clearRelaxationTrajectory();
         document.getElementById('calc-device')?.addEventListener('change', () => {
             const cpus = document.getElementById('calc-cpus');
             if (cpus) cpus.disabled = document.getElementById('calc-device')?.value !== 'cpu';
             this.applyCalculatorControls();
         });
         document.getElementById('calc-cpus')?.addEventListener('change', () => this.applyCalculatorControls());
-        document.getElementById('calc-cutoff-scale')?.addEventListener('change', () => this.applyCalculatorControls());
-        document.getElementById('calc-strength')?.addEventListener('change', () => this.applyCalculatorControls());
+        document.getElementById('calc-cutoff-mode')?.addEventListener('change', () => {
+            this.syncRepulsionCutoffControls();
+            this.safeApplyCalculatorControls();
+        });
+        document.getElementById('calc-cutoff-basis')?.addEventListener('change', event => {
+            this.resetRepulsionPairRanges(event.target.value);
+            this.safeApplyCalculatorControls();
+        });
+        document.getElementById('calc-cutoff-scale')?.addEventListener('change', () => this.safeApplyCalculatorControls());
+        document.getElementById('calc-strength')?.addEventListener('change', () => this.safeApplyCalculatorControls());
+        document.getElementById('btn-repulsion-set-all')?.addEventListener('click', () => {
+            const value = Number(document.getElementById('calc-cutoff-distance')?.value);
+            if (!Number.isFinite(value) || value <= 0) {
+                this.toast('Set-all distance must be greater than 0 Å.', 'warning');
+                return;
+            }
+            this.uniqueLabelPairs().forEach(([left, right]) => {
+                this.state.repulsionPairRanges[this.repulsionPairKey(left, right)] = {
+                    enabled: true,
+                    distance: Math.max(0.01, Math.min(100, value))
+                };
+            });
+            this.renderRepulsionPairControls({ capture: false });
+            this.safeApplyCalculatorControls();
+        });
+        document.getElementById('btn-repulsion-reset-pairs')?.addEventListener('click', () => {
+            this.resetRepulsionPairRanges(document.getElementById('calc-cutoff-basis')?.value);
+            this.safeApplyCalculatorControls();
+            this.toast('Repulsion distances reset from the selected radii.', 'success');
+        });
         document.getElementById('chk-bonds').onchange = () => this.safeApplyBondOptions();
         document.getElementById('chk-periodic-bonds').onchange = () => this.safeApplyBondOptions();
         document.getElementById('chk-cell').onchange = () => this.safeApplyDisplayOptions();
@@ -11818,6 +24242,7 @@ class VAseApp {
         document.getElementById('bond-cutoff').onchange = () => this.safeApplyBondOptions();
         document.getElementById('bond-cutoff').oninput = () => this.safeApplyBondOptions();
         document.getElementById('bond-style').onchange = () => this.safeApplyBondOptions();
+        document.getElementById('bond-material').onchange = () => this.safeApplyBondOptions();
         document.getElementById('blender-export-mode').onchange = () => this.safeApplyDisplayOptions();
         document.getElementById('export-include-cell').onchange = event => {
             const includeCell = event.target.checked;
@@ -11838,6 +24263,37 @@ class VAseApp {
         };
         document.getElementById('bond-custom-color').oninput = () => this.safeApplyBondOptions();
         document.getElementById('bond-custom-color').onchange = () => this.safeApplyBondOptions();
+        document.getElementById('bond-opacity').oninput = () => {
+            this.updateBondAppearanceUI();
+            this.safeApplyBondOptions();
+        };
+        document.getElementById('bond-opacity').onchange = () => this.safeApplyBondOptions();
+        document.getElementById('bond-pair-style-key').onchange = () => this.syncBondPairStyleEditor();
+        document.getElementById('bond-pair-style-enabled').onchange = event => {
+            const fields = document.getElementById('bond-pair-style-fields');
+            fields?.classList.toggle('disabled', !event.target.checked);
+            fields?.querySelectorAll('input, select').forEach(control => {
+                control.disabled = !event.target.checked;
+            });
+        };
+        document.getElementById('bond-pair-color-mode').onchange = event => {
+            document.getElementById('bond-pair-custom-color-row')?.classList.toggle(
+                'hidden', event.target.value !== 'custom'
+            );
+        };
+        document.getElementById('bond-pair-thickness').oninput = () => {
+            const value = Number(document.getElementById('bond-pair-thickness').value);
+            const output = document.getElementById('bond-pair-thickness-value');
+            if (output) output.textContent = `${Math.max(0.02, Math.min(0.6, value)).toFixed(2)} A`;
+        };
+        document.getElementById('bond-pair-opacity').oninput = () => {
+            const value = Number(document.getElementById('bond-pair-opacity').value);
+            const output = document.getElementById('bond-pair-opacity-value');
+            if (output) output.textContent = `${Math.round(Math.max(0.05, Math.min(1, value)) * 100)}%`;
+        };
+        document.getElementById('btn-bond-pair-apply').onclick = () => this.applyBondPairStyle();
+        document.getElementById('btn-bond-pair-apply-all').onclick = () => this.applyBondPairStyle({ all: true });
+        document.getElementById('btn-bond-pair-reset').onclick = () => this.resetBondPairStyle();
         document.getElementById('bond-pairs').oninput = () => this.safeApplyBondOptions();
         document.getElementById('bond-pairs').onchange = () => this.safeApplyBondOptions();
         document.getElementById('btn-bond-reset-specifications').onclick = () => {
@@ -11868,6 +24324,14 @@ class VAseApp {
         });
         this.setTranslationCoordinateMode(this.state.translationCoordinateMode);
         document.getElementById('btn-apply-translation').onclick = () => this.applyAtomTranslation();
+        document.getElementById('btn-selection-to-origin').onclick = () => {
+            try {
+                this.centerSelectionAtOrigin();
+            } catch {
+                // The method already reports a user-facing error.
+            }
+        };
+        document.getElementById('btn-set-unit-cell').onclick = () => this.setUnitCellFromControls();
         document.getElementById('btn-set-supercell').onclick = () => this.setSupercellAsCell();
         document.getElementById('btn-apply-supercell-matrix').onclick = () => this.applyMakeSupercellMatrix();
         document.getElementById('btn-shortcuts').onclick = () => {
@@ -11885,9 +24349,8 @@ class VAseApp {
             modalContainer?.addEventListener(type, (e) => {
                 if (!modalContainer.classList.contains('hidden')) {
                     e.stopPropagation();
-                    if (type === 'wheel') e.preventDefault();
                 }
-            }, { passive: false });
+            }, { passive: type === 'wheel' });
         });
         document.getElementById('timeline-source-select')?.addEventListener('change', event => {
             this.setTimelineSource(event.target.value)
@@ -11924,6 +24387,7 @@ class VAseApp {
         });
         document.getElementById('tool-move')?.addEventListener('click', () => this.enterTransformMode('MOVE'));
         document.getElementById('tool-rotate')?.addEventListener('click', () => this.enterTransformMode('ROTATE'));
+        document.getElementById('tool-scale')?.addEventListener('click', () => this.enterTransformMode('SCALE'));
         this.readTransformSettings();
         ['move-increment', 'rotate-increment'].forEach(id => {
             document.getElementById(id)?.addEventListener('change', () => {
@@ -11941,19 +24405,98 @@ class VAseApp {
             this.rotateSelectionFromPanel()
                 .catch(err => this.toast(`Rotation failed: ${err.message}`, 'error'));
         });
-        const refreshCommensurateSearch = () => {
-            this.applyDisplayOptions();
-            if (this.transform.mode === 'ROTATE') {
-                this.prepareCommensurateRotation([...this.state.selected].filter(idx => this.isEditableIndex(idx)));
-            }
+        const refreshCommensurateSearch = ({ showBusy = true } = {}) => {
+            this.refreshCommensurateWorkspace({ showBusy, preferSmallest: false }).catch(error => {
+                this.toast(`Commensurate search failed: ${error.message}`, 'error');
+            });
         };
-        document.getElementById('chk-commensurate-guide')?.addEventListener('change', refreshCommensurateSearch);
+        document.getElementById('chk-commensurate-guide')?.addEventListener('change', () => {
+            this.state.commensurateSuggestionArmed = false;
+            if (document.getElementById('chk-commensurate-guide')?.checked) {
+                this.state.display.commensurateShowAtoms = false;
+                const showAtoms = document.getElementById('chk-commensurate-show-atoms');
+                if (showAtoms) showAtoms.checked = false;
+            }
+            refreshCommensurateSearch({ showBusy: true });
+        });
+        document.getElementById('commensurate-mode')?.addEventListener('change', () => {
+            this.state.commensurateSuggestionArmed = false;
+            this.applyDisplayOptions();
+            this.syncCommensurateWorkspaceControls();
+            refreshCommensurateSearch({ showBusy: true });
+        });
+        document.getElementById('commensurate-strain-target')?.addEventListener('change', () => {
+            refreshCommensurateSearch({ showBusy: true });
+        });
+        document.getElementById('chk-commensurate-show-atoms')?.addEventListener('change', () => {
+            this.applyDisplayOptions();
+            const angle = this.state.commensuratePreviewAngle || 0;
+            const candidate = this.commensurateCandidateAtAngle(angle);
+            if (candidate) {
+                this.prepareCommensurateSupercellProposal(
+                    this.commensuratePreviewContext(candidate, angle)
+                ).catch(error => this.toast(`Preview failed: ${error.message}`, 'error'));
+            }
+        });
+        ['input', 'change'].forEach(type => {
+            document.getElementById('commensurate-guest-angle')?.addEventListener(type, event => {
+                const angle = Number(event.currentTarget.value || 0);
+                if (!Number.isFinite(angle)) return;
+                this.state.commensurateSuggestionArmed = true;
+                this.state.display.commensurateGuestAngleDeg = angle;
+                this.state.commensurateLastAngle = THREE.MathUtils.degToRad(angle);
+                this.scheduleVisualHistoryCommit('commensurate-guest-angle');
+                this.scheduleCommensurateLivePreview(THREE.MathUtils.degToRad(angle));
+            });
+        });
+        ['input', 'change'].forEach(type => {
+            document.getElementById('commensurate-guest-gap')?.addEventListener(type, event => {
+                const gap = Number(event.currentTarget.value);
+                if (!Number.isFinite(gap)) return;
+                this.state.display.commensurateGuestGap = Math.max(0, Math.min(20, gap));
+                this.state.display.commensurateGuestOffset = this.commensurateGuestOffsetForGap();
+                this.scheduleVisualHistoryCommit('commensurate-guest-gap');
+                const angle = Number(this.state.display.commensurateGuestAngleDeg || 0);
+                const candidate = this.commensurateCandidateAtAngle(angle);
+                if (candidate) {
+                    this.prepareCommensurateSupercellProposal(
+                        this.commensuratePreviewContext(candidate, angle)
+                    ).catch(error => this.toast(`Preview failed: ${error.message}`, 'error'));
+                } else {
+                    this.renderPrimitiveCommensurateCells();
+                }
+            });
+        });
+        const guestInput = document.getElementById('commensurate-guest-file');
+        document.getElementById('btn-load-commensurate-guest')?.addEventListener('click', () => {
+            guestInput?.click();
+        });
+        guestInput?.addEventListener('change', event => {
+            const file = event.currentTarget.files?.[0];
+            event.currentTarget.value = '';
+            this.loadCommensurateGuest(file).catch(error => {
+                this.toast(`Guest structure failed: ${error.message}`, 'error');
+            });
+        });
+        document.getElementById('btn-remove-commensurate-guest')?.addEventListener('click', () => {
+            this.removeCommensurateGuest().catch(error => {
+                this.toast(`Could not remove guest: ${error.message}`, 'error');
+            });
+        });
         document.getElementById('chk-commensurate-snap')?.addEventListener('change', () => {
             this.applyDisplayOptions();
             if (this.transform.mode === 'ROTATE') this.applyTransformPreview();
         });
-        ['commensurate-strain', 'commensurate-max-index'].forEach(id => {
-            document.getElementById(id)?.addEventListener('change', refreshCommensurateSearch);
+        ['commensurate-strain', 'commensurate-max-index', 'commensurate-max-area'].forEach(id => {
+            document.getElementById(id)?.addEventListener('change', () => {
+                refreshCommensurateSearch({ showBusy: true });
+            });
+        });
+        document.getElementById('btn-dismiss-commensurate')?.addEventListener('click', () => {
+            this.clearCommensurateSupercellProposal();
+        });
+        document.getElementById('btn-apply-commensurate-cell')?.addEventListener('click', () => {
+            this.applyCommensurateSupercellProposal();
         });
         document.getElementById('commensurate-snap-range')?.addEventListener('input', () => {
             this.applyDisplayOptions();
@@ -11986,6 +24529,17 @@ class VAseApp {
                 this.commitTransform();
                 return;
             }
+            if (this.renderer.pickRenderAreaEye?.(e)) {
+                e.preventDefault();
+                e.stopPropagation();
+                this.state.suppressNextPointerUp = true;
+                this.setRenderAreaSelected(true);
+                canvas.focus({ preventScroll: true });
+                return;
+            }
+            if (this.state.renderAreaSelected) {
+                this.setRenderAreaSelected(false, { update: false });
+            }
             const sunHandle = this.renderer.pickSunHandle?.(e);
             if (sunHandle) {
                 e.preventDefault();
@@ -11994,6 +24548,24 @@ class VAseApp {
                 this.setSunSelected(sunHandle);
                 canvas.focus({ preventScroll: true });
                 return;
+            }
+            const addAtomsRegion = this.renderer.pickAddAtomsRegion?.(e);
+            if (addAtomsRegion) {
+                e.preventDefault();
+                e.stopPropagation();
+                this.state.suppressNextPointerUp = true;
+                this.setSunSelected(false, { update: false });
+                this.selectAddAtomsRegion(addAtomsRegion, {
+                    additive: e.shiftKey,
+                    toggle: e.shiftKey
+                });
+                this.clearAtomSelection();
+                this.updateSelectionVisuals();
+                canvas.focus({ preventScroll: true });
+                return;
+            }
+            if (this.selectedAddAtomsRegionIds().size) {
+                this.setAddAtomsRegionSelected(false);
             }
             if (this.state.sunSelected) this.setSunSelected(false, { update: false });
             if (!this.canViewportSelectAtoms()) {
@@ -12065,8 +24637,21 @@ class VAseApp {
                     e,
                     this.renderer.atomMeshes,
                     this.renderer.supercellGroup,
-                    this.state.vizOnly
+                    true
                 );
+                const pickedPlane = picked === null
+                    ? this.renderer.pickVolumetricPlane?.(e)
+                    : null;
+                if (pickedPlane) {
+                    this.clearAtomSelection();
+                    this.setVolumetricPlaneSelection([pickedPlane], {
+                        additive: e.shiftKey || e.ctrlKey || e.metaKey
+                    });
+                    return;
+                }
+                if (!e.shiftKey && this.state.selectedVolumetricPlanes.size) {
+                    this.setVolumetricPlaneSelection([], { update: false });
+                }
                 if (!e.shiftKey) this.clearAtomSelection();
 
                 if (picked !== null) {
@@ -12088,11 +24673,17 @@ class VAseApp {
                     this.renderer.atomMeshes,
                     this.renderer.camera,
                     this.renderer.supercellGroup,
-                    this.state.vizOnly
+                    true
                 );
 
-                if (!e.shiftKey) this.clearAtomSelection();
-                newSelected.forEach(reference => this.addSelectionReference(reference));
+                if (!e.shiftKey) {
+                    this.clearAtomSelection();
+                    if (this.state.selectedVolumetricPlanes.size) {
+                        this.setVolumetricPlaneSelection([], { update: false });
+                    }
+                }
+                if (e.shiftKey) this.toggleSelectionReferences(newSelected);
+                else newSelected.forEach(reference => this.addSelectionReference(reference));
                 this.updateSelectionVisuals();
                 this.updateUI();
             }
@@ -12183,7 +24774,22 @@ class VAseApp {
                     this.commitTransform();
                 } else if (axis) {
                     e.preventDefault();
-                    this.transform.setAxis(axis, this.renderer.camera);
+                    if (
+                        this.state.transformSubject === 'volumetric-plane'
+                        && this.transform.mode === 'MOVE'
+                    ) {
+                        this.toast('Volumetric planes move along their own normal.', 'warning');
+                        return;
+                    }
+                    const constrainedAxis = (
+                        this.transform.mode === 'ROTATE'
+                        && this.state.transformSubject === 'atoms'
+                        && this.state.display.commensurateGuide
+                    ) ? 'Z' : axis;
+                    this.transform.setAxis(constrainedAxis, this.renderer.camera);
+                    if (constrainedAxis !== axis) {
+                        this.toast('Commensurate atoms uses in-plane matching about global Z.', 'warning');
+                    }
                     if (this.transform.mode === 'ROTATE' && this.state.transformSubject === 'atoms') {
                         this.prepareCommensurateRotation([...this.state.selected].filter(idx => this.isEditableIndex(idx)));
                     }
@@ -12208,6 +24814,14 @@ class VAseApp {
                         return;
                     }
                 }
+                if (
+                    this.state.renderAreaSelected
+                    && this.isPhysicalKey(e, 'KeyG', ['g'])
+                ) {
+                    e.preventDefault();
+                    this.enterRenderAreaTransformMode();
+                    return;
+                }
                 if (this.state.sunSelected &&
                     (this.isPhysicalKey(e, 'KeyG', ['g']) || this.isPhysicalKey(e, 'KeyR', ['r']))) {
                     e.preventDefault();
@@ -12215,11 +24829,43 @@ class VAseApp {
                     this.enterSunTransformMode(mode);
                     return;
                 }
+                if (this.state.selectedVolumetricPlanes.size &&
+                    (this.isPhysicalKey(e, 'KeyG', ['g']) || this.isPhysicalKey(e, 'KeyR', ['r']))) {
+                    e.preventDefault();
+                    if (!this.canEditAtoms()) {
+                        this.editOnlyToast();
+                        return;
+                    }
+                    const mode = this.isPhysicalKey(e, 'KeyR', ['r']) ? 'ROTATE' : 'MOVE';
+                    this.enterVolumetricPlaneTransformMode(mode);
+                    return;
+                }
+                if (this.selectedAddAtomsRegionIds().size &&
+                    (
+                        this.isPhysicalKey(e, 'KeyG', ['g'])
+                        || this.isPhysicalKey(e, 'KeyR', ['r'])
+                        || this.isPhysicalKey(e, 'KeyS', ['s'])
+                    )) {
+                    e.preventDefault();
+                    if (this.isPhysicalKey(e, 'KeyR', ['r'])) {
+                        this.toast('Insertion regions cannot be rotated. Press G to move or S to scale them.', 'warning');
+                    } else {
+                        const mode = this.isPhysicalKey(e, 'KeyS', ['s']) ? 'SCALE' : 'MOVE';
+                        this.enterAddAtomsRegionTransform(mode);
+                    }
+                    return;
+                }
                 if (this.isPhysicalKey(e, 'KeyA', ['a'])) {
                     e.preventDefault();
                     this.setSunSelected(false, { update: false });
                     if (e.altKey) {
                         this.clearAtomSelection();
+                    } else if (e.shiftKey) {
+                        const references = this.state.atoms.positions.map((_, index) => index);
+                        if (this.state.vizOnly) {
+                            references.push(...this.renderer.supercellSelectionReferences());
+                        }
+                        this.toggleSelectionReferences(references);
                     } else {
                         this.clearAtomSelection();
                         this.state.atoms.positions.forEach((_, idx) => this.addSelectionReference(idx));
@@ -12240,24 +24886,98 @@ class VAseApp {
                     this.toast(`View aligned to ${sign > 0 ? '+' : '-'}${axis}.`, 'success');
                     return;
                 }
-                if ((e.code === 'Delete' || e.key === 'Delete' || e.code === 'Backspace' || e.key === 'Backspace') && this.state.selected.size > 0) {
+                if (
+                    (e.code === 'Delete' || e.key === 'Delete' || e.code === 'Backspace' || e.key === 'Backspace')
+                    && this.selectionCount() > 0
+                ) {
                     e.preventDefault();
-                    if (this.canEditAtoms()) this.deleteSelection();
-                    else this.editOnlyToast();
+                    this.deleteSelection();
                     return;
                 }
-                if (this.state.selected.size > 0 && this.canEditAtoms()) {
-                    if (this.isPhysicalKey(e, 'KeyG', ['g']) || this.isPhysicalKey(e, 'KeyR', ['r'])) {
-                        e.preventDefault();
-                        const mode = this.isPhysicalKey(e, 'KeyR', ['r']) ? 'ROTATE' : 'MOVE';
-                        this.enterTransformMode(mode);
+                if (
+                    this.state.selected.size > 0
+                    && (
+                        this.isPhysicalKey(e, 'KeyG', ['g'])
+                        || this.isPhysicalKey(e, 'KeyR', ['r'])
+                        || this.isPhysicalKey(e, 'KeyS', ['s'])
+                    )
+                ) {
+                    e.preventDefault();
+                    if (!this.canTransformSelectedAtoms()) {
+                        this.transformUnavailableToast();
+                        return;
                     }
+                    const mode = this.isPhysicalKey(e, 'KeyR', ['r'])
+                        ? 'ROTATE'
+                        : (this.isPhysicalKey(e, 'KeyS', ['s']) ? 'SCALE' : 'MOVE');
+                    this.enterTransformMode(mode);
                 }
             }
         });
     }
+
+    dispose() {
+        if (this.disposed) return;
+        this.disposed = true;
+
+        const clearTimer = value => {
+            if (value !== null && value !== undefined) {
+                clearTimeout(value);
+                clearInterval(value);
+            }
+        };
+        clearTimer(this.visualHistoryTimer);
+        clearTimer(this.constraintTimeout);
+        clearTimer(this.addAtomsUI?.domainRequestTimer);
+        clearTimer(this.bulkBuilderRuntime?.previewTimer);
+        if (this.state) {
+            Object.keys(this.state)
+                .filter(key => /Timer$/.test(key))
+                .forEach(key => {
+                    clearTimer(this.state[key]);
+                    this.state[key] = null;
+                });
+            this.state.trajectoryPlaybackTask = null;
+            this.state.trajectoryStopPromise = null;
+            this.state.trajectoryBinaryCache = null;
+            this.state.rdfTrajectoryCache = null;
+            this.state.relaxTrajectory = null;
+        }
+
+        this.atomColorScaleRuntime.requestToken += 1;
+        this.forceVectorRuntime.requestToken += 1;
+        this.displacementRuntime.requestToken += 1;
+        this.volumetricHistogramObserver?.disconnect?.();
+        this.volumetricHistogramObserver = null;
+        this.hideToolbarTooltip?.();
+        this.cleanupCallbacks.splice(0).forEach(callback => {
+            try { callback(); } catch { /* page teardown */ }
+        });
+
+        this.closeSocket?.();
+        if (this.ws) {
+            this.ws.onmessage = null;
+            this.ws.onopen = null;
+            this.ws.onerror = null;
+            this.ws.onclose = null;
+        }
+        window.removeEventListener('resize', this.handleWindowResize);
+        window.removeEventListener('v_ase-theme-change', this.handleThemeChange);
+        window.removeEventListener('pagehide', this.handlePageTeardown);
+        window.removeEventListener('beforeunload', this.handlePageTeardown);
+        if (this.workspaceChild) {
+            window.removeEventListener('message', this.handleWorkspaceMessage);
+        }
+
+        this.renderer?.dispose?.();
+        if (window.__V_ASE_APP__ === this) window.__V_ASE_APP__ = null;
+        if (window.__ASE_APP__ === this) window.__ASE_APP__ = null;
+        window.v_aseAI = null;
+        window.__V_ASE_AI__ = null;
+    }
 }
 
+installSymmetryPhononMethods(VAseApp);
 window.__V_ASE_APP__ = new VAseApp();
 window.__ASE_APP__ = window.__V_ASE_APP__;
 window.v_aseAI = window.__V_ASE_APP__.createAIBridge();

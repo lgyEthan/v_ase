@@ -14,6 +14,7 @@ from playwright.sync_api import sync_playwright
 
 from v_ase.io import atom_labels, set_atom_labels
 from v_ase.phonon import (
+    PHONON_EQUILIBRIUM_ARRAY,
     PhononModel,
     create_phonon_model,
     generate_finite_displacements,
@@ -34,6 +35,7 @@ from v_ase.symmetry import (
 from v_ase.server import (
     ai_schema_payload,
     apply_positions,
+    calculate_displacements,
     phonon_bands,
     phonon_displacements,
     phonon_modes,
@@ -277,6 +279,25 @@ def test_frozen_mode_trajectory_uses_frequency_band_phase_and_amplitude():
     assert atom_labels(trajectory[0]) == ["Si_framework", "Si_guest"]
     assert trajectory[0].get_masses() == pytest.approx([28.0, 30.0])
     assert metadata["coordinates_unwrapped"] is True
+    equilibrium = trajectory[0].arrays[PHONON_EQUILIBRIUM_ARRAY]
+    phase_zero = trajectory[0].positions - equilibrium
+    phase_half = trajectory[4].positions - equilibrium
+    np.testing.assert_allclose(phase_zero, -phase_half, atol=1e-12)
+
+    session = _editor_session("phonon-equilibrium-vectors", trajectory[0])
+    session.trajectory_frames = [frame.copy() for frame in trajectory]
+    try:
+        vectors = calculate_displacements(session, {
+            "frame_index": 0,
+            "reference_mode": "phonon",
+            "mic": True,
+        })
+        assert vectors["reference_frame"] is None
+        assert vectors["reference_mode"] == "phonon"
+        np.testing.assert_allclose(vectors["starts"], equilibrium, atol=1e-12)
+        np.testing.assert_allclose(vectors["vectors"], phase_zero, atol=1e-12)
+    finally:
+        sessions.pop(session.session_id, None)
 
     # Preserve the nearest periodic image around the reference atom so a
     # boundary atom oscillates continuously instead of jumping by one cell.
@@ -550,15 +571,40 @@ def test_browser_selects_a_band_point_and_animates_the_physical_mode():
                 first = np.asarray(
                     page.evaluate("window.__V_ASE_APP__.state.atoms.positions")
                 )
+                first_vectors = page.evaluate(
+                    """async () => {
+                        const app = window.__V_ASE_APP__;
+                        Object.assign(app.state.display, {
+                            showDisplacements: true,
+                            displacementReferenceMode: 'phonon',
+                            displacementMic: true
+                        });
+                        app.renderer.setDisplayOptions(app.state.display);
+                        await app.refreshDisplacementAnalysis({ suppressBusy: true });
+                        return app.renderer.displacementData;
+                    }"""
+                )
+                assert first_vectors["reference_mode"] == "phonon"
+                assert first_vectors["reference_frame"] is None
                 page.evaluate(
                     """async () => {
-                        await window.__V_ASE_APP__.loadFrame(12);
+                        const app = window.__V_ASE_APP__;
+                        await app.loadFrame(12);
+                        await app.refreshDisplacementAnalysis({ suppressBusy: true });
                     }"""
                 )
                 opposite = np.asarray(
                     page.evaluate("window.__V_ASE_APP__.state.atoms.positions")
                 )
+                opposite_vectors = page.evaluate(
+                    "window.__V_ASE_APP__.renderer.displacementData"
+                )
                 assert not np.allclose(first, opposite)
+                np.testing.assert_allclose(
+                    first_vectors["vectors"],
+                    -np.asarray(opposite_vectors["vectors"]),
+                    atol=1e-6,
+                )
                 return first, opposite
 
             l_point = plot_point("L", 3)
@@ -716,6 +762,21 @@ def test_physical_edit_invalidates_loaded_phonon_model_and_undo_restores_it():
         assert session.phonon_model is None
         session.undo()
         assert session.phonon_model is model
+    finally:
+        sessions.pop(session.session_id, None)
+
+
+def test_phonon_use_revalidates_models_after_any_new_main_mutation_path():
+    model = _synthetic_phonopy_model()
+    atoms = phonopy_to_ase(model.phonon.unitcell)
+    session = _editor_session("phonon-model-runtime-validation", atoms)
+    session.phonon_model = model
+    session.working_atoms.positions[0, 0] += 0.02
+    try:
+        with pytest.raises(HTTPException, match="no longer matches") as error:
+            asyncio.run(phonon_modes(session.session_id, {"qpoint": [0, 0, 0]}))
+        assert error.value.status_code == 409
+        assert session.phonon_model is None
     finally:
         sessions.pop(session.session_id, None)
 

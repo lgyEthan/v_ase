@@ -8,6 +8,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable
+from urllib.parse import unquote
 
 import numpy as np
 from ase import Atoms
@@ -16,6 +17,7 @@ from ase.io import read
 from ase.io.extxyz import key_val_str_to_dict
 from ase.io.formats import string2index
 from ase.io.lammpsdata import read_lammps_data
+from ase.io.trajectory import Trajectory
 
 ATOM_LABEL_ARRAY = "v_ase_atom_type"
 # Compatibility name for code written against v_ase <= 0.0.77.
@@ -51,6 +53,17 @@ INPUT_FORMAT_ALIASES = {
     "html": "vase-html-project",
     "vase-html": "vase-html-project",
     "vase-html-project": "vase-html-project",
+    "chg": "vasp-density",
+    "chgcar": "vasp-density",
+    "parchg": "vasp-partial-density",
+    "locpot": "vasp-potential",
+    "elfcar": "vasp-elf",
+    "cube": "cube",
+    "cub": "cube",
+    "gaussian-cube": "cube",
+    "xsf": "xsf",
+    "qe-cube": "cube",
+    "qe-xsf": "xsf",
 }
 
 
@@ -60,6 +73,44 @@ def resolve_input_format(fmt: str | None) -> str | None:
         return None
     key = fmt.strip().lower()
     return INPUT_FORMAT_ALIASES.get(key, fmt)
+
+
+def infer_input_format(
+    filename: str | Path | None,
+    explicit_format: str | None = None,
+) -> str | None:
+    """Resolve one reader hint from an explicit choice or the original filename.
+
+    Browser uploads are stored under temporary filenames, so every entry point
+    must inspect the user-visible filename before reading the temporary file.
+    """
+    if explicit_format and explicit_format.strip().lower() != "auto":
+        return resolve_input_format(explicit_format)
+    if filename is None:
+        return None
+
+    basename = Path(filename).name.casefold()
+
+    def matches_stem(stem: str) -> bool:
+        return basename == stem or basename.startswith(
+            (f"{stem}.", f"{stem}_", f"{stem}-")
+        )
+
+    if matches_stem("poscar") or matches_stem("contcar"):
+        return "vasp"
+    if matches_stem("xdatcar"):
+        return "vasp-xdatcar"
+    if basename == "vasprun.xml":
+        return "vasp-xml"
+    if matches_stem("chgcar") or matches_stem("chg"):
+        return "vasp-density"
+    if matches_stem("locpot"):
+        return "vasp-potential"
+    if matches_stem("parchg"):
+        return "vasp-partial-density"
+    if matches_stem("elfcar"):
+        return "vasp-elf"
+    return None
 
 
 @dataclass
@@ -83,6 +134,7 @@ class FastLammpsDumpTrajectory:
     charge_column: int | None = None
     force_columns: tuple[int, int, int] | None = None
     mass_column: int | None = None
+    scalar_columns: dict[str, int] = field(default_factory=dict)
     _id_order: np.ndarray | None = field(default=None, repr=False)
     _ids_are_sorted: bool = True
 
@@ -137,15 +189,88 @@ class FastLammpsDumpTrajectory:
     def read_positions(self, frame_index: int) -> np.ndarray:
         return self._positions_from_table(self._read_numeric_table(frame_index), frame_index)
 
+    def read_scalar_values(self, frame_index: int, field_id: str) -> np.ndarray | None:
+        """Read one colorable scalar without constructing an ``Atoms`` object."""
+
+        table = self._read_numeric_table(frame_index)
+        if field_id in {"position:x", "position:y", "position:z"}:
+            component = {"position:x": 0, "position:y": 1, "position:z": 2}[field_id]
+            return self._positions_from_table(table, frame_index)[:, component]
+        if field_id == "force:norm" and self.force_columns is not None:
+            return np.linalg.norm(table[:, self.force_columns], axis=1).astype(np.float32)
+
+        parts = str(field_id).split("::")
+        if len(parts) < 3 or parts[0] != "array":
+            return None
+        name = unquote(parts[1])
+        reduction = parts[2]
+        component = int(parts[3]) if len(parts) > 3 and parts[3].lstrip("-").isdigit() else None
+        if name == "initial_charges" and self.charge_column is not None:
+            values = table[:, self.charge_column]
+        elif name == "forces" and self.force_columns is not None:
+            values = table[:, self.force_columns]
+        elif name == "lammps_id" and self.id_column is not None:
+            values = table[:, self.id_column]
+        elif name == "lammps_type" and self.type_column is not None:
+            values = table[:, self.type_column]
+        elif name == "mol" and self.mol_column is not None:
+            values = table[:, self.mol_column]
+        elif name == "masses" and self.mass_column is not None:
+            values = table[:, self.mass_column]
+        elif name in self.scalar_columns:
+            values = table[:, self.scalar_columns[name]]
+        else:
+            return None
+
+        flattened = np.asarray(values, dtype=np.float32).reshape(self.natoms, -1)
+        if reduction == "scalar" and flattened.shape[1] == 1:
+            return flattened[:, 0]
+        if reduction == "norm":
+            return np.linalg.norm(flattened, axis=1).astype(np.float32)
+        if reduction == "component" and component is not None and 0 <= component < flattened.shape[1]:
+            return flattened[:, component]
+        return None
+
+    def read_force_vectors(self, frame_index: int) -> np.ndarray | None:
+        """Read Cartesian forces without constructing an ``Atoms`` object."""
+
+        if self.force_columns is None:
+            return None
+        table = self._read_numeric_table(frame_index)
+        return table[:, self.force_columns].astype(np.float32, copy=True)
+
     def read_atoms(self, frame_index: int) -> Atoms:
         if self.template_atoms is None:
             raise ValueError("Fast LAMMPS trajectory has no template Atoms object.")
+        table = self._read_numeric_table(frame_index)
         atoms = self.template_atoms.copy()
-        atoms.set_positions(self.read_positions(frame_index), apply_constraint=False)
+        atoms.set_positions(
+            self._positions_from_table(table, frame_index),
+            apply_constraint=False,
+        )
         atoms.set_cell(self.cells[frame_index])
         atoms.set_pbc(self.pbc[frame_index])
         atoms.info["timestep"] = int(self.timesteps[frame_index])
+        self._apply_frame_arrays(atoms, table)
         return atoms
+
+    def _apply_frame_arrays(self, atoms: Atoms, table: np.ndarray) -> None:
+        """Update every per-atom numeric field from one dump frame."""
+
+        if self.id_column is not None:
+            atoms.set_array("lammps_id", table[:, self.id_column].astype(np.int64))
+        if self.type_column is not None:
+            atoms.set_array("lammps_type", table[:, self.type_column].astype(np.int32))
+        if self.mol_column is not None:
+            atoms.set_array("mol", table[:, self.mol_column].astype(np.int64))
+        if self.charge_column is not None:
+            atoms.set_initial_charges(table[:, self.charge_column].astype(np.float32))
+        if self.force_columns is not None:
+            atoms.set_array("forces", table[:, self.force_columns].astype(np.float32))
+        if self.mass_column is not None:
+            atoms.set_masses(table[:, self.mass_column].astype(np.float32))
+        for name, column in self.scalar_columns.items():
+            atoms.set_array(name, table[:, column].astype(np.float32))
 
     def build_template(self, frame_index: int = 0) -> Atoms:
         table = self._read_numeric_table(frame_index)
@@ -165,16 +290,7 @@ class FastLammpsDumpTrajectory:
         atoms = Atoms(symbols=symbols, positions=positions, cell=self.cells[frame_index], pbc=self.pbc[frame_index])
         atoms.info["timestep"] = int(self.timesteps[frame_index])
         set_atom_labels(atoms, labels)
-        if self.id_column is not None:
-            atoms.set_array("lammps_id", table[:, self.id_column].astype(np.int64))
-        if self.mol_column is not None:
-            atoms.set_array("mol", table[:, self.mol_column].astype(np.int64))
-        if self.charge_column is not None:
-            atoms.set_initial_charges(table[:, self.charge_column].astype(float))
-        if self.force_columns is not None:
-            atoms.set_array("forces", table[:, self.force_columns].astype(float))
-        if self.mass_column is not None:
-            atoms.set_masses(table[:, self.mass_column].astype(float))
+        self._apply_frame_arrays(atoms, table)
         self.template_atoms = atoms.copy()
         return atoms
 
@@ -184,6 +300,243 @@ class FastLammpsDumpResult:
     atoms: Atoms
     trajectory: FastLammpsDumpTrajectory
     initial_frame: int = 0
+
+
+@dataclass
+class IndexedTrajectoryResult:
+    """One immediately available frame plus an on-demand trajectory source."""
+
+    atoms: Atoms
+    trajectory: object
+    initial_frame: int = 0
+
+
+def _selected_trajectory_indices(
+    index: str | int | slice | None,
+    frame_count: int,
+) -> list[int]:
+    parsed = string2index(":") if index is None else string2index(index) if isinstance(index, str) else index
+    available = range(frame_count)
+    if isinstance(parsed, slice):
+        return list(available[parsed])
+    if isinstance(parsed, int):
+        try:
+            return [available[parsed]]
+        except IndexError as exc:
+            raise ValueError(f"Frame index {parsed} is out of range") from exc
+    return list(available)
+
+
+def _labels_for_species_blocks(species: list[str], counts: list[int]) -> list[str]:
+    totals = Counter(species)
+    occurrences: Counter[str] = Counter()
+    labels: list[str] = []
+    for symbol, count in zip(species, counts):
+        occurrences[symbol] += 1
+        label = f"{symbol}_{occurrences[symbol]}" if totals[symbol] > 1 else symbol
+        labels.extend([label] * count)
+    return labels
+
+
+@dataclass
+class IndexedXdatcarTrajectory:
+    """Byte-offset XDATCAR reader that parses only the requested frame."""
+
+    path: str
+    natoms: int
+    symbols: list[str]
+    labels: list[str]
+    coordinate_offsets: list[int]
+    coordinate_end_offsets: list[int]
+    cells: np.ndarray
+    pbc: np.ndarray
+    template_atoms: Atoms | None = None
+
+    @property
+    def frame_count(self) -> int:
+        return len(self.coordinate_offsets)
+
+    def __len__(self) -> int:
+        return self.frame_count
+
+    def read_positions(self, frame_index: int) -> np.ndarray:
+        if frame_index < 0 or frame_index >= self.frame_count:
+            raise IndexError(f"Frame index {frame_index} is out of range")
+        start = self.coordinate_offsets[frame_index]
+        end = self.coordinate_end_offsets[frame_index]
+        with open(self.path, "rb", buffering=1024 * 1024) as handle:
+            handle.seek(start)
+            block = handle.read(end - start)
+        scaled = np.fromstring(block, sep=" ", dtype=np.float64)
+        expected = self.natoms * 3
+        if scaled.size != expected:
+            raise ValueError(
+                f"XDATCAR frame {frame_index} contains {scaled.size} coordinate values; "
+                f"expected {expected}."
+            )
+        return scaled.reshape(self.natoms, 3) @ self.cells[frame_index]
+
+    def read_atoms(self, frame_index: int) -> Atoms:
+        atoms = Atoms(
+            symbols=self.symbols,
+            positions=self.read_positions(frame_index),
+            cell=self.cells[frame_index],
+            pbc=self.pbc[frame_index],
+        )
+        set_atom_labels(atoms, self.labels)
+        atoms.info["configuration"] = int(frame_index + 1)
+        return atoms
+
+
+@dataclass
+class IndexedAseTrajectory:
+    """Random-access wrapper around ASE's native ``.traj`` container."""
+
+    path: str
+    source_indices: list[int]
+    natoms: int
+    template_atoms: Atoms
+    # Unknown cell evolution deliberately disables eager trajectory caches.
+    cells: np.ndarray = field(default_factory=lambda: np.empty((0, 3, 3), dtype=float))
+    pbc: np.ndarray = field(default_factory=lambda: np.empty((0, 3), dtype=bool))
+
+    @property
+    def frame_count(self) -> int:
+        return len(self.source_indices)
+
+    def __len__(self) -> int:
+        return self.frame_count
+
+    def read_atoms(self, frame_index: int) -> Atoms:
+        if frame_index < 0 or frame_index >= self.frame_count:
+            raise IndexError(f"Frame index {frame_index} is out of range")
+        with Trajectory(self.path, mode="r") as trajectory:
+            return trajectory[self.source_indices[frame_index]]
+
+    def read_positions(self, frame_index: int) -> np.ndarray:
+        return np.asarray(self.read_atoms(frame_index).positions, dtype=np.float32)
+
+
+def index_vasp_xdatcar(
+    path: str | Path,
+    index: str | int | slice | None = ":",
+) -> IndexedXdatcarTrajectory:
+    """Index XDATCAR frames without parsing every coordinate table."""
+
+    source = Path(path)
+    coordinate_offsets: list[int] = []
+    coordinate_end_offsets: list[int] = []
+    cells: list[np.ndarray] = []
+    frame_symbols: list[str] | None = None
+    frame_labels: list[str] | None = None
+    natoms: int | None = None
+    current_cell: np.ndarray | None = None
+
+    with source.open("rb") as handle:
+        while True:
+            line = handle.readline()
+            if not line:
+                break
+            if b"Direct configuration=" not in line:
+                scale_line = handle.readline()
+                if not scale_line:
+                    break
+                try:
+                    scale_values = scale_line.split()
+                    if len(scale_values) != 1:
+                        raise ValueError(
+                            "XDATCAR vector scaling requires the compatible reader."
+                        )
+                    scale = float(scale_values[0])
+                    if scale <= 0:
+                        raise ValueError(
+                            "XDATCAR non-positive scaling requires the compatible reader."
+                        )
+                    cell = np.asarray(
+                        [[float(value) for value in handle.readline().split()[:3]] for _ in range(3)],
+                        dtype=float,
+                    ) * scale
+                    species = handle.readline().decode("utf-8", errors="replace").split()
+                    counts = [int(value) for value in handle.readline().split()]
+                except (TypeError, ValueError) as exc:
+                    raise ValueError("XDATCAR header is incomplete or invalid.") from exc
+                if cell.shape != (3, 3) or not species or len(species) != len(counts):
+                    raise ValueError("XDATCAR species, counts, or cell header is invalid.")
+                if any(symbol not in atomic_numbers for symbol in species):
+                    raise ValueError("XDATCAR contains an unsupported chemical symbol.")
+                expanded = [symbol for symbol, count in zip(species, counts) for _ in range(count)]
+                labels = _labels_for_species_blocks(species, counts)
+                if frame_symbols is None:
+                    frame_symbols = expanded
+                    frame_labels = labels
+                    natoms = len(expanded)
+                elif expanded != frame_symbols or labels != frame_labels:
+                    raise ValueError(
+                        "XDATCAR atom identities change between frames; use the compatible reader."
+                    )
+                current_cell = cell
+                configuration_line = handle.readline()
+                if b"Direct configuration=" not in configuration_line:
+                    raise ValueError("XDATCAR frame is missing its Direct configuration marker.")
+            elif natoms is None or current_cell is None:
+                raise ValueError("XDATCAR starts with coordinates before a structure header.")
+
+            start = handle.tell()
+            for _ in range(int(natoms or 0)):
+                if not handle.readline():
+                    raise ValueError("XDATCAR coordinate block ended before all atoms were read.")
+            coordinate_offsets.append(start)
+            coordinate_end_offsets.append(handle.tell())
+            cells.append(np.asarray(current_cell, dtype=float).copy())
+
+    if natoms is None or frame_symbols is None or frame_labels is None or not coordinate_offsets:
+        raise ValueError("No frames found in XDATCAR.")
+    selected = _selected_trajectory_indices(index, len(coordinate_offsets))
+    if not selected:
+        raise ValueError("The requested XDATCAR frame selection is empty.")
+    trajectory = IndexedXdatcarTrajectory(
+        path=str(source),
+        natoms=natoms,
+        symbols=frame_symbols,
+        labels=frame_labels,
+        coordinate_offsets=[coordinate_offsets[i] for i in selected],
+        coordinate_end_offsets=[coordinate_end_offsets[i] for i in selected],
+        cells=np.asarray([cells[i] for i in selected], dtype=float),
+        pbc=np.ones((len(selected), 3), dtype=bool),
+    )
+    trajectory.template_atoms = trajectory.read_atoms(0)
+    return trajectory
+
+
+def read_indexed_trajectory(
+    path: str | Path,
+    index: str | int | slice | None = ":",
+    fmt: str | None = None,
+) -> IndexedTrajectoryResult | None:
+    """Return an on-demand source for formats with reliable random access."""
+
+    source = Path(path)
+    resolved = infer_input_format(source, fmt)
+    if resolved == "vasp-xdatcar":
+        trajectory = index_vasp_xdatcar(source, index)
+        return IndexedTrajectoryResult(
+            atoms=trajectory.template_atoms.copy(),
+            trajectory=trajectory,
+        )
+    if resolved == "traj" or (fmt is None and source.suffix.lower() == ".traj"):
+        with Trajectory(str(source), mode="r") as reader:
+            selected = _selected_trajectory_indices(index, len(reader))
+            if not selected:
+                raise ValueError("The requested ASE trajectory frame selection is empty.")
+            template = reader[selected[0]]
+        trajectory = IndexedAseTrajectory(
+            path=str(source),
+            source_indices=selected,
+            natoms=len(template),
+            template_atoms=template.copy(),
+        )
+        return IndexedTrajectoryResult(atoms=template, trajectory=trajectory)
+    return None
 
 
 def _integer_type_suffix(label: object) -> str | None:
@@ -272,11 +625,21 @@ def atom_labels(atoms: Atoms) -> list[str]:
 def set_atom_labels(atoms: Atoms, labels: Iterable[object]) -> None:
     """Store user-facing labels without changing ASE chemical symbols."""
     normalized = [normalize_atom_type_label(label) for label in labels]
-    atoms.set_array(ATOM_LABEL_ARRAY, np.asarray(normalized, dtype="U64"))
+    # ASE updates an existing array in place and therefore preserves its old
+    # fixed-width Unicode dtype. Recreate the array so longer renamed labels
+    # are never silently truncated.
+    atoms.set_array(ATOM_LABEL_ARRAY, None)
+    atoms.set_array(ATOM_LABEL_ARRAY, np.asarray(normalized, dtype=str))
 
 
 def _vasp_species_block_labels(path: Path, atoms: Atoms) -> list[str] | None:
-    """Preserve repeated POSCAR species blocks as distinct display labels."""
+    """Preserve repeated POSCAR species blocks as distinct display labels.
+
+    ASE remains authoritative for the physical structure.  Labels are applied
+    only after the explicit VASP 5/6 species header expands to the exact ASE
+    chemical-symbol sequence, so no coordinates, elements, or constraints are
+    inferred or reordered here.
+    """
     try:
         with path.open("r", encoding="utf-8", errors="replace") as handle:
             header = [handle.readline() for _ in range(7)]
@@ -325,7 +688,7 @@ def _vasp_species_block_labels(path: Path, atoms: Atoms) -> list[str] | None:
     for symbol, count in zip(species, counts):
         block_occurrences[symbol] += 1
         label = (
-            f"{symbol}{block_occurrences[symbol]}"
+            f"{symbol}_{block_occurrences[symbol]}"
             if block_totals[symbol] > 1
             else symbol
         )
@@ -545,6 +908,16 @@ def index_lammps_dump(path: str | Path) -> FastLammpsDumpTrajectory:
     force_columns = None
     if all(name in column_map for name in ("fx", "fy", "fz")):
         force_columns = (column_map["fx"], column_map["fy"], column_map["fz"])
+    known_columns = {
+        "id", "type", "mol", "q", "mass",
+        "x", "y", "z", "xu", "yu", "zu", "xs", "ys", "zs",
+        "xsu", "ysu", "zsu", "fx", "fy", "fz",
+    }
+    scalar_columns = {
+        name: column
+        for name, column in column_map.items()
+        if name not in known_columns
+    }
     return FastLammpsDumpTrajectory(
         path=str(path),
         natoms=natoms,
@@ -562,6 +935,7 @@ def index_lammps_dump(path: str | Path) -> FastLammpsDumpTrajectory:
         charge_column=column_map.get("q"),
         force_columns=force_columns,
         mass_column=column_map.get("mass"),
+        scalar_columns=scalar_columns,
     )
 
 
@@ -922,7 +1296,7 @@ def read_structure_frames(
 ) -> list[Atoms]:
     """Read one or more frames through the canonical v_ase input pipeline."""
     source = Path(path)
-    resolved_format = resolve_input_format(fmt)
+    resolved_format = infer_input_format(source, fmt)
     suffix = source.suffix.lower()
 
     if resolved_format == "lammps-dump-text" or (

@@ -188,6 +188,13 @@ determines the real-space displacement directions and phases. Animating that
 eigenvector does not alter the harmonic dispersion. Recalculate force
 constants before claiming a changed structure has a changed band structure.
 
+Generated finite-displacement and mode frames preserve their exact unperturbed
+supercell positions. Select **Analysis > Displacement > Phonon equilibrium**
+or set `displacementReferenceMode:"phonon"` to draw each arrow from that
+equilibrium site to the current harmonic position. Do not use an opposite-phase
+trajectory frame as the reference: that doubles some vectors and makes them
+vanish at the chosen reference phase.
+
 Never infer reduced q coordinates from a point label alone. Select an exact
 q-point from the returned segment. At a degeneracy, explicitly choose the
 desired 1-based mode after `inspect-phonon-modes` recalculates that q-point.

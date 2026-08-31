@@ -14,8 +14,8 @@ import numpy as np
 import pytest
 from ase import Atoms
 from ase.build import molecule
-from ase.constraints import FixAtoms, FixedLine, FixedPlane, FixScaled
-from ase.io import write
+from ase.constraints import FixAtoms, FixedLine, FixedPlane, FixScaled, Hookean
+from ase.io import read, write
 from PIL import Image
 from playwright._impl._errors import Error as PlaywrightError
 from playwright.sync_api import sync_playwright
@@ -24,6 +24,7 @@ from examples.readme_scenes import make_ai_pyridinic_graphene_scene
 from v_ase.io import set_atom_labels
 from v_ase.session import sessions
 from v_ase.viewer import find_free_port, view
+from v_ase.volumetric import VolumetricData
 
 
 def _expand_inspector(page):
@@ -55,6 +56,59 @@ def _select_structure_section(page, section):
         }""",
         arg=section,
     )
+
+
+def test_help_dialog_stays_inside_viewport_and_scrolls_to_every_section():
+    port = find_free_port()
+    editor = view(
+        Atoms("H", positions=[[0.0, 0.0, 0.0]]),
+        notebook=True,
+        block=False,
+        port=port,
+        viz_only=True,
+        close_on_disconnect=False,
+    )
+    try:
+        with sync_playwright() as playwright:
+            try:
+                browser = playwright.chromium.launch(headless=True)
+            except PlaywrightError as exc:
+                pytest.skip(f"Playwright Chromium is not installed: {exc}")
+            page = browser.new_page(viewport={"width": 980, "height": 620})
+            page.goto(f"http://127.0.0.1:{port}/?session_id={editor.session_id}")
+            page.wait_for_function("window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 1")
+            page.click("#btn-shortcuts")
+            metrics = page.evaluate("""() => {
+                const modal = document.querySelector('#modal-container .modal');
+                const content = document.getElementById('modal-content');
+                const actions = document.querySelector('#modal-container .modal-actions');
+                const modalRect = modal.getBoundingClientRect();
+                const actionsRect = actions.getBoundingClientRect();
+                return {
+                    modalTop: modalRect.top,
+                    modalBottom: modalRect.bottom,
+                    actionsBottom: actionsRect.bottom,
+                    viewportHeight: window.innerHeight,
+                    clientHeight: content.clientHeight,
+                    scrollHeight: content.scrollHeight,
+                    overflowY: getComputedStyle(content).overflowY,
+                    helpClass: modal.classList.contains('help-modal'),
+                };
+            }""")
+            assert metrics["helpClass"] is True
+            assert metrics["modalTop"] >= 0
+            assert metrics["modalBottom"] <= metrics["viewportHeight"]
+            assert metrics["actionsBottom"] <= metrics["viewportHeight"]
+            assert metrics["scrollHeight"] > metrics["clientHeight"]
+            assert metrics["overflowY"] == "auto"
+            page.locator("#modal-content").hover()
+            page.mouse.wheel(0, 1200)
+            page.wait_for_function("document.getElementById('modal-content').scrollTop > 100")
+            assert page.locator("#modal-content .help-section-title").last.is_visible()
+            page.click("#modal-close")
+            browser.close()
+    finally:
+        editor.close()
 
 
 def test_exact_selection_rotation_panel_commits_and_undoes_backend_coordinates():
@@ -151,6 +205,1399 @@ def test_exact_selection_rotation_panel_commits_and_undoes_backend_coordinates()
                     && Math.abs(positions[2][1] - 5) < 1e-6;
             }""")
             browser.close()
+    finally:
+        editor.close()
+
+
+def test_rdf_drawer_controls_and_selected_active_bond_pairs():
+    atoms = Atoms(
+        "COCOC",
+        positions=[
+            [0.0, 0.0, 0.0],
+            [1.2, 0.0, 0.0],
+            [0.0, 1.2, 0.0],
+            [1.2, 1.2, 0.0],
+            [0.0, 2.4, 0.0],
+        ],
+        pbc=False,
+    )
+    set_atom_labels(atoms, ["C_site", "O_site", "C_site", "O_site", "C_site"])
+    port = find_free_port()
+    editor = view(
+        atoms,
+        notebook=True,
+        block=False,
+        port=port,
+        viz_only=False,
+        close_on_disconnect=False,
+    )
+    try:
+        with sync_playwright() as playwright:
+            try:
+                browser = playwright.chromium.launch(headless=True)
+            except PlaywrightError as exc:
+                pytest.skip(f"Playwright Chromium is not installed: {exc}")
+            page = browser.new_page(viewport={"width": 1280, "height": 800})
+            try:
+                page.goto(f"http://127.0.0.1:{port}/?session_id={editor.session_id}")
+                page.wait_for_function(
+                    "window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 5"
+                )
+                _expand_inspector(page)
+                page.click('[data-inspector-group="analysis"]')
+                assert page.locator("#structure-section-picker").is_visible()
+                assert page.locator("#structure-section-select option").all_text_contents() == [
+                    "Displacement",
+                    "Forces",
+                    "Volumetric Data",
+                    "Distribution Functions",
+                    "Rigid Translation",
+                ]
+                page.select_option("#structure-section-select", "rdf")
+                page.click('[data-inspector-group="export"]')
+                assert page.locator("#structure-section-select option").all_text_contents() == [
+                    "Files & Media",
+                    "v_ase Project",
+                    "Visual Settings",
+                    "Format Guide",
+                ]
+                page.click('[data-inspector-group="structure"]')
+                page.select_option("#structure-section-select", "appearance")
+                label_font, apply_font = page.evaluate("""() => [
+                    getComputedStyle(document.getElementById('selected-atom-label')).fontSize,
+                    getComputedStyle(document.getElementById('btn-apply-selected-label')).fontSize
+                ]""")
+                assert apply_font == label_font
+                page.select_option("#structure-section-select", "scientific-tools")
+                page.select_option("#calc-cutoff-mode", "absolute")
+                page.fill("#calc-cutoff-distance", "1.35")
+                page.locator("#calc-cutoff-distance").dispatch_event("change")
+                page.wait_for_function("""() => {
+                    const details = window.__ASE_APP__.state.atoms.metadata.calculator_details;
+                    return details.cutoff_mode === 'absolute'
+                        && Math.abs(details.cutoff_distance - 1.35) < 1e-9;
+                }""")
+                assert page.locator("#calc-cutoff-distance-row").is_visible()
+                assert not page.locator("#calc-cutoff-scale-row").is_visible()
+                initial = page.evaluate(
+                    """async () => {
+                        const app = window.__ASE_APP__;
+                        const manualPairs = [[0, 1], [0, 2], [2, 3], [2, 4]];
+                        app.state.display.showBonds = true;
+                        app.state.display.bondMode = 'manual';
+                        app.state.display.manualBondPairs = manualPairs;
+                        app.renderer.setDisplayOptions({
+                            showBonds: true,
+                            bondMode: 'manual',
+                            manualBondPairs: manualPairs
+                        });
+                        app.clearAtomSelection();
+                        app.addSelectionReference(0);
+                        app.addSelectionReference(1);
+                        app.updateSelectionVisuals();
+                        document.getElementById('rdf-pair-mode').value = 'selected';
+                        document.getElementById('rdf-cutoff').value = '3.0';
+                        document.getElementById('rdf-bins').value = '32';
+                        await app.calculateRdf();
+                        return {
+                            pairMode: app.state.rdfResult.pair_mode,
+                            partial: Object.keys(app.state.rdfResult.partial),
+                            selectedPairs: app.selectedActiveRdfPairs()
+                        };
+                    }"""
+                )
+                assert initial == {
+                    "pairMode": "selected",
+                    "partial": ["C_site|O_site"],
+                    "selectedPairs": [["C_site", "O_site"]],
+                }
+                page.wait_for_selector("#rdf-plot .plotly", state="attached")
+                drawer = page.locator("#analysis-drawer")
+                assert drawer.evaluate("element => getComputedStyle(element).pointerEvents") == "auto"
+                for button_id in ("btn-analysis-export", "btn-analysis-drawer-close"):
+                    assert page.evaluate(
+                        """buttonId => {
+                            const button = document.getElementById(buttonId);
+                            const rect = button.getBoundingClientRect();
+                            return document.elementFromPoint(
+                                rect.left + rect.width / 2,
+                                rect.top + rect.height / 2
+                            )?.closest('button')?.id || '';
+                        }""",
+                        button_id,
+                    ) == button_id
+
+                with page.expect_download(timeout=15_000) as download_info:
+                    page.click("#btn-analysis-export")
+                assert download_info.value.suggested_filename == "v_ase_rdf.csv"
+                assert Path(download_info.value.path()).read_text(
+                    encoding="utf-8"
+                ).splitlines()[0] == (
+                    "r_angstrom,total_pair_probability_per_angstrom,C_site|O_site"
+                )
+
+                page.click("#btn-analysis-drawer-close")
+                page.wait_for_function(
+                    "document.getElementById('analysis-drawer').classList.contains('hidden')"
+                )
+                assert page.evaluate("window.__ASE_APP__.state.activeAnalysisPlot") is None
+                closed_token = page.evaluate("window.__ASE_APP__.state.rdfRequestToken")
+                page.evaluate(
+                    """() => {
+                        const app = window.__ASE_APP__;
+                        app.clearAtomSelection();
+                        app.addSelectionReference(0);
+                        app.addSelectionReference(2);
+                        app.updateSelectionVisuals();
+                    }"""
+                )
+                page.wait_for_timeout(250)
+                assert page.evaluate("window.__ASE_APP__.state.rdfRequestToken") == closed_token
+                assert drawer.evaluate("element => element.classList.contains('hidden')")
+
+                reopened = page.evaluate(
+                    """async () => {
+                        const app = window.__ASE_APP__;
+                        await app.calculateRdf();
+                        return Object.keys(app.state.rdfResult.partial);
+                    }"""
+                )
+                assert reopened == ["C_site|C_site"]
+                page.evaluate(
+                    """() => {
+                        const app = window.__ASE_APP__;
+                        app.clearAtomSelection();
+                        app.addSelectionReference(0);
+                        app.addSelectionReference(1);
+                        app.updateSelectionVisuals();
+                    }"""
+                )
+                page.wait_for_function(
+                    """() => {
+                        const result = window.__ASE_APP__.state.rdfResult;
+                        return result?.pair_mode === 'selected'
+                            && JSON.stringify(Object.keys(result.partial))
+                                === JSON.stringify(['C_site|O_site']);
+                    }"""
+                )
+                token_before = page.evaluate("window.__ASE_APP__.state.rdfRequestToken")
+                page.evaluate(
+                    """() => {
+                        const app = window.__ASE_APP__;
+                        app.clearAtomSelection();
+                        app.addSelectionReference(2);
+                        app.addSelectionReference(3);
+                        app.updateSelectionVisuals();
+                    }"""
+                )
+                page.wait_for_timeout(350)
+                assert page.evaluate("window.__ASE_APP__.state.rdfRequestToken") == token_before
+                assert page.evaluate(
+                    "Object.keys(window.__ASE_APP__.state.rdfResult.partial)"
+                ) == ["C_site|O_site"]
+
+                page.evaluate(
+                    """() => {
+                        const app = window.__ASE_APP__;
+                        app.clearAtomSelection();
+                        app.addSelectionReference(1);
+                        app.addSelectionReference(3);
+                        app.updateSelectionVisuals();
+                    }"""
+                )
+                page.wait_for_function(
+                    """() => {
+                        const app = window.__ASE_APP__;
+                        return app.state.rdfResult?.pair_mode === 'selected'
+                            && Object.keys(app.state.rdfResult.partial).length === 0
+                            && document.getElementById('rdf-status').dataset.state === 'warning';
+                    }"""
+                )
+                bounded_cache = page.evaluate(
+                    """async () => {
+                        const app = window.__ASE_APP__;
+                        const originalFrameCount = app.loadedFrameCount;
+                        const originalFetch = app.api.fetchRdf;
+                        const originalCurrentFrame = app.state.atoms.metadata.current_frame;
+                        let requests = 0;
+                        app.loadedFrameCount = () => 1000;
+                        app.api.fetchRdf = async options => {
+                            requests += 1;
+                            return {
+                                frame_index: options.frame_index,
+                                bins: options.bins,
+                                cutoff: options.cutoff,
+                                title: 'Pair-distribution function',
+                                analysis_kind: 'pair-distribution',
+                                pair_mode: options.pair_mode,
+                                warnings: [],
+                                r: [0.5],
+                                total: [0],
+                                partial: {}
+                            };
+                        };
+                        app.clearRdfFrameCache();
+                        const options = {
+                            cutoff: 3,
+                            bins: 5000,
+                            pair_mode: 'all',
+                            active_pairs: []
+                        };
+                        try {
+                            await app.precomputeRdfTrajectory(options, {showBusy: false});
+                            const firstWindow = [...app.state.rdfFrameCache.keys()]
+                                .sort((a, b) => a - b);
+                            app.state.atoms.metadata.current_frame = 500;
+                            await app.precomputeRdfTrajectory(options, {showBusy: false});
+                            return {
+                                requests,
+                                size: app.state.rdfFrameCache.size,
+                                complete: app.state.rdfFrameCacheComplete,
+                                firstWindow,
+                                indices: [...app.state.rdfFrameCache.keys()].sort((a, b) => a - b)
+                            };
+                        } finally {
+                            app.state.atoms.metadata.current_frame = originalCurrentFrame;
+                            app.loadedFrameCount = originalFrameCount;
+                            app.api.fetchRdf = originalFetch;
+                            app.clearRdfFrameCache();
+                        }
+                    }"""
+                )
+                assert bounded_cache["requests"] == 82
+                assert bounded_cache["size"] == 41
+                assert bounded_cache["complete"] is False
+                assert bounded_cache["firstWindow"] == [
+                    *range(33),
+                    *range(992, 1000),
+                ]
+                assert bounded_cache["indices"] == list(range(492, 533))
+            finally:
+                browser.close()
+    finally:
+        editor.close()
+
+
+def test_active_trajectory_frame_updates_rdf_volume_colors_and_displacements():
+    first = Atoms(
+        "H3",
+        positions=[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [3.0, 0.0, 0.0]],
+        cell=[4.0, 4.0, 4.0],
+        pbc=False,
+    )
+    second = first.copy()
+    second.positions[:] = [[0.0, 0.0, 0.0], [1.8, 0.0, 0.0], [3.8, 0.0, 0.0]]
+    third = first.copy()
+    third.positions[:] = [[0.0, 0.0, 0.0], [0.5, 0.0, 0.0], [2.5, 0.0, 0.0]]
+    set_atom_labels(first, ["H_left", "H_middle", "H_right"])
+    set_atom_labels(second, ["H_left", "H_middle", "H_right"])
+    set_atom_labels(third, ["H_left", "H_middle", "H_right"])
+
+    fractional = np.indices((12, 12, 12), dtype=float) / 12.0
+    first_values = np.exp(-70.0 * np.sum(
+        (fractional - np.array([0.3, 0.5, 0.5])[:, None, None, None]) ** 2,
+        axis=0,
+    )).astype(np.float32)
+    second_values = np.exp(-70.0 * np.sum(
+        (fractional - np.array([0.7, 0.5, 0.5])[:, None, None, None]) ** 2,
+        axis=0,
+    )).astype(np.float32)
+    first_field = VolumetricData(
+        name="frame 1 density",
+        values=first_values,
+        cell=first.cell.array,
+        pbc=first.pbc,
+        quantity="density",
+        metadata={"trajectory_frame": 0},
+    )
+    second_field = VolumetricData(
+        name="frame 2 density",
+        values=second_values,
+        cell=second.cell.array,
+        pbc=second.pbc,
+        quantity="density",
+        metadata={"trajectory_frame": 1},
+    )
+
+    port = find_free_port()
+    editor = view(
+        [first, second, third],
+        notebook=True,
+        block=False,
+        port=port,
+        viz_only=True,
+        close_on_disconnect=False,
+        volumetric_datasets=[first_field, second_field],
+        initial_design_settings={
+            "display": {
+                "showVolumetric": True,
+                "volumetricDatasetId": first_field.dataset_id,
+                "volumetricLevel": 0.3,
+                "volumetricStepSize": 1,
+                "volumetricSmearingSigma": 0,
+                "volumetricSmoothingIterations": 0,
+            }
+        },
+    )
+    try:
+        with sync_playwright() as playwright:
+            try:
+                browser = playwright.chromium.launch(headless=True)
+            except PlaywrightError as exc:
+                pytest.skip(f"Playwright Chromium is not installed: {exc}")
+            page = browser.new_page(viewport={"width": 1280, "height": 800})
+            page.goto(f"http://127.0.0.1:{port}/?session_id={editor.session_id}")
+            page.wait_for_function(
+                "window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 3"
+            )
+            initial = page.evaluate("""async () => {
+                const app = window.__ASE_APP__;
+                Object.assign(app.state.display, {
+                    atomColorScaleEnabled: true,
+                    atomColorScaleField: 'position:x',
+                    atomColorScaleRangeMode: 'manual',
+                    atomColorScaleMin: 0,
+                    atomColorScaleMax: 4,
+                    atomColorScaleGamma: 1,
+                    atomColorScaleScope: 'all',
+                    showDisplacements: true,
+                    displacementReferenceMode: 'frame',
+                    displacementReferenceFrame: 0,
+                    displacementMic: false
+                });
+                document.getElementById('rdf-cutoff').value = '4.0';
+                document.getElementById('rdf-bins').value = '40';
+                document.getElementById('rdf-pair-mode').value = 'none';
+                await app.updateAtomColorScale({quiet: true, refreshCatalog: true});
+                await app.updateVolumetricSurface({recordHistory: false});
+                await app.calculateRdf();
+                return {
+                    rdf: [...app.state.rdfResult.total],
+                    colors: [...app.renderer.atomColorScaleColors],
+                    volume: app.state.volumetricSurfaceSummary.datasetId,
+                    rdfCacheSize: app.state.rdfFrameCache.size,
+                    rdfCacheComplete: app.state.rdfFrameCacheComplete
+                };
+            }""")
+            assert initial["volume"] == first_field.dataset_id
+            assert initial["rdfCacheSize"] == 3
+            assert initial["rdfCacheComplete"] is True
+
+            page.evaluate("window.__ASE_APP__.startPlayback()")
+            page.wait_for_function("""() => {
+                const app = window.__ASE_APP__;
+                const plot = document.getElementById('rdf-plot');
+                return app.state.atoms.metadata.current_frame !== 0
+                    && app.state.rdfResult?.frame_index === app.state.atoms.metadata.current_frame
+                    && Array.isArray(plot?.data)
+                    && plot.data.length > 0;
+            }""", timeout=20_000)
+            assert page.locator("#rdf-plot .plotly").count() == 1
+            page.evaluate("window.__ASE_APP__.stopPlayback()")
+
+            page.evaluate("window.__ASE_APP__.loadFrame(1)")
+            page.wait_for_function(
+                """expected => {
+                    const app = window.__ASE_APP__;
+                    return app.state.atoms.metadata.current_frame === 1
+                        && app.state.rdfResult?.frame_index === 1
+                        && app.state.volumetricSurfaceSummary?.datasetId === expected
+                        && app.state.displacementStats?.current_frame === 1;
+                }""",
+                arg=second_field.dataset_id,
+                timeout=20_000,
+            )
+            updated = page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                return {
+                    rdf: [...app.state.rdfResult.total],
+                    colors: [...app.renderer.atomColorScaleColors],
+                    volume: app.state.volumetricSurfaceSummary.datasetId,
+                    displacementFrame: app.state.displacementStats.current_frame,
+                    displacementMax: app.state.displacementStats.stats.max,
+                    analysis: app.aiDescribe({includePositions: false}).analysis
+                };
+            }""")
+            assert updated["rdf"] != initial["rdf"]
+            assert updated["colors"] != initial["colors"]
+            assert updated["volume"] == second_field.dataset_id
+            assert updated["displacementFrame"] == 1
+            assert updated["displacementMax"] == pytest.approx(0.8)
+            assert updated["analysis"]["displacement"]["currentFrame"] == 1
+            assert updated["analysis"]["frameSynchronization"] == {
+                "displayedFrame": 1,
+                "rdfFrame": 1,
+                "atomColorScaleFrame": 1,
+                "forceVectorFrame": None,
+                "displacementFrame": 1,
+                "volumetricSurfaceFrame": 1,
+                "volumetricSurfaceDatasetId": second_field.dataset_id,
+            }
+
+            page.evaluate("window.__ASE_APP__.loadFrame(2)")
+            page.wait_for_function("""() => {
+                const app = window.__ASE_APP__;
+                return app.state.atoms.metadata.current_frame === 2
+                    && app.state.rdfResult?.frame_index === 2
+                    && app.state.volumetricSurfaceSummary === null
+                    && app.renderer.volumetricSurfaces.length === 0
+                    && app.state.displacementStats?.current_frame === 2;
+            }""", timeout=20_000)
+            missing = page.evaluate(
+                "window.__ASE_APP__.aiDescribe({includePositions: false}).analysis"
+            )
+            assert missing["frameSynchronization"]["displayedFrame"] == 2
+            assert missing["frameSynchronization"]["rdfFrame"] == 2
+            assert missing["frameSynchronization"]["displacementFrame"] == 2
+            assert missing["frameSynchronization"]["volumetricSurfaceDatasetId"] is None
+            assert missing["volumetricSurface"] is None
+            browser.close()
+    finally:
+        editor.close()
+
+
+def test_pdf_stays_open_for_g_move_and_relaxation_movie_frames():
+    atoms = Atoms(
+        "H3",
+        positions=[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [3.2, 0.0, 0.0]],
+        cell=[8.0, 8.0, 8.0],
+        pbc=False,
+    )
+    set_atom_labels(atoms, ["H_left", "H_middle", "H_right"])
+    port = find_free_port()
+    editor = view(
+        atoms,
+        notebook=True,
+        block=False,
+        port=port,
+        viz_only=False,
+        close_on_disconnect=False,
+    )
+    try:
+        with sync_playwright() as playwright:
+            try:
+                browser = playwright.chromium.launch(headless=True)
+            except PlaywrightError as exc:
+                pytest.skip(f"Playwright Chromium is not installed: {exc}")
+            page = browser.new_page(viewport={"width": 1280, "height": 800})
+            page.goto(f"http://127.0.0.1:{port}/?session_id={editor.session_id}")
+            page.wait_for_function(
+                "window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 3"
+            )
+            initial = page.evaluate("""async () => {
+                const app = window.__ASE_APP__;
+                document.getElementById('rdf-cutoff').value = '5.0';
+                document.getElementById('rdf-bins').value = '80';
+                document.getElementById('rdf-pair-mode').value = 'none';
+                await app.calculateRdf();
+                app.state.selected = new Set([1]);
+                app.updateSelectionVisuals();
+                return [...app.state.rdfResult.total];
+            }""")
+
+            page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                app.enterTransformMode('MOVE');
+                app.transform.setAxis('X', app.renderer.camera);
+                app.transform.buffer = '0.65';
+                app.applyTransformPreview();
+            }""")
+            page.wait_for_function(
+                """initial => {
+                    const app = window.__ASE_APP__;
+                    return app.transform.mode === 'MOVE'
+                        && app.state.rdfResult?.total?.some(
+                            (value, index) => Math.abs(value - initial[index]) > 1e-12
+                        )
+                        && !document.getElementById('analysis-drawer').classList.contains('hidden');
+                }""",
+                arg=initial,
+                timeout=20_000,
+            )
+            page.evaluate("window.__ASE_APP__.commitTransform()")
+            page.wait_for_function(
+                """() => window.__ASE_APP__.transform.mode === 'IDLE'
+                    && window.__ASE_APP__.state.activeAnalysisPlot === 'rdf'
+                    && !document.getElementById('analysis-drawer').classList.contains('hidden')""",
+                timeout=20_000,
+            )
+
+            page.evaluate("""async () => {
+                const app = window.__ASE_APP__;
+                const start = app.currentPositionsFromScene();
+                app.startRelaxTrajectory();
+                app.appendRelaxFrame([
+                    [...start[0]],
+                    [start[1][0] + 0.55, start[1][1], start[1][2]],
+                    [...start[2]]
+                ]);
+                app.state.relaxTrajectory.finished = true;
+                await app.loadRelaxFrame(1);
+            }""")
+            page.wait_for_function(
+                """() => {
+                    const result = window.__ASE_APP__.state.rdfResult;
+                    return result?.display_source === 'relax'
+                        && result?.display_frame_index === 1
+                        && result?.display_frame_count === 2;
+                }""",
+                timeout=20_000,
+            )
+            relaxation = page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                return {
+                    source: app.state.rdfResult?.display_source,
+                    frame: app.state.rdfResult?.display_frame_index,
+                    count: app.state.rdfResult?.display_frame_count,
+                    curve: [...(app.state.rdfResult?.total || [])],
+                    visible: !document.getElementById('analysis-drawer').classList.contains('hidden')
+                };
+            }""")
+            assert relaxation["source"] == "relax"
+            assert relaxation["frame"] == 1
+            assert relaxation["count"] == 2
+            assert relaxation["visible"] is True
+
+            page.evaluate("window.__ASE_APP__.loadRelaxFrame(0)")
+            page.wait_for_function(
+                """curve => {
+                    const result = window.__ASE_APP__.state.rdfResult;
+                    return result?.display_source === 'relax'
+                        && result?.display_frame_index === 0
+                        && result.total.some(
+                            (value, index) => Math.abs(value - curve[index]) > 1e-12
+                        )
+                        && !document.getElementById('analysis-drawer').classList.contains('hidden');
+                }""",
+                arg=relaxation["curve"],
+                timeout=20_000,
+            )
+            browser.close()
+    finally:
+        editor.close()
+
+
+def test_volumetric_isosurface_rdf_drawer_csv_and_supercell_roundtrip(
+    tmp_path,
+    monkeypatch,
+):
+    coordinates = np.linspace(1.0, 7.0, 3)
+    positions = np.asarray(
+        [
+            [x, y, z]
+            for x in coordinates
+            for y in coordinates
+            for z in coordinates
+        ],
+        dtype=float,
+    )
+    symbols = ["C" if index % 2 == 0 else "O" for index in range(len(positions))]
+    atoms = Atoms(symbols, positions=positions, cell=[9.0, 9.0, 9.0], pbc=True)
+    set_atom_labels(
+        atoms,
+        ["C_bulk" if symbol == "C" else "O_bulk" for symbol in symbols],
+    )
+
+    shape = (24, 24, 24)
+    axes = [np.arange(size, dtype=float) / size for size in shape]
+    fractional = np.stack(np.meshgrid(*axes, indexing="ij"), axis=-1)
+    values = np.zeros(shape, dtype=float)
+    for scaled_position, symbol in zip(
+        atoms.get_scaled_positions(wrap=True),
+        symbols,
+    ):
+        delta = fractional - scaled_position
+        delta -= np.rint(delta)
+        cartesian = delta * 9.0
+        radius_squared = np.einsum("...i,...i->...", cartesian, cartesian)
+        values += (1.0 if symbol == "C" else -1.0) * np.exp(
+            -radius_squared / (2.0 * 0.55**2)
+        )
+    cube_path = tmp_path / "signed-density.cube"
+    write(cube_path, atoms, data=values, format="cube")
+
+    monkeypatch.chdir(tmp_path)
+    port = find_free_port()
+    editor = view(
+        atoms,
+        notebook=True,
+        block=False,
+        port=port,
+        viz_only=False,
+        close_on_disconnect=False,
+    )
+    try:
+        with sync_playwright() as playwright:
+            try:
+                browser = playwright.chromium.launch(headless=True)
+            except PlaywrightError as exc:
+                pytest.skip(f"Playwright Chromium is not installed: {exc}")
+            page = browser.new_page(viewport={"width": 1440, "height": 900})
+            try:
+                page.goto(
+                    f"http://127.0.0.1:{port}/?session_id={editor.session_id}"
+                )
+                page.wait_for_function(
+                    "window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 27"
+                )
+                pre_load_revision = page.evaluate(
+                    """async () => {
+                        const precision = document.getElementById(
+                            'volume-import-precision'
+                        );
+                        precision.value = 'float64';
+                        precision.dispatchEvent(new Event('change', {
+                            bubbles: true
+                        }));
+                        await window.__ASE_APP__.flushCollaborationEvents();
+                        const state = await window.v_aseAI.describe({
+                            includePositions: false
+                        });
+                        return state.collaboration.revision;
+                    }"""
+                )
+                loaded = page.evaluate(
+                    """async path => {
+                        await window.v_aseAI.apply({
+                            operation: {name: 'load-volumetric', path}
+                        });
+                        return await window.v_aseAI.describe({
+                            includePositions: false
+                        });
+                    }""",
+                    cube_path.name,
+                )
+                datasets = loaded["analysis"]["volumetricDatasets"]
+                assert len(datasets) == 1
+                assert datasets[0]["shape"] == list(shape)
+                assert datasets[0]["precision"] == "float64"
+                assert datasets[0]["memory_bytes"] == int(values.size * 8)
+                assert len(datasets[0]["histogram"]["counts"]) == 256
+                assert len(datasets[0]["histogram"]["edges"]) == 257
+                assert sum(datasets[0]["histogram"]["counts"]) == values.size
+                assert len(datasets[0]["absolute_histogram"]["counts"]) == 256
+                assert sum(datasets[0]["absolute_histogram"]["counts"]) == values.size
+                source_descriptor = datasets[0]
+                dataset_id = datasets[0]["id"]
+                collaboration_events = page.evaluate(
+                    """async ({sessionId, after}) => {
+                        const response = await fetch(
+                            `/api/ai/events/${encodeURIComponent(sessionId)}`
+                            + `?after=${after}&timeout=0`
+                        );
+                        return await response.json();
+                    }""",
+                    {
+                        "sessionId": editor.session_id,
+                        "after": pre_load_revision,
+                    },
+                )
+                agent_events = [
+                    event
+                    for event in collaboration_events["events"]
+                    if event["source"] == "agent"
+                ]
+                assert agent_events
+                assert any(
+                    "analysis" in event["categories"]
+                    for event in agent_events
+                )
+                assert all(
+                    "trajectory.frames" not in event["changed_paths"]
+                    for event in agent_events
+                )
+                page.wait_for_function(
+                    """() => Number(
+                        window.__ASE_APP__.renderer.domElement.dataset
+                            .volumetricSurfaceCount || 0
+                    ) >= 2"""
+                )
+                assert page.locator("#chk-volume-visible").is_checked()
+                assert (
+                    page.locator('label[for="volume-opacity"]').inner_text()
+                    == "Isosurface opacity"
+                )
+
+                active_pairs = page.evaluate(
+                    """() => {
+                        const app = window.__ASE_APP__;
+                        const cc = app.labelPairKey('C_bulk', 'C_bulk');
+                        const co = app.labelPairKey('C_bulk', 'O_bulk');
+                        const oo = app.labelPairKey('O_bulk', 'O_bulk');
+                        app.state.display.bondMode = 'pairwise';
+                        app.state.display.pairwiseBondRanges = {
+                            [cc]: {enabled: false, min: 0, max: 0},
+                            [co]: {enabled: true, min: 0, max: 2.4},
+                            [oo]: {enabled: false, min: 0, max: 0}
+                        };
+                        app.state.display.pairwiseBondCutoffs = {
+                            [cc]: 0,
+                            [co]: 2.4,
+                            [oo]: 0
+                        };
+                        return app.activeRdfPairs();
+                    }"""
+                )
+                assert active_pairs == [["C_bulk", "O_bulk"]]
+
+                analyzed = page.evaluate(
+                    """async ({datasetId, level}) => {
+                        await window.v_aseAI.apply({
+                            display: {
+                                supercell: [2, 1, 1],
+                                translationMode: 'fractional',
+                                translation: [0.125, 0, 0]
+                            },
+                            operation: {
+                                name: 'show-volumetric',
+                                datasetId,
+                                level,
+                                surfaceMode: 'signed',
+                                stepSize: 1,
+                                smearingSigma: 0.45,
+                                smoothingIterations: 7,
+                                opacity: 0.65
+                            }
+                        });
+                        await window.v_aseAI.apply({
+                            operation: {
+                                name: 'calculate-rdf',
+                                cutoff: 4.0,
+                                bins: 64,
+                                pairMode: 'all'
+                            }
+                        });
+                        return await window.v_aseAI.describe({
+                            includePositions: false
+                        });
+                    }""",
+                    {
+                        "datasetId": dataset_id,
+                        "level": float(np.max(np.abs(values)) * 0.35),
+                    },
+                )
+                assert analyzed["analysis"]["rdf"]["bins"] == 64
+                assert analyzed["analysis"]["volumetricDatasets"][0] == source_descriptor
+                surface_summary = analyzed["analysis"]["volumetricSurface"]
+                assert surface_summary["datasetId"] == dataset_id
+                assert surface_summary["surfaceMode"] == "signed"
+                assert surface_summary["surfaceCount"] == 2
+                assert surface_summary["triangleCount"] > 0
+                assert surface_summary["smearingSigma"] == pytest.approx(0.45)
+                assert surface_summary["smoothingIterations"] == 7
+                assert surface_summary["displayMinimum"] < 0
+                assert surface_summary["displayMaximum"] > 0
+                assert not surface_summary["partialSignedSurface"]
+                assert sorted(surface_summary["renderedLevels"])[0] < 0
+                assert sorted(surface_summary["renderedLevels"])[1] > 0
+                refinement_state = page.evaluate(
+                    """() => ({
+                        smearing: window.__ASE_APP__.state.display.volumetricSmearingSigma,
+                        smoothing: window.__ASE_APP__.state.display.volumetricSmoothingIterations,
+                        smearingInput: document.getElementById('volume-smearing').value,
+                        smoothingInput: document.getElementById('volume-smoothing').value,
+                        status: document.getElementById('volume-status').textContent
+                    })"""
+                )
+                assert refinement_state["smearing"] == pytest.approx(0.45)
+                assert refinement_state["smoothing"] == 7
+                assert refinement_state["smearingInput"] == "0.45"
+                assert refinement_state["smoothingInput"] == "7"
+                assert "σ 0.45 voxel" in refinement_state["status"]
+                assert "7 smoothing passes" in refinement_state["status"]
+                validation_errors = page.evaluate(
+                    """async datasetId => {
+                        const invalid = [
+                            {name: 'show-volumetric', datasetId, level: 0.1,
+                                surfaceMode: 'invalid'},
+                            {name: 'show-volumetric', datasetId, level: 0.1,
+                                smearingSigma: 8.1},
+                            {name: 'show-volumetric', datasetId, level: 0.1,
+                                smoothingIterations: 1.5},
+                            {name: 'show-volumetric', datasetId, level: 0,
+                                surfaceMode: 'signed'}
+                        ];
+                        const messages = [];
+                        for (const operation of invalid) {
+                            try {
+                                await window.v_aseAI.apply({operation});
+                                messages.push(null);
+                            } catch (error) {
+                                messages.push(error.message);
+                            }
+                        }
+                        return messages;
+                    }""",
+                    dataset_id,
+                )
+                assert all(validation_errors)
+                assert "surfaceMode" in validation_errors[0]
+                assert "smearingSigma" in validation_errors[1]
+                assert "smoothingIterations" in validation_errors[2]
+                assert "non-zero" in validation_errors[3]
+                assert analyzed["analysis"]["rdf"]["uniqueMicCutoff"] == pytest.approx(
+                    4.5
+                )
+                assert analyzed["analysis"]["rdf"]["periodicImageSpan"] == [3, 3, 3]
+                assert set(analyzed["analysis"]["rdf"]["partialCurves"]) == {
+                    "C_bulk|C_bulk",
+                    "C_bulk|O_bulk",
+                    "O_bulk|O_bulk",
+                }
+                page.wait_for_function(
+                    """() => Number(
+                        window.__ASE_APP__.renderer.domElement.dataset
+                            .volumetricSurfaceCount || 0
+                    ) >= 2"""
+                )
+                page.wait_for_selector("#rdf-plot .plotly", state="attached")
+                assert page.locator("#rdf-plot .scatterlayer path").count() >= 2
+                assert not page.locator("#analysis-drawer").evaluate(
+                    "element => element.classList.contains('hidden')"
+                )
+                assert page.locator("#rdf-plot .shapelayer path").count() >= 1
+                assert "bulk limit" in (
+                    page.locator("#rdf-plot .annotation-text").text_content() or ""
+                )
+
+                opacity_state = page.evaluate(
+                    """() => {
+                        const input = document.getElementById('volume-opacity');
+                        input.value = '0.31';
+                        input.dispatchEvent(new Event('input', {bubbles: true}));
+                        const app = window.__ASE_APP__;
+                        return {
+                            readout: document.getElementById(
+                                'volume-opacity-value'
+                            ).textContent,
+                            state: app.state.display.volumetricOpacity,
+                            materials: app.renderer.volumetricSurfaces.map(
+                                surface => ({
+                                    opacity: surface.material.opacity,
+                                    transparent: surface.material.transparent,
+                                    depthWrite: surface.material.depthWrite
+                                })
+                            )
+                        };
+                    }"""
+                )
+                assert opacity_state["readout"] == "0.31"
+                assert opacity_state["state"] == pytest.approx(0.31)
+                assert opacity_state["materials"]
+                assert all(
+                    material["opacity"] == pytest.approx(0.31)
+                    and material["transparent"] is True
+                    and material["depthWrite"] is False
+                    for material in opacity_state["materials"]
+                )
+
+                volumetric_visibility = page.evaluate(
+                    """async () => {
+                        const app = window.__ASE_APP__;
+                        const before = {
+                            count: app.renderer.volumetricSurfaces.length,
+                            visible: app.renderer.volumetricGroup.visible
+                        };
+                        await window.v_aseAI.apply({display: {showVolumetric: false}});
+                        const hidden = {
+                            count: app.renderer.volumetricSurfaces.length,
+                            visible: app.renderer.volumetricGroup.visible,
+                            state: app.state.display.showVolumetric
+                        };
+                        await window.v_aseAI.apply({display: {showVolumetric: true}});
+                        return {
+                            before,
+                            hidden,
+                            restored: {
+                                count: app.renderer.volumetricSurfaces.length,
+                                visible: app.renderer.volumetricGroup.visible,
+                                state: app.state.display.showVolumetric
+                            }
+                        };
+                    }"""
+                )
+                assert volumetric_visibility["before"]["count"] > 0
+                assert volumetric_visibility["before"]["visible"] is True
+                assert volumetric_visibility["hidden"]["count"] > 0
+                assert volumetric_visibility["hidden"]["visible"] is False
+                assert volumetric_visibility["hidden"]["state"] is False
+                assert volumetric_visibility["restored"]["count"] > 0
+                assert volumetric_visibility["restored"]["visible"] is True
+                assert volumetric_visibility["restored"]["state"] is True
+
+                planar_state = page.evaluate(
+                    """async () => {
+                        const app = window.__ASE_APP__;
+                        const first = app.createVolumetricPlane();
+                        await app.renderAllVolumetricPlanes();
+                        const firstOffset = first.offsetAngstrom;
+                        app.setVolumetricPlaneSelection([first.id]);
+                        app.enterVolumetricPlaneTransformMode('MOVE');
+                        app.transform.buffer = '1';
+                        app.applyVolumetricPlaneTransformPreview();
+                        app.commitVolumetricPlaneTransform();
+                        await app.renderAllVolumetricPlanes();
+                        const movedOffset = first.offsetAngstrom;
+
+                        app.enterVolumetricPlaneTransformMode('ROTATE');
+                        app.transform.setAxis('X', app.renderer.camera);
+                        app.transform.buffer = '90';
+                        app.applyVolumetricPlaneTransformPreview();
+                        app.commitVolumetricPlaneTransform();
+                        await app.renderAllVolumetricPlanes();
+
+                        const second = app.createVolumetricPlane();
+                        second.hkl = [1, 0, 0];
+                        const metrics = app.volumetricPlaneMetrics(second);
+                        second.offsetAngstrom = (metrics.minimum + metrics.maximum) * 0.5;
+                        app.setVolumetricPlaneSelection([first.id, second.id]);
+                        await app.renderAllVolumetricPlanes();
+
+                        app.state.display.supercell = [2, 1, 1];
+                        await app.renderAllVolumetricPlanes();
+                        const repeated = app.renderer.volumetricPlanes.get(first.id);
+                        const positions = repeated.geometry.attributes.position.array;
+                        let maximumX = -Infinity;
+                        for (let index = 0; index < positions.length; index += 3) {
+                            maximumX = Math.max(maximumX, positions[index]);
+                        }
+                        const renderedStatus = document.getElementById(
+                            'volume-plane-status'
+                        ).textContent;
+                        app.setVolumetricPlaneSelection([first.id]);
+                        let targetedRequestCount = 0;
+                        const fetchPlane = app.api.fetchVolumetricPlane.bind(app.api);
+                        app.api.fetchVolumetricPlane = async options => {
+                            targetedRequestCount += 1;
+                            return await fetchPlane(options);
+                        };
+                        await app.renderAllVolumetricPlanes({planeIds: [first.id]});
+                        app.api.fetchVolumetricPlane = fetchPlane;
+                        app.setVolumetricPlaneSelection([first.id, second.id]);
+                        first.autoRange = true;
+                        second.autoRange = false;
+                        second.vmin = 1;
+                        second.vmax = 0;
+                        app.renderVolumetricPlaneControls();
+                        document.getElementById('volume-plane-vmin').value = '';
+                        document.getElementById('volume-plane-vmax').value = '';
+                        document.getElementById('volume-plane-vmin').dispatchEvent(
+                            new Event('change', {bubbles: true})
+                        );
+                        const atomicRangePreserved = first.autoRange === true;
+                        second.autoRange = true;
+                        second.vmin = null;
+                        second.vmax = null;
+                        const result = {
+                            count: app.renderer.volumetricPlanes.size,
+                            firstOffset,
+                            movedOffset,
+                            rotatedHkl: [...first.hkl],
+                            selected: [...app.state.selectedVolumetricPlanes],
+                            hPlaceholder: document.getElementById('volume-plane-h').placeholder,
+                            atomicRangePreserved,
+                            targetedRequestCount,
+                            maximumX,
+                            status: renderedStatus,
+                            canvasWidth: document.getElementById('volume-histogram').width,
+                            canvasHeight: document.getElementById('volume-histogram').height
+                        };
+                        app.state.display.supercell = [1, 1, 1];
+                        await app.renderAllVolumetricPlanes();
+                        app.flushVisualHistoryCommit();
+                        app.resetHistoryTimeline();
+                        return result;
+                    }"""
+                )
+                assert planar_state["count"] == 2
+                assert planar_state["movedOffset"] == pytest.approx(
+                    planar_state["firstOffset"] + 1.0,
+                    abs=1e-5,
+                )
+                assert planar_state["rotatedHkl"] == pytest.approx([0, -1, 0], abs=1e-6)
+                assert len(planar_state["selected"]) == 2
+                assert planar_state["hPlaceholder"] == "Mixed"
+                assert planar_state["atomicRangePreserved"] is True
+                assert planar_state["targetedRequestCount"] == 1
+                assert planar_state["maximumX"] == pytest.approx(18.0, abs=1e-4)
+                assert "trilinear interpolation" in planar_state["status"]
+                assert planar_state["canvasWidth"] > 0
+                assert planar_state["canvasHeight"] > 0
+
+                semantic_plane = page.evaluate(
+                    """async datasetId => {
+                        const before = await window.v_aseAI.describe({
+                            includePositions: false
+                        });
+                        const existing = new Set(
+                            before.analysis.volumetricPlanes.map(plane => plane.id)
+                        );
+                        const added = await window.v_aseAI.apply({
+                            operation: {
+                                name: 'add-volumetric-plane',
+                                datasetId,
+                                planeName: 'Agent plane',
+                                hkl: [0, 0, 1],
+                                resolution: 128,
+                                colormap: 'viridis',
+                                opacity: 0.74
+                            }
+                        });
+                        const plane = added.analysis.volumetricPlanes.find(
+                            candidate => !existing.has(candidate.id)
+                        );
+                        await window.v_aseAI.apply({
+                            operation: {
+                                name: 'update-volumetric-planes',
+                                planeIds: [plane.id],
+                                colormap: 'plasma',
+                                reverse: true,
+                                autoRange: false,
+                                vmin: -0.5,
+                                vmax: 0.5,
+                                opacity: 0.62
+                            }
+                        });
+                        const updated = (await window.v_aseAI.describe({
+                            includePositions: false
+                        })).analysis.volumetricPlanes.find(
+                            candidate => candidate.id === plane.id
+                        );
+                        window.__ASE_APP__.renderer.domElement.focus();
+                        return {id: plane.id, initialOffset: updated.offsetAngstrom,
+                            updated};
+                    }""",
+                    dataset_id,
+                )
+                assert semantic_plane["updated"]["colormap"] == "plasma"
+                assert semantic_plane["updated"]["reverse"] is True
+                assert semantic_plane["updated"]["autoRange"] is False
+                assert semantic_plane["updated"]["vmin"] == pytest.approx(-0.5)
+                assert semantic_plane["updated"]["vmax"] == pytest.approx(0.5)
+                assert semantic_plane["updated"]["opacity"] == pytest.approx(0.62)
+
+                page.evaluate(
+                    """async id => {
+                        const app = window.__ASE_APP__;
+                        app.setVolumetricPlaneSelection([id]);
+                        await app.switchRuntimeMode(true);
+                        app.setInspectorCollapsed(false);
+                        app.setInspectorGroup('analysis');
+                        app.setVolumetricToolView('planes');
+                    }""",
+                    semantic_plane["id"],
+                )
+                page.fill("#volume-plane-h", "1")
+                page.locator("#volume-plane-h").press("Tab")
+                page.wait_for_timeout(220)
+                requested_offset = page.evaluate(
+                    """id => {
+                        const app = window.__ASE_APP__;
+                        const plane = app.volumetricPlanes().find(item => item.id === id);
+                        const metrics = app.volumetricPlaneMetrics(plane);
+                        return metrics.minimum + 0.55 * (metrics.maximum - metrics.minimum);
+                    }""",
+                    semantic_plane["id"],
+                )
+                page.fill("#volume-plane-offset", str(requested_offset))
+                page.locator("#volume-plane-offset").press("Tab")
+                page.wait_for_timeout(300)
+                view_plane_controls = page.evaluate(
+                    """id => {
+                        const app = window.__ASE_APP__;
+                        const plane = app.volumetricPlanes().find(item => item.id === id);
+                        return {
+                            vizOnly: app.state.vizOnly,
+                            hkl: [...plane.hkl],
+                            offset: plane.offsetAngstrom,
+                            offsetInput: Number(document.getElementById(
+                                'volume-plane-offset'
+                            ).value),
+                            slider: Number(document.getElementById(
+                                'volume-plane-offset-slider'
+                            ).value),
+                            tool: app.state.volumetricToolView,
+                            modeNote: document.getElementById(
+                                'volume-plane-mode-note'
+                            ).textContent,
+                            rendered: app.renderer.volumetricPlanes.has(id)
+                        };
+                    }""",
+                    semantic_plane["id"],
+                )
+                assert view_plane_controls["vizOnly"] is True
+                assert view_plane_controls["hkl"] == pytest.approx([1, 0, 1])
+                assert view_plane_controls["offset"] == pytest.approx(
+                    requested_offset,
+                    abs=1e-5,
+                )
+                assert view_plane_controls["offsetInput"] == pytest.approx(
+                    view_plane_controls["offset"], abs=1e-5
+                )
+                assert view_plane_controls["slider"] == pytest.approx(
+                    view_plane_controls["offset"], abs=1e-5
+                )
+                assert view_plane_controls["tool"] == "planes"
+                assert "View mode" in view_plane_controls["modeNote"]
+                assert view_plane_controls["rendered"] is True
+
+                page.evaluate("window.__ASE_APP__.switchRuntimeMode(false)")
+                page.fill("#volume-plane-h", "0")
+                page.locator("#volume-plane-h").press("Tab")
+                page.wait_for_timeout(220)
+                page.locator("#app-viewport canvas").focus()
+
+                page.keyboard.press("g")
+                page.keyboard.type("0.5")
+                live_move = page.evaluate(
+                    """id => {
+                        const app = window.__ASE_APP__;
+                        const plane = app.volumetricPlanes().find(item => item.id === id);
+                        return {
+                            offset: plane.offsetAngstrom,
+                            input: Number(document.getElementById(
+                                'volume-plane-offset'
+                            ).value),
+                            slider: Number(document.getElementById(
+                                'volume-plane-offset-slider'
+                            ).value)
+                        };
+                    }""",
+                    semantic_plane["id"],
+                )
+                assert live_move["input"] == pytest.approx(live_move["offset"], abs=1e-5)
+                assert live_move["slider"] == pytest.approx(live_move["offset"], abs=1e-5)
+                page.keyboard.press("Enter")
+                page.wait_for_function(
+                    "window.__ASE_APP__.transform.mode === 'IDLE'"
+                )
+                moved_plane = page.evaluate(
+                    """async id => {
+                        await new Promise(resolve => setTimeout(resolve, 320));
+                        return (await window.v_aseAI.describe({includePositions: false}))
+                            .analysis.volumetricPlanes.find(plane => plane.id === id);
+                    }""",
+                    semantic_plane["id"],
+                )
+                assert moved_plane["offsetAngstrom"] == pytest.approx(
+                    view_plane_controls["offset"] + 0.5,
+                    abs=1e-5,
+                )
+
+                page.keyboard.press("r")
+                page.keyboard.press("x")
+                page.keyboard.type("90")
+                live_rotation = page.evaluate(
+                    """id => {
+                        const app = window.__ASE_APP__;
+                        const plane = app.volumetricPlanes().find(item => item.id === id);
+                        return {
+                            hkl: [...plane.hkl],
+                            inputs: ['h', 'k', 'l'].map(axis => Number(
+                                document.getElementById(`volume-plane-${axis}`).value
+                            ))
+                        };
+                    }""",
+                    semantic_plane["id"],
+                )
+                assert live_rotation["inputs"] == pytest.approx(
+                    live_rotation["hkl"], abs=1e-6
+                )
+                page.keyboard.press("Enter")
+                page.wait_for_function(
+                    "window.__ASE_APP__.transform.mode === 'IDLE'"
+                )
+                rotated_plane = page.evaluate(
+                    """async id => {
+                        await new Promise(resolve => setTimeout(resolve, 320));
+                        return (await window.v_aseAI.describe({includePositions: false}))
+                            .analysis.volumetricPlanes.find(plane => plane.id === id);
+                    }""",
+                    semantic_plane["id"],
+                )
+                assert rotated_plane["hkl"] == pytest.approx([0, -1, 0], abs=1e-6)
+                assert rotated_plane["repetitions"] == [1, 1, 1]
+
+                page.locator("#app-viewport canvas").focus()
+                page.keyboard.press("r")
+                rotation_pivot = page.evaluate(
+                    """() => {
+                        const pivot = window.__ASE_APP__.state.rotationScreenPivot;
+                        return {x: pivot.x, y: pivot.y};
+                    }"""
+                )
+                page.mouse.move(rotation_pivot["x"] + 84, rotation_pivot["y"])
+                page.mouse.move(
+                    rotation_pivot["x"],
+                    rotation_pivot["y"] + 84,
+                    steps=6,
+                )
+                page.wait_for_timeout(80)
+                mouse_rotation = page.evaluate(
+                    """id => {
+                        const app = window.__ASE_APP__;
+                        const plane = app.volumetricPlanes().find(item => item.id === id);
+                        return {
+                            mode: app.transform.mode,
+                            hkl: [...plane.hkl],
+                            inputs: ['h', 'k', 'l'].map(axis => Number(
+                                document.getElementById(`volume-plane-${axis}`).value
+                            ))
+                        };
+                    }""",
+                    semantic_plane["id"],
+                )
+                assert mouse_rotation["mode"] == "ROTATE"
+                assert mouse_rotation["hkl"] != pytest.approx([0, -1, 0], abs=1e-5)
+                assert mouse_rotation["inputs"] == pytest.approx(
+                    mouse_rotation["hkl"], abs=1e-6
+                )
+                page.keyboard.press("Escape")
+                page.wait_for_function(
+                    "window.__ASE_APP__.transform.mode === 'IDLE'"
+                )
+                cancelled_rotation = page.evaluate(
+                    """id => {
+                        const app = window.__ASE_APP__;
+                        const plane = app.volumetricPlanes().find(item => item.id === id);
+                        return {
+                            hkl: [...plane.hkl],
+                            inputs: ['h', 'k', 'l'].map(axis => Number(
+                                document.getElementById(`volume-plane-${axis}`).value
+                            ))
+                        };
+                    }""",
+                    semantic_plane["id"],
+                )
+                assert cancelled_rotation["hkl"] == pytest.approx([0, -1, 0], abs=1e-6)
+                assert cancelled_rotation["inputs"] == pytest.approx(
+                    cancelled_rotation["hkl"], abs=1e-6
+                )
+
+                removed_plane = page.evaluate(
+                    """async id => {
+                        const state = await window.v_aseAI.apply({
+                            operation: {
+                                name: 'remove-volumetric-planes',
+                                planeIds: [id]
+                            }
+                        });
+                        return {
+                            exists: state.analysis.volumetricPlanes.some(
+                                plane => plane.id === id
+                            ),
+                            operations: (await window.v_aseAI.capabilities()).operations
+                        };
+                    }""",
+                    semantic_plane["id"],
+                )
+                assert removed_plane["exists"] is False
+                assert {
+                    "add-volumetric-plane",
+                    "update-volumetric-planes",
+                    "remove-volumetric-planes",
+                }.issubset(removed_plane["operations"])
+
+                csv_result = page.evaluate(
+                    """async () => await window.v_aseAI.export({
+                        format: 'rdf-csv',
+                        cutoff: 4.0,
+                        bins: 64,
+                        pairMode: 'all'
+                    })"""
+                )
+                assert csv_result["mimeType"] == "text/csv"
+                encoded = csv_result["dataUrl"].split(",", 1)[1]
+                csv_lines = base64.b64decode(encoded).decode("utf-8").splitlines()
+                assert len(csv_lines) == 65
+                assert csv_lines[0].split(",") == [
+                    "r_angstrom",
+                    "total_g_r",
+                    "C_bulk|C_bulk",
+                    "C_bulk|O_bulk",
+                    "O_bulk|O_bulk",
+                ]
+
+                stale_result = page.evaluate(
+                    """async () => {
+                        const app = window.__ASE_APP__;
+                        const previousFetch = app.api.fetchRdf;
+                        const result = structuredClone(app.state.rdfResult);
+                        let resolveFetch = null;
+                        app.api.fetchRdf = () => new Promise(resolve => {
+                            resolveFetch = resolve;
+                        });
+                        try {
+                            const pending = app.aiApplyOperation({
+                                name: 'calculate-rdf',
+                                cutoff: 4.0,
+                                bins: 64,
+                                pairMode: 'all'
+                            }).then(
+                                () => ({ok: true, message: ''}),
+                                error => ({ok: false, message: error.message})
+                            );
+                            while (!resolveFetch) {
+                                await new Promise(resolve => setTimeout(resolve, 0));
+                            }
+                            app.invalidateRdfResult(
+                                'The trajectory frame changed during RDF analysis.'
+                            );
+                            resolveFetch(result);
+                            return await pending;
+                        } finally {
+                            app.api.fetchRdf = previousFetch;
+                        }
+                    }"""
+                )
+                assert stale_result["ok"] is False
+                assert "changed while RDF was being calculated" in stale_result["message"]
+                assert page.locator("#btn-analysis-export").is_disabled()
+
+                repeated = page.evaluate(
+                    """async () => {
+                        await window.v_aseAI.apply({
+                            operation: {
+                                name: 'set-supercell',
+                                reps: [2, 1, 1]
+                            }
+                        });
+                        return await window.v_aseAI.describe({
+                            includePositions: false
+                        });
+                    }"""
+                )
+                assert repeated["atomCount"] == 54
+                assert repeated["analysis"]["volumetricDatasets"][0]["shape"] == [
+                    48,
+                    24,
+                    24,
+                ]
+                assert repeated["analysis"]["rdf"] is None
+                assert page.locator("#btn-analysis-export").is_disabled()
+                assert page.locator("#analysis-drawer").evaluate(
+                    "element => element.classList.contains('hidden')"
+                )
+                assert (
+                    page.locator("#rdf-status .analysis-status-title").inner_text()
+                    == "RDF needs recalculation"
+                )
+                restored = page.evaluate(
+                    """async () => {
+                        await window.v_aseAI.apply({operation: 'undo'});
+                        return await window.v_aseAI.describe({
+                            includePositions: false
+                        });
+                    }"""
+                )
+                assert restored["atomCount"] == 27
+                assert restored["analysis"]["volumetricDatasets"][0]["shape"] == [
+                    24,
+                    24,
+                    24,
+                ]
+            finally:
+                browser.close()
     finally:
         editor.close()
 
@@ -352,7 +1799,7 @@ def test_axis_shortcuts_restore_canonical_roll_before_opposite_view():
         notebook=True,
         block=False,
         port=port,
-        viz_only=True,
+        viz_only=False,
         close_on_disconnect=False,
     )
     try:
@@ -821,7 +2268,7 @@ def test_ai_bridge_screen_relative_camera_and_constraint_vector_workflow():
                 guide: document.getElementById('chk-commensurate-guide').checked,
                 snap: document.getElementById('chk-commensurate-snap').checked
             })""")
-            assert defaults == {"bonds": True, "guide": True, "snap": False}
+            assert defaults == {"bonds": True, "guide": False, "snap": False}
             helix = editor_page.evaluate("""() => {
                 const renderer = window.__ASE_APP__.renderer;
                 const points = renderer.makeHelicalSpringPoints(0, 3, 0.2, 7, 98);
@@ -1144,6 +2591,181 @@ def test_ai_bridge_screen_relative_camera_and_constraint_vector_workflow():
         editor.close()
 
 
+def test_hookean_trajectory_uses_exact_rt_without_annotation():
+    frames = []
+    for distance in (3.0, 4.0, 5.0):
+        atoms = Atoms(
+            "H2",
+            positions=[[0.0, 0.0, 0.0], [distance, 0.0, 0.0]],
+            cell=[12.0, 8.0, 8.0],
+            pbc=False,
+        )
+        atoms.set_constraint(Hookean(0, 1, rt=4.0, k=5.0))
+        frames.append(atoms)
+
+    port = find_free_port()
+    editor = view(
+        frames,
+        notebook=True,
+        block=False,
+        port=port,
+        viz_only=True,
+        close_on_disconnect=False,
+    )
+    try:
+        with sync_playwright() as playwright:
+            try:
+                browser = playwright.chromium.launch(headless=True)
+            except PlaywrightError as exc:
+                pytest.skip(f"Playwright Chromium is not installed: {exc}")
+            page = browser.new_page(viewport={"width": 1280, "height": 800})
+            page.goto(f"http://127.0.0.1:{port}/?session_id={editor.session_id}")
+            page.wait_for_function(
+                "window.__ASE_APP__?.renderer?.hookeanGroup?.children?.length === 1"
+            )
+
+            def inspect_frame(index):
+                return page.evaluate("""async index => {
+                    await window.v_aseAI.apply({frame: index});
+                    const group = window.__ASE_APP__.renderer.hookeanGroup.children[0];
+                    const spring = group.children.find(child => child.userData.springLine);
+                    let springSpan = [0, 0];
+                    if (spring?.visible) {
+                        spring.geometry.computeBoundingBox();
+                        const box = spring.geometry.boundingBox;
+                        springSpan = [box.max.x - box.min.x, box.max.z - box.min.z];
+                    }
+                    return {
+                        state: group.userData.hookeanState,
+                        distance: group.userData.hookeanDistance,
+                        threshold: group.userData.hookeanThreshold,
+                        extension: group.userData.hookeanExtension,
+                        springVisible: Boolean(spring?.visible),
+                        springSpan,
+                        spriteCount: group.children.filter(child => child.isSprite).length
+                    };
+                }""", index)
+
+            inactive = inspect_frame(0)
+            threshold = inspect_frame(1)
+            active = inspect_frame(2)
+            assert inactive == {
+                "state": "inactive",
+                "distance": pytest.approx(3.0),
+                "threshold": pytest.approx(4.0),
+                "extension": pytest.approx(0.0),
+                "springVisible": False,
+                "springSpan": [0, 0],
+                "spriteCount": 0,
+            }
+            assert threshold["state"] == "threshold"
+            assert threshold["distance"] == pytest.approx(4.0)
+            assert threshold["threshold"] == pytest.approx(4.0)
+            assert threshold["extension"] == pytest.approx(0.0)
+            assert threshold["spriteCount"] == 0
+            assert active["state"] == "active"
+            assert active["distance"] == pytest.approx(5.0)
+            assert active["threshold"] == pytest.approx(4.0)
+            assert active["extension"] == pytest.approx(1.0)
+            assert active["springVisible"] is True
+            assert active["springSpan"][0] > 0.1
+            assert active["springSpan"][1] > 0.1
+            assert active["spriteCount"] == 0
+            browser.close()
+    finally:
+        editor.close()
+
+
+def test_force_vectors_follow_cartesian_forces_repeat_with_supercell_and_clear():
+    atoms = Atoms(
+        "CO",
+        positions=[[0.0, 0.0, 0.0], [1.4, 0.0, 0.0]],
+        cell=[6.0, 6.0, 6.0],
+        pbc=True,
+    )
+    atoms.set_array(
+        "forces",
+        np.asarray([[1.0, 0.0, 0.0], [0.0, 0.5, 0.0]], dtype=float),
+    )
+    port = find_free_port()
+    editor = view(
+        atoms,
+        notebook=True,
+        block=False,
+        port=port,
+        viz_only=True,
+        close_on_disconnect=False,
+    )
+    try:
+        with sync_playwright() as playwright:
+            try:
+                browser = playwright.chromium.launch(headless=True)
+            except PlaywrightError as exc:
+                pytest.skip(f"Playwright Chromium is not installed: {exc}")
+            page = browser.new_page(viewport={"width": 1280, "height": 800})
+            page.goto(f"http://127.0.0.1:{port}/?session_id={editor.session_id}")
+            page.wait_for_function("window.v_aseAI && window.__ASE_APP__?.state?.atoms")
+            result = page.evaluate("""async () => {
+                await window.v_aseAI.apply({
+                    display: {
+                        showForceVectors: true,
+                        forceVectorStyle: '3d',
+                        forceVectorScale: 1,
+                        forceVectorThickness: 0.08,
+                        forceVectorColor: '#c43f5e',
+                        supercell: [2, 1, 1]
+                    }
+                });
+                const app = window.__ASE_APP__;
+                const group = app.renderer.forceVectorGroup;
+                const head = group.userData.head;
+                const positions = [];
+                for (let index = 0; index < head.count; index++) {
+                    const offset = index * 16;
+                    positions.push([
+                        head.instanceMatrix.array[offset + 12],
+                        head.instanceMatrix.array[offset + 13],
+                        head.instanceMatrix.array[offset + 14]
+                    ]);
+                }
+                return {
+                    state: await window.v_aseAI.describe({includePositions: false}),
+                    count: Number(app.renderer.domElement.dataset.forceVectorCount),
+                    entries: group.userData.entries.map(entry => ({
+                        atom: entry.index,
+                        cellOffset: entry.cellOffset,
+                        vector: entry.vector
+                    })),
+                    positions
+                };
+            }""")
+            assert result["state"]["display"]["showForceVectors"] is True
+            assert result["count"] == 4
+            assert len(result["entries"]) == 4
+            assert result["entries"][0]["vector"] == [1.0, 0.0, 0.0]
+            assert result["positions"][0][0] > atoms.positions[0, 0]
+            assert result["positions"][2][1] > atoms.positions[1, 1]
+            assert {tuple(item["cellOffset"]) for item in result["entries"]} == {
+                (0, 0, 0),
+                (1, 0, 0),
+            }
+
+            cleared = page.evaluate("""async () => {
+                await window.v_aseAI.apply({display: {showForceVectors: false}});
+                const renderer = window.__ASE_APP__.renderer;
+                renderer.updatePositions([[0.1, 0, 0], [1.4, 0, 0]]);
+                return {
+                    children: renderer.forceVectorGroup.children.length,
+                    entries: renderer.forceVectorGroup.userData.entries || null,
+                    count: Number(renderer.domElement.dataset.forceVectorCount)
+                };
+            }""")
+            assert cleared == {"children": 0, "entries": None, "count": 0}
+            browser.close()
+    finally:
+        editor.close()
+
+
 def test_empty_workspace_opens_a_complete_trajectory_from_the_browser(tmp_path):
     first = molecule("H2O")
     first.set_cell([8.0, 8.0, 8.0])
@@ -1167,7 +2789,7 @@ def test_empty_workspace_opens_a_complete_trajectory_from_the_browser(tmp_path):
         notebook=True,
         block=False,
         port=port,
-        viz_only=True,
+        viz_only=False,
         close_on_disconnect=False,
     )
     try:
@@ -1180,6 +2802,7 @@ def test_empty_workspace_opens_a_complete_trajectory_from_the_browser(tmp_path):
             page.goto(f"http://127.0.0.1:{port}/?session_id={editor.session_id}")
             page.wait_for_function("window.__ASE_APP__?.state?.atoms?.metadata?.natoms === 0")
 
+            assert page.locator('[data-runtime-mode="edit"]').get_attribute('aria-pressed') == 'true'
             assert page.locator('#empty-workspace').is_visible()
             assert page.locator('#btn-empty-open').is_visible()
             assert page.locator('#btn-export-pickle').is_disabled()
@@ -1211,10 +2834,16 @@ def test_empty_workspace_opens_a_complete_trajectory_from_the_browser(tmp_path):
             with page.expect_file_chooser() as chooser_info:
                 page.click('#btn-empty-open')
             chooser_info.value.set_files(str(source))
+            assert page.locator('#open-file-name').inner_text() == source.name
+            assert page.locator('.open-file-modes').is_hidden()
+            assert page.locator('input[name="open-runtime-mode"][value="edit"]').is_checked()
+            page.locator('input[name="open-runtime-mode"][value="view"]').check()
+            page.click('#open-file-confirm')
             page.wait_for_function("window.__ASE_APP__?.state?.atoms?.metadata?.natoms === 3")
             page.wait_for_function("window.__ASE_APP__?.state?.atoms?.metadata?.frame_count === 2")
             page.wait_for_function("document.getElementById('busy-overlay').classList.contains('hidden')")
             assert page.locator('#modal-container').is_hidden()
+            assert page.locator('[data-runtime-mode="view"]').get_attribute('aria-pressed') == 'true'
             assert not page.locator('#empty-workspace').is_visible()
             assert not page.locator('#btn-export-pickle').is_disabled()
             assert page.locator('#frame-label').inner_text() == '1 / 2'
@@ -1265,11 +2894,13 @@ def test_empty_workspace_opens_a_complete_trajectory_from_the_browser(tmp_path):
 
             page.set_input_files('#structure-file', str(replacement_source))
             assert page.locator('#open-file-name').inner_text() == replacement_source.name
+            page.locator('input[name="open-runtime-mode"][value="edit"]').check()
             page.click('#open-file-confirm')
             page.wait_for_function("""() => {
                 const app = window.__ASE_APP__;
                 return app?.state?.atoms?.metadata?.natoms === 2
                     && app.state.atoms.symbols.join(',') === 'O,C'
+                    && app.state.vizOnly === false
                     && document.getElementById('busy-overlay').classList.contains('hidden');
             }""")
             inherited_after = page.evaluate("""() => {
@@ -1465,8 +3096,10 @@ def test_arrow_keys_step_only_the_selected_loaded_or_relaxation_timeline():
                     ],
                     frame: 0,
                     sourceFrame: 0,
-                    active: false,
-                    finished: true
+                    active: true,
+                    finished: true,
+                    kind: 'relaxation',
+                    label: ''
                 };
                 app.state.timelineSource = 'loaded';
                 app.updateTrajectoryUI();
@@ -1681,6 +3314,632 @@ def test_trajectory_selection_persists_and_displacement_vectors_render():
                 "window.__ASE_APP__.renderer.displacementGroup.userData.flat === true"
             )
             assert not console_errors
+            browser.close()
+    finally:
+        editor.close()
+
+
+def test_view_mode_visual_label_and_appearance_follow_stable_trajectory_indices():
+    first = Atoms(
+        "H3",
+        positions=[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [2.0, 0.0, 0.0]],
+        cell=[8.0, 8.0, 8.0],
+        pbc=True,
+    )
+    second = first.copy()
+    second.positions += [0.2, 0.1, 0.0]
+    set_atom_labels(first, ["H_host"] * 3)
+    set_atom_labels(second, ["H_host"] * 3)
+    port = find_free_port()
+    editor = view(
+        [first, second],
+        notebook=True,
+        block=False,
+        port=port,
+        viz_only=True,
+        close_on_disconnect=False,
+    )
+
+    try:
+        with sync_playwright() as playwright:
+            try:
+                browser = playwright.chromium.launch(headless=True)
+            except PlaywrightError as exc:
+                pytest.skip(f"Playwright Chromium is not installed: {exc}")
+            page = browser.new_page(viewport={"width": 1360, "height": 820})
+            page.goto(f"http://127.0.0.1:{port}/?session_id={editor.session_id}")
+            page.wait_for_function(
+                "window.__ASE_APP__?.state?.atoms?.metadata?.trajectory_identity_compatible === true"
+            )
+            _expand_inspector(page)
+            _select_structure_section(page, "appearance")
+            page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                app.state.selected = new Set([1]);
+                app.updateSelectionVisuals();
+                app.updateUI();
+            }""")
+            page.fill("#selected-atom-label", "H_probe")
+            page.select_option("#selected-atom-material", "metal")
+            pending = page.evaluate("""() => ({
+                label: window.__ASE_APP__.state.atoms.symbols[1],
+                material: window.__ASE_APP__.state.display.atomMaterials[1] || null,
+            })""")
+            assert pending == {"label": "H_host", "material": None}
+            page.click("#btn-apply-selected-label")
+            page.wait_for_function("""() => {
+                const app = window.__ASE_APP__;
+                return app.state.atoms.symbols[1] === 'H_probe'
+                    && app.state.display.atomMaterials[1] === 'metal';
+            }""")
+            page.locator('.label-color-input[data-atom-label="H_probe"]').fill("#2a78c4")
+            page.locator('.label-radius-input[data-atom-label="H_probe"]').fill("1.25")
+            page.locator('.label-radius-input[data-atom-label="H_probe"]').press("Tab")
+            page.wait_for_function(
+                "window.__ASE_APP__.state.display.labelRadii.H_probe === 1.25"
+            )
+            assert page.locator(
+                '.chemical-type-select[data-atom-label="H_probe"]'
+            ).is_disabled()
+
+            page.evaluate("document.activeElement?.blur()")
+            page.keyboard.press("ArrowRight")
+            page.wait_for_function("""() => {
+                const app = window.__ASE_APP__;
+                return app.state.atoms.metadata.current_frame === 1
+                    && app.state.atoms.symbols[1] === 'H_probe';
+            }""")
+            state = page.evaluate("""() => ({
+                labels: window.__ASE_APP__.state.atoms.symbols,
+                elements: window.__ASE_APP__.state.atoms.chemical_symbols,
+                radius: window.__ASE_APP__.state.display.labelRadii.H_probe,
+                color: window.__ASE_APP__.state.display.labelColors.H_probe,
+                material: window.__ASE_APP__.state.display.atomMaterials[1],
+            })""")
+            assert state == {
+                "labels": ["H_host", "H_probe", "H_host"],
+                "elements": ["H", "H", "H"],
+                "radius": 1.25,
+                "color": "#2a78c4",
+                "material": "metal",
+            }
+            browser.close()
+    finally:
+        editor.close()
+
+
+def test_selected_index_appearance_overrides_are_field_scoped_and_follow_trajectory():
+    first = Atoms(
+        "C3",
+        positions=[[0.0, 0.0, 0.0], [1.3, 0.0, 0.0], [2.6, 0.0, 0.0]],
+        cell=[8.0, 8.0, 8.0],
+        pbc=True,
+    )
+    second = first.copy()
+    second.positions += [0.15, 0.2, 0.0]
+    set_atom_labels(first, ["C_site"] * 3)
+    set_atom_labels(second, ["C_site"] * 3)
+    port = find_free_port()
+    editor = view(
+        [first, second],
+        notebook=True,
+        block=False,
+        port=port,
+        viz_only=True,
+        show_bonds=True,
+        close_on_disconnect=False,
+    )
+    try:
+        with sync_playwright() as playwright:
+            try:
+                browser = playwright.chromium.launch(headless=True)
+            except PlaywrightError as exc:
+                pytest.skip(f"Playwright Chromium is not installed: {exc}")
+            page = browser.new_page(viewport={"width": 1360, "height": 860})
+            page.goto(f"http://127.0.0.1:{port}/?session_id={editor.session_id}")
+            page.wait_for_function("window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 3")
+            _expand_inspector(page)
+            _select_structure_section(page, "appearance")
+            page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                app.clearAtomSelection();
+                app.addSelectionReference(1);
+                app.updateSelectionVisuals();
+                app.updateUI();
+            }""")
+            page.select_option("#selected-atom-material", "metal")
+            page.fill("#selected-atom-color", "#33aa77")
+            page.fill("#selected-atom-opacity", "0.30")
+            page.locator("#selected-atom-radius-scale").evaluate("""element => {
+                element.value = '1.50';
+                element.dispatchEvent(new Event('input', {bubbles: true}));
+            }""")
+            assert page.locator("#selected-atom-update-bonds").is_checked()
+            page.click("#btn-apply-selected-label")
+            page.wait_for_function("""() => {
+                const app = window.__ASE_APP__;
+                return app.state.display.atomMaterials['1'] === 'metal'
+                    && app.state.display.atomColors['1'] === '#33aa77'
+                    && app.state.display.atomOpacities['1'] === 0.3
+                    && app.state.display.atomRadiusScales['1'] === 1.5
+                    && app.state.display.atomBondStyles['1'].material === 'metal'
+                    && app.state.display.atomBondStyles['1'].opacity === 0.3;
+            }""")
+            state = page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                const left = app.renderer.bondSegmentsForPair(0, 1);
+                const right = app.renderer.bondSegmentsForPair(1, 2);
+                return {
+                    labelColors: app.state.display.labelColors,
+                    labelMaterials: app.state.display.labelMaterials,
+                    atomKeys: {
+                        colors: Object.keys(app.state.display.atomColors),
+                        opacities: Object.keys(app.state.display.atomOpacities),
+                        radii: Object.keys(app.state.display.atomRadiusScales),
+                    },
+                    radiusRatio: app.renderer.atomVisualRadius(1) / app.renderer.atomVisualRadius(0),
+                    color: app.renderer.atomMeshByIndex.get(1).material.color.getHexString(),
+                    opacity: app.renderer.atomMeshByIndex.get(1).material.opacity,
+                    metalness: app.renderer.atomMeshByIndex.get(1).material.metalness,
+                    leftBond: left.map(segment => ({
+                        material: segment.appearance.material,
+                        opacity: segment.appearance.opacity,
+                    })),
+                    rightBond: right.map(segment => ({
+                        material: segment.appearance.material,
+                        opacity: segment.appearance.opacity,
+                    })),
+                };
+            }""")
+            assert state["labelColors"].get("C_site") != "#33aa77"
+            assert state["labelMaterials"].get("C_site", "standard") == "standard"
+            assert state["atomKeys"] == {
+                "colors": ["1"],
+                "opacities": ["1"],
+                "radii": ["1"],
+            }
+            assert state["radiusRatio"] == pytest.approx(1.5)
+            assert state["color"] == "33aa77"
+            assert state["opacity"] == pytest.approx(0.3)
+            assert state["metalness"] == pytest.approx(0.9)
+            assert state["leftBond"] == [
+                {"material": "standard", "opacity": pytest.approx(1.0)},
+                {"material": "metal", "opacity": pytest.approx(0.3)},
+            ]
+            assert state["rightBond"] == [
+                {"material": "metal", "opacity": pytest.approx(0.3)},
+                {"material": "standard", "opacity": pytest.approx(1.0)},
+            ]
+
+            page.fill("#selected-atom-opacity", "0.60")
+            page.click("#btn-apply-selected-label")
+            page.wait_for_function("""() => {
+                const display = window.__ASE_APP__.state.display;
+                return display.atomOpacities['1'] === 0.6
+                    && display.atomMaterials['1'] === 'metal'
+                    && display.atomColors['1'] === '#33aa77'
+                    && display.atomRadiusScales['1'] === 1.5
+                    && display.atomBondStyles['1'].material === 'metal'
+                    && display.atomBondStyles['1'].opacity === 0.6;
+            }""")
+            page.uncheck("#selected-atom-update-bonds")
+            page.select_option("#selected-atom-material", "rubber")
+            page.click("#btn-apply-selected-label")
+            page.wait_for_function("""() => {
+                const display = window.__ASE_APP__.state.display;
+                return display.atomMaterials['1'] === 'rubber'
+                    && display.atomBondStyles['1'].material === 'metal';
+            }""")
+
+            page.locator("#app-viewport canvas").focus()
+            page.keyboard.press("ArrowRight")
+            page.wait_for_function("window.__ASE_APP__.state.atoms.metadata.current_frame === 1")
+            persisted = page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                const snapshot = app.designSettingsSnapshot().display;
+                return {
+                    material: app.state.display.atomMaterials['1'],
+                    opacity: app.renderer.atomVisualOpacity(1),
+                    radiusScale: app.state.display.atomRadiusScales['1'],
+                    color: app.renderer.atomVisualColor(1),
+                    snapshotColor: snapshot.atomColors['1'],
+                    snapshotBondMaterial: snapshot.atomBondStyles['1'].material,
+                };
+            }""")
+            assert persisted == {
+                "material": "rubber",
+                "opacity": pytest.approx(0.6),
+                "radiusScale": pytest.approx(1.5),
+                "color": "#33aa77",
+                "snapshotColor": "#33aa77",
+                "snapshotBondMaterial": "metal",
+            }
+            browser.close()
+    finally:
+        editor.close()
+
+
+def test_shift_box_and_shift_select_all_invert_existing_selection():
+    atoms = Atoms(
+        "H4",
+        positions=[[-1.2, -1.0, 0.0], [1.2, -1.0, 0.0], [-1.2, 1.0, 0.0], [1.2, 1.0, 0.0]],
+        cell=[8.0, 8.0, 8.0],
+        pbc=False,
+    )
+    port = find_free_port()
+    editor = view(
+        atoms,
+        notebook=True,
+        block=False,
+        port=port,
+        viz_only=True,
+        close_on_disconnect=False,
+    )
+    try:
+        with sync_playwright() as playwright:
+            try:
+                browser = playwright.chromium.launch(headless=True)
+            except PlaywrightError as exc:
+                pytest.skip(f"Playwright Chromium is not installed: {exc}")
+            page = browser.new_page(viewport={"width": 1200, "height": 820})
+            page.goto(f"http://127.0.0.1:{port}/?session_id={editor.session_id}")
+            page.wait_for_function("window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 4")
+            bounds = page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                app.clearAtomSelection();
+                app.addSelectionReference(0);
+                app.addSelectionReference(1);
+                app.updateSelectionVisuals();
+                app.updateUI();
+                const points = [0, 1, 2, 3].map(index => (
+                    app.renderer.projectWorldToClient(app.renderer.atomMeshByIndex.get(index).position)
+                ));
+                return {
+                    left: Math.min(...points.map(point => point.x)) - 28,
+                    right: Math.max(...points.map(point => point.x)) + 28,
+                    top: Math.min(...points.map(point => point.y)) - 28,
+                    bottom: Math.max(...points.map(point => point.y)) + 28,
+                };
+            }""")
+            page.keyboard.down("Shift")
+            page.mouse.move(bounds["left"], bounds["top"])
+            page.mouse.down()
+            page.mouse.move(bounds["right"], bounds["bottom"], steps=6)
+            page.mouse.up()
+            page.keyboard.up("Shift")
+            page.wait_for_function("""() => (
+                [...window.__ASE_APP__.state.selected].sort((a, b) => a - b).join(',') === '2,3'
+            )""")
+
+            page.locator("#app-viewport canvas").focus()
+            page.keyboard.press("Control+a")
+            page.wait_for_function("window.__ASE_APP__.selectionCount() === 4")
+            page.keyboard.press("Shift+Control+a")
+            page.wait_for_function("window.__ASE_APP__.selectionCount() === 0")
+            page.keyboard.press("Shift+Control+a")
+            page.wait_for_function("window.__ASE_APP__.selectionCount() === 4")
+            browser.close()
+    finally:
+        editor.close()
+
+
+def test_view_supercell_instances_style_hide_warn_and_delete_base_once():
+    atoms = Atoms(
+        "C2",
+        positions=[[0.0, 0.0, 0.0], [1.3, 0.0, 0.0]],
+        cell=[6.0, 6.0, 6.0],
+        pbc=True,
+    )
+    port = find_free_port()
+    editor = view(
+        atoms,
+        notebook=True,
+        block=False,
+        port=port,
+        viz_only=True,
+        show_bonds=True,
+        close_on_disconnect=False,
+    )
+    try:
+        with sync_playwright() as playwright:
+            try:
+                browser = playwright.chromium.launch(headless=True)
+            except PlaywrightError as exc:
+                pytest.skip(f"Playwright Chromium is not installed: {exc}")
+            page = browser.new_page(viewport={"width": 1360, "height": 820})
+            page.goto(f"http://127.0.0.1:{port}/?session_id={editor.session_id}")
+            page.wait_for_function("window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 2")
+            initial = page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                app.setSupercellInputs([3, 1, 1]);
+                app.state.display.supercell = [3, 1, 1];
+                app.renderer.setDisplayOptions(app.state.display);
+                const positions = [];
+                const matrix = new app.renderer.camera.matrixWorld.constructor();
+                const point = new app.renderer.camera.position.constructor();
+                app.renderer.supercellGroup.children.forEach(mesh => {
+                    if (!mesh.userData?.supercellInstanced) return;
+                    for (let id = 0; id < mesh.count; id++) {
+                        const reference = app.renderer.supercellAtomReference(mesh, id);
+                        mesh.getMatrixAt(id, matrix);
+                        point.setFromMatrixPosition(matrix);
+                        positions.push([reference.key, ...point.toArray()]);
+                    }
+                });
+                positions.sort((a, b) => a[0].localeCompare(b[0]));
+                return positions;
+            }""")
+            assert len(initial) == 4
+
+            page.evaluate("window.__ASE_APP__.switchRuntimeMode(false)")
+            page.wait_for_function("window.__ASE_APP__.state.vizOnly === false")
+            edit_positions = page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                const positions = [];
+                const matrix = new app.renderer.camera.matrixWorld.constructor();
+                const point = new app.renderer.camera.position.constructor();
+                app.renderer.supercellGroup.children.forEach(mesh => {
+                    if (!mesh.userData?.supercellInstanced) return;
+                    for (let id = 0; id < mesh.count; id++) {
+                        const reference = app.renderer.supercellAtomReference(mesh, id);
+                        mesh.getMatrixAt(id, matrix);
+                        point.setFromMatrixPosition(matrix);
+                        positions.push([reference.key, ...point.toArray()]);
+                    }
+                });
+                positions.sort((a, b) => a[0].localeCompare(b[0]));
+                return {
+                    positions,
+                    supercell: app.state.display.supercell,
+                    opaque: app.renderer.supercellGroup.children
+                        .filter(mesh => mesh.userData?.supercellInstanced)
+                        .every(mesh => !mesh.material.transparent && mesh.material.opacity === 1),
+                };
+            }""")
+            assert [row[0] for row in edit_positions["positions"]] == [
+                row[0] for row in initial
+            ]
+            np.testing.assert_allclose(
+                [row[1:] for row in edit_positions["positions"]],
+                [row[1:] for row in initial],
+                atol=1e-8,
+            )
+            assert edit_positions["supercell"] == [3, 1, 1]
+            assert edit_positions["opaque"] is True
+
+            edit_box_selection = page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                const rect = {
+                    left: 0,
+                    right: window.innerWidth,
+                    top: 0,
+                    bottom: window.innerHeight,
+                };
+                const references = app.selection.boxSelect(
+                    rect,
+                    app.renderer.atomMeshes,
+                    app.renderer.camera,
+                    app.renderer.supercellGroup,
+                    true
+                );
+                app.clearAtomSelection();
+                references.forEach(reference => app.addSelectionReference(reference));
+                app.updateSelectionVisuals();
+                const replicaOutline = app.renderer.replicaSelectionOutlines.children[0];
+                return {
+                    references: references.size,
+                    base: [...app.state.selected].sort((a, b) => a - b),
+                    replicas: [...app.state.replicaSelected.keys()],
+                    order: [...app.state.selectionOrder],
+                    primaryOutlines: app.renderer.selectionOutlines.children.length,
+                    equivalentOutlines: replicaOutline?.count || 0,
+                    equivalentMuted: replicaOutline?.userData?.muted === true,
+                    equivalentOpacity: replicaOutline?.material?.opacity ?? null,
+                    equivalentReferences: (replicaOutline?.userData?.references || [])
+                        .map(reference => reference.key)
+                        .sort(),
+                };
+            }""")
+            assert edit_box_selection["references"] > 2
+            assert edit_box_selection["base"] == [0, 1]
+            assert edit_box_selection["replicas"] == []
+            assert edit_box_selection["order"] == ["atom:0", "atom:1"]
+            assert edit_box_selection["primaryOutlines"] == 2
+            assert edit_box_selection["equivalentOutlines"] == 4
+            assert edit_box_selection["equivalentMuted"] is True
+            assert edit_box_selection["equivalentOpacity"] == pytest.approx(0.36)
+            assert edit_box_selection["equivalentReferences"] == [
+                "replica:0:-1,0,0",
+                "replica:0:1,0,0",
+                "replica:1:-1,0,0",
+                "replica:1:1,0,0",
+            ]
+
+            page.evaluate("window.__ASE_APP__.switchRuntimeMode(true)")
+            page.wait_for_function("window.__ASE_APP__.state.vizOnly === true")
+            _expand_inspector(page)
+            _select_structure_section(page, "appearance")
+            page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                app.clearAtomSelection();
+                app.addSelectionReference({
+                    kind: 'replica', index: 0, cellOffset: [1, 0, 0],
+                    key: 'replica:0:1,0,0'
+                });
+                app.updateSelectionVisuals();
+                app.updateUI();
+            }""")
+            assert page.evaluate("""() => ({
+                base: [...window.__ASE_APP__.state.selected],
+                replicas: [...window.__ASE_APP__.state.replicaSelected.keys()]
+            })""") == {"base": [], "replicas": ["replica:0:1,0,0"]}
+            page.fill('#selected-atom-label', 'C')
+            page.select_option('#selected-atom-material', 'metal')
+            page.click('#btn-apply-selected-label')
+            page.wait_for_function("window.__ASE_APP__.state.display.atomMaterials['0'] === 'metal'")
+            page.wait_for_function("""() => {
+                const app = window.__ASE_APP__;
+                const replicasMatch = app.renderer.supercellGroup.children
+                    .filter(mesh => mesh.userData?.supercellInstanced)
+                    .filter(mesh => mesh.userData.atomIndices.includes(0))
+                    .every(mesh => mesh.material.metalness > 0.85);
+                return replicasMatch
+                    && app.renderer.atomMeshByIndex.get(0).material.metalness > 0.85;
+            }""")
+
+            before_hide = page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                app.clearAtomSelection();
+                const added = app.addSelectionReference({
+                    kind: 'replica', index: 0, cellOffset: [1, 0, 0],
+                    key: 'replica:0:1,0,0'
+                });
+                return {
+                    added,
+                    vizOnly: app.state.vizOnly,
+                    supercell: app.state.display.supercell,
+                    entries: app.selectionEntries().map(reference => reference.key),
+                };
+            }""")
+            assert before_hide == {
+                "added": True,
+                "vizOnly": True,
+                "supercell": [3, 1, 1],
+                "entries": ["replica:0:1,0,0"],
+            }
+            page.evaluate("window.__ASE_APP__.deleteSelection()")
+            hidden = page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                const hiddenMatrices = [];
+                const visibleMatrices = [];
+                app.renderer.supercellGroup.children.forEach(mesh => {
+                    if (!mesh.userData?.supercellBonds) return;
+                    mesh.userData.bondInstances.forEach((instance, id) => {
+                        if (instance.segment.i !== 0 && instance.segment.j !== 0) return;
+                        const values = Array.from(mesh.instanceMatrix.array.slice(id * 16, id * 16 + 15));
+                        if (JSON.stringify(instance.cellOffset) === '[1,0,0]') hiddenMatrices.push(values);
+                        if (JSON.stringify(instance.cellOffset) === '[-1,0,0]') visibleMatrices.push(values);
+                    });
+                });
+                return {
+                    keys: app.state.display.hiddenAtomReferences,
+                    baseVisible: app.renderer.atomReferenceVisible(0),
+                    hiddenVisible: app.renderer.atomReferenceVisible(0, [1, 0, 0]),
+                    otherReplicaVisible: app.renderer.atomReferenceVisible(0, [-1, 0, 0]),
+                    hiddenBondsZero: hiddenMatrices.length > 0 && hiddenMatrices.every(
+                        values => values.every(value => Math.abs(value) < 1e-12)
+                    ),
+                    visibleBondsRemain: visibleMatrices.some(
+                        values => values.some(value => Math.abs(value) > 1e-8)
+                    ),
+                };
+            }""")
+            assert hidden == {
+                "keys": ["replica:0:1,0,0"],
+                "baseVisible": True,
+                "hiddenVisible": False,
+                "otherReplicaVisible": True,
+                "hiddenBondsZero": True,
+                "visibleBondsRemain": True,
+            }
+
+            page.evaluate("""() => {
+                window.__hiddenAnalysisPromise = window.__ASE_APP__.confirmAnalysisWithHiddenAtoms();
+            }""")
+            page.wait_for_selector('#modal-container:not(.hidden)')
+            assert "complete ase structure" in page.locator('#modal-content').inner_text().lower()
+            page.click('#modal-hidden-analysis-continue')
+            assert page.evaluate("window.__hiddenAnalysisPromise") is True
+
+            page.evaluate("""async () => {
+                const app = window.__ASE_APP__;
+                app.clearAtomSelection();
+                app.addSelectionReference({
+                    kind: 'replica', index: 0, cellOffset: [-1, 0, 0],
+                    key: 'replica:0:-1,0,0'
+                });
+                await window.v_aseAI.apply({operation: {name: 'delete-selection'}});
+                window.__hiddenAnalysisPromise = app.confirmAnalysisWithHiddenAtoms();
+            }""")
+            page.wait_for_selector('#modal-container:not(.hidden)')
+            page.click('#modal-hidden-analysis-edit')
+            page.wait_for_function("""() => {
+                const app = window.__ASE_APP__;
+                return app.state.vizOnly === false
+                    && app.state.atoms.positions.length === 1
+                    && app.state.display.hiddenAtomReferences.length === 0;
+            }""")
+            assert page.evaluate("window.__hiddenAnalysisPromise") is True
+            assert len(editor.get_atoms()) == 1
+            browser.close()
+    finally:
+        editor.close()
+
+
+def test_view_mode_incompatible_trajectory_relabels_current_frame_and_opens_modal():
+    first = Atoms(
+        "H3",
+        positions=[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [2.0, 0.0, 0.0]],
+        cell=[8.0, 8.0, 8.0],
+        pbc=True,
+    )
+    second = Atoms(
+        "H2He",
+        positions=[[0.2, 0.0, 0.0], [1.2, 0.0, 0.0], [2.2, 0.0, 0.0]],
+        cell=[8.0, 8.0, 8.0],
+        pbc=True,
+    )
+    set_atom_labels(first, ["H_host"] * 3)
+    set_atom_labels(second, ["H_host", "H_host", "He_guest"])
+    port = find_free_port()
+    editor = view(
+        [first, second],
+        notebook=True,
+        block=False,
+        port=port,
+        viz_only=True,
+        close_on_disconnect=False,
+    )
+
+    try:
+        with sync_playwright() as playwright:
+            try:
+                browser = playwright.chromium.launch(headless=True)
+            except PlaywrightError as exc:
+                pytest.skip(f"Playwright Chromium is not installed: {exc}")
+            page = browser.new_page(viewport={"width": 1360, "height": 820})
+            page.goto(f"http://127.0.0.1:{port}/?session_id={editor.session_id}")
+            page.wait_for_function(
+                "window.__ASE_APP__?.state?.atoms?.metadata?.trajectory_identity_compatible === false"
+            )
+            _expand_inspector(page)
+            _select_structure_section(page, "appearance")
+            page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                app.state.selected = new Set([0]);
+                app.updateSelectionVisuals();
+                app.updateUI();
+            }""")
+            page.fill("#selected-atom-label", "H_anchor")
+            page.click("#btn-apply-selected-label")
+            page.wait_for_selector("#modal-container:not(.hidden)")
+            assert "this frame only" in page.locator("#modal-content").inner_text().lower()
+            page.click("#modal-close")
+
+            page.evaluate("document.activeElement?.blur()")
+            page.keyboard.press("ArrowRight")
+            page.wait_for_function("window.__ASE_APP__.state.atoms.metadata.current_frame === 1")
+            assert page.evaluate("window.__ASE_APP__.state.atoms.symbols") == [
+                "H_host", "H_host", "He_guest"
+            ]
+            page.evaluate("document.activeElement?.blur()")
+            page.keyboard.press("ArrowLeft")
+            page.wait_for_function(
+                "window.__ASE_APP__.state.atoms.metadata.current_frame === 0"
+            )
+            assert page.evaluate("window.__ASE_APP__.state.atoms.symbols") == [
+                "H_anchor", "H_host", "H_host"
+            ]
             browser.close()
     finally:
         editor.close()
@@ -1913,7 +4172,12 @@ def test_rotate_direction_commensurate_snap_and_panel_focus_workflow():
             canvas.focus()
             page.keyboard.press('Tab')
             page.click('[data-inspector-group="structure"]')
+            page.evaluate("window.__ASE_APP__.aiSelectIndices([0, 1])")
+            page.wait_for_function("window.__ASE_APP__.state.selected.size === 2")
             page.check('#chk-commensurate-guide')
+            page.locator('details.commensurate-advanced').evaluate(
+                "element => { element.open = true; }"
+            )
             page.check('#chk-commensurate-snap')
             page.keyboard.press('Escape')
             page.keyboard.press('r')
@@ -1927,8 +4191,11 @@ def test_rotate_direction_commensurate_snap_and_panel_focus_workflow():
                 .map(object => object.material.map.image.getContext('2d') ? object.userData : null)
                 .length""")
             assert labels > 0
+            page.wait_for_function(
+                "document.getElementById('commensurate-status')?.textContent.includes('strain')"
+            )
             candidate_status = page.locator('#commensurate-status').inner_text()
-            assert 'boundary strain' in candidate_status
+            assert 'strain' in candidate_status
             assert 'N=' in candidate_status
 
             snapped = page.evaluate("""() => {
@@ -2014,6 +4281,1048 @@ def test_rotate_direction_commensurate_snap_and_panel_focus_workflow():
             page.wait_for_function("document.getElementById('lighting-widget').dataset.mode === 'studio-shadow'")
             assert page.locator('.render-sphere-on').evaluate("element => getComputedStyle(element).display") == 'block'
             assert page.locator('.render-sphere-shadow').evaluate("element => getComputedStyle(element).display") == 'block'
+            browser.close()
+    finally:
+        editor.close()
+
+
+def test_commensurate_common_cell_preview_has_core_halo_boundary_bonds_and_can_be_applied():
+    lattice = 2.46
+    atoms = Atoms(
+        "C4",
+        scaled_positions=[
+            [0.0, 0.0, 0.25],
+            [1 / 3, 2 / 3, 0.25],
+            [0.0, 0.0, 0.75],
+            [2 / 3, 1 / 3, 0.75],
+        ],
+        cell=[
+            [lattice, 0.0, 0.0],
+            [0.5 * lattice, 0.5 * 3 ** 0.5 * lattice, 0.0],
+            [0.0, 0.0, 18.0],
+        ],
+        pbc=[True, True, False],
+    )
+    port = find_free_port()
+    editor = view(
+        atoms,
+        notebook=True,
+        block=False,
+        port=port,
+        viz_only=False,
+        close_on_disconnect=False,
+    )
+
+    try:
+        with sync_playwright() as playwright:
+            try:
+                browser = playwright.chromium.launch(headless=True)
+            except PlaywrightError as exc:
+                pytest.skip(f"Playwright Chromium is not installed: {exc}")
+            page = browser.new_page(viewport={"width": 1440, "height": 900})
+            page.goto(f"http://127.0.0.1:{port}/?session_id={editor.session_id}")
+            page.wait_for_function("window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 4")
+
+            _expand_inspector(page)
+            _select_structure_section(page, "transform")
+            assert not page.is_checked('#chk-commensurate-guide')
+            camera_before = page.evaluate("""() => ({
+                position: window.__ASE_APP__.renderer.camera.position.toArray(),
+                target: window.__ASE_APP__.renderer.controls.target.toArray(),
+                zoom: window.__ASE_APP__.renderer.camera.zoom
+            })""")
+            page.check('#chk-commensurate-guide')
+            page.wait_for_function("window.__ASE_APP__.state.commensurateCandidates.length >= 60")
+            page.wait_for_function("document.getElementById('commensurate-status').textContent.includes('Select the guest layer')")
+            host_only = page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                const group = app.renderer.commensurateSupercellGroup.children;
+                return {
+                    atoms: Number(app.renderer.domElement.dataset.commensuratePreviewAtoms),
+                    hostGrid: group.filter(child => child.userData?.commensurateHostPrimitiveGrid).length,
+                    guestGrid: group.filter(child => child.userData?.commensurateGuestPrimitiveGrid).length,
+                    hostVectors: group.filter(child => child.userData?.commensurateHostPrimitiveVector).length,
+                    guestVectors: group.filter(child => child.userData?.commensurateGuestPrimitiveVector).length,
+                    hostColor: group.find(child => child.userData?.commensurateHostPrimitiveGrid)
+                        ?.material?.color?.getHexString(),
+                    commonCell: group.filter(child => child.userData?.commensurateSuggestedCell).length,
+                    status: document.getElementById('commensurate-status').textContent,
+                    camera: {
+                        position: app.renderer.camera.position.toArray(),
+                        target: app.renderer.controls.target.toArray(),
+                        zoom: app.renderer.camera.zoom
+                    }
+                };
+            }""")
+            assert host_only["atoms"] == 0
+            assert host_only["hostGrid"] == 1
+            assert host_only["guestGrid"] == 0
+            assert host_only["hostVectors"] == 2
+            assert host_only["guestVectors"] == 0
+            assert host_only["hostColor"] == "161a1d"
+            assert host_only["commonCell"] == 0
+            assert "Select the guest layer" in host_only["status"]
+            np.testing.assert_allclose(host_only["camera"]["position"], camera_before["position"])
+            np.testing.assert_allclose(host_only["camera"]["target"], camera_before["target"])
+            assert host_only["camera"]["zoom"] == pytest.approx(camera_before["zoom"])
+
+            page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                app.clearAtomSelection();
+                app.addSelectionReference(0);
+                app.addSelectionReference(1);
+                app.updateSelectionVisuals();
+                app.updateUI();
+            }""")
+            page.wait_for_function("window.__ASE_APP__.state.commensurateProposal?.data?.preview")
+            cells_only = page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                const group = app.renderer.commensurateSupercellGroup.children;
+                return {
+                    atoms: Number(app.renderer.domElement.dataset.commensuratePreviewAtoms),
+                    hostGrid: group.filter(child => child.userData?.commensurateHostPrimitiveGrid).length,
+                    guestGrid: group.filter(child => child.userData?.commensurateGuestPrimitiveGrid).length,
+                    hostVectors: group.filter(child => child.userData?.commensurateHostPrimitiveVector).length,
+                    guestVectors: group.filter(child => child.userData?.commensurateGuestPrimitiveVector).length,
+                    guestColor: group.find(child => child.userData?.commensurateGuestPrimitiveGrid)
+                        ?.material?.color?.getHexString(),
+                    hostCell: group.filter(child => child.userData?.commensurateHostCell).length,
+                    guestCell: group.filter(child => child.userData?.commensurateGuestCell).length,
+                    commonCell: group.filter(child => child.userData?.commensurateSuggestedCell).length,
+                    matchResolved: Boolean(app.state.commensurateProposal?.data?.match_resolved),
+                    parentFixed: app.state.commensurateProposal?.data?.preview?.parent_lattices_fixed,
+                    hostGridShape: app.state.commensurateProposal?.data?.preview?.host_grid_shape,
+                    guestGridShape: app.state.commensurateProposal?.data?.preview?.guest_grid_shape,
+                    hostGridOrigins: app.state.commensurateProposal?.data?.preview
+                        ?.host_grid_lattice_origins,
+                    guestOffset: app.state.commensurateProposal?.data?.preview?.guest_offset,
+                    selectionOutlinesVisible: app.renderer.selectionOutlines.visible,
+                    showAtomsChecked: document.getElementById('chk-commensurate-show-atoms')
+                        ?.checked,
+                    proposalVisible: !document.getElementById('commensurate-supercell-proposal')
+                        ?.classList.contains('hidden'),
+                    camera: {
+                        position: app.renderer.camera.position.toArray(),
+                        target: app.renderer.controls.target.toArray(),
+                        zoom: app.renderer.camera.zoom
+                    }
+                };
+            }""")
+            assert cells_only["atoms"] == 0
+            assert cells_only["hostGrid"] == 1
+            assert cells_only["guestGrid"] == 1
+            assert cells_only["hostVectors"] == 2
+            assert cells_only["guestVectors"] == 2
+            assert cells_only["guestColor"] == "f58220"
+            assert cells_only["hostCell"] == 1
+            assert cells_only["guestCell"] == 1
+            assert cells_only["commonCell"] == 0
+            assert cells_only["matchResolved"] is False
+            assert cells_only["parentFixed"] is True
+            assert cells_only["hostGridShape"] == cells_only["guestGridShape"]
+            np.testing.assert_allclose(cells_only["guestOffset"][:2], [0.0, 0.0], atol=0.0)
+            assert cells_only["selectionOutlinesVisible"] is False
+            assert cells_only["showAtomsChecked"] is False
+            assert cells_only["proposalVisible"] is False
+            np.testing.assert_allclose(cells_only["camera"]["position"], camera_before["position"])
+            np.testing.assert_allclose(cells_only["camera"]["target"], camera_before["target"])
+            assert cells_only["camera"]["zoom"] == pytest.approx(camera_before["zoom"])
+            page.locator('details.commensurate-advanced').evaluate(
+                "element => { element.open = true; }"
+            )
+            page.check('#chk-commensurate-show-atoms')
+            page.wait_for_function("""() =>
+                Number(window.__ASE_APP__.renderer.domElement.dataset.commensuratePreviewAtoms) > 0
+            """)
+            unmatched_atoms = page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                return {
+                    renderedAtoms: Number(
+                        app.renderer.domElement.dataset.commensuratePreviewAtoms
+                    ),
+                    renderedBonds: Number(
+                        app.renderer.domElement.dataset.commensuratePreviewBonds
+                    ),
+                    commonCell: app.renderer.commensurateSupercellGroup.children.filter(
+                        child => child.userData?.commensurateSuggestedCell
+                    ).length,
+                    matchResolved: Boolean(
+                        app.state.commensurateProposal?.data?.match_resolved
+                    ),
+                    showAtomsChecked: document.getElementById(
+                        'chk-commensurate-show-atoms'
+                    )?.checked,
+                };
+            }""")
+            assert unmatched_atoms["renderedAtoms"] > 0
+            assert unmatched_atoms["renderedBonds"] > 0
+            assert unmatched_atoms["commonCell"] == 0
+            assert unmatched_atoms["matchResolved"] is False
+            assert unmatched_atoms["showAtomsChecked"] is True
+            page.check('#chk-commensurate-snap')
+            page.fill('#commensurate-max-area', '16')
+            page.keyboard.press('Escape')
+
+            canvas = page.locator('#app-viewport canvas')
+            canvas.focus()
+            page.keyboard.press('r')
+            page.keyboard.press('z')
+            page.wait_for_function("window.__ASE_APP__.state.commensurateCandidates.length >= 60")
+            page.keyboard.type('21.2')
+            page.wait_for_function("Math.abs(window.__ASE_APP__.state.commensurateSnappedCandidate?.targetAngleDeg - 21.78678931) < 1e-5")
+            page.keyboard.press('Enter')
+            page.evaluate("async () => await window.__ASE_APP__.pendingApply")
+            page.wait_for_function("window.__ASE_APP__.state.commensurateProposal?.data?.preview?.core_atom_count === 28")
+
+            preview = page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                const proposal = app.state.commensurateProposal.data;
+                const atomMeshes = app.renderer.commensurateSupercellGroup.children
+                    .filter(child => child.userData?.commensuratePreviewAtoms);
+                const bounds = app.renderer.commensuratePreviewBounds(proposal.preview);
+                const projected = app.renderer.boxCorners(bounds)
+                    .map(point => point.project(app.renderer.camera));
+                return {
+                    baseAtomsVisible: app.renderer.atomMeshes.visible,
+                    area: proposal.candidate.area_ratio,
+                    notation: proposal.candidate.target_notation,
+                    coreAtomCount: proposal.preview.core_atom_count,
+                    previewAtomCount: proposal.preview.preview_atom_count,
+                    padding: proposal.preview.padding_cells,
+                    renderedAtoms: Number(app.renderer.domElement.dataset.commensuratePreviewAtoms),
+                    renderedBonds: Number(app.renderer.domElement.dataset.commensuratePreviewBonds),
+                    components: atomMeshes.map(child => child.userData.commensurateComponent).sort(),
+                    coreRows: atomMeshes.reduce(
+                        (sum, child) => sum + Number(child.userData.commensurateCoreRows || 0),
+                        0
+                    ),
+                    haloRows: atomMeshes.reduce(
+                        (sum, child) => sum + Number(child.userData.commensurateHaloRows || 0),
+                        0
+                    ),
+                    opacities: atomMeshes.map(child => child.material.opacity),
+                    suggestedCellEdges: app.renderer.commensurateSupercellGroup.children
+                        .filter(child => child.userData?.commensurateSuggestedCell).length,
+                    maxNdcX: Math.max(...projected.map(point => Math.abs(point.x))),
+                    maxNdcY: Math.max(...projected.map(point => Math.abs(point.y))),
+                    cameraSnapshot: Boolean(app.renderer.commensurateCameraSnapshot),
+                    atomCountBeforeApply: app.state.atoms.positions.length,
+                    showAtomsChecked: document.getElementById(
+                        'chk-commensurate-show-atoms'
+                    )?.checked,
+                    parentFixed: proposal.preview.parent_lattices_fixed,
+                    hostGridShape: proposal.preview.host_grid_shape,
+                    guestGridShape: proposal.preview.guest_grid_shape,
+                    hostGridOrigins: proposal.preview.host_grid_lattice_origins
+                };
+            }""")
+            assert preview["baseAtomsVisible"] is False
+            assert preview["area"] == 7
+            assert "√7 × √7" in preview["notation"]
+            assert preview["coreAtomCount"] == 28
+            assert preview["previewAtomCount"] > preview["coreAtomCount"]
+            assert preview["padding"] >= 2
+            assert preview["renderedAtoms"] == preview["previewAtomCount"]
+            assert preview["renderedBonds"] > 0
+            assert preview["components"] == ["reference", "rotating"]
+            assert preview["coreRows"] == preview["coreAtomCount"]
+            assert preview["haloRows"] > 0
+            assert all(opacity == pytest.approx(1.0) for opacity in preview["opacities"])
+            assert preview["suggestedCellEdges"] == 1
+            assert preview["parentFixed"] is True
+            assert preview["hostGridShape"] == cells_only["hostGridShape"]
+            assert preview["guestGridShape"] == cells_only["guestGridShape"]
+            assert preview["hostGridOrigins"] == cells_only["hostGridOrigins"]
+            assert preview["cameraSnapshot"] is True
+            assert preview["atomCountBeforeApply"] == 4
+            assert preview["showAtomsChecked"] is True
+
+            page.keyboard.press('Escape')
+            page.wait_for_function("!document.body.classList.contains('inspector-collapsed')")
+            _select_structure_section(page, "transform")
+            assert page.locator('#commensurate-supercell-proposal').is_visible()
+            assert not page.locator('#btn-apply-commensurate-cell').is_disabled()
+            page.click('#btn-apply-commensurate-cell')
+            page.wait_for_function("window.__ASE_APP__.state.atoms.positions.length === 28")
+            page.wait_for_function("window.__ASE_APP__.renderer.atomMeshByIndex.size === 28")
+            applied = page.evaluate("""() => ({
+                preview: window.__ASE_APP__.state.commensurateProposal,
+                atomCount: window.__ASE_APP__.state.atoms.positions.length,
+                cell: window.__ASE_APP__.state.atoms.cell,
+                baseVisible: window.__ASE_APP__.renderer.atomMeshes.visible,
+                supercell: window.__ASE_APP__.state.display.supercell,
+                camera: {
+                    position: window.__ASE_APP__.renderer.camera.position.toArray(),
+                    target: window.__ASE_APP__.renderer.controls.target.toArray(),
+                    zoom: window.__ASE_APP__.renderer.camera.zoom
+                }
+            })""")
+            assert applied["preview"] is None
+            assert applied["atomCount"] == 28
+            assert applied["baseVisible"] is True
+            assert applied["supercell"] == [1, 1, 1]
+            np.testing.assert_allclose(applied["camera"]["position"], camera_before["position"])
+            np.testing.assert_allclose(applied["camera"]["target"], camera_before["target"])
+            assert applied["camera"]["zoom"] == pytest.approx(camera_before["zoom"])
+            assert abs(np.linalg.det(np.asarray(applied["cell"]))) == pytest.approx(
+                7 * abs(np.linalg.det(np.asarray(atoms.cell.array))),
+                rel=1e-7,
+            )
+            browser.close()
+    finally:
+        editor.close()
+
+
+def test_ai_can_rotate_to_preview_and_materialize_a_bounded_commensurate_cell():
+    lattice = 2.46
+    atoms = Atoms(
+        "C4",
+        scaled_positions=[
+            [0.0, 0.0, 0.25],
+            [1 / 3, 2 / 3, 0.25],
+            [0.0, 0.0, 0.75],
+            [2 / 3, 1 / 3, 0.75],
+        ],
+        cell=[
+            [lattice, 0.0, 0.0],
+            [0.5 * lattice, 0.5 * 3 ** 0.5 * lattice, 0.0],
+            [0.0, 0.0, 18.0],
+        ],
+        pbc=[True, True, False],
+    )
+    port = find_free_port()
+    editor = view(
+        atoms,
+        notebook=True,
+        block=False,
+        port=port,
+        viz_only=False,
+        close_on_disconnect=False,
+    )
+    try:
+        with sync_playwright() as playwright:
+            try:
+                browser = playwright.chromium.launch(headless=True)
+            except PlaywrightError as exc:
+                pytest.skip(f"Playwright Chromium is not installed: {exc}")
+            page = browser.new_page(viewport={"width": 1440, "height": 900})
+            page.goto(f"http://127.0.0.1:{port}/?session_id={editor.session_id}")
+            page.wait_for_function("window.v_aseAI && window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 4")
+
+            proposal = page.evaluate("""async () => {
+                const capabilities = await window.v_aseAI.capabilities();
+                const state = await window.v_aseAI.apply({
+                    operation: {
+                        name: 'rotate-to-commensurate',
+                        indices: [0, 1],
+                        axis: 'Z',
+                        angleDeg: 21.2,
+                        pivot: 'com',
+                        strainTolerance: 0.01,
+                        maxIndex: 32,
+                        maxAreaRatio: 16,
+                        maxAngleDifferenceDeg: 2,
+                        showAtoms: true,
+                        applyConstraints: true
+                    }
+                });
+                return {capabilities, state};
+            }""")
+            assert {
+                "rotate-to-commensurate",
+                "apply-commensurate-cell",
+                "dismiss-commensurate-cell",
+            }.issubset(proposal["capabilities"]["operations"])
+            commensurate = proposal["state"]["analysis"]["commensurateProposal"]
+            assert commensurate["candidate"]["area_ratio"] == 7
+            assert "√7 × √7" in commensurate["candidate"]["target_notation"]
+            assert commensurate["coreAtomCount"] == 28
+            assert commensurate["previewAtomCount"] > 28
+            assert commensurate["paddingCells"] >= 2
+            assert commensurate["materializationSupported"] is True
+
+            applied = page.evaluate("""async () => await window.v_aseAI.apply({
+                operation: 'apply-commensurate-cell'
+            })""")
+            assert applied["atomCount"] == 28
+            assert applied["analysis"]["commensurateProposal"] is None
+            assert abs(np.linalg.det(np.asarray(applied["cell"]))) == pytest.approx(
+                7 * abs(np.linalg.det(np.asarray(atoms.cell.array))),
+                rel=1e-7,
+            )
+            browser.close()
+    finally:
+        editor.close()
+
+
+def test_host_guest_commensurate_and_registry_map_complete_in_one_live_document(
+    tmp_path,
+    monkeypatch,
+):
+    lattice = 2.46
+    host_cell = np.asarray([
+        [lattice, 0.0, 0.0],
+        [0.5 * lattice, 0.5 * 3 ** 0.5 * lattice, 0.0],
+        [0.0, 0.0, 18.0],
+    ])
+    guest_cell = host_cell.copy()
+    guest_cell[:2] *= 2.50 / 2.46
+    host = Atoms(
+        "C2",
+        positions=[[0, 0, 0], [1.23, 0.71014083, 0]],
+        cell=host_cell,
+        pbc=[True, True, False],
+    )
+    guest = Atoms(
+        "BN",
+        positions=[[0, 0, 0], [1.25, 0.72168784, 0]],
+        cell=guest_cell,
+        pbc=[True, True, False],
+    )
+    set_atom_labels(guest, ["B_guest", "N_guest"])
+    write(tmp_path / "hbn-guest.extxyz", guest)
+    monkeypatch.chdir(tmp_path)
+
+    port = find_free_port()
+    editor = view(
+        host,
+        notebook=True,
+        block=False,
+        port=port,
+        viz_only=False,
+        close_on_disconnect=False,
+    )
+    try:
+        with sync_playwright() as playwright:
+            try:
+                browser = playwright.chromium.launch(headless=True)
+            except PlaywrightError as exc:
+                pytest.skip(f"Playwright Chromium is not installed: {exc}")
+            page = browser.new_page(viewport={"width": 1440, "height": 900})
+            page.goto(f"http://127.0.0.1:{port}/?session_id={editor.session_id}")
+            page.wait_for_function(
+                "window.v_aseAI && window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 2"
+            )
+
+            cells_only = page.evaluate("""async () => {
+                await window.v_aseAI.apply({
+                    operation: {
+                        name: 'load-commensurate-guest',
+                        path: 'hbn-guest.extxyz',
+                        strainTolerance: 0.02,
+                        maxAreaRatio: 4,
+                        angleDeg: 0,
+                        showAtoms: false
+                    }
+                });
+                const app = window.__ASE_APP__;
+                const state = await window.v_aseAI.describe();
+                return {
+                    state,
+                    proposal: app.state.commensurateProposal?.data,
+                    hostCells: app.renderer.commensurateSupercellGroup.children
+                        .filter(child => child.userData?.commensurateHostCell).length,
+                    guestCells: app.renderer.commensurateSupercellGroup.children
+                        .filter(child => child.userData?.commensurateGuestCell).length,
+                    commonCells: app.renderer.commensurateSupercellGroup.children
+                        .filter(child => child.userData?.commensurateSuggestedCell).length,
+                    hostGrid: app.renderer.commensurateSupercellGroup.children
+                        .filter(child => child.userData?.commensurateHostPrimitiveGrid).length,
+                    guestGrid: app.renderer.commensurateSupercellGroup.children
+                        .filter(child => child.userData?.commensurateGuestPrimitiveGrid).length,
+                    hostVectors: app.renderer.commensurateSupercellGroup.children
+                        .filter(child => child.userData?.commensurateHostPrimitiveVector).length,
+                    guestVectors: app.renderer.commensurateSupercellGroup.children
+                        .filter(child => child.userData?.commensurateGuestPrimitiveVector).length,
+                    previewAtoms: Number(app.renderer.domElement.dataset.commensuratePreviewAtoms),
+                    selectionOutlinesVisible: app.renderer.selectionOutlines.visible,
+                    showAtomsChecked: document.getElementById('chk-commensurate-show-atoms')
+                        ?.checked,
+                    gap: Number(document.getElementById('commensurate-guest-gap').value),
+                    modeControlType: document.getElementById('commensurate-mode').type,
+                    plotReady: Boolean(document.querySelector('#commensurate-plot .plotly')),
+                    plot: (() => {
+                        const plot = document.querySelector('#commensurate-plot');
+                        return {
+                            type: plot?.data?.[0]?.type,
+                            layers: (plot?.data || []).filter(
+                                trace => trace.meta?.role === 'area-layer'
+                            ).length,
+                            roles: (plot?.data || [])
+                                .map(trace => trace.meta?.role)
+                                .filter(Boolean),
+                            projection: plot?.layout?.scene?.camera?.projection?.type,
+                            eye: plot?.layout?.scene?.camera?.eye,
+                            aspect: plot?.layout?.scene?.aspectratio
+                        };
+                    })()
+                };
+            }""")
+            assert cells_only["state"]["analysis"]["commensurate"]["mode"] == "host-guest"
+            assert cells_only["state"]["analysis"]["commensurate"]["guest"]["natoms"] == 2
+            assert cells_only["proposal"]["preview"]["include_atoms"] is False
+            assert cells_only["proposal"]["candidate"]["host_area_ratio"] == 1
+            assert cells_only["proposal"]["candidate"]["guest_area_ratio"] == 1
+            assert cells_only["proposal"]["candidate"]["total_atom_count"] == 4
+            assert cells_only["hostCells"] == 1
+            assert cells_only["guestCells"] == 1
+            assert cells_only["commonCells"] == 1
+            assert cells_only["hostGrid"] == 1
+            assert cells_only["guestGrid"] == 1
+            assert cells_only["hostVectors"] == 2
+            assert cells_only["guestVectors"] == 2
+            assert cells_only["previewAtoms"] == 0
+            assert cells_only["selectionOutlinesVisible"] is False
+            assert cells_only["showAtomsChecked"] is False
+            assert cells_only["gap"] == pytest.approx(3.0)
+            np.testing.assert_allclose(
+                cells_only["proposal"]["preview"]["guest_offset"][:2],
+                [0.0, 0.0],
+                atol=0.0,
+            )
+            assert cells_only["proposal"]["preview"]["guest_offset"][2] == pytest.approx(3.0)
+            assert cells_only["modeControlType"] == "hidden"
+            assert cells_only["plotReady"] is True
+            assert cells_only["plot"]["type"] == "surface"
+            assert "angle-area-floor" in cells_only["plot"]["roles"]
+            assert "candidate-stems" not in cells_only["plot"]["roles"]
+            assert "exact-symmetry-periods" in cells_only["plot"]["roles"]
+            assert "commensurate-candidates" in cells_only["plot"]["roles"]
+            assert "current-angle-plane" in cells_only["plot"]["roles"]
+            assert cells_only["plot"]["projection"] == "perspective"
+            assert cells_only["plot"]["eye"]["y"] < -1.0
+            assert cells_only["plot"]["aspect"]["x"] > cells_only["plot"]["aspect"]["y"]
+            assert cells_only["plot"]["aspect"]["x"] > cells_only["plot"]["aspect"]["z"]
+            assert page.locator("#commensurate-plot-view").is_visible()
+            assert page.locator("#btn-analysis-export").get_attribute("aria-label") == (
+                "Save graph data as CSV"
+            )
+
+            page.select_option("#commensurate-plot-view", "stradi-2d")
+            page.wait_for_function("""() => {
+                const plot = document.querySelector('#commensurate-plot');
+                return plot?.data?.[0]?.type === 'scatter';
+            }""")
+            paper_projection = page.evaluate("""() => {
+                const plot = document.querySelector('#commensurate-plot');
+                return {
+                    x: plot.data[0].x[0],
+                    y: plot.data[0].y[0],
+                    view: document.getElementById('commensurate-plot-view').value,
+                    xTitle: typeof plot.layout.xaxis?.title === 'string'
+                        ? plot.layout.xaxis.title
+                        : plot.layout.xaxis?.title?.text,
+                    yTitle: typeof plot.layout.yaxis?.title === 'string'
+                        ? plot.layout.yaxis.title
+                        : plot.layout.yaxis?.title?.text
+                };
+            }""")
+            assert paper_projection["view"] == "stradi-2d"
+            assert paper_projection["xTitle"] == "mean |strain| / %"
+            assert paper_projection["yTitle"] == "atoms in common cell"
+            assert paper_projection["x"] >= 0
+            assert paper_projection["y"] == 4
+
+            atom_preview = page.evaluate("""async () => {
+                await window.v_aseAI.apply({
+                    operation: {
+                        name: 'calculate-commensurate',
+                        mode: 'host-guest',
+                        strainTolerance: 0.02,
+                        maxAreaRatio: 4,
+                        angleDeg: 0,
+                        gap: 4.25,
+                        showAtoms: true
+                    }
+                });
+                const app = window.__ASE_APP__;
+                const csv = await window.v_aseAI.export({format: 'commensurate-csv'});
+                const preview = app.state.commensurateProposal?.data?.preview;
+                const pairs = app.renderer.commensuratePreviewBondPairs(preview);
+                const components = preview?.components || [];
+                return {
+                    previewAtoms: Number(app.renderer.domElement.dataset.commensuratePreviewAtoms),
+                    previewBonds: Number(app.renderer.domElement.dataset.commensuratePreviewBonds),
+                    gap: Number(document.getElementById('commensurate-guest-gap').value),
+                    guestOffset: app.state.commensurateProposal?.data?.preview?.guest_offset,
+                    crossComponentBonds: pairs.filter(
+                        ([first, second]) => components[first] !== components[second]
+                    ).length,
+                    hostBonds: pairs.filter(
+                        ([first, second]) => components[first] === 'host'
+                            && components[second] === 'host'
+                    ).length,
+                    guestBonds: pairs.filter(
+                        ([first, second]) => components[first] === 'guest'
+                            && components[second] === 'guest'
+                    ).length,
+                    csv: atob(csv.dataUrl.split(',')[1])
+                };
+            }""")
+            assert atom_preview["previewAtoms"] > 4
+            assert atom_preview["previewBonds"] > 0
+            assert atom_preview["gap"] == pytest.approx(4.25)
+            assert atom_preview["guestOffset"][2] == pytest.approx(4.25)
+            assert atom_preview["crossComponentBonds"] == 0
+            assert atom_preview["hostBonds"] > 0
+            assert atom_preview["guestBonds"] > 0
+            assert "10.1016/j.cpc.2015.08.038" in atom_preview["csv"]
+            assert "host_matrix" in atom_preview["csv"]
+            assert "mean_absolute_strain" in atom_preview["csv"]
+            assert "total_atom_count" in atom_preview["csv"]
+
+            analyzed = page.evaluate("""async () => {
+                await window.v_aseAI.apply({mode: 'edit'});
+                await window.v_aseAI.apply({operation: 'apply-commensurate-cell'});
+                await window.v_aseAI.apply({
+                    operation: {
+                        name: 'calculate-registry-map',
+                        indices: [2, 3],
+                        metric: 'short-contact',
+                        gridX: 8,
+                        gridY: 6
+                    }
+                });
+                const state = await window.v_aseAI.describe();
+                const csv = await window.v_aseAI.export({format: 'registry-csv'});
+                const app = window.__ASE_APP__;
+                return {
+                    state,
+                    csv: atob(csv.dataUrl.split(',')[1]),
+                    plotReady: Boolean(document.querySelector('#registry-plot .plotly')),
+                    activePlot: app.state.activeAnalysisPlot,
+                    plotDomain: {
+                        xRange: document.getElementById('registry-plot')?.layout?.xaxis?.range,
+                        yRange: document.getElementById('registry-plot')?.layout?.yaxis?.range,
+                        xConstraint: document.getElementById('registry-plot')?.layout?.xaxis?.constrain,
+                        yConstraint: document.getElementById('registry-plot')?.layout?.yaxis?.constrain,
+                        yScaleAnchor: document.getElementById('registry-plot')?.layout?.yaxis?.scaleanchor,
+                        traceRoles: (document.getElementById('registry-plot')?.data || [])
+                            .map(trace => trace.meta?.role)
+                    },
+                    exportLabel: document.getElementById('btn-analysis-export')?.getAttribute('aria-label')
+                };
+            }""")
+            assert analyzed["state"]["atomCount"] == 4
+            registry = analyzed["state"]["analysis"]["registryMap"]
+            assert registry["grid"] == [8, 6]
+            assert registry["selectedIndices"] == [2, 3]
+            assert registry["periodicAxes"] == [0, 1]
+            assert analyzed["plotReady"] is True
+            assert analyzed["activePlot"] == "registry"
+            assert analyzed["plotDomain"]["xRange"][1] > analyzed["plotDomain"]["xRange"][0]
+            assert analyzed["plotDomain"]["yRange"][1] > analyzed["plotDomain"]["yRange"][0]
+            assert analyzed["plotDomain"]["xConstraint"] == "domain"
+            assert analyzed["plotDomain"]["yConstraint"] == "domain"
+            assert analyzed["plotDomain"]["yScaleAnchor"] == "x"
+            assert {
+                "registry-score",
+                "host-reference-cell",
+                "host-reference-basis",
+                "registry-current",
+                "registry-current-vector",
+            }.issubset(set(analyzed["plotDomain"]["traceRoles"]))
+            assert analyzed["exportLabel"] == "Save graph data as CSV"
+            assert (
+                "x_fractional,y_fractional,dx_angstrom,dy_angstrom,dz_angstrom,value"
+                in analyzed["csv"]
+            )
+
+            registry_mode = page.evaluate("""async () => {
+                const capabilities = await window.v_aseAI.capabilities();
+                const app = window.__ASE_APP__;
+                const before = app.state.atoms.positions.map(position => [...position]);
+                const cellBefore = app.state.atoms.cell.map(vector => [...vector]);
+                await window.v_aseAI.apply({
+                    operation: {
+                        name: 'start-registry-relaxation',
+                        indices: [2, 3],
+                        hkl: [0, 0, 1]
+                    }
+                });
+                const constrained = app.constrainMoveToRegistryPlane(
+                    app.renderer.controls.target.clone().set(0.4, -0.2, 1.7)
+                ).toArray();
+                await window.v_aseAI.apply({
+                    operation: {
+                        name: 'set-registry-translation',
+                        coordinates: [0.25, -0.20]
+                    }
+                });
+                const state = await window.v_aseAI.describe();
+                const after = app.state.atoms.positions.map(position => [...position]);
+                return {
+                    operations: capabilities.operations,
+                    relaxation: state.analysis.registryRelaxation,
+                    selected: state.selection.map(item => item.index),
+                    constrained,
+                    cellBefore,
+                    cellAfter: app.state.atoms.cell,
+                    hostBefore: before.slice(0, 2),
+                    hostAfter: after.slice(0, 2),
+                    selectedDeltaBefore: before[3].map((value, axis) => value - before[2][axis]),
+                    selectedDeltaAfter: after[3].map((value, axis) => value - after[2][axis])
+                };
+            }""")
+            assert {
+                "start-registry-relaxation",
+                "set-registry-translation",
+                "run-registry-relaxation",
+                "stop-registry-relaxation",
+                "finish-registry-relaxation",
+                "cancel-registry-relaxation",
+            }.issubset(registry_mode["operations"])
+            assert registry_mode["relaxation"]["selected_indices"] == [2, 3]
+            assert registry_mode["relaxation"]["hkl"] == [0, 0, 1]
+            assert registry_mode["relaxation"]["translation_coordinates"] == pytest.approx(
+                [0.25, -0.20]
+            )
+            assert registry_mode["selected"] == [2, 3]
+            assert registry_mode["constrained"][2] == pytest.approx(0.0, abs=1e-12)
+            np.testing.assert_allclose(registry_mode["cellAfter"], registry_mode["cellBefore"])
+            np.testing.assert_allclose(registry_mode["hostAfter"], registry_mode["hostBefore"])
+            np.testing.assert_allclose(
+                registry_mode["selectedDeltaAfter"],
+                registry_mode["selectedDeltaBefore"],
+            )
+
+            page.evaluate("""async () => {
+                await window.v_aseAI.apply({
+                    operation: {
+                        name: 'run-registry-relaxation',
+                        fmax: 1000,
+                        steps: 2
+                    }
+                });
+            }""")
+            page.wait_for_function(
+                "!window.__ASE_APP__.state.registryRelaxation?.is_relaxing",
+                timeout=10_000,
+            )
+            timeline = page.evaluate("""() => ({
+                kind: window.__ASE_APP__.state.relaxTrajectory.kind,
+                active: window.__ASE_APP__.state.relaxTrajectory.active,
+                frames: window.__ASE_APP__.state.relaxTrajectory.frames.length,
+                mode: window.__ASE_APP__.state.registryRelaxation
+            })""")
+            assert timeline["kind"] == "registry"
+            assert timeline["active"] is True
+            assert timeline["frames"] >= 1
+            assert timeline["mode"]["status"] in {"finished", "stopped", "converged"}
+
+            closed_mode = page.evaluate("""async () => {
+                await window.v_aseAI.apply({operation: 'finish-registry-relaxation'});
+                return {
+                    mode: window.__ASE_APP__.state.registryRelaxation,
+                    timeline: window.__ASE_APP__.state.relaxTrajectory
+                };
+            }""")
+            assert closed_mode["mode"] is None
+            assert closed_mode["timeline"]["active"] is False
+            assert closed_mode["timeline"]["kind"] is None
+            browser.close()
+    finally:
+        editor.close()
+
+
+def test_visual_com_origin_and_cartesian_rigid_translation_share_one_live_ui():
+    atoms = Atoms(
+        "HOCu",
+        positions=[
+            [1.0, 1.0, 1.0],
+            [3.0, 2.0, 2.0],
+            [7.0, 5.0, 4.0],
+        ],
+        pbc=False,
+    )
+    port = find_free_port()
+    editor = view(
+        atoms,
+        notebook=True,
+        block=False,
+        port=port,
+        viz_only=False,
+        close_on_disconnect=False,
+    )
+    try:
+        with sync_playwright() as playwright:
+            try:
+                browser = playwright.chromium.launch(headless=True)
+            except PlaywrightError as exc:
+                pytest.skip(f"Playwright Chromium is not installed: {exc}")
+            page = browser.new_page(viewport={"width": 1280, "height": 840})
+            page.goto(f"http://127.0.0.1:{port}/?session_id={editor.session_id}")
+            page.wait_for_function("window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 3")
+
+            centered = page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                app.clearAtomSelection();
+                app.addSelectionReference(0);
+                app.addSelectionReference(1);
+                app.updateSelectionVisuals();
+                const center = app.selectionCenterOfMass().toArray();
+                app.centerSelectionAtOrigin();
+                return {
+                    masses: app.state.atoms.masses,
+                    center,
+                    translation: app.state.display.translation,
+                    mode: app.state.display.translationMode,
+                    buttonLabel: document.getElementById('btn-selection-to-origin')?.textContent.trim()
+                };
+            }""")
+            expected_mass = atoms.get_masses()[:2]
+            expected_center = np.average(atoms.positions[:2], axis=0, weights=expected_mass)
+            np.testing.assert_allclose(centered["masses"], atoms.get_masses())
+            np.testing.assert_allclose(centered["center"], expected_center, atol=1e-12)
+            np.testing.assert_allclose(centered["translation"], -expected_center, atol=1e-12)
+            assert centered["mode"] == "cartesian"
+            assert centered["buttonLabel"] == "Selection COM to Origin"
+
+            rigid = page.evaluate("""async () => {
+                const app = window.__ASE_APP__;
+                const before = app.state.atoms.positions.map(position => [...position]);
+                await window.v_aseAI.apply({
+                    operation: {
+                        name: 'start-registry-relaxation',
+                        indices: [0, 1],
+                        space: 'cartesian',
+                        maxDisplacement: 2.5
+                    }
+                });
+                const unconstrained = app.constrainMoveToRegistryPlane(
+                    app.renderer.camera.position.clone().set(0.4, -0.3, 0.8)
+                ).toArray();
+                await window.v_aseAI.apply({
+                    operation: {
+                        name: 'set-registry-translation',
+                        coordinates: [0.4, -0.3, 0.8]
+                    }
+                });
+                const after = app.state.atoms.positions.map(position => [...position]);
+                const mode = (await window.v_aseAI.describe()).analysis.registryRelaxation;
+                await window.v_aseAI.apply({operation: 'cancel-registry-relaxation'});
+                return {
+                    before,
+                    after,
+                    mode,
+                    unconstrained,
+                    spaceControl: document.getElementById('registry-translation-space')?.value,
+                    planeHidden: document.getElementById('registry-plane-controls')?.classList.contains('hidden'),
+                    cartesianHidden: document.getElementById('registry-cartesian-controls')?.classList.contains('hidden')
+                };
+            }""")
+            assert rigid["mode"]["translation_space"] == "cartesian"
+            assert rigid["mode"]["degrees_of_freedom"] == 3
+            assert rigid["mode"]["coordinate_basis"] == "cartesian-angstrom"
+            assert rigid["mode"]["max_displacement_angstrom"] == pytest.approx(2.5)
+            assert rigid["mode"]["translation_coordinates"] == pytest.approx([0.4, -0.3, 0.8])
+            assert rigid["unconstrained"] == pytest.approx([0.4, -0.3, 0.8])
+            np.testing.assert_allclose(rigid["after"][2], rigid["before"][2], atol=0.0)
+            np.testing.assert_allclose(
+                np.asarray(rigid["after"][1]) - np.asarray(rigid["after"][0]),
+                np.asarray(rigid["before"][1]) - np.asarray(rigid["before"][0]),
+                atol=1e-12,
+            )
+            np.testing.assert_allclose(
+                np.asarray(rigid["after"][:2]) - np.asarray(rigid["before"][:2]),
+                np.tile([0.4, -0.3, 0.8], (2, 1)),
+                atol=1e-12,
+            )
+            assert rigid["spaceControl"] == "cartesian"
+            assert rigid["planeHidden"] is True
+            assert rigid["cartesianHidden"] is False
+            browser.close()
+    finally:
+        editor.close()
+
+
+def test_view_mode_loads_a_guest_with_an_editable_three_angstrom_gap(
+    tmp_path,
+    monkeypatch,
+):
+    lattice = 2.46
+    cell = np.asarray([
+        [lattice, 0.0, 0.0],
+        [0.5 * lattice, 0.5 * 3 ** 0.5 * lattice, 0.0],
+        [0.0, 0.0, 18.0],
+    ])
+    host = Atoms(
+        "C2",
+        positions=[[0, 0, 1.0], [1.23, 0.71014083, 1.0]],
+        cell=cell,
+        pbc=[True, True, False],
+    )
+    guest = Atoms(
+        "BN",
+        positions=[[0, 0, -0.4], [1.23, 0.71014083, 0.6]],
+        cell=cell,
+        pbc=[True, True, False],
+    )
+    write(tmp_path / "guest.extxyz", guest)
+    monkeypatch.chdir(tmp_path)
+
+    port = find_free_port()
+    editor = view(
+        host,
+        notebook=True,
+        block=False,
+        port=port,
+        viz_only=True,
+        close_on_disconnect=False,
+    )
+    try:
+        with sync_playwright() as playwright:
+            try:
+                browser = playwright.chromium.launch(headless=True)
+            except PlaywrightError as exc:
+                pytest.skip(f"Playwright Chromium is not installed: {exc}")
+            page = browser.new_page(viewport={"width": 1440, "height": 900})
+            page.goto(f"http://127.0.0.1:{port}/?session_id={editor.session_id}")
+            page.wait_for_function(
+                "window.v_aseAI && window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 2"
+            )
+            _expand_inspector(page)
+            _select_structure_section(page, "transform")
+            assert page.locator('details[data-panel="transform"]').is_visible()
+            assert page.locator('#chk-commensurate-guide').is_visible()
+            assert not page.locator('#btn-rotate-selection-exact').is_visible()
+
+            result = page.evaluate("""async () => {
+                await window.v_aseAI.apply({
+                    operation: {
+                        name: 'load-commensurate-guest',
+                        path: 'guest.extxyz',
+                        strainTolerance: 0.01,
+                        maxAreaRatio: 4,
+                        angleDeg: 0,
+                        showAtoms: false
+                    }
+                });
+                const app = window.__ASE_APP__;
+                const initial = {
+                    gap: Number(document.getElementById('commensurate-guest-gap').value),
+                    offset: app.state.commensurateProposal.data.preview.guest_offset,
+                    vizOnly: app.state.vizOnly,
+                    angleVisible: Boolean(document.getElementById('commensurate-guest-angle')?.offsetParent)
+                };
+                const gap = document.getElementById('commensurate-guest-gap');
+                gap.value = '4.5';
+                gap.dispatchEvent(new Event('input', {bubbles: true}));
+                return initial;
+            }""")
+            page.wait_for_function("""() => {
+                const offset = window.__ASE_APP__.state.commensurateProposal?.data?.preview?.guest_offset;
+                return Array.isArray(offset) && Math.abs(Number(offset[2]) - 5.9) < 1e-8;
+            }""")
+            updated = page.evaluate("""() => ({
+                gap: Number(document.getElementById('commensurate-guest-gap').value),
+                offset: window.__ASE_APP__.state.commensurateProposal.data.preview.guest_offset,
+                errorToasts: [...document.querySelectorAll('.toast.error')]
+                    .map(node => node.textContent)
+            })""")
+            assert result["vizOnly"] is True
+            assert result["gap"] == pytest.approx(3.0)
+            # host max z=1.0, guest min z=-0.4: offset z=1.0-(-0.4)+gap
+            assert result["offset"][2] == pytest.approx(4.4)
+            assert result["angleVisible"] is True
+            assert updated["gap"] == pytest.approx(4.5)
+            assert updated["offset"][2] == pytest.approx(5.9)
+            assert updated["errorToasts"] == []
+            browser.close()
+    finally:
+        editor.close()
+
+
+def test_repository_host_guest_fixture_matches_in_the_live_browser(monkeypatch):
+    fixture = Path(__file__).resolve().parents[1] / "examples" / "commensurate_host_guest"
+    expected = json.loads((fixture / "expected.json").read_text())
+    reference = expected["expected_smallest_match"]
+    host = read(fixture / expected["host_file"])
+    monkeypatch.chdir(fixture)
+
+    port = find_free_port()
+    editor = view(
+        host,
+        notebook=True,
+        block=False,
+        port=port,
+        viz_only=False,
+        close_on_disconnect=False,
+    )
+    try:
+        with sync_playwright() as playwright:
+            try:
+                browser = playwright.chromium.launch(headless=True)
+            except PlaywrightError as exc:
+                pytest.skip(f"Playwright Chromium is not installed: {exc}")
+            page = browser.new_page(viewport={"width": 1440, "height": 900})
+            page.goto(f"http://127.0.0.1:{port}/?session_id={editor.session_id}")
+            page.wait_for_function(
+                "window.v_aseAI && window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 2"
+            )
+
+            result = page.evaluate("""async () => {
+                await window.v_aseAI.apply({
+                    operation: {
+                        name: 'load-commensurate-guest',
+                        path: 'cu111_guest.extxyz',
+                        strainTolerance: 0.01,
+                        maxAreaRatio: 64,
+                        showAtoms: false
+                    }
+                });
+                const app = window.__ASE_APP__;
+                const proposal = app.state.commensurateProposal?.data;
+                document.getElementById('commensurate-plot-view').value = 'stradi-2d';
+                document.getElementById('commensurate-plot-view').dispatchEvent(
+                    new Event('change', {bubbles: true})
+                );
+                await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+                const plot = document.querySelector('#commensurate-plot');
+                return {
+                    candidate: proposal?.candidate,
+                    guestAtoms: (await window.v_aseAI.describe()).analysis.commensurate.guest.natoms,
+                    plotType: plot?.data?.[0]?.type,
+                    plotX: plot?.data?.[0]?.x || [],
+                    plotY: plot?.data?.[0]?.y || [],
+                    hostCells: app.renderer.commensurateSupercellGroup.children
+                        .filter(child => child.userData?.commensurateHostCell).length,
+                    guestCells: app.renderer.commensurateSupercellGroup.children
+                        .filter(child => child.userData?.commensurateGuestCell).length,
+                    commonCells: app.renderer.commensurateSupercellGroup.children
+                        .filter(child => child.userData?.commensurateSuggestedCell).length
+                };
+            }""")
+            candidate = result["candidate"]
+            assert result["guestAtoms"] == 1
+            assert abs(candidate["angle_deg"]) == pytest.approx(
+                reference["absolute_angle_deg"], abs=1e-8
+            )
+            assert candidate["host_matrix"] == reference["host_matrix"]
+            assert candidate["guest_matrix"] == reference["guest_matrix"]
+            assert candidate["max_principal_strain"] == pytest.approx(
+                reference["maximum_principal_strain"], abs=1e-12
+            )
+            assert candidate["mean_absolute_strain"] == pytest.approx(
+                reference["mean_absolute_strain"], abs=1e-12
+            )
+            assert candidate["total_atom_count"] == reference["total_atom_count"]
+            assert result["plotType"] == "scatter"
+            matching_plot_rows = [
+                x
+                for x, y in zip(result["plotX"], result["plotY"])
+                if int(y) == reference["total_atom_count"]
+            ]
+            assert any(
+                float(value) == pytest.approx(
+                    reference["mean_absolute_strain"] * 100.0,
+                    abs=1e-8,
+                )
+                for value in matching_plot_rows
+            )
+            assert result["hostCells"] == 1
+            assert result["guestCells"] == 1
+            assert result["commonCells"] == 1
             browser.close()
     finally:
         editor.close()
@@ -2147,7 +5456,7 @@ def test_export_preview_is_screen_fixed_and_matches_the_png_render():
                 const camera = app.renderer.camera;
                 camera.zoom *= 0.62;
                 camera.updateProjectionMatrix();
-                app.renderer.requestRender();
+                app.completeCameraViewChange('test-render-area-follow');
                 await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
                 const frame = document.getElementById('export-preview-frame').getBoundingClientRect();
                 return {
@@ -2356,6 +5665,298 @@ def test_export_preview_is_screen_fixed_and_matches_the_png_render():
             page.click('#btn-preview-image')
             page.wait_for_function("window.__ASE_APP__.renderer.domElement.dataset.exportPreview === 'false'")
             assert page.locator('#export-preview-frame').is_hidden()
+            browser.close()
+    finally:
+        editor.close()
+
+
+def test_render_area_keeps_an_independent_camera_and_maps_selection_to_its_gate():
+    atoms = Atoms(
+        "C3",
+        positions=[[-3.0, -1.0, 0.0], [0.0, 2.0, 0.0], [3.0, -1.0, 0.0]],
+        cell=[12.0, 12.0, 8.0],
+        pbc=False,
+    )
+    port = find_free_port()
+    editor = view(
+        atoms,
+        notebook=True,
+        block=False,
+        port=port,
+        viz_only=False,
+        close_on_disconnect=False,
+    )
+    try:
+        with sync_playwright() as playwright:
+            try:
+                browser = playwright.chromium.launch(headless=True)
+            except PlaywrightError as exc:
+                pytest.skip(f"Playwright Chromium is not installed: {exc}")
+            page = browser.new_page(viewport={"width": 1280, "height": 820})
+            page.goto(f"http://127.0.0.1:{port}/?session_id={editor.session_id}")
+            page.wait_for_function("window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 3")
+            _expand_inspector(page)
+            page.click('[data-inspector-group="export"]')
+            page.fill('#image-width', '1200')
+            page.fill('#image-height', '700')
+            page.click('#btn-preview-image')
+            page.wait_for_function("window.__ASE_APP__.state.exportPreviewEnabled === true")
+
+            configured = page.evaluate("""async () => {
+                const app = window.__ASE_APP__;
+                const renderer = app.renderer;
+                const target = renderer.controls.target.clone();
+                const distance = Math.max(renderer.camera.position.distanceTo(target), 8);
+                renderer.camera.position.copy(target).add(
+                    new renderer.camera.position.constructor(0, 0, distance)
+                );
+                renderer.camera.up.set(0, 1, 0);
+                renderer.camera.lookAt(target);
+                app.completeCameraViewChange('render-area-test-top');
+                app.state.exportPreviewFollowViewport = false;
+                app.captureRenderAreaCamera({syncPreview: true});
+                app.syncRenderAreaControls();
+                await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+                const saved = structuredClone(app.state.exportPreviewCamera);
+
+                renderer.camera.position.copy(target).add(
+                    new renderer.camera.position.constructor(distance, 0, 0)
+                );
+                renderer.camera.up.set(0, 0, 1);
+                renderer.camera.lookAt(target);
+                app.completeCameraViewChange('render-area-test-side');
+                await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+
+                const canvas = renderer.domElement.getBoundingClientRect();
+                const frame = renderer.lastExportPreview.frameRect;
+                const world = renderer.atomMeshByIndex.get(0).position.clone();
+                const projected = world.project(renderer.exportPreviewCamera);
+                return {
+                    saved,
+                    current: app.currentCameraForExport(),
+                    preview: structuredClone(app.state.exportPreviewCamera),
+                    pointer: [
+                        canvas.left + frame.left + (projected.x + 1) * 0.5 * frame.width,
+                        canvas.top + frame.top + (1 - projected.y) * 0.5 * frame.height,
+                    ],
+                    frame: [
+                        canvas.left + frame.left,
+                        canvas.top + frame.top,
+                        frame.width,
+                        frame.height,
+                    ],
+                    context: renderer.interactionProjectionContext(
+                        canvas.left + frame.left + frame.width * 0.5,
+                        canvas.top + frame.top + frame.height * 0.5
+                    ).kind,
+                };
+            }""")
+            assert configured["context"] == "render-area"
+            assert configured["preview"] == configured["saved"]
+            assert configured["current"]["position"] != pytest.approx(
+                configured["saved"]["position"], abs=1e-8
+            )
+            left, top, width, height = configured["frame"]
+            pointer_x, pointer_y = configured["pointer"]
+            assert left <= pointer_x <= left + width
+            assert top <= pointer_y <= top + height
+
+            page.mouse.click(pointer_x, pointer_y)
+            page.wait_for_function("JSON.stringify([...window.__ASE_APP__.state.selected]) === '[0]'")
+
+            before_move = page.evaluate("structuredClone(window.__ASE_APP__.state.exportPreviewCamera)")
+            page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                app.setRenderAreaSelected(true);
+                app.renderer.domElement.focus();
+            }""")
+            page.keyboard.press('g')
+            page.keyboard.press('x')
+            page.keyboard.type('1')
+            page.keyboard.press('Enter')
+            page.wait_for_function("window.__ASE_APP__.transform.mode === 'IDLE'")
+            after_move = page.evaluate("""() => ({
+                camera: window.__ASE_APP__.state.exportPreviewCamera,
+                follow: window.__ASE_APP__.state.exportPreviewFollowViewport,
+                selected: window.__ASE_APP__.state.renderAreaSelected,
+            })""")
+            assert after_move["follow"] is False
+            assert after_move["selected"] is True
+            assert after_move["camera"]["position"] == pytest.approx(
+                [before_move["position"][0] + 1, *before_move["position"][1:]],
+                abs=1e-7,
+            )
+            assert after_move["camera"]["target"] == pytest.approx(
+                [before_move["target"][0] + 1, *before_move["target"][1:]],
+                abs=1e-7,
+            )
+            ai_render_area = page.evaluate("""async () => {
+                const result = await window.v_aseAI.apply({
+                    renderArea: {
+                        enabled: true,
+                        followViewport: false,
+                        fromCurrentView: true,
+                    },
+                });
+                const capabilities = await window.v_aseAI.capabilities();
+                return {
+                    renderArea: result.renderArea,
+                    state: capabilities.state,
+                    apply: capabilities.apply,
+                };
+            }""")
+            assert ai_render_area["renderArea"]["enabled"] is True
+            assert ai_render_area["renderArea"]["followViewport"] is False
+            assert len(ai_render_area["renderArea"]["camera"]["position"]) == 3
+            assert "render-area" in ai_render_area["state"]
+            assert "renderArea" in ai_render_area["apply"]
+            browser.close()
+    finally:
+        editor.close()
+
+
+def test_narrow_toolbar_scrolls_instead_of_overlapping_controls():
+    port = find_free_port()
+    editor = view(
+        molecule("H2O"),
+        notebook=True,
+        block=False,
+        port=port,
+        viz_only=True,
+        close_on_disconnect=False,
+    )
+    try:
+        with sync_playwright() as playwright:
+            try:
+                browser = playwright.chromium.launch(headless=True)
+            except PlaywrightError as exc:
+                pytest.skip(f"Playwright Chromium is not installed: {exc}")
+            page = browser.new_page(viewport={"width": 720, "height": 760})
+            page.goto(f"http://127.0.0.1:{port}/?session_id={editor.session_id}")
+            page.wait_for_function("window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 3")
+            layout = page.evaluate("""() => {
+                const bounds = selector => {
+                    const rect = document.querySelector(selector).getBoundingClientRect();
+                    return [rect.left, rect.top, rect.right, rect.bottom, rect.width, rect.height];
+                };
+                const top = document.getElementById('top-bar');
+                const actions = document.querySelector('.action-group');
+                return {
+                    top: bounds('#top-bar'),
+                    logo: bounds('#top-bar .logo'),
+                    mode: bounds('#runtime-mode-switch'),
+                    actions: bounds('.action-group'),
+                    topOverflow: top.scrollWidth - top.clientWidth,
+                    actionOverflow: actions.scrollWidth - actions.clientWidth,
+                    overflowX: getComputedStyle(actions).overflowX,
+                    initialScroll: actions.scrollLeft,
+                };
+            }""")
+            assert layout["topOverflow"] <= 1
+            assert layout["logo"][2] <= layout["mode"][0] + 1
+            assert layout["mode"][2] <= layout["actions"][0] + 1
+            assert layout["actions"][2] <= layout["top"][2] + 1
+            assert layout["actionOverflow"] > 20
+            assert layout["overflowX"] in {"auto", "scroll"}
+
+            action_box = page.locator('.action-group').bounding_box()
+            assert action_box is not None
+            page.mouse.move(
+                action_box["x"] + action_box["width"] * 0.5,
+                action_box["y"] + action_box["height"] * 0.5,
+            )
+            page.mouse.wheel(0, 260)
+            page.wait_for_function(
+                "start => document.querySelector('.action-group').scrollLeft > start",
+                arg=layout["initialScroll"],
+            )
+            browser.close()
+    finally:
+        editor.close()
+
+
+def test_playback_keeps_sun_transform_and_visual_settings_interactive():
+    frames = [
+        Atoms("H2", positions=[[0, 0, 0], [1.0 + offset, 0, 0]], cell=[8, 8, 8], pbc=True)
+        for offset in (0.0, 0.15, 0.30)
+    ]
+    port = find_free_port()
+    editor = view(
+        frames,
+        notebook=True,
+        block=False,
+        port=port,
+        viz_only=False,
+        close_on_disconnect=False,
+    )
+    try:
+        with sync_playwright() as playwright:
+            try:
+                browser = playwright.chromium.launch(headless=True)
+            except PlaywrightError as exc:
+                pytest.skip(f"Playwright Chromium is not installed: {exc}")
+            page = browser.new_page(viewport={"width": 1280, "height": 800})
+            page.goto(f"http://127.0.0.1:{port}/?session_id={editor.session_id}")
+            page.wait_for_function("window.__ASE_APP__?.state?.atoms?.metadata?.frame_count === 3")
+            original = page.evaluate("""async () => {
+                const app = window.__ASE_APP__;
+                app.state.display.lightingMode = 'studio';
+                app.state.display.sunGizmo = true;
+                app.renderer.setLightingOptions(app.state.display);
+                app.setSunSelected('source');
+                document.getElementById('movie-fps').value = '20';
+                await app.startPlayback();
+                return {
+                    position: [...app.state.display.sunPosition],
+                    target: [...app.state.display.sunTarget],
+                };
+            }""")
+            page.wait_for_function("""() => {
+                const app = window.__ASE_APP__;
+                return Boolean(app.state.trajectoryTimer)
+                    && Number(app.state.atoms.metadata.current_frame) !== 0;
+            }""")
+            page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                app.setSunSelected('source');
+                app.renderer.domElement.focus();
+            }""")
+            page.keyboard.press('g')
+            page.keyboard.press('x')
+            page.keyboard.type('1')
+            page.wait_for_timeout(180)
+            assert page.evaluate("""() => ({
+                playing: Boolean(window.__ASE_APP__.state.trajectoryTimer),
+                subject: window.__ASE_APP__.state.transformSubject,
+                mode: window.__ASE_APP__.transform.mode,
+            })""") == {"playing": True, "subject": "sun", "mode": "MOVE"}
+            page.keyboard.press('Enter')
+            page.wait_for_function("window.__ASE_APP__.transform.mode === 'IDLE'")
+
+            page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                app.state.display.labelColors.H = '#2a78c4';
+                app.renderer.setDisplayOptions(app.state.display);
+            }""")
+            page.wait_for_timeout(180)
+            changed = page.evaluate("""() => ({
+                playing: Boolean(window.__ASE_APP__.state.trajectoryTimer),
+                position: window.__ASE_APP__.state.display.sunPosition,
+                target: window.__ASE_APP__.state.display.sunTarget,
+                color: window.__ASE_APP__.renderer.atomVisualColor(0),
+                frame: window.__ASE_APP__.state.atoms.metadata.current_frame,
+            })""")
+            assert changed["playing"] is True
+            assert changed["position"] == pytest.approx(
+                [original["position"][0] + 1, *original["position"][1:]], abs=1e-7
+            )
+            assert changed["target"] == pytest.approx(
+                [original["target"][0] + 1, *original["target"][1:]], abs=1e-7
+            )
+            assert changed["color"].lower() == "#2a78c4"
+            assert changed["frame"] in {0, 1, 2}
+            page.evaluate("window.__ASE_APP__.stopPlayback()")
+            page.wait_for_function("!window.__ASE_APP__.state.trajectoryTimer")
             browser.close()
     finally:
         editor.close()
@@ -3454,16 +7055,24 @@ def test_sidebar_sun_renderer_export_and_periodic_bond_contract():
             page.set_viewport_size({"width": 390, "height": 844})
             page.wait_for_function("document.getElementById('inspector').getBoundingClientRect().width <= 1")
             mobile_collapsed = page.evaluate("""() => {
-                const trigger = document.getElementById('btn-lighting-toggle').getBoundingClientRect();
+                const actions = document.querySelector('.action-group');
+                const triggerElement = document.getElementById('btn-lighting-toggle');
+                triggerElement.scrollIntoView({block: 'nearest', inline: 'nearest'});
+                const trigger = triggerElement.getBoundingClientRect();
                 const handle = document.getElementById('btn-inspector-collapse').getBoundingClientRect();
                 const panel = document.getElementById('inspector').getBoundingClientRect();
-                const actionGroup = document.querySelector('.action-group').getBoundingClientRect();
+                const actionGroup = actions.getBoundingClientRect();
                 return {
                     panelWidth: panel.width,
                     handleRight: handle.right,
                     viewportWidth: window.innerWidth,
+                    triggerLeft: trigger.left,
                     triggerRight: trigger.right,
+                    actionLeft: actionGroup.left,
+                    actionRight: actionGroup.right,
                     handleLeft: handle.left,
+                    actionOverflow: actions.scrollWidth - actions.clientWidth,
+                    actionScroll: actions.scrollLeft,
                     handleOverlap: !(
                         trigger.right <= handle.left ||
                         trigger.left >= handle.right ||
@@ -3483,8 +7092,11 @@ def test_sidebar_sun_renderer_export_and_periodic_bond_contract():
             }""")
             assert mobile_collapsed['panelWidth'] == pytest.approx(0, abs=1)
             assert mobile_collapsed['handleRight'] == pytest.approx(mobile_collapsed['viewportWidth'], abs=1)
+            assert mobile_collapsed['actionOverflow'] > 20
+            assert mobile_collapsed['actionScroll'] > 0
             assert mobile_collapsed['handleOverlap'] is False
-            assert mobile_collapsed['triggerContained'] is True
+            assert mobile_collapsed['triggerLeft'] >= mobile_collapsed['actionLeft'], mobile_collapsed
+            assert mobile_collapsed['triggerRight'] <= mobile_collapsed['actionRight'], mobile_collapsed
             assert mobile_collapsed['headerCenterDelta'] <= 2
             assert mobile_collapsed['handleVerticalCenterDelta'] <= 1.5
 
@@ -3638,13 +7250,24 @@ def test_grid_button_and_ordered_distance_angle_torsion_measurements():
                 }""")
 
             click_atom(0)
+            page.wait_for_function("""() => (
+                document.getElementById('selected-measure').innerText.includes(
+                    'Per-atom properties (5):'
+                )
+            )""")
             one = measurement_state()
             assert one["order"] == ["atom:0"]
             assert one["kind"] == "point"
             assert one["labels"] == ["a1"]
             assert one["references"] == ["0"]
             assert one["connectors"] == 0
-            assert one["detail"] == "a1=#0 H"
+            assert one["detail"].startswith("a1=#0 H")
+            assert "Element: H" in one["detail"]
+            assert "Position (Cartesian): (-3.000000, -1.000000, 0.000000) A" in one["detail"]
+            assert "[ASE] atomic_number = 1" in one["detail"]
+            assert "[ASE] mass = " in one["detail"]
+            assert "[ASE] tag = 0" in one["detail"]
+            assert "5 properties" in one["summary"]
 
             click_atom(1, additive=True)
             two = measurement_state()
@@ -4406,6 +8029,147 @@ def test_15000_atom_view_keeps_material_presets_instanced_and_renders_under_five
         editor.close()
 
 
+def test_label_opacity_updates_instanced_atoms_supercell_2d_and_visual_history():
+    positions = [
+        [float(index % 20), float((index // 20) % 13), 0.0]
+        for index in range(260)
+    ]
+    atoms = Atoms("C260", positions=positions, cell=[24.0, 17.0, 8.0], pbc=True)
+    set_atom_labels(atoms, ["C_faded"] * 130 + ["C_opaque"] * 130)
+    port = find_free_port()
+    editor = view(
+        atoms,
+        notebook=True,
+        block=False,
+        port=port,
+        viz_only=True,
+        close_on_disconnect=False,
+    )
+
+    try:
+        with sync_playwright() as playwright:
+            try:
+                browser = playwright.chromium.launch(headless=True)
+            except PlaywrightError as exc:
+                pytest.skip(f"Playwright Chromium is not installed: {exc}")
+            page = browser.new_page(viewport={"width": 1280, "height": 800})
+            page.goto(f"http://127.0.0.1:{port}/?session_id={editor.session_id}")
+            page.wait_for_function(
+                "window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 260"
+            )
+            _expand_inspector(page)
+            _select_structure_section(page, "appearance")
+            page.evaluate("window.__ASE_APP__.resetHistoryTimeline()")
+            table_metrics = page.locator("#appearance-table").evaluate(
+                "element => ({ clientWidth: element.clientWidth, scrollWidth: element.scrollWidth })"
+            )
+            assert table_metrics["scrollWidth"] > table_metrics["clientWidth"]
+            moving_before = page.locator(
+                '.atom-label-input[data-atom-label="C_faded"]'
+            ).bounding_box()
+            page.locator("#appearance-table").evaluate("element => { element.scrollLeft = 140; }")
+            frozen_mid = page.locator(
+                '.chemical-type-select[data-atom-label="C_faded"]'
+            ).bounding_box()
+            page.locator("#appearance-table").evaluate("element => { element.scrollLeft = 300; }")
+            frozen_after = page.locator(
+                '.chemical-type-select[data-atom-label="C_faded"]'
+            ).bounding_box()
+            moving_after = page.locator(
+                '.atom-label-input[data-atom-label="C_faded"]'
+            ).bounding_box()
+            assert frozen_after["x"] == pytest.approx(frozen_mid["x"], abs=1)
+            assert moving_after["x"] < moving_before["x"] - 150
+            page.evaluate("window.__ASE_APP__.setInspectorWidth(520)")
+            medium_metrics = page.locator("#appearance-table").evaluate(
+                "element => ({ clientWidth: element.clientWidth, scrollWidth: element.scrollWidth })"
+            )
+            assert medium_metrics["scrollWidth"] > medium_metrics["clientWidth"]
+            page.evaluate("window.__ASE_APP__.setInspectorWidth(760)")
+            wide_metrics = page.locator("#appearance-table").evaluate(
+                "element => ({ clientWidth: element.clientWidth, scrollWidth: element.scrollWidth })"
+            )
+            assert wide_metrics["scrollWidth"] > wide_metrics["clientWidth"]
+
+            opacity = page.locator(
+                '.label-opacity-input[data-atom-label="C_faded"]'
+            )
+            opacity.click()
+            opacity.press("Meta+a")
+            opacity.type("0.35", delay=90)
+            opacity.press("Tab")
+            page.wait_for_function("""() => {
+                const app = window.__ASE_APP__;
+                return app.state.display.labelOpacities.C_faded === 0.35
+                    && app.renderer.atomMeshes.children.length === 2;
+            }""")
+            page.wait_for_function("window.__ASE_APP__.undoTimeline.length >= 1")
+
+            state = page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                const groups = app.renderer.atomMeshes.children.map(mesh => ({
+                    opacity: mesh.material.opacity,
+                    transparent: mesh.material.transparent,
+                    depthWrite: mesh.material.depthWrite
+                }));
+                return {
+                    groups,
+                    snapshot: app.designSettingsSnapshot().display.labelOpacities
+                };
+            }""")
+            by_opacity = {
+                round(group["opacity"], 2): group for group in state["groups"]
+            }
+            assert by_opacity[0.35]["transparent"] is True
+            assert by_opacity[0.35]["depthWrite"] is False
+            assert by_opacity[1.0]["transparent"] is False
+            assert state["snapshot"]["C_faded"] == pytest.approx(0.35)
+            assert state["snapshot"]["C_opaque"] == pytest.approx(1.0)
+
+            page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                app.state.display.supercell = [2, 1, 1];
+                app.renderer.setDisplayOptions(app.state.display);
+            }""")
+            page.wait_for_function("""() => (
+                window.__ASE_APP__.renderer.supercellGroup.children
+                    .filter(mesh => mesh.userData.supercellInstanced).length === 2
+            )""")
+            replica_opacities = page.evaluate("""() => (
+                window.__ASE_APP__.renderer.supercellGroup.children
+                    .filter(mesh => mesh.userData.supercellInstanced)
+                    .map(mesh => mesh.material.opacity)
+                    .sort((a, b) => a - b)
+            )""")
+            assert replica_opacities == pytest.approx([0.35, 1.0])
+
+            page.evaluate("""() => {
+                const select = document.querySelector('#atom-display-mode');
+                select.value = '2d';
+                select.dispatchEvent(new Event('change', { bubbles: true }));
+            }""")
+            page.wait_for_function("""() => {
+                const app = window.__ASE_APP__;
+                return app.renderer.atomDisplayMode() === '2d'
+                    && app.renderer.atomMeshes.children.some(
+                        mesh => Math.abs(mesh.material.opacity - 0.35) < 1e-6
+                    );
+            }""")
+
+            page.locator("#app-viewport canvas").focus()
+            page.keyboard.press("Control+z")
+            page.wait_for_function("""() => (
+                window.__ASE_APP__.state.display.atomDisplayMode === '3d'
+            )""")
+            page.keyboard.press("Control+z")
+            page.wait_for_function("""() => (
+                window.__ASE_APP__.state.display.labelOpacities.C_faded === 1
+            )""")
+            browser.close()
+    finally:
+        editor.close()
+
+
 def test_metal_material_has_visible_studio_reflections(tmp_path):
     atoms = Atoms("Cu", positions=[[0.0, 0.0, 0.0]])
     port = find_free_port()
@@ -4640,7 +8404,7 @@ def test_bond_style_thickness_and_color_modes_render_and_persist():
             assert repeated["atomMeshes"] >= 1
             assert repeated["bondMeshes"] == 2
             assert repeated["atomTransparent"] is False
-            assert all(opacity == 1 for opacity in repeated["atomOpacity"])
+            assert all(opacity == pytest.approx(1.0) for opacity in repeated["atomOpacity"])
             assert repeated["exactBaseMaterials"] is True
             assert repeated["selectableChildren"] == 2
             repeated_hover = page.evaluate("""() => {
@@ -4661,7 +8425,12 @@ def test_bond_style_thickness_and_color_modes_render_and_persist():
                 };
                 return {
                     hover: app.selection.pickHover(pointer, renderer.atomMeshes, renderer.supercellGroup),
-                    selectable: app.selection.pick(pointer, renderer.atomMeshes),
+                    selectable: app.selection.pick(
+                        pointer,
+                        renderer.atomMeshes,
+                        renderer.supercellGroup,
+                        true
+                    ),
                     clientX: pointer.clientX,
                     clientY: pointer.clientY,
                 };
@@ -4672,10 +8441,53 @@ def test_bond_style_thickness_and_color_modes_render_and_persist():
                 "cellOffset": [1, 0, 0],
                 "key": "replica:0:1,0,0",
             }
-            assert repeated_hover["selectable"] is None
+            assert repeated_hover["selectable"] == repeated_hover["hover"]
+            selected_base = page.evaluate("""reference => {
+                const app = window.__ASE_APP__;
+                app.clearAtomSelection();
+                app.addSelectionReference(reference);
+                return {
+                    base: [...app.state.selected],
+                    replicas: [...app.state.replicaSelected.keys()],
+                    order: [...app.state.selectionOrder]
+                };
+            }""", repeated_hover["selectable"])
+            assert selected_base == {
+                "base": [0],
+                "replicas": [],
+                "order": ["atom:0"],
+            }
             page.mouse.move(repeated_hover["clientX"], repeated_hover["clientY"])
             page.wait_for_function("window.__ASE_APP__.state.hoveredIndex === 0")
             assert "#0@[1,0,0] H" in page.locator('#hover-readout').inner_text()
+
+            page.fill('#super-x', '3')
+            page.fill('#super-y', '3')
+            page.fill('#super-z', '1')
+            page.keyboard.press('Tab')
+            page.wait_for_function(
+                "JSON.stringify(window.__ASE_APP__.state.display.supercell) === '[3,3,1]'"
+            )
+            centered = page.evaluate("""() => {
+                const renderer = window.__ASE_APP__.renderer;
+                const replicas = renderer.supercellGroup.children.find(
+                    child => child.userData?.supercellInstanced
+                );
+                return {
+                    offsets: replicas.userData.cellOffsets,
+                    opacity: replicas.material.opacity,
+                    editableCellHalos: renderer.cellGroup.children.filter(
+                        child => child.userData?.editableCellHalo
+                    ).length,
+                };
+            }""")
+            assert sorted(map(tuple, centered["offsets"])) == [
+                (-1, -1, 0), (-1, 0, 0), (-1, 1, 0),
+                (0, -1, 0), (0, 1, 0),
+                (1, -1, 0), (1, 0, 0), (1, 1, 0),
+            ]
+            assert centered["opacity"] == pytest.approx(1.0)
+            assert centered["editableCellHalos"] == 1
             for control in ('#super-x', '#super-y', '#super-z'):
                 page.fill(control, '1')
                 page.keyboard.press('Tab')
@@ -4834,6 +8646,16 @@ def test_viz_only_replica_selection_measurements_and_atomic_label_commit():
                 };
             }""")
             page.mouse.click(points['xReplica']['x'], points['xReplica']['y'])
+            page.wait_for_function("""() => (
+                window.__ASE_APP__.selectionCount() === 1
+                && document.getElementById('selected-measure').innerText.includes(
+                    'Per-atom properties (5):'
+                )
+            )""")
+            replica_atom_detail = page.locator('#selected-measure').inner_text()
+            assert replica_atom_detail.startswith("a1=#0@[1,0,0] Cu")
+            assert "Position (Cartesian): (4.000000, 0.000000, 0.000000) A" in replica_atom_detail
+            assert "[ASE] atomic_number = 29" in replica_atom_detail
             page.keyboard.down('Shift')
             page.mouse.click(points['base']['x'], points['base']['y'])
             page.keyboard.up('Shift')
@@ -5029,20 +8851,23 @@ def test_runtime_mode_switch_merges_labels_and_splits_only_material_variants():
                 app.updateUI();
             }""")
             page.fill("#selected-atom-label", "C_b")
+            page.select_option("#selected-atom-material", "rubber")
+            assert page.evaluate("""() => ({
+                label: window.__ASE_APP__.state.atoms.symbols[0],
+                material: window.__ASE_APP__.state.display.atomMaterials['0'] || null,
+            })""") == {"label": "C_a", "material": None}
             page.click("#btn-apply-selected-label")
-            page.wait_for_function("""() =>
-                window.__ASE_APP__.state.atoms.symbols.every(label => label === 'C_b')
-            """)
+            page.wait_for_function("""() => {
+                const app = window.__ASE_APP__;
+                return app.state.atoms.symbols.every(label => label === 'C_b')
+                    && app.state.display.atomMaterials['0'] === 'rubber';
+            }""")
             assert page.locator("#toast-container").inner_text().count(
                 "Merged selected atoms into label C_b"
             ) == 1
-
-            page.select_option("#selected-atom-material", "rubber")
             page.wait_for_function("""() => {
-                const app = window.__ASE_APP__;
-                const material = app.renderer.atomMeshByIndex.get(0).material;
-                return app.state.display.atomMaterials['0'] === 'rubber'
-                    && Math.abs(material.roughness - 0.88) < 1e-6
+                const material = window.__ASE_APP__.renderer.atomMeshByIndex.get(0).material;
+                return Math.abs(material.roughness - 0.88) < 1e-6
                     && Math.abs(material.metalness) < 1e-6;
             }""")
 
@@ -5242,9 +9067,6 @@ def test_camera_toolbar_white_background_and_flat_2d_display():
                 const grid = app.renderer.gridGroup.children[0];
                 return {
                     background: `#${app.renderer.scene.background.getHexString()}`,
-                    clear: `#${app.renderer.renderer.getClearColor(
-                        new app.renderer.scene.background.constructor()
-                    ).getHexString()}`,
                     dataset: app.renderer.domElement.dataset.viewportBackground,
                     sidebar: document.getElementById('viewport-background').value,
                     gridOpacity: grid.material.opacity
@@ -5252,7 +9074,6 @@ def test_camera_toolbar_white_background_and_flat_2d_display():
             }""")
             assert white_state == {
                 "background": "#ffffff",
-                "clear": "#ffffff",
                 "dataset": "white",
                 "sidebar": "white",
                 "gridOpacity": pytest.approx(0.48),
@@ -5415,8 +9236,8 @@ def test_camera_toolbar_white_background_and_flat_2d_display():
             for first, inverse, component, expected_sign, screen_component, screen_sign in (
                 ("left", "right", 0, 1, 0, -1),
                 ("right", "left", 0, -1, 0, 1),
-                ("up", "down", 1, 1, 1, -1),
-                ("down", "up", 1, -1, 1, 1),
+                ("up", "down", 1, -1, 1, -1),
+                ("down", "up", 1, 1, 1, 1),
             ):
                 page.evaluate("""() => {
                     const app = window.__ASE_APP__;
@@ -5487,7 +9308,10 @@ def test_camera_toolbar_white_background_and_flat_2d_display():
                     probe_after["projected"][screen_component]
                     - probe_before["projected"][screen_component]
                 ) * screen_sign > 1e-4
-                assert probe_after["distance"] < probe_before["distance"]
+                if first in {"left", "right"}:
+                    assert probe_after["distance"] < probe_before["distance"]
+                else:
+                    assert probe_after["distance"] > probe_before["distance"]
                 page.click(f'[data-view-rotate="{inverse}"]')
                 camera_after_pair = page.evaluate("""() => {
                     const renderer = window.__ASE_APP__.renderer;

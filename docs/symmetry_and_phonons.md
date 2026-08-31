@@ -256,6 +256,10 @@ included force constants. EMT is selected to make the example fast and fully
 reproducible; its numerical frequency is a workflow regression, not a
 reference-quality prediction for aluminum.
 
+Mode-vector overlays use the generated equilibrium supercell rather than an
+opposite-phase trajectory frame. The displayed vector is
+`r(current phase) - r(equilibrium)` and is anchored at the equilibrium site.
+
 ## Data Handling
 
 - Symmetry analysis, reciprocal-path queries, and phonon-band calculation do

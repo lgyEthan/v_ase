@@ -4,12 +4,61 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>v_ase</title>
-    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.0.120a7%2Bsymmetry&amp;rev=7">
+    <script>
+        (() => {
+            const key = 'v_ase_ui_theme';
+            const media = window.matchMedia('(prefers-color-scheme: dark)');
+            const normalize = value => ['light', 'dark'].includes(String(value || '').toLowerCase())
+                ? String(value).toLowerCase()
+                : 'system';
+            const cookieValue = () => {
+                const match = document.cookie.match(new RegExp(`(?:^|;\\s*)${key}=([^;]+)`));
+                return match ? decodeURIComponent(match[1]) : '';
+            };
+            let localValue = '';
+            try { localValue = window.localStorage.getItem(key) || ''; } catch {}
+            const persistedValue = cookieValue() || localValue;
+            let hasPersisted = Boolean(persistedValue);
+            let preference = normalize(persistedValue);
+            const apply = (value, { persist = true, announce = true } = {}) => {
+                preference = normalize(value);
+                const resolved = preference === 'system' ? (media.matches ? 'dark' : 'light') : preference;
+                document.documentElement.dataset.uiTheme = resolved;
+                document.documentElement.dataset.themePreference = preference;
+                document.documentElement.style.colorScheme = resolved;
+                if (persist) {
+                    hasPersisted = true;
+                    document.cookie = `${key}=${encodeURIComponent(preference)}; Path=/; Max-Age=31536000; SameSite=Lax`;
+                    try { window.localStorage.setItem(key, preference); } catch {}
+                }
+                if (announce) {
+                    window.dispatchEvent(new CustomEvent('v_ase-theme-change', {
+                        detail: { preference, resolved }
+                    }));
+                }
+                return { preference, resolved };
+            };
+            window.v_aseTheme = {
+                apply,
+                info: () => ({
+                    preference,
+                    resolved: document.documentElement.dataset.uiTheme,
+                    persisted: hasPersisted
+                })
+            };
+            apply(preference, { persist: false, announce: false });
+            media.addEventListener?.('change', () => {
+                if (preference === 'system') apply('system', { persist: false });
+            });
+        })();
+    </script>
+    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.2.34a1%2Bsymmetry">
+    <link rel="stylesheet" href="static/symmetry-ui.css?v=0.2.34a1%2Bsymmetry">
     <script>
         window.__V_ASE_MOCK__ = new URLSearchParams(window.location.search).has('v_ase_mock');
         const threeModulePath = window.location.protocol === 'file:'
             ? './vendor/three.module.js'
-            : '/static/vendor/three.module.js?v=0.0.120a7%2Bsymmetry';
+            : '/static/vendor/three.module.js?v=0.2.34a1%2Bsymmetry';
         const importMap = document.createElement('script');
         importMap.type = 'importmap';
         importMap.textContent = JSON.stringify({
@@ -27,7 +76,14 @@
     <div id="app-viewport">
         <div id="export-preview-frame" class="export-preview-frame hidden" aria-hidden="true">
             <div class="export-preview-caption">
-                <span>EXPORT PREVIEW</span>
+                <button id="render-area-eye" class="render-area-eye" type="button"
+                        aria-pressed="false" aria-label="Select render area" title="Select render area; press G in Edit mode to move it">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M2.2 12s3.6-6 9.8-6 9.8 6 9.8 6-3.6 6-9.8 6-9.8-6-9.8-6Z"></path>
+                        <circle cx="12" cy="12" r="2.8"></circle>
+                    </svg>
+                </button>
+                <span>RENDER AREA</span>
                 <strong id="export-preview-dimensions">1920 x 1080</strong>
             </div>
             <span class="export-preview-corner corner-tl" aria-hidden="true"></span>
@@ -68,7 +124,7 @@
     <header id="top-bar" class="glass-panel">
         <div class="logo">
             <img class="brand-logo-asset" src="static/v_ase-logo.png" alt="v_ase">
-            <span class="version">0.0.120a7+symmetry</span>
+            <span class="version">0.2.34a1+symmetry</span>
         </div>
         <div id="runtime-mode-switch" class="runtime-mode-switch" role="group" aria-label="Workspace mode">
             <button type="button" data-runtime-mode="view" aria-pressed="true"
@@ -268,8 +324,8 @@
                     </div>
                 </section>
             </div>
-            <button id="btn-reset" class="btn" data-edit-only>RESET</button>
-            <button id="btn-reset-coords" class="btn" data-edit-only>RESET COORDS</button>
+            <button id="btn-reset" class="btn" data-edit-only title="Reset structure and visual settings">RESET</button>
+            <button id="btn-reset-coords" class="btn" data-edit-only title="Reset physical coordinates only">RESET COORDS</button>
             <button id="btn-shortcuts" class="btn icon-btn" title="Shortcuts">?</button>
         </div>
     </header>
@@ -283,17 +339,41 @@
         </svg>
     </div>
     <svg id="measurement-overlay" class="measurement-overlay hidden" aria-hidden="true"></svg>
+    <aside id="atom-colorscale-legend" class="atom-colorscale-legend hidden" aria-live="polite">
+        <div class="atom-colorscale-legend-head">
+            <strong id="atom-colorscale-legend-label">z coordinate</strong>
+            <span id="atom-colorscale-legend-unit">A</span>
+        </div>
+        <div id="atom-colorscale-legend-gradient" class="atom-colorscale-legend-gradient"></div>
+        <div class="atom-colorscale-legend-range">
+            <span id="atom-colorscale-legend-min">0</span>
+            <span id="atom-colorscale-legend-max">1</span>
+        </div>
+        <span id="atom-colorscale-legend-scope" class="atom-colorscale-legend-scope hidden">Selected atoms</span>
+    </aside>
 
     <datalist id="element-type-options"></datalist>
 
     <div id="create-atom-widget" class="create-atom-widget glass-panel collapsed" data-edit-only>
-        <button id="btn-create-atom-toggle" class="create-atom-toggle" type="button" title="Create atom">+ Atom</button>
-        <div id="create-atom-card" class="create-atom-card" aria-label="Create atom">
-            <div id="create-atom-drag" class="create-atom-head" title="Drag create atom panel">
-                <span>Create Atom</span>
-                <button id="btn-create-atom-close" type="button" aria-label="Close create atom panel">×</button>
+        <button id="btn-create-atom-toggle" class="create-atom-toggle" type="button" title="Add atoms">
+            <span class="create-atom-toggle-icon" aria-hidden="true">+</span>
+            <span>Add atoms</span>
+        </button>
+        <div id="create-atom-card" class="create-atom-card" aria-label="Add atoms">
+            <div id="create-atom-drag" class="create-atom-head" title="Drag Add Atoms panel">
+                <div class="create-atom-title">
+                    <span>Add Atoms</span>
+                    <span id="add-atoms-mode-badge" class="create-atom-mode-badge hidden">ACTIVE</span>
+                </div>
+                <button id="btn-create-atom-close" type="button" aria-label="Close Add Atoms panel">×</button>
             </div>
-            <div class="create-atom-body">
+            <div class="create-atom-tabs" role="tablist" aria-label="Atom insertion mode">
+                <button id="add-atoms-tab-single" class="active" type="button" role="tab" aria-selected="true">Single</button>
+                <button id="add-atoms-tab-batch" type="button" role="tab" aria-selected="false">Batch</button>
+                <button id="add-atoms-tab-build" type="button" role="tab" aria-selected="false">Build with ASE</button>
+            </div>
+
+            <div id="add-atoms-pane-single" class="create-atom-body" role="tabpanel">
                 <label for="create-atom-type">Type</label>
                 <select id="create-atom-type" aria-label="New atom type"></select>
                 <label for="create-atom-label">Label</label>
@@ -307,7 +387,255 @@
                 <div class="create-atom-actions">
                     <button id="btn-create-atom-center" type="button">View Center</button>
                     <button id="btn-create-atom-selected" type="button">Selection</button>
-                    <button id="btn-create-atom-add" type="button">Add</button>
+                    <button id="btn-create-atom-add" class="primary" type="button">Add</button>
+                </div>
+            </div>
+
+            <div id="add-atoms-pane-batch" class="add-atoms-batch hidden" role="tabpanel">
+                <section class="add-atoms-section add-atoms-content-section">
+                    <div class="add-atoms-section-head"><span>Insert</span></div>
+                    <div class="add-atoms-region-choice" role="group" aria-label="Insertion content">
+                        <button id="add-atoms-content-atoms" class="active" type="button">Atoms</button>
+                        <button id="add-atoms-content-molecules" type="button">Molecules</button>
+                    </div>
+                </section>
+
+                <section class="add-atoms-section">
+                    <div id="add-atoms-atom-content">
+                      <div class="add-atoms-section-head">
+                        <span>Atoms</span>
+                        <button id="btn-add-atoms-entry" class="icon-text-button" type="button" title="Add atom type">+ Type</button>
+                      </div>
+                      <div class="add-atoms-entry-header" aria-hidden="true">
+                        <span>Type</span><span>Label</span><span>Count</span><span></span>
+                      </div>
+                      <div id="add-atoms-entries" class="add-atoms-entries"></div>
+                    </div>
+                    <div id="add-atoms-molecule-content" class="hidden">
+                      <div class="add-atoms-section-head">
+                        <span>ASE molecules</span>
+                        <button id="btn-add-molecule-entry" class="icon-text-button" type="button" title="Add molecule type">+ Molecule</button>
+                      </div>
+                      <div class="add-atoms-region-choice" role="group" aria-label="Molecule quantity">
+                        <button id="add-molecules-quantity-count" class="active" type="button">Count</button>
+                        <button id="add-molecules-quantity-density" type="button">Density</button>
+                      </div>
+                      <div id="add-molecules-density-row" class="add-molecules-density-row hidden">
+                        <label for="add-molecules-target-density">
+                          <span>Target</span>
+                          <span class="unit-input"><input id="add-molecules-target-density" type="number" min="0.000001" max="100" step="0.01" value="0.997"><span>g/cm³</span></span>
+                        </label>
+                        <div class="add-molecules-realized-density">
+                          <span>Actual</span>
+                          <strong id="add-molecules-actual-density">—</strong>
+                        </div>
+                      </div>
+                      <div class="add-atoms-molecule-header" aria-hidden="true">
+                        <span>Molecule</span><span>Label</span><span id="add-molecules-count-heading">Count</span><span></span>
+                      </div>
+                      <div id="add-molecule-entries" class="add-atoms-entries"></div>
+                      <label class="add-atoms-check-row" for="add-molecules-random-orientation">
+                        <input id="add-molecules-random-orientation" type="checkbox" checked>
+                        <span>Randomize molecular orientation</span>
+                      </label>
+                      <label class="add-atoms-check-row" for="add-molecules-rigid">
+                        <input id="add-molecules-rigid" type="checkbox" checked>
+                        <span>Preserve molecular geometry during placement</span>
+                      </label>
+                    </div>
+                </section>
+
+                <section class="add-atoms-section">
+                    <div class="add-atoms-section-head"><span>Initial distribution</span></div>
+                    <div class="add-atoms-region-choice add-atoms-placement-choice" role="group" aria-label="Initial distribution">
+                        <button id="add-atoms-placement-random" class="active" type="button">Random</button>
+                        <button id="add-atoms-placement-homogeneous" type="button">Homogeneous</button>
+                        <button id="add-atoms-placement-regular" type="button">Regular grid</button>
+                    </div>
+                    <label id="add-atoms-spacing-basis-row" class="add-atoms-inline-field hidden" for="add-atoms-coordinate-basis">
+                        <span>Spacing basis</span>
+                        <select id="add-atoms-coordinate-basis">
+                            <option value="cartesian">Cartesian distance / Å</option>
+                            <option value="fractional">Fractional spacing</option>
+                        </select>
+                    </label>
+                    <label id="add-atoms-placement-pbc-row" class="add-atoms-check-row hidden" for="add-atoms-placement-pbc">
+                        <input id="add-atoms-placement-pbc" type="checkbox" checked>
+                        <span>Account for periodic boundaries</span>
+                    </label>
+                    <label id="add-atoms-regular-spacing-row" class="add-atoms-inline-field hidden" for="add-atoms-regular-spacing">
+                        <span>Grid spacing</span>
+                        <span class="unit-input"><input id="add-atoms-regular-spacing" type="number" min="0.000001" step="0.1" placeholder="Auto"><span>Å</span></span>
+                    </label>
+                    <p id="add-atoms-distribution-note" class="add-atoms-field-note">Random samples every accessible volume element with equal probability.</p>
+                </section>
+
+                <section class="add-atoms-section">
+                    <div class="add-atoms-section-head">
+                        <span>Insertion domain</span>
+                        <div class="add-atoms-region-actions">
+                            <button id="btn-add-atoms-allow-region" class="icon-text-button" type="button">+ Allow</button>
+                            <button id="btn-add-atoms-reject-region" class="icon-text-button danger-quiet" type="button">+ Reject</button>
+                        </div>
+                    </div>
+                    <div id="add-atoms-base-domain" class="add-atoms-base-domain">
+                        <span class="add-atoms-base-icon" aria-hidden="true"></span>
+                        <span><strong>Base domain</strong><small id="add-atoms-base-domain-text">Periodic unit cell</small></span>
+                    </div>
+                    <div id="add-atoms-region-list" class="add-atoms-region-list" role="listbox" aria-label="Allow and reject regions" aria-multiselectable="true"></div>
+                    <div id="add-atoms-region-empty" class="add-atoms-region-empty">The complete unit cell is available. Add regions to include or exclude specific volumes.</div>
+                    <div id="add-atoms-box-fields" class="add-atoms-region-editor hidden">
+                        <div class="add-atoms-region-editor-head">
+                            <input id="add-atoms-region-name" type="text" value="Allow region 1" aria-label="Selected region name">
+                            <button id="btn-add-atoms-delete-region" class="icon-button danger-quiet" type="button" title="Delete selected region" aria-label="Delete selected region">×</button>
+                        </div>
+                        <label>x min<input id="add-atoms-xmin" type="number" step="0.1"></label>
+                        <label>x max<input id="add-atoms-xmax" type="number" step="0.1"></label>
+                        <label>y min<input id="add-atoms-ymin" type="number" step="0.1"></label>
+                        <label>y max<input id="add-atoms-ymax" type="number" step="0.1"></label>
+                        <label>z min<input id="add-atoms-zmin" type="number" step="0.1"></label>
+                        <label>z max<input id="add-atoms-zmax" type="number" step="0.1"></label>
+                        <div class="add-atoms-box-role-label">Region rule</div>
+                        <div class="add-atoms-region-choice add-atoms-box-role" role="group" aria-label="Cartesian region rule">
+                            <button id="add-atoms-region-allowed" class="active" type="button">Allow</button>
+                            <button id="add-atoms-region-prohibited" type="button">Reject</button>
+                        </div>
+                        <p class="add-atoms-box-hint">Click or Shift-click region edges. Press G to move or S to scale the selection; rotation is disabled.</p>
+                    </div>
+                    <div class="add-atoms-domain-volume">
+                        <span>Accessible volume</span>
+                        <strong id="add-atoms-domain-volume">—</strong>
+                    </div>
+                    <p id="add-atoms-domain-message" class="add-atoms-domain-message">Allow regions are combined; Reject regions are subtracted.</p>
+                    <label class="add-atoms-inline-field" for="add-atoms-seed">
+                        <span>Placement seed</span>
+                        <input id="add-atoms-seed" type="number" min="0" step="1" placeholder="Automatic">
+                    </label>
+                </section>
+
+                <section class="add-atoms-section">
+                    <div class="add-atoms-section-head"><span>Placement relaxation</span></div>
+                    <label class="add-atoms-check-row" for="add-atoms-freeze-existing">
+                        <input id="add-atoms-freeze-existing" type="checkbox" checked>
+                        <span>Temporarily fix existing atoms</span>
+                    </label>
+                    <label class="add-atoms-check-row" for="add-atoms-constrain-domain">
+                        <input id="add-atoms-constrain-domain" type="checkbox">
+                        <span>Enforce Allow and Reject regions during relaxation</span>
+                    </label>
+                    <p class="add-atoms-field-note">Atoms remain inside the Allow union and outside every Reject region. Rigid molecules use their ASE template origin.</p>
+                    <div class="add-atoms-selection-row">
+                        <label class="add-atoms-check-row" for="add-atoms-select-added">
+                            <input id="add-atoms-select-added" type="checkbox" checked>
+                            <span>Keep inserted atoms selected</span>
+                        </label>
+                        <button id="btn-add-atoms-select-added" type="button" disabled>Select added</button>
+                    </div>
+                    <label class="add-atoms-check-row" for="add-atoms-mic">
+                        <input id="add-atoms-mic" type="checkbox" checked>
+                        <span>Minimum image convention for regions and repulsion</span>
+                    </label>
+                    <div class="add-atoms-relax-link">
+                        <div>
+                            <strong>Shared Relaxation settings</strong>
+                            <span>Calculator, cutoff, device, fmax, and steps are controlled in Structure &gt; Relaxation.</span>
+                        </div>
+                        <button id="btn-add-atoms-open-relaxation" type="button">Open Relaxation</button>
+                    </div>
+                </section>
+
+                <div id="add-atoms-status" class="add-atoms-status" data-state="idle">
+                    <span class="add-atoms-status-dot" aria-hidden="true"></span>
+                    <span id="add-atoms-status-text">Ready to place atoms</span>
+                </div>
+                <div class="add-atoms-session-actions">
+                    <button id="btn-add-atoms-scatter" class="primary" type="button">Place atoms</button>
+                    <button id="btn-add-atoms-cancel" type="button" disabled>Cancel</button>
+                    <button id="btn-add-atoms-finish" class="primary" type="button" disabled>Finish</button>
+                </div>
+            </div>
+
+            <div id="add-atoms-pane-build" class="add-atoms-build hidden" role="tabpanel">
+                <div class="ase-builder-heading">
+                    <div>
+                        <strong>Bulk crystal</strong>
+                        <span>ase.build.bulk</span>
+                    </div>
+                    <span id="ase-bulk-version" class="ase-builder-version">ASE</span>
+                </div>
+                <p class="panel-note ase-builder-description">
+                    Generate a periodic crystal from ASE reference data or an explicit prototype.
+                    Building replaces the active structure and trajectory; Undo restores them.
+                </p>
+                <div class="ase-builder-primary-grid">
+                    <label for="ase-bulk-formula">
+                        <span>Formula</span>
+                        <input id="ase-bulk-formula" type="text" value="Cu" list="ase-bulk-formulas"
+                               autocomplete="off" spellcheck="false" aria-describedby="ase-bulk-formula-hint">
+                        <datalist id="ase-bulk-formulas"></datalist>
+                    </label>
+                    <label for="ase-bulk-structure">
+                        <span>Crystal structure</span>
+                        <select id="ase-bulk-structure">
+                            <option value="">Automatic from ASE</option>
+                        </select>
+                    </label>
+                    <label for="ase-bulk-cell-mode">
+                        <span>Cell shape</span>
+                        <select id="ase-bulk-cell-mode">
+                            <option value="primitive">Native / primitive</option>
+                            <option value="orthorhombic">Orthorhombic</option>
+                            <option value="cubic" selected>Cubic</option>
+                        </select>
+                    </label>
+                </div>
+                <p id="ase-bulk-formula-hint" class="ase-builder-field-hint">
+                    Choose a compatible ASE reference element or type a custom formula.
+                </p>
+                <div id="ase-bulk-parameters" class="ase-builder-parameter-grid">
+                    <label data-bulk-parameter="a" for="ase-bulk-a">
+                        <span>a / Å</span>
+                        <input id="ase-bulk-a" type="number" min="0" step="any" placeholder="ASE default">
+                    </label>
+                    <label data-bulk-parameter="b" for="ase-bulk-b" class="hidden">
+                        <span>b / Å</span>
+                        <input id="ase-bulk-b" type="number" min="0" step="any" placeholder="Required">
+                    </label>
+                    <label data-bulk-parameter="c" for="ase-bulk-c" class="hidden">
+                        <span>c / Å</span>
+                        <input id="ase-bulk-c" type="number" min="0" step="any" placeholder="Required">
+                    </label>
+                    <label data-bulk-parameter="covera" for="ase-bulk-covera" class="hidden">
+                        <span>c/a</span>
+                        <input id="ase-bulk-covera" type="number" min="0" step="any" placeholder="ASE / ideal">
+                    </label>
+                    <label data-bulk-parameter="alpha" for="ase-bulk-alpha" class="hidden">
+                        <span>α / degree</span>
+                        <input id="ase-bulk-alpha" type="number" min="0" max="180" step="any" placeholder="Required">
+                    </label>
+                    <label data-bulk-parameter="u" for="ase-bulk-u" class="hidden">
+                        <span>Internal u</span>
+                        <input id="ase-bulk-u" type="number" min="0" max="1" step="any" placeholder="ASE default">
+                    </label>
+                </div>
+                <details id="ase-bulk-advanced" class="ase-builder-advanced hidden">
+                    <summary>Fractional basis</summary>
+                    <label for="ase-bulk-basis">
+                        <span>N × 3 JSON coordinates</span>
+                        <textarea id="ase-bulk-basis" rows="3" spellcheck="false"
+                                  placeholder="[[0, 0, 0]]"></textarea>
+                    </label>
+                </details>
+                <div id="ase-bulk-preview" class="ase-builder-preview" data-state="loading" aria-live="polite">
+                    <span class="ase-builder-preview-mark" aria-hidden="true"></span>
+                    <div>
+                        <strong id="ase-bulk-preview-title">Loading ASE catalog</strong>
+                        <span id="ase-bulk-preview-detail">Checking compatible materials and cell shapes...</span>
+                    </div>
+                </div>
+                <div class="btn-stack-row two ase-builder-actions">
+                    <button id="btn-ase-bulk-preview" type="button">Validate</button>
+                    <button id="btn-ase-bulk-build" class="primary" type="button" disabled>Build Structure</button>
                 </div>
             </div>
         </div>
@@ -327,13 +655,13 @@
             <div class="inspector-title">
                 <span id="inspector-context">Inspect</span>
             </div>
-            <label id="structure-section-picker" class="structure-section-picker hidden" for="structure-section-select">
-                <span>Section</span>
-                <select id="structure-section-select" aria-label="Jump to structure section">
+                    <label id="structure-section-picker" class="structure-section-picker hidden" for="structure-section-select">
+                        <span>Section</span>
+                        <select id="structure-section-select" aria-label="Jump to control-panel section">
                     <option value="appearance">Atoms &amp; Appearance</option>
                     <option value="cell-replication">Cell &amp; Replication</option>
                     <option value="cell-transform" data-edit-only>Cell Transform</option>
-                    <option value="transform" data-edit-only>Atom Transform</option>
+                    <option value="transform">Transform &amp; Cell Match</option>
                     <option value="constraints" data-edit-only>Constraints</option>
                     <option value="bonding">Bonding</option>
                     <option value="scientific-tools" data-edit-only>Relaxation</option>
@@ -371,9 +699,9 @@
                     <button type="button" class="copy-mini" data-copy-target="selected-elements" aria-label="Copy selected elements" title="Copy elements"><span aria-hidden="true"></span></button>
                 </span>
                 <span class="p-label">Center (unwrapped)</span><span id="selected-center" class="p-val selection-center-value">-</span>
-                <span class="p-label">Measure</span><span id="selected-measure" class="p-val">-</span>
+                <span class="p-label selection-measure-panel-label">Measure</span><span id="selected-measure" class="p-val">-</span>
             </div>
-            <button id="btn-delete-selection" class="btn-block danger-soft" data-edit-only>Delete Selected</button>
+            <button id="btn-delete-selection" class="btn-block danger-soft">Delete Selected</button>
         </details>
 
         <details class="panel-section" open data-panel="displacement" data-panel-group="analysis">
@@ -387,6 +715,7 @@
                 <select id="displacement-reference-mode">
                     <option value="previous">Previous frame</option>
                     <option value="frame">Specific frame</option>
+                    <option value="phonon">Phonon equilibrium</option>
                 </select>
             </div>
             <div id="displacement-reference-frame-row" class="prop-row hidden">
@@ -409,7 +738,7 @@
                     <label for="displacement-scale">Vector scale</label>
                     <output id="displacement-scale-value">1.00x</output>
                 </div>
-                <input id="displacement-scale" type="range" min="0.05" max="10" step="0.05" value="1">
+                <input id="displacement-scale" type="range" min="0.05" max="40" step="0.05" value="1">
             </div>
             <div class="range-row">
                 <div class="range-head">
@@ -544,7 +873,7 @@
                     <svg id="phonon-band-plot" class="phonon-band-plot" viewBox="0 0 640 350" role="img" aria-label="Phonon frequency versus reciprocal-space wavevector path. Point at a branch and click to select a q-point and mode."></svg>
                     <div class="phonon-band-selection" data-state="idle">
                         <span class="phonon-band-selection-state">Mode</span>
-                        <strong id="phonon-band-selection" aria-live="polite">Point at a branch, then click to select q and ν.</strong>
+                        <strong id="phonon-band-selection" aria-live="polite">Point at a branch, then click to select q and mode.</strong>
                     </div>
                 </div>
                 <div class="btn-stack-row two phonon-band-actions">
@@ -613,8 +942,349 @@
             </div>
         </details>
 
+        <details class="panel-section" open data-panel="forces" data-panel-group="analysis">
+            <summary class="section-header">Forces</summary>
+            <div class="prop-row">
+                <label for="chk-force-vectors">Show vectors</label>
+                <input type="checkbox" id="chk-force-vectors">
+            </div>
+            <div class="prop-row">
+                <label for="force-vector-style">Vector style</label>
+                <select id="force-vector-style">
+                    <option value="3d">3D arrow</option>
+                    <option value="2d">2D flat arrow</option>
+                </select>
+            </div>
+            <div class="range-row">
+                <div class="range-head">
+                    <label for="force-vector-scale">Length scale</label>
+                    <output id="force-vector-scale-value">1.00 A per eV/A</output>
+                </div>
+                <input id="force-vector-scale" type="range" min="0.02" max="5" step="0.02" value="1">
+            </div>
+            <div class="range-row">
+                <div class="range-head">
+                    <label for="force-vector-thickness">Thickness</label>
+                    <output id="force-vector-thickness-value">0.08 A</output>
+                </div>
+                <input id="force-vector-thickness" type="range" min="0.01" max="0.5" step="0.01" value="0.08">
+            </div>
+            <div class="prop-row">
+                <label for="force-vector-color">Color</label>
+                <input id="force-vector-color" type="color" value="#c43f5e">
+            </div>
+            <div id="force-vector-status" class="analysis-status" data-state="idle">
+                <span class="analysis-status-title">Force vectors hidden</span>
+                <span class="analysis-status-detail">Enable Show vectors when per-atom forces are available.</span>
+            </div>
+        </details>
+
+        <details class="panel-section" open data-panel="volumetric" data-panel-group="analysis">
+            <summary class="section-header">Volumetric Data</summary>
+            <p class="panel-note">CHGCAR, LOCPOT, PARCHG, ELFCAR, Cube, and XSF scalar fields.</p>
+            <div class="prop-row">
+                <label for="volume-import-precision">Import precision</label>
+                <select id="volume-import-precision">
+                    <option value="float32">FP32 · lower memory</option>
+                    <option value="float64">FP64 · full precision</option>
+                </select>
+            </div>
+            <p class="panel-note">Applied while reading the next scalar field. FP64 uses twice the grid memory.</p>
+            <button id="btn-volume-add" class="btn-block" type="button">Add Grid Data</button>
+            <input id="volume-file" class="hidden" type="file">
+            <div id="volume-empty" class="analysis-empty">No scalar field loaded.</div>
+            <div id="volume-controls" class="hidden">
+                <div class="prop-row">
+                    <label for="volume-dataset">Dataset</label>
+                    <select id="volume-dataset"></select>
+                </div>
+                <div id="volume-summary" class="volume-summary"></div>
+                <div class="volume-tool-tabs" role="tablist" aria-label="Volumetric display">
+                    <button id="volume-tool-tab-surface" type="button" role="tab" data-volume-tool="surface" aria-controls="volume-tool-surface" aria-selected="true">Isosurface</button>
+                    <button id="volume-tool-tab-planes" type="button" role="tab" data-volume-tool="planes" aria-controls="volume-tool-planes" aria-selected="false">Planes</button>
+                    <button id="volume-tool-tab-difference" type="button" role="tab" data-volume-tool="difference" aria-controls="volume-tool-difference" aria-selected="false">Combine</button>
+                </div>
+                <section id="volume-tool-surface" class="volume-tool-view" data-volume-tool-view="surface" role="tabpanel" aria-labelledby="volume-tool-tab-surface">
+                    <div class="volume-tool-heading">
+                        <strong>Isosurface</strong>
+                        <span>Thresholded 3D field</span>
+                    </div>
+                <div class="prop-row">
+                    <label for="chk-volume-visible">Show isosurface</label>
+                    <input id="chk-volume-visible" type="checkbox">
+                </div>
+                <div class="prop-row">
+                    <label for="volume-surface-mode">Surface</label>
+                    <select id="volume-surface-mode">
+                        <option value="single">Single level</option>
+                        <option value="signed">Positive + negative</option>
+                    </select>
+                </div>
+                <div class="volume-level-control">
+                    <div class="volume-level-head">
+                        <label for="volume-level">Isovalue</label>
+                        <input id="volume-level" type="number" step="any">
+                    </div>
+                    <div class="volume-distribution" aria-label="Scalar value distribution">
+                        <canvas id="volume-histogram" aria-hidden="true"></canvas>
+                        <span id="volume-histogram-marker" class="volume-histogram-marker" aria-hidden="true"></span>
+                        <input id="volume-level-slider" type="range" min="0" max="1" step="0.001" value="0">
+                    </div>
+                    <div class="volume-distribution-scale">
+                        <span id="volume-distribution-min">0</span>
+                        <span id="volume-distribution-caption">voxel distribution</span>
+                        <span id="volume-distribution-max">1</span>
+                    </div>
+                </div>
+                <div class="prop-row">
+                    <label for="volume-step">Mesh detail</label>
+                    <select id="volume-step">
+                        <option value="1">Fine</option>
+                        <option value="2">Balanced</option>
+                        <option value="4">Fast</option>
+                    </select>
+                </div>
+                <div class="prop-row">
+                    <label for="volume-smearing">Field smearing σ (voxels)</label>
+                    <input id="volume-smearing" type="number" min="0" max="8" step="0.05" value="0">
+                </div>
+                <div class="prop-row">
+                    <label for="volume-smoothing">Mesh smoothing passes</label>
+                    <input id="volume-smoothing" type="number" min="0" max="30" step="1" value="4">
+                </div>
+                <p class="panel-note">
+                    Smearing filters only the displayed field. Mesh smoothing refines the extracted surface.
+                    Set either value to 0 to preserve that stage exactly.
+                </p>
+                <div class="prop-row color-pair-row">
+                    <label>Surface colors</label>
+                    <span>
+                        <input id="volume-positive-color" type="color" value="#2f8fdb" aria-label="Positive isosurface color">
+                        <input id="volume-negative-color" type="color" value="#e05b78" aria-label="Negative isosurface color">
+                    </span>
+                </div>
+                <div class="range-row">
+                    <div class="range-head">
+                        <label for="volume-opacity">Isosurface opacity</label>
+                        <output id="volume-opacity-value">0.72</output>
+                    </div>
+                    <input id="volume-opacity" type="range" min="0.05" max="1" step="0.01" value="0.72">
+                </div>
+                <div class="btn-stack-row two volume-primary-actions">
+                    <button id="btn-volume-refresh" type="button">Update Isosurface</button>
+                    <button id="btn-volume-delete" class="danger-soft" type="button">Remove Dataset</button>
+                </div>
+                </section>
+                <section id="volume-tool-planes" class="volume-tool-view volume-plane-panel hidden" data-volume-tool-view="planes" role="tabpanel" aria-labelledby="volume-tool-tab-planes" aria-hidden="true">
+                    <div class="volume-tool-heading">
+                        <strong>Planar Sections</strong>
+                        <span>Cell-clipped field maps</span>
+                    </div>
+                    <p class="panel-note">
+                        In View and Edit modes, set the reciprocal-space normal and signed distance from
+                        the grid origin here. Edit mode also supports viewport G and R transforms.
+                    </p>
+                    <div id="volume-plane-mode-note" class="volume-plane-mode-note" data-mode="view">
+                        Panel controls are available in both modes.
+                    </div>
+                    <div class="volume-plane-toolbar">
+                        <button id="btn-volume-plane-add" type="button">Add Plane</button>
+                        <button id="btn-volume-plane-remove" class="danger-outline" type="button" disabled>Remove Selected</button>
+                    </div>
+                    <div id="volume-plane-list" class="volume-plane-list" role="listbox" aria-label="Volumetric planes" aria-multiselectable="true"></div>
+                    <div id="volume-plane-editor" class="volume-plane-editor hidden">
+                        <div class="volume-plane-selection-head">
+                            <strong id="volume-plane-selection-title">Plane 1</strong>
+                            <span id="volume-plane-selection-count">1 selected</span>
+                        </div>
+                        <div class="prop-row">
+                            <label for="chk-volume-plane-visible">Visible</label>
+                            <input id="chk-volume-plane-visible" type="checkbox" checked>
+                        </div>
+                        <div class="prop-row">
+                            <label for="volume-plane-dataset">Dataset</label>
+                            <select id="volume-plane-dataset"></select>
+                        </div>
+                        <div class="prop-row volume-hkl-row">
+                            <label>(h k l)</label>
+                            <div class="num-group">
+                                <input id="volume-plane-h" type="number" step="0.01" value="0" aria-label="Plane h">
+                                <input id="volume-plane-k" type="number" step="0.01" value="0" aria-label="Plane k">
+                                <input id="volume-plane-l" type="number" step="0.01" value="1" aria-label="Plane l">
+                            </div>
+                        </div>
+                        <div class="volume-plane-offset-control">
+                            <div class="volume-level-head">
+                                <label for="volume-plane-offset">Distance from grid origin / Å</label>
+                                <input id="volume-plane-offset" type="number" step="0.01" value="0">
+                            </div>
+                            <input id="volume-plane-offset-slider" type="range" min="0" max="1" step="0.01" value="0">
+                        </div>
+                        <div class="prop-row">
+                            <label for="volume-plane-resolution">Settled resolution</label>
+                            <select id="volume-plane-resolution">
+                                <option value="128">128 · fast</option>
+                                <option value="256" selected>256 · balanced</option>
+                                <option value="512">512 · high</option>
+                                <option value="1024">1024 · ultra</option>
+                            </select>
+                        </div>
+                        <div class="prop-row">
+                            <label for="volume-plane-colormap">Colormap</label>
+                            <select id="volume-plane-colormap">
+                                <option value="viridis">viridis</option>
+                            </select>
+                        </div>
+                        <div class="prop-row">
+                            <label for="chk-volume-plane-reverse">Reverse colormap</label>
+                            <input id="chk-volume-plane-reverse" type="checkbox">
+                        </div>
+                        <div class="volume-plane-range-head">
+                            <strong>Color range</strong>
+                            <button id="btn-volume-plane-fit" type="button">Fit Selected</button>
+                        </div>
+                        <div class="volume-plane-range">
+                            <label for="volume-plane-vmin"><span>Minimum</span><input id="volume-plane-vmin" type="number" step="any"></label>
+                            <label for="volume-plane-vmax"><span>Maximum</span><input id="volume-plane-vmax" type="number" step="any"></label>
+                        </div>
+                        <div class="range-row">
+                            <div class="range-head">
+                                <label for="volume-plane-opacity">Plane opacity</label>
+                                <output id="volume-plane-opacity-value">0.88</output>
+                            </div>
+                            <input id="volume-plane-opacity" type="range" min="0.05" max="1" step="0.01" value="0.88">
+                        </div>
+                        <p id="volume-plane-mixed-note" class="panel-note hidden">
+                            Mixed values are blank. Entering a value applies it to every selected plane.
+                        </p>
+                    </div>
+                    <div id="volume-plane-status" class="analysis-status" data-state="idle">
+                        <span class="analysis-status-title">No planar section</span>
+                        <span class="analysis-status-detail">Add one or more planes without transferring the full grid.</span>
+                    </div>
+                </section>
+                <section id="volume-tool-difference" class="volume-tool-view hidden" data-volume-tool-view="difference" role="tabpanel" aria-labelledby="volume-tool-tab-difference" aria-hidden="true">
+                    <div class="volume-tool-heading">
+                        <strong>Field Arithmetic</strong>
+                        <span>Linear combinations</span>
+                    </div>
+                    <p class="panel-note">Select compatible grids and assign coefficients such as +1, -1, -1.</p>
+                    <div id="volume-difference-terms" class="volume-difference-terms"></div>
+                    <button id="btn-volume-difference" class="btn-block" type="button">Create Linear Combination</button>
+                </section>
+            </div>
+            <div id="volume-status" class="analysis-status" data-state="idle">
+                <span class="analysis-status-title">Ready</span>
+                <span class="analysis-status-detail">Grid values remain on the local v_ase server.</span>
+            </div>
+        </details>
+
+        <details class="panel-section" open data-panel="rdf" data-panel-group="analysis">
+            <summary id="distribution-panel-title" class="section-header">Radial / Pair Distribution</summary>
+            <div class="prop-row">
+                <label for="rdf-cutoff">Cutoff / Å</label>
+                <input id="rdf-cutoff" type="number" min="0" step="0.1" placeholder="Auto">
+            </div>
+            <div class="prop-row">
+                <label for="rdf-bins">Bins</label>
+                <input id="rdf-bins" type="number" min="8" max="5000" step="1" value="200">
+            </div>
+            <div class="prop-row">
+                <label for="rdf-pair-mode">Pair curves</label>
+                <select id="rdf-pair-mode">
+                    <option value="active">Active bond pairs</option>
+                    <option value="selected">Selected active bond pairs</option>
+                    <option value="all">All label pairs</option>
+                    <option value="none">Total only</option>
+                </select>
+            </div>
+            <button id="btn-rdf-calculate" class="btn-block" type="button">Calculate &amp; Plot</button>
+            <div id="rdf-status" class="analysis-status" data-state="idle">
+                <span class="analysis-status-title">Ready</span>
+                <span class="analysis-status-detail">Bulk g(r) for 3D periodic cells; finite pair probability for non-periodic structures.</span>
+            </div>
+        </details>
+
+        <details class="panel-section" open data-panel="registry-map" data-panel-group="analysis">
+            <summary class="section-header">Rigid Translation</summary>
+            <p id="registry-mode-description" class="panel-note">Move the selected atoms as one rigid component in a periodic (hkl) plane. The cell, host atoms, and selected internal coordinates remain fixed.</p>
+            <div class="prop-row">
+                <label for="registry-translation-space">Degrees of freedom</label>
+                <select id="registry-translation-space">
+                    <option value="plane" selected>In-plane (hkl)</option>
+                    <option value="cartesian">3D Cartesian</option>
+                </select>
+            </div>
+            <div id="registry-plane-controls" class="prop-row registry-hkl-row">
+                <label>Plane (h k l)</label>
+                <div class="num-group">
+                    <input id="registry-h" type="number" step="1" value="0" aria-label="Translation plane h">
+                    <input id="registry-k" type="number" step="1" value="0" aria-label="Translation plane k">
+                    <input id="registry-l" type="number" step="1" value="1" aria-label="Translation plane l">
+                </div>
+            </div>
+            <div id="registry-cartesian-controls" class="prop-row hidden">
+                <label for="registry-max-displacement">Max shift / axis / Å</label>
+                <input id="registry-max-displacement" type="number" min="0.001" step="0.5" value="5">
+            </div>
+            <div class="registry-relax-card">
+                <div class="registry-relax-heading">
+                    <span>Rigid translation mode</span>
+                    <span id="registry-relax-mode-badge" class="analysis-mode-badge hidden">ACTIVE</span>
+                </div>
+                <p id="registry-mode-instruction" class="panel-note">Activate first, then use G or optimize the shared two-coordinate translation.</p>
+                <div class="registry-relax-grid">
+                    <label>fmax / eV Å<sup>−1</sup><input id="registry-relax-fmax" type="number" min="0.0001" step="0.01" value="0.05"></label>
+                    <label>Steps<input id="registry-relax-steps" type="number" min="1" max="100000" step="10" value="100"></label>
+                </div>
+                <div class="registry-relax-actions">
+                    <button id="btn-registry-relax-activate" type="button">Activate Mode</button>
+                    <button id="btn-registry-relax-run" class="primary" type="button" disabled>Optimize Translation</button>
+                    <button id="btn-registry-relax-stop" type="button" disabled>Stop</button>
+                    <button id="btn-registry-relax-cancel" type="button" disabled>Cancel</button>
+                    <button id="btn-registry-relax-finish" class="primary" type="button" disabled>Apply &amp; Exit</button>
+                </div>
+                <div id="registry-relax-status" class="analysis-status compact" data-state="idle">
+                    <span class="analysis-status-title">Mode inactive</span>
+                    <span class="analysis-status-detail">Select the movable atoms and activate the plane.</span>
+                </div>
+            </div>
+            <div id="registry-map-card" class="registry-map-card">
+                <div class="registry-relax-heading"><span>Optional translation map</span></div>
+                <p class="panel-note">The plane is shown immediately. Calculate only when a sampled geometry score is needed.</p>
+                <div class="prop-row">
+                    <label for="registry-metric">Metric</label>
+                    <select id="registry-metric">
+                        <option value="short-contact" selected>Short-contact score</option>
+                        <option value="bond-strain">Interfacial bond strain</option>
+                    </select>
+                </div>
+                <div class="prop-row registry-grid-row">
+                    <label>Grid</label>
+                    <div class="num-group">
+                        <input id="registry-grid-x" type="number" min="4" max="160" step="1" value="32" aria-label="Translation map u samples">
+                        <input id="registry-grid-y" type="number" min="4" max="160" step="1" value="32" aria-label="Translation map v samples">
+                    </div>
+                </div>
+                <button id="btn-registry-calculate" class="btn-block" type="button">Calculate Map</button>
+                <div id="registry-status" class="analysis-status" data-state="idle">
+                    <span class="analysis-status-title">Map not calculated</span>
+                    <span class="analysis-status-detail">Activate translation mode to inspect the physical plane and cell boundary.</span>
+                </div>
+            </div>
+        </details>
+
         <details class="panel-section" open data-panel="view" data-panel-group="view">
             <summary class="section-header">Viewport</summary>
+            <div class="prop-row">
+                <label for="ui-theme">Interface theme</label>
+                <select id="ui-theme">
+                    <option value="system" selected>System</option>
+                    <option value="light">Light</option>
+                    <option value="dark">Dark</option>
+                </select>
+            </div>
+            <p class="panel-note compact-note">System follows the browser chrome and keeps the structure canvas white. Dark switches both interface and canvas.</p>
             <div class="prop-row">
                 <label for="projection-mode">Projection</label>
                 <select id="projection-mode">
@@ -630,9 +1300,9 @@
                 </select>
             </div>
             <div class="prop-row">
-                <label for="atom-display-mode">Atom &amp; bond display</label>
+                <label for="atom-display-mode">Viewport rendering</label>
                 <select id="atom-display-mode">
-                    <option value="3d" selected>3D solid</option>
+                    <option value="3d" selected>3D materials</option>
                     <option value="2d">2D flat</option>
                 </select>
             </div>
@@ -703,25 +1373,118 @@
                 </div>
                 <input type="range" id="atom-radius-scale" value="0.6" min="0.25" max="2.5" step="0.05">
             </div>
-            <div id="selected-appearance" class="selected-appearance" data-edit-only>
+            <div class="atom-colorscale-card">
+                <div class="atom-colorscale-title-row">
+                    <div>
+                        <strong>Atom color scale</strong>
+                        <span>Map a numeric value onto atom colors</span>
+                    </div>
+                    <input id="chk-atom-colorscale" type="checkbox" aria-label="Enable atom color scale">
+                </div>
+                <div id="atom-colorscale-controls" class="atom-colorscale-controls hidden">
+                    <label class="atom-colorscale-field" for="atom-colorscale-field">
+                        <span>Property</span>
+                        <select id="atom-colorscale-field">
+                            <option value="position:z">z coordinate</option>
+                        </select>
+                    </label>
+                    <div class="atom-colorscale-grid">
+                        <div class="atom-colormap-field">
+                            <span>Colormap</span>
+                            <select id="atom-colorscale-map" class="atom-colormap-native-select" tabindex="-1" aria-hidden="true">
+                                <option value="viridis">viridis</option>
+                            </select>
+                            <button id="atom-colormap-trigger" class="atom-colormap-trigger" type="button"
+                                    aria-haspopup="listbox" aria-expanded="false" aria-controls="atom-colormap-menu">
+                                <span id="atom-colormap-trigger-preview" class="atom-colormap-swatch" aria-hidden="true"></span>
+                                <span id="atom-colormap-trigger-name" class="atom-colormap-trigger-name">viridis</span>
+                                <span class="atom-colormap-chevron" aria-hidden="true"></span>
+                            </button>
+                        </div>
+                        <label for="atom-colorscale-scope">
+                            <span>Apply to</span>
+                            <select id="atom-colorscale-scope">
+                                <option value="all">All atoms</option>
+                                <option value="selected">Selected atoms only</option>
+                            </select>
+                        </label>
+                    </div>
+                    <div class="atom-colorscale-toggle-grid">
+                        <label for="chk-atom-colorscale-reverse">
+                            <span>Reverse</span>
+                            <input id="chk-atom-colorscale-reverse" type="checkbox">
+                        </label>
+                        <div class="atom-colorscale-range-source" aria-label="Active color range source">
+                            <span>Range</span>
+                            <strong id="atom-colorscale-range-source">CURRENT FRAME</strong>
+                        </div>
+                    </div>
+                    <div class="atom-colorscale-range-actions">
+                        <button id="btn-atom-colorscale-fit-current" type="button">Fit current frame</button>
+                        <button id="btn-atom-colorscale-fit-trajectory" type="button">Scan trajectory</button>
+                    </div>
+                    <div id="atom-colorscale-range" class="atom-colorscale-range">
+                        <label for="atom-colorscale-min">
+                            <span>vmin</span>
+                            <input id="atom-colorscale-min" type="number" step="any" value="0">
+                        </label>
+                        <label for="atom-colorscale-max">
+                            <span>vmax</span>
+                            <input id="atom-colorscale-max" type="number" step="any" value="1">
+                        </label>
+                    </div>
+                    <div class="atom-colorscale-contrast">
+                        <div class="range-head">
+                            <label for="atom-colorscale-gamma">Contrast (gamma)</label>
+                            <output id="atom-colorscale-gamma-value">1.00</output>
+                        </div>
+                        <input id="atom-colorscale-gamma" type="range" min="0.1" max="5" step="0.05" value="1">
+                    </div>
+                    <p id="atom-colorscale-status" class="panel-note atom-colorscale-status">
+                        Values load only while this option is enabled.
+                    </p>
+                </div>
+            </div>
+            <div id="selected-appearance" class="selected-appearance">
                 <div class="selected-appearance-head">
                     <strong>Selected atoms</strong>
                     <span id="selected-appearance-count">None</span>
                 </div>
-                <div class="selected-appearance-grid">
-                    <label for="selected-atom-label">Label</label>
-                    <div class="selected-label-control">
+                <div class="selected-appearance-fields">
+                    <label class="selected-appearance-field" for="selected-atom-label">
+                        <span>Label</span>
                         <input id="selected-atom-label" type="text" placeholder="Select atoms">
-                        <button id="btn-apply-selected-label" type="button">Apply</button>
-                    </div>
-                    <label for="selected-atom-material">Material</label>
-                    <select id="selected-atom-material">
-                        <option value="mixed" disabled>Mixed</option>
-                        <option value="standard">Standard</option>
-                        <option value="metal">Metal</option>
-                        <option value="rubber">Rubber</option>
-                    </select>
+                    </label>
+                    <label class="selected-appearance-field" for="selected-atom-material">
+                        <span>Material</span>
+                        <select id="selected-atom-material">
+                            <option value="mixed" disabled>Mixed</option>
+                            <option value="standard">Standard</option>
+                            <option value="metal">Metal</option>
+                            <option value="rubber">Rubber</option>
+                        </select>
+                    </label>
+                    <label class="selected-appearance-field selected-color-field" for="selected-atom-color">
+                        <span>Color</span>
+                        <input id="selected-atom-color" type="color" value="#808080">
+                    </label>
+                    <label class="selected-appearance-field" for="selected-atom-opacity">
+                        <span>Opacity</span>
+                        <input id="selected-atom-opacity" type="number" min="0" max="1" step="0.05" placeholder="Mixed">
+                    </label>
                 </div>
+                <div class="range-row selected-radius-scale-row">
+                    <div class="range-head">
+                        <label for="selected-atom-radius-scale">Radius scale</label>
+                        <output id="selected-atom-radius-scale-value">1.00x</output>
+                    </div>
+                    <input id="selected-atom-radius-scale" type="range" value="1" min="0.25" max="2.5" step="0.05">
+                </div>
+                <label class="check-row selected-bond-inherit-row" for="selected-atom-update-bonds">
+                    <span>Match bond material &amp; opacity</span>
+                    <input id="selected-atom-update-bonds" type="checkbox" checked>
+                </label>
+                <button id="btn-apply-selected-label" class="btn-block" type="button">Apply Selected Appearance</button>
             </div>
             <div id="appearance-table" class="appearance-table">
                 <div class="mini-table-head appearance-table-head">
@@ -730,7 +1493,8 @@
                     <span>Select</span>
                     <span>Label</span>
                     <span>Color</span>
-                    <span>Radius / A</span>
+                    <span title="Radius / Å">Radius</span>
+                    <span>Opacity</span>
                     <span>Material</span>
                 </div>
                 <div id="appearance-table-body"></div>
@@ -739,6 +1503,28 @@
 
         <details class="panel-section" open data-panel="cell-replication" data-panel-group="structure">
             <summary class="section-header">Cell &amp; Replication</summary>
+            <div class="cell-matrix-editor" data-edit-only>
+                <div class="panel-subhead">Unit cell matrix / Å</div>
+                <div class="matrix-grid" id="unit-cell-matrix" aria-label="Cartesian unit cell matrix in angstrom">
+                    <input type="number" id="cell-00" value="0" step="0.1" aria-label="Cell a x">
+                    <input type="number" id="cell-01" value="0" step="0.1" aria-label="Cell a y">
+                    <input type="number" id="cell-02" value="0" step="0.1" aria-label="Cell a z">
+                    <input type="number" id="cell-10" value="0" step="0.1" aria-label="Cell b x">
+                    <input type="number" id="cell-11" value="0" step="0.1" aria-label="Cell b y">
+                    <input type="number" id="cell-12" value="0" step="0.1" aria-label="Cell b z">
+                    <input type="number" id="cell-20" value="0" step="0.1" aria-label="Cell c x">
+                    <input type="number" id="cell-21" value="0" step="0.1" aria-label="Cell c y">
+                    <input type="number" id="cell-22" value="0" step="0.1" aria-label="Cell c z">
+                </div>
+                <div class="cell-pbc-controls" role="group" aria-label="Periodic boundary axes">
+                    <span>PBC</span>
+                    <label><input id="cell-pbc-x" type="checkbox" checked> x</label>
+                    <label><input id="cell-pbc-y" type="checkbox" checked> y</label>
+                    <label><input id="cell-pbc-z" type="checkbox" checked> z</label>
+                </div>
+                <button id="btn-set-unit-cell" class="btn-block" type="button">Set Unit Cell</button>
+                <p class="panel-note">Sets Cartesian cell vectors without moving existing atoms.</p>
+            </div>
             <div class="prop-row supercell-row">
                 <label>Replicate cell</label>
                 <div class="num-group">
@@ -761,6 +1547,7 @@
                     <input type="number" id="translate-z" value="0" step="0.1" aria-label="Translation z component">
                 </div>
                 <button id="btn-apply-translation" class="btn-block" type="button">Apply Translation</button>
+                <button id="btn-selection-to-origin" class="btn-block" type="button">Selection COM to Origin</button>
                 <p class="panel-note">Offsets displayed atoms after cell replication. ASE coordinates and the unit cell remain unchanged.</p>
             </div>
         </details>
@@ -781,9 +1568,9 @@
             <button id="btn-apply-supercell-matrix" class="btn-block">Apply make_supercell Matrix</button>
         </details>
 
-        <details class="panel-section" open data-panel="transform" data-panel-group="structure" data-edit-only>
-            <summary class="section-header">Transform</summary>
-            <div class="prop-row">
+        <details class="panel-section" open data-panel="transform" data-panel-group="structure">
+            <summary class="section-header">Transform &amp; Cell Match</summary>
+            <div class="prop-row" data-edit-only>
                 <label for="rotate-pivot">Rotate pivot</label>
                 <select id="rotate-pivot">
                     <option value="selection">Selection COM</option>
@@ -792,15 +1579,15 @@
                     <option value="cell">Unit-cell center</option>
                 </select>
             </div>
-            <div class="prop-row">
+            <div class="prop-row" data-edit-only>
                 <label for="move-increment">Move increment / A</label>
                 <input type="number" id="move-increment" value="0" min="0" step="0.01" placeholder="0 = continuous">
             </div>
-            <div class="prop-row">
+            <div class="prop-row" data-edit-only>
                 <label for="rotate-increment">Rotate increment / deg</label>
                 <input type="number" id="rotate-increment" value="0" min="0" step="1" placeholder="0 = continuous">
             </div>
-            <div class="selection-rotation-command" aria-label="Rotate selected atoms by an exact angle">
+            <div class="selection-rotation-command" data-edit-only aria-label="Rotate selected atoms by an exact angle">
                 <div class="panel-subhead">Exact selection rotation</div>
                 <div class="selection-rotation-fields">
                     <label for="selection-rotate-axis">Axis</label>
@@ -817,27 +1604,92 @@
                     Rotate Selection
                 </button>
             </div>
-            <div class="prop-row">
-                <label for="chk-commensurate-guide">Commensurate guide</label>
-                <input type="checkbox" id="chk-commensurate-guide" checked>
+            <div class="prop-row commensurate-master-row">
+                <div>
+                    <label for="chk-commensurate-guide">Commensurate atoms</label>
+                    <span>Periodic in-plane matching about global Z</span>
+                </div>
+                <input type="checkbox" id="chk-commensurate-guide">
             </div>
-            <div class="prop-row">
-                <label for="chk-commensurate-snap">Magnetic angle snap</label>
-                <input type="checkbox" id="chk-commensurate-snap">
-            </div>
-            <div class="prop-row">
-                <label for="commensurate-strain">Boundary strain / %</label>
-                <input type="number" id="commensurate-strain" value="1.0" min="0" max="25" step="0.1">
-            </div>
-            <div class="prop-row">
-                <label for="commensurate-max-index">Max lattice index</label>
-                <input type="number" id="commensurate-max-index" value="32" min="2" max="64" step="1">
-            </div>
-            <div class="prop-row">
-                <label for="commensurate-snap-range">Snap range / deg</label>
-                <input type="number" id="commensurate-snap-range" value="2" min="0" max="15" step="0.1">
-            </div>
-            <div id="commensurate-status" class="commensurate-status">Lock X, Y, or Z during R to scan periodic cell matches.</div>
+            <section id="commensurate-workspace" class="commensurate-workspace hidden" aria-live="polite">
+                <input id="commensurate-mode" type="hidden" value="same-lattice">
+                <div class="commensurate-components" aria-label="Commensurate lattice components">
+                    <div class="commensurate-component host">
+                        <span>HOST</span>
+                        <strong>Current structure</strong>
+                    </div>
+                    <div class="commensurate-component guest">
+                        <span>GUEST</span>
+                        <strong id="commensurate-guest-summary">Select a layer or load a structure</strong>
+                    </div>
+                </div>
+                <div id="commensurate-guest-controls" class="commensurate-guest-controls">
+                    <input id="commensurate-guest-file" class="hidden" type="file">
+                    <button id="btn-load-commensurate-guest" class="btn-block" type="button">Load or Replace Guest Structure</button>
+                    <button id="btn-remove-commensurate-guest" class="text-action hidden" type="button">Remove guest</button>
+                    <div class="prop-row">
+                        <label for="commensurate-guest-angle">Guest rotation / deg</label>
+                        <input id="commensurate-guest-angle" type="number" value="0" step="0.1">
+                    </div>
+                    <div class="prop-row" data-commensurate-external-guest>
+                        <label for="commensurate-guest-gap">Interlayer gap / Å</label>
+                        <input id="commensurate-guest-gap" type="number" value="3.0" min="0" max="20" step="0.1">
+                    </div>
+                    <p class="panel-note" data-commensurate-external-guest>Guest minimum z minus host maximum z.</p>
+                </div>
+                <div class="prop-row">
+                    <label for="commensurate-strain-target">Apply residual strain to</label>
+                    <select id="commensurate-strain-target">
+                        <option value="guest" selected>Guest</option>
+                        <option value="host">Host</option>
+                    </select>
+                </div>
+                <div class="prop-row">
+                    <label for="commensurate-strain">Maximum strain / %</label>
+                    <input type="number" id="commensurate-strain" value="1.0" min="0" max="25" step="0.1">
+                </div>
+                <div class="prop-row">
+                    <label for="commensurate-max-area">Maximum area ratio</label>
+                    <input type="number" id="commensurate-max-area" value="16" min="1" max="128" step="1">
+                </div>
+                <details class="inline-subpanel commensurate-advanced">
+                    <summary>Search &amp; display</summary>
+                    <div class="prop-row" data-commensurate-same-lattice>
+                        <label for="commensurate-max-index">Maximum lattice index</label>
+                        <input type="number" id="commensurate-max-index" value="32" min="2" max="64" step="1">
+                    </div>
+                    <div class="prop-row">
+                        <label for="chk-commensurate-show-atoms">Show preview atoms</label>
+                        <input type="checkbox" id="chk-commensurate-show-atoms">
+                    </div>
+                    <div class="prop-row">
+                        <label for="chk-commensurate-snap">Magnetic angle snap</label>
+                        <input type="checkbox" id="chk-commensurate-snap">
+                    </div>
+                    <div class="prop-row">
+                        <label for="commensurate-snap-range">Snap range / deg</label>
+                        <input type="number" id="commensurate-snap-range" value="2" min="0" max="15" step="0.1">
+                    </div>
+                </details>
+                <div id="commensurate-status" class="commensurate-status">Enable the workspace to search periodic in-plane matches.</div>
+            </section>
+            <section id="commensurate-supercell-proposal" class="commensurate-proposal hidden" aria-live="polite">
+                <div class="commensurate-proposal-heading">
+                    <div>
+                        <span class="commensurate-proposal-kicker">SUGGESTED COMMON CELL</span>
+                        <strong id="commensurate-proposal-notation">-</strong>
+                    </div>
+                    <button id="btn-dismiss-commensurate" class="icon-button compact" type="button"
+                            aria-label="Dismiss commensurate cell preview" title="Dismiss preview">&#215;</button>
+                </div>
+                <div id="commensurate-proposal-metrics" class="commensurate-proposal-metrics"></div>
+                <div id="commensurate-proposal-matrices" class="commensurate-proposal-matrices"></div>
+                <p class="commensurate-proposal-note">Host, guest, and suggested common-cell vectors remain distinct while the guest rotates. Preview atoms and their boundary bonds are optional.</p>
+                <button id="btn-apply-commensurate-cell" class="btn-block" type="button" data-edit-only>
+                    Set Suggested Cell as Structure
+                </button>
+                <div id="commensurate-proposal-reason" class="commensurate-proposal-reason hidden"></div>
+            </section>
         </details>
 
         <details class="panel-section" open data-panel="constraints" data-panel-group="structure" data-edit-only>
@@ -931,6 +1783,15 @@
                     <option value="flat">Flat ribbon</option>
                 </select>
             </div>
+            <div class="prop-row">
+                <label for="bond-material">Material</label>
+                <select id="bond-material">
+                    <option value="standard">Standard</option>
+                    <option value="metal">Metal</option>
+                    <option value="rubber">Rubber</option>
+                    <option value="unlit">Unlit</option>
+                </select>
+            </div>
             <div class="range-row bond-thickness-control">
                 <div class="range-head">
                     <label for="bond-thickness">Thickness</label>
@@ -949,6 +1810,72 @@
                 <label for="bond-custom-color">Bond color</label>
                 <input type="color" id="bond-custom-color" value="#c8ccd0">
             </div>
+            <div class="range-row">
+                <div class="range-head">
+                    <label for="bond-opacity">Opacity</label>
+                    <output id="bond-opacity-value">100%</output>
+                </div>
+                <input type="range" id="bond-opacity" value="1" min="0.05" max="1" step="0.01">
+            </div>
+            <details class="inline-subpanel bond-pair-appearance" open>
+                <summary>Label-pair appearance</summary>
+                <div class="prop-row">
+                    <label for="bond-pair-style-key">Label pair</label>
+                    <select id="bond-pair-style-key"></select>
+                </div>
+                <label class="check-row" for="bond-pair-style-enabled">
+                    <span>Override global appearance</span>
+                    <input id="bond-pair-style-enabled" type="checkbox">
+                </label>
+                <div id="bond-pair-style-fields" class="bond-pair-style-fields disabled">
+                    <div class="prop-row">
+                        <label for="bond-pair-style">Style</label>
+                        <select id="bond-pair-style">
+                            <option value="cylinder">Cylinder</option>
+                            <option value="flat">Flat ribbon</option>
+                        </select>
+                    </div>
+                    <div class="prop-row">
+                        <label for="bond-pair-material">Material</label>
+                        <select id="bond-pair-material">
+                            <option value="standard">Standard</option>
+                            <option value="metal">Metal</option>
+                            <option value="rubber">Rubber</option>
+                            <option value="unlit">Unlit</option>
+                        </select>
+                    </div>
+                    <div class="range-row bond-pair-thickness-control">
+                        <div class="range-head">
+                            <label for="bond-pair-thickness">Thickness</label>
+                            <output id="bond-pair-thickness-value">0.25 A</output>
+                        </div>
+                        <input id="bond-pair-thickness" type="range" value="0.25" min="0.02" max="0.60" step="0.01">
+                    </div>
+                    <div class="prop-row">
+                        <label for="bond-pair-color-mode">Color</label>
+                        <select id="bond-pair-color-mode">
+                            <option value="split">Split atom colors</option>
+                            <option value="custom">Custom color</option>
+                        </select>
+                    </div>
+                    <div id="bond-pair-custom-color-row" class="prop-row hidden">
+                        <label for="bond-pair-custom-color">Bond color</label>
+                        <input id="bond-pair-custom-color" type="color" value="#c8ccd0">
+                    </div>
+                    <div class="range-row">
+                        <div class="range-head">
+                            <label for="bond-pair-opacity">Opacity</label>
+                            <output id="bond-pair-opacity-value">100%</output>
+                        </div>
+                        <input id="bond-pair-opacity" type="range" value="1" min="0.05" max="1" step="0.01">
+                    </div>
+                </div>
+                <div class="bond-pair-style-actions">
+                    <button id="btn-bond-pair-apply" type="button">Apply Pair</button>
+                    <button id="btn-bond-pair-apply-all" type="button">Apply All</button>
+                    <button id="btn-bond-pair-reset" type="button">Use Global</button>
+                </div>
+            </details>
         </details>
 
         <details class="panel-section" open data-panel="scientific-tools" data-panel-group="structure" data-edit-only>
@@ -967,14 +1894,48 @@
                     <select id="calc-cpus"></select>
                 </div>
                 <div class="prop-row">
-                    <label for="calc-cutoff-scale">Cutoff scale</label>
-                    <input type="number" id="calc-cutoff-scale" value="0.70" min="0.05" max="3" step="0.05" inputmode="decimal">
+                    <label for="calc-cutoff-mode">Cutoff definition</label>
+                    <select id="calc-cutoff-mode">
+                        <option value="absolute" selected>Pair distances / Å</option>
+                        <option value="scaled">Reference distances × multiplier</option>
+                    </select>
+                </div>
+                <div class="prop-row">
+                    <label for="calc-cutoff-basis">Reference radii</label>
+                    <select id="calc-cutoff-basis">
+                        <option value="covalent" selected>Covalent radii</option>
+                        <option value="vdw">van der Waals radii</option>
+                    </select>
+                </div>
+                <div id="calc-cutoff-scale-row" class="prop-row">
+                    <label for="calc-cutoff-scale">Contact-distance multiplier</label>
+                    <input type="number" id="calc-cutoff-scale" value="1.00" min="0.05" max="3" step="0.05" inputmode="decimal">
+                </div>
+                <div id="calc-cutoff-distance-row" class="repulsion-apply-all-row">
+                    <label for="calc-cutoff-distance">Set all pairs / Å</label>
+                    <div>
+                        <input type="number" id="calc-cutoff-distance" value="2.00" min="0.01" max="100" step="0.05" inputmode="decimal">
+                        <button id="btn-repulsion-set-all" type="button">Apply</button>
+                    </div>
+                </div>
+                <div class="repulsion-pair-heading">
+                    <div>
+                        <strong>Pairwise cutoff</strong>
+                        <span>Independent from displayed bonds</span>
+                    </div>
+                    <button id="btn-repulsion-reset-pairs" type="button">Reset from radii</button>
+                </div>
+                <div id="repulsion-pair-panel" class="repulsion-pair-panel">
+                    <div class="mini-table-head">
+                        <span>On</span><span>Label pair</span><span>Distance / Å</span>
+                    </div>
+                    <div id="repulsion-pair-list"></div>
                 </div>
                 <div class="prop-row">
                     <label for="calc-strength">Strength</label>
                     <input type="number" id="calc-strength" value="1.0" min="0" max="1000" step="0.1" inputmode="decimal">
                 </div>
-                <p class="panel-note">Cutoff scales pair radii; strength is the harmonic repulsion constant. These settings affect only the built-in Repulsion calculator.</p>
+                <p id="calc-cutoff-note" class="panel-note">Each enabled label pair repels below its own distance, even when that pair is not drawn as a bond. Pair force is zero at and beyond the cutoff.</p>
             </div>
             <div class="relax-grid">
                 <label>fmax</label>
@@ -982,8 +1943,17 @@
                 <label>steps</label>
                 <input type="number" id="relax-steps" value="200" step="10" min="1">
             </div>
-            <button id="btn-relax" class="btn-block">Relax</button>
-            <button id="btn-stop-relax" class="btn-block">Stop Relax</button>
+            <div id="relax-mode-status" class="analysis-mode-card">
+                <div class="analysis-mode-card-head">
+                    <strong>Relaxation mode</strong>
+                    <span id="relax-mode-badge" class="analysis-mode-badge hidden">ACTIVE</span>
+                </div>
+                <p id="relax-mode-detail">Optimization frames use a separate movie timeline until this mode is closed.</p>
+            </div>
+            <button id="btn-relax" class="btn-block">Start Relaxation</button>
+            <button id="btn-stop-relax" class="btn-block">Stop Relaxation</button>
+            <button id="btn-clear-relax-trajectory" class="btn-block hidden">Clear Relaxation Trajectory</button>
+            <button id="btn-exit-relax-mode" class="btn-block hidden">Exit Relaxation Mode</button>
         </details>
 
         <section class="panel-section export-section" data-panel="export" data-panel-group="export">
@@ -1019,7 +1989,7 @@
             <div class="export-group rendered-output-group">
                 <div class="panel-subhead">Rendered media</div>
                 <p class="panel-note">
-                    Image, video, and HTML use one shared camera crop. Preview Area is the exact composition for all three.
+                    Image, video, and HTML use this persistent Render Area camera and crop.
                 </p>
                 <div class="relax-grid export-dimensions">
                     <label for="image-width">Width</label>
@@ -1033,8 +2003,17 @@
                         <path d="M2.5 2.5h15v11h-15z"></path>
                         <path d="M5 2.5v2M15 2.5v2M5 11.5v2M15 11.5v2"></path>
                     </svg>
-                    <span>Preview Area</span>
+                    <span>Render Area</span>
                 </button>
+                <div class="render-area-options">
+                    <label class="check-row" for="render-area-follow-view">
+                        <span>Follow viewport</span>
+                        <input type="checkbox" id="render-area-follow-view" checked>
+                    </label>
+                    <button id="btn-render-area-from-view" type="button" data-requires-atoms>
+                        Set from Current View
+                    </button>
+                </div>
                 <div class="btn-stack-row two export-image-actions">
                     <button id="btn-export-image" data-requires-atoms>Image</button>
                     <button id="btn-export-video" data-requires-atoms disabled>Video</button>
@@ -1049,10 +2028,7 @@
         <section class="panel-section utility-section" data-panel="project" data-panel-group="export">
             <div class="section-header static-header">v_ase Project</div>
             <p class="panel-note">Save the complete editable structure, trajectory, constraints, labels, camera, and visual setup.</p>
-            <div class="btn-stack-row two">
-                <button id="btn-save-project" data-requires-atoms>Save .vase</button>
-                <button id="btn-save-project-html" data-requires-atoms>HTML Project</button>
-            </div>
+            <button id="btn-save-project" class="btn-block" data-requires-atoms>Save Project</button>
             <button id="btn-load-project" class="btn-block">Open Project</button>
             <input type="file" id="project-file" class="hidden" accept=".vase,.html,.htm,application/vnd.v-ase.project+zip,text/html">
         </section>
@@ -1060,11 +2036,23 @@
         <section class="panel-section utility-section" data-panel="settings" data-panel-group="export">
             <div class="section-header static-header">Visual Settings</div>
             <p class="panel-note">Appearance, bonds, lighting, viewport, display replication, visual translation, and render quality only. Atom coordinates and cell contents are not included.</p>
-            <div class="btn-stack-row two">
-                <button id="btn-save-settings">Save Settings</button>
-                <button id="btn-load-settings">Load Settings</button>
+            <div class="personal-defaults-row">
+                <div>
+                    <strong>Personal default</strong>
+                    <span id="visual-default-status" data-state="app">Using v_ase defaults</span>
+                </div>
+                <span class="personal-default-indicator" aria-hidden="true"></span>
             </div>
-            <input type="file" id="settings-file" class="hidden" accept=".json,.pkl,.pickle,application/json">
+            <div class="btn-stack-row two">
+                <button id="btn-set-visual-default">Set Current as Default</button>
+                <button id="btn-restore-visual-default" class="danger-outline">Restore App Defaults</button>
+            </div>
+            <div class="settings-subheading">Portable preset</div>
+            <div class="btn-stack-row two">
+                <button id="btn-save-settings">Export Preset</button>
+                <button id="btn-load-settings">Import Preset</button>
+            </div>
+            <input type="file" id="settings-file" class="hidden" accept=".json,.pkl,.pickle,.html,.htm,application/json,text/html">
             <div class="btn-stack-row">
                 <button id="btn-undo" title="Undo (Ctrl+Z)">↺</button>
                 <button id="btn-redo" title="Redo (Ctrl+Shift+Z)">↻</button>
@@ -1081,7 +2069,7 @@
             </div>
             <div>
                 <strong>HTML View</strong>
-                <span>A self-contained offline 3D viewer using the exact Preview Area crop. Lightweight view-only is the default; complete .vase recovery is optional.</span>
+                <span>A self-contained offline 3D viewer using the exact Render Area crop. Lightweight view-only is the default; complete .vase recovery is optional.</span>
             </div>
             <div>
                 <strong>ASE Pickle</strong>
@@ -1089,7 +2077,7 @@
             </div>
             <div>
                 <strong>v_ase Project</strong>
-                <span>Save the complete working state as compact .vase, or as an HTML Project with embedded .vase recovery enabled by default.</span>
+                <span>One Save Project dialog creates compact .vase by default. Include the interactive rendered view to switch the output visibly to a complete HTML project.</span>
             </div>
             <div>
                 <strong>Visual Settings</strong>
@@ -1098,6 +2086,37 @@
         </section>
         </div>
     </aside>
+
+    <section id="analysis-drawer" class="analysis-drawer hidden" aria-label="Interactive analysis plot">
+        <div id="analysis-drawer-resizer" class="analysis-drawer-resizer" role="separator"
+             aria-orientation="horizontal" aria-label="Resize analysis plot"></div>
+        <header class="analysis-drawer-head">
+            <div>
+                <span class="analysis-drawer-kicker">ANALYSIS</span>
+                <strong id="analysis-drawer-title">Structural Distribution</strong>
+            </div>
+            <div class="analysis-drawer-actions">
+                <select id="commensurate-plot-view" class="analysis-view-select hidden"
+                        aria-label="Commensurate graph view" title="Commensurate graph view">
+                    <option value="overview-3d">Angle × cell size × strain</option>
+                    <option value="stradi-2d">Strain × atom count</option>
+                </select>
+                <button id="btn-analysis-export" class="btn icon-btn" type="button" disabled
+                        aria-label="Save graph data as CSV" title="Save graph data as CSV">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M12 3v11"></path>
+                        <path d="m7.5 10 4.5 4.5 4.5-4.5"></path>
+                        <path d="M5 20h14"></path>
+                    </svg>
+                </button>
+                <button id="btn-analysis-drawer-close" class="btn icon-btn" type="button"
+                        aria-label="Close analysis graph" title="Close graph">×</button>
+            </div>
+        </header>
+        <div id="rdf-plot" class="analysis-plot hidden" aria-label="Radial or finite pair-distribution plot"></div>
+        <div id="commensurate-plot" class="analysis-plot hidden" aria-label="Commensurate cell analysis graph"></div>
+        <div id="registry-plot" class="analysis-plot hidden" aria-label="Planar translation map"></div>
+    </section>
 
     <!-- Bottom Command Overlay -->
     <footer id="command-bar">
@@ -1149,8 +2168,10 @@
                 <h2>Shortcuts</h2>
                 <div class="shortcut-grid">
                     <span>Left click</span><label>Select / confirm transform</label>
-                    <span>Shift + click</span><label>Add or remove selection</label>
+                    <span>Shift + click / drag</span><label>Invert selection for clicked atoms or every atom inside the box</label>
                     <span>Left drag</span><label>Box select</label>
+                    <span>Ctrl+A</span><label>Select all visible atoms</label>
+                    <span>Shift+Ctrl+A</span><label>Invert selection for all visible atoms</label>
                     <span>Middle drag</span><label>Orbit viewport</label>
                     <span>Shift + middle drag</span><label>Pan viewport</label>
                     <span>Space</span><label>Play or pause the selected timeline</label>
@@ -1158,11 +2179,12 @@
                     <span>Tab / Esc</span><label>Open the control panel while it is collapsed</label>
                     <span>G</span><label>Move selected atoms or Sun handle</label>
                     <span>R</span><label>Rotate selected atoms or Sun direction</label>
+                    <span>S</span><label>Scale selected atom spacing or insertion regions about the pivot</label>
                     <span>Sun source + G</span><label>Move source and target together</label>
                     <span>Sun target + G</span><label>Move target only</label>
                     <span>Sun handle + R</span><label>Rotate target around source</label>
                     <span>X / Y / Z</span><label>Restore canonical +axis view; repeat from that exact pose for -axis</label>
-                    <span>X / Y / Z</span><label>Lock transform axis in G/R mode</label>
+                    <span>X / Y / Z</span><label>Lock the global Cartesian axis in G/R/S mode</label>
                     <span>Enter</span><label>Confirm transform</label>
                     <span>Esc</span><label>Cancel a transform, close a modal, or close the open control panel and return focus to the viewport</label>
                     <span>Ctrl+C / V / Z</span><label>Copy, paste, undo an edit or visual setting</label>
@@ -1183,10 +2205,17 @@
                     <span>Current ASE Atoms data for Python: coordinates, labels, cell, PBC, constraints, arrays, and valid SinglePointCalculator results. Visual settings are excluded.</span>
                     <strong>Visual Settings (.json)</strong>
                     <span>Reusable display preset: bonds, appearance, camera, lighting, quality, and supercell preview. Atomic coordinates are not included.</span>
+                    <strong>Personal default</strong>
+                    <span>Automatic starting style for new structures and tabs on this OS account. It excludes coordinates, trajectory data, absolute camera placement, and per-atom overrides.</span>
                     <strong>v_ase Project (.vase)</strong>
-                    <span>Complete working state: structures or trajectory, current frame, coordinates, cell, constraints, labels, cached results, and visual setup.</span>
-                    <strong>HTML View / HTML Project</strong>
-                    <span>Both use the image/video Preview Area crop. HTML View is lightweight by default; HTML Project embeds complete .vase recovery by default.</span>
+                    <span>Choose Save Project for the complete working state. It saves compact .vase by default; including the interactive rendered view changes the output to a restorable HTML project.</span>
+                    <strong>HTML View</strong>
+                    <span>Shared offline 3D view using the image/video Render Area crop. Editable .vase recovery remains optional.</span>
+                </div>
+                <h3 class="help-section-title">License</h3>
+                <div class="help-save-grid">
+                    <strong>AGPL-3.0-or-later</strong>
+                    <span>Copyright (C) 2026 v_ase contributors. This software is provided without warranty. <a href="/license" target="_blank" rel="noopener">View license</a> · <a href="https://github.com/lgyEthan/v_ase" target="_blank" rel="noopener">Get source</a></span>
                 </div>
             </div>
             <div class="modal-actions">
@@ -1207,7 +2236,7 @@
         }
         const modulePath = (window.location.protocol === 'file:' || window.location.pathname.endsWith('/static/index.html'))
             ? './main.js'
-            : './static/main.js?v=0.0.120a7%2Bsymmetry&rev=7';
+            : './static/main.js?v=0.2.34a1%2Bsymmetry';
         import(modulePath).catch(error => {
             console.error('v_ase failed to initialize:', error?.stack || error);
         });

@@ -1,4 +1,5 @@
 import base64
+import asyncio
 import io
 import json
 from pathlib import Path
@@ -16,7 +17,8 @@ from playwright.sync_api import sync_playwright
 from v_ase.export import HTML_VIEW_SCHEMA, export_html_response
 from v_ase.io import set_atom_labels
 from v_ase.project import read_project_archive, read_project_html
-from v_ase.session import EditorSession
+from v_ase.server import load_visual_settings
+from v_ase.session import EditorSession, sessions
 from v_ase.viewer import find_free_port, view
 
 
@@ -29,7 +31,18 @@ def _embedded_base64(html, element_id):
     return "".join(match.group(1).split())
 
 
-def _html_export_fixture(*, embed_project=True):
+class _BodyRequest:
+    def __init__(self, body):
+        self._body = body
+
+    async def body(self):
+        return self._body
+
+
+def _html_export_fixture(
+    *, embed_project=True, atom_colorscale=False, custom_colormap=False,
+    view_identity=False,
+):
     first = Atoms(
         "CuO",
         positions=[[0.0, 0.0, 0.0], [1.8, 0.0, 0.0]],
@@ -38,6 +51,7 @@ def _html_export_fixture(*, embed_project=True):
     )
     first.set_constraint(FixedPlane(1, [0, 0, 1]))
     set_atom_labels(first, ["Cu_surface", "O_ads"])
+    first.new_array("mlip_uncertainty", np.array([0.15, 0.85]))
     first.calc = SinglePointCalculator(
         first,
         energy=-1.25,
@@ -45,6 +59,7 @@ def _html_export_fixture(*, embed_project=True):
     )
     second = first.copy()
     second.positions[1] = [2.05, 0.25, 0.0]
+    second.arrays["mlip_uncertainty"][:] = [0.25, 0.95]
     second.calc = SinglePointCalculator(
         second,
         energy=-1.40,
@@ -89,7 +104,13 @@ def _html_export_fixture(*, embed_project=True):
             },
             "atomRadiusScale": 0.6,
             "labelColors": {"Cu_surface": "#c98a43", "O_ads": "#e1262f"},
+            "labelOpacities": {"Cu_surface": 0.45, "O_ads": 1.0},
             "labelMaterials": {"Cu_surface": "metal", "O_ads": "standard"},
+            "atomRadiusScales": {"1": 1.3},
+            "atomColors": {"1": "#44aa88"},
+            "atomOpacities": {"1": 0.7},
+            "atomMaterials": {"1": "rubber"},
+            "atomBondStyles": {"1": {"material": "rubber", "opacity": 0.7}},
             "supercell": [2, 1, 1],
             "translation": [0.2, 0.0, 0.0],
             "translationMode": "cartesian",
@@ -123,6 +144,37 @@ def _html_export_fixture(*, embed_project=True):
         "antiAliasing": True,
         "sphereQuality": "high",
     }
+    if atom_colorscale:
+        settings["display"].update({
+            "atomColorScaleEnabled": True,
+            "atomColorScaleField": "array::mlip_uncertainty::scalar",
+            "atomColorScaleMap": "viridis",
+            "atomColorScaleReverse": False,
+            "atomColorScaleScope": "selected",
+            "atomColorScaleAutoRange": True,
+            "atomColorScaleRangeMode": "trajectory",
+            "atomColorScaleMin": 0.15,
+            "atomColorScaleMax": 0.95,
+            "atomColorScaleGamma": 2.0,
+        })
+        if custom_colormap:
+            settings["display"].update({
+                "atomColorScaleMap": "custom",
+                "atomColorScaleCustomMap": {
+                    "mode": "discrete",
+                    "stops": [
+                        {"position": 0, "color": "#112233"},
+                        {"position": 0.5, "color": "#44AA88"},
+                        {"position": 1, "color": "#FFDD55"},
+                    ],
+                },
+            })
+    if view_identity:
+        settings["viewIdentityOverrides"] = {
+            "schema": "v_ase.view_identity.v1",
+            "scope": "trajectory",
+            "labels": ["Cu_substrate", "O_surface"],
+        }
     poster_buffer = io.BytesIO()
     Image.new("RGB", (640, 360), (242, 246, 244)).save(
         poster_buffer,
@@ -198,6 +250,14 @@ def test_html_export_is_self_contained_and_embeds_lossless_vase(tmp_path):
     assert scene["selection"] == [1]
     assert len(scene["frames"]) == 2
     assert scene["settings"]["display"]["labelMaterials"]["Cu_surface"] == "metal"
+    assert scene["settings"]["display"]["labelOpacities"]["Cu_surface"] == pytest.approx(0.45)
+    assert scene["settings"]["display"]["atomRadiusScales"] == {"1": 1.3}
+    assert scene["settings"]["display"]["atomColors"] == {"1": "#44aa88"}
+    assert scene["settings"]["display"]["atomOpacities"] == {"1": 0.7}
+    assert scene["settings"]["display"]["atomMaterials"] == {"1": "rubber"}
+    assert scene["settings"]["display"]["atomBondStyles"] == {
+        "1": {"material": "rubber", "opacity": 0.7}
+    }
     assert scene["settings"]["camera"]["position"] == settings["camera"]["position"]
     assert scene["hasPoster"] is True
     assert scene["exportProfile"]["width"] == 1920
@@ -221,6 +281,29 @@ def test_html_export_is_self_contained_and_embeds_lossless_vase(tmp_path):
     np.testing.assert_allclose(project.frames[1].positions, second.positions)
     assert project.frames[1].constraints
     assert project.frames[1].get_potential_energy() == pytest.approx(-1.40)
+
+
+def test_project_embedded_html_can_be_imported_as_a_visual_preset():
+    response, _, settings = _html_export_fixture(embed_project=True)
+    session = EditorSession(
+        "html-settings-import",
+        Atoms("H"),
+        Atoms("H"),
+        config={"viz_only": True},
+    )
+    sessions[session.session_id] = session
+    try:
+        loaded = asyncio.run(load_visual_settings(
+            session.session_id,
+            _BodyRequest(response.body),
+        ))
+    finally:
+        sessions.pop(session.session_id, None)
+
+    assert loaded["schema"] == "v_ase.visual_settings.v3"
+    assert loaded["settings"]["display"]["supercell"] == [2, 1, 1]
+    assert loaded["settings"]["display"]["lightingMode"] == "studio-shadow"
+    assert loaded["settings"]["camera"]["position"] == settings["camera"]["position"]
 
 
 def test_lightweight_html_omits_project_recovery_and_is_smaller(tmp_path):
@@ -251,6 +334,79 @@ def test_lightweight_html_omits_project_recovery_and_is_smaller(tmp_path):
     lightweight_path.write_bytes(lightweight.body)
     with pytest.raises(ValueError, match="no embedded .vase project"):
         read_project_html(lightweight_path)
+
+
+def test_html_export_freezes_active_selected_atom_colorscale_for_offline_frames():
+    response, _, _ = _html_export_fixture(embed_project=False, atom_colorscale=True)
+    html = response.body.decode("utf-8")
+    scene = json.loads(base64.b64decode(
+        _embedded_base64(html, "v-ase-scene-data")
+    ).decode("utf-8"))
+
+    frame_colors = []
+    for frame in scene["frames"]:
+        scale = frame["metadata"]["atom_color_scale"]
+        assert scale["field_id"] == "array::mlip_uncertainty::scalar"
+        assert scale["map"] == "viridis"
+        assert scale["scope"] == "selected"
+        assert scale["range_mode"] == "trajectory"
+        assert scale["minimum"] == pytest.approx(0.15)
+        assert scale["maximum"] == pytest.approx(0.95)
+        assert scale["gamma"] == pytest.approx(2.0)
+        assert scale["colors"][0] is None
+        assert re.fullmatch(r"#[0-9A-F]{6}", scale["colors"][1])
+        frame_colors.append(scale["colors"][1])
+    assert frame_colors[0] != frame_colors[1]
+
+
+def test_html_export_freezes_custom_colormap_definition_and_colors():
+    response, _, _ = _html_export_fixture(
+        embed_project=False,
+        atom_colorscale=True,
+        custom_colormap=True,
+    )
+    scene = json.loads(base64.b64decode(
+        _embedded_base64(response.body.decode("utf-8"), "v-ase-scene-data")
+    ).decode("utf-8"))
+    scale = scene["frames"][0]["metadata"]["atom_color_scale"]
+    assert scale["map"] == "custom"
+    assert scale["custom_map"]["mode"] == "discrete"
+    assert scale["custom_map"]["stops"][1] == {
+        "position": 0.5,
+        "color": "#44AA88",
+    }
+    assert scale["colors"][0] is None
+    assert scale["colors"][1] in {"#112233", "#44AA88", "#FFDD55"}
+
+
+def test_html_export_preserves_view_labels_without_changing_ase_elements(tmp_path):
+    response, _, _ = _html_export_fixture(
+        embed_project=True,
+        view_identity=True,
+    )
+    html = response.body.decode("utf-8")
+    scene = json.loads(base64.b64decode(
+        _embedded_base64(html, "v-ase-scene-data")
+    ).decode("utf-8"))
+    assert [frame["symbols"] for frame in scene["frames"]] == [
+        ["Cu_substrate", "O_surface"],
+        ["Cu_substrate", "O_surface"],
+    ]
+    assert [frame["chemical_symbols"] for frame in scene["frames"]] == [
+        ["Cu", "O"],
+        ["Cu", "O"],
+    ]
+
+    archive = tmp_path / "identity.vase"
+    archive.write_bytes(base64.b64decode(
+        _embedded_base64(html, "v-ase-project-data")
+    ))
+    project = read_project_archive(archive)
+    assert project.settings["viewIdentityOverrides"]["labels"] == [
+        "Cu_substrate",
+        "O_surface",
+    ]
+    assert project.frames[0].get_chemical_symbols() == ["Cu", "O"]
 
 
 def test_exported_html_opens_offline_as_view_only_interactive_trajectory(tmp_path):
@@ -292,6 +448,9 @@ def test_exported_html_opens_offline_as_view_only_interactive_trajectory(tmp_pat
         assert page.evaluate(
             "window.v_aseStandalone.scene.settings.display.labelMaterials.Cu_surface"
         ) == "metal"
+        assert page.evaluate(
+            "window.v_aseStandalone.scene.settings.display.labelOpacities.Cu_surface"
+        ) == pytest.approx(0.45)
         assert page.evaluate(
             "window.v_aseStandalone.renderer.displacementData?.status"
         ) == "ok"
@@ -581,10 +740,50 @@ def test_html_export_button_downloads_an_offline_document_that_reopens(tmp_path)
                 "window.__ASE_APP__.state.display.supercell.join(',')"
             ) == "1,1,1"
 
-            page.click("#btn-save-project-html")
-            assert page.locator("#modal-content h2").inner_text() == "Save HTML Project"
-            assert page.locator("#html-embed-project").is_checked()
-            page.click("#html-export-cancel")
+            page.click("#btn-save-project")
+            assert page.locator("#modal-content h2").inner_text() == "Save Project"
+            assert not page.locator("#project-include-interactive-viewer").is_checked()
+            assert page.locator("#project-output-extension").inner_text() == ".vase"
+            assert page.locator("#project-output-filename").inner_text().endswith(".vase")
+            assert page.locator("#html-rendering-options").is_hidden()
+            assert page.locator("#html-export-confirm").inner_text() == "Save .vase"
+
+            with page.expect_download() as compact_download_info:
+                page.click("#html-export-confirm")
+            compact_download = compact_download_info.value
+            compact_project = tmp_path / "unified-save-project.vase"
+            compact_download.save_as(compact_project)
+            assert compact_download.suggested_filename.endswith(".vase")
+            assert compact_project.read_bytes().startswith(b"PK")
+
+            page.click("#btn-save-project")
+
+            page.check("#project-include-interactive-viewer")
+            assert page.locator("#project-output-extension").inner_text() == ".html"
+            assert page.locator("#project-output-filename").inner_text().endswith(".html")
+            assert page.locator("#html-rendering-options").is_visible()
+            assert page.locator("#html-embed-project").count() == 0
+            assert page.locator("#html-export-confirm").inner_text() == "Save .html"
+            page.wait_for_function("""() => {
+                const figure = document.querySelector('.html-view-preview');
+                const image = document.getElementById('html-export-preview');
+                return figure && !figure.classList.contains('loading')
+                    && image?.src?.startsWith('data:image/png;base64,');
+            }""")
+            with page.expect_download() as html_project_download_info:
+                page.click("#html-export-confirm")
+            html_project_download = html_project_download_info.value
+            html_project = tmp_path / "unified-save-project.html"
+            html_project_download.save_as(html_project)
+            assert html_project_download.suggested_filename.endswith(".html")
+            assert html_project.stat().st_size > compact_project.stat().st_size
+
+            saved_html = browser.new_page(viewport={"width": 960, "height": 640})
+            saved_html.goto(html_project.as_uri(), wait_until="load")
+            saved_html.locator("html[data-v-ase-ready='true']").wait_for(state="attached")
+            assert saved_html.evaluate("window.v_aseStandalone.hasEmbeddedProject") is True
+            assert saved_html.evaluate("window.v_aseStandalone.projectBytes().length") > 0
+            saved_html.close()
             browser.close()
     finally:
         editor.close()

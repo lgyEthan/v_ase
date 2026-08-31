@@ -8,13 +8,18 @@ import json
 import math
 import os
 import shutil
+import subprocess
 import sys
 from io import BytesIO
 from pathlib import Path
+from typing import Sequence
 
 import numpy as np
 from ase import Atoms
-from ase.build import fcc111
+from ase.build import fcc111, molecule
+from ase.geometry import find_mic
+from ase.io import read
+from ase.io.cube import write_cube
 from PIL import Image
 from playwright.sync_api import sync_playwright
 
@@ -24,16 +29,23 @@ if str(ROOT) not in sys.path:
 
 from tests.manual_showcase import make_frames
 from v_ase import view
+from v_ase.ai import ai_handshake
 from examples.readme_scenes import (
+    make_atom_colorscale_trajectory,
     make_copper_oxide_bond_scene,
     make_crowded_c60_relaxation_scene,
     make_ethane_measurement_scene,
     make_ferrocene_scene,
     make_graphene_hbn_commensurate_scene,
     make_hookean_surface_scene,
+    make_layered_water_channel_scene,
     make_ai_pyridinic_graphene_scene,
+    make_amorphous_cuzr_rdf_scene,
+    make_graphene_pi_volumetric_scene,
+    make_cu5o4_appearance_scene,
     make_material_preset_scene,
     make_phosphorene_twist_scene,
+    make_random_addition_scene,
     make_surface_fixedplane_scene,
     make_cnt_fixedline_scene,
 )
@@ -66,6 +78,107 @@ def sync_github_readme_assets() -> None:
     for source in canonical_dir.glob("readme_*"):
         if source.is_file():
             shutil.copy2(source, github_dir / source.name)
+
+
+def write_ai_collaboration_recording_html(
+    figure_html: str,
+    stage_records: Sequence[dict[str, object]],
+    output: Path,
+) -> None:
+    """Write a self-contained, auto-playing recording surface.
+
+    The stage images come from the same live CLI/GUI workflow used for the
+    README animation. Keeping them in one local HTML file lets a human record
+    a lossless MOV without running v_ase or a web server again.
+    """
+
+    if not stage_records:
+        raise ValueError("AI collaboration recording requires at least one stage.")
+    records_json = json.dumps(
+        list(stage_records),
+        ensure_ascii=True,
+        separators=(",", ":"),
+    ).replace("</", "<\\/")
+    first_image = str(stage_records[0].get("image") or "")
+    if first_image:
+        figure_html = figure_html.replace(
+            "../assets/readme_ai_collaboration_live.png",
+            first_image,
+        )
+    playback = f"""
+<script id="v-ase-collaboration-records" type="application/json">{records_json}</script>
+<script>
+(() => {{
+  const records = JSON.parse(
+    document.getElementById('v-ase-collaboration-records').textContent
+  );
+  let index = 0;
+  let playing = true;
+  let generation = 0;
+
+  const fitStage = () => {{
+    const scale = Math.min(window.innerWidth / 1800, window.innerHeight / 1080);
+    const left = Math.max(0, (window.innerWidth - 1800 * scale) / 2);
+    const top = Math.max(0, (window.innerHeight - 1080 * scale) / 2);
+    document.body.style.transformOrigin = 'top left';
+    document.body.style.transform = `translate(${{left}}px, ${{top}}px) scale(${{scale}})`;
+  }};
+
+  const delay = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
+  const holdFor = record => (
+    record.flow === 'reply' || record.flow === 'complete' ? 2600 : 1750
+  );
+
+  const play = async token => {{
+    while (token === generation) {{
+      if (!playing) {{
+        await delay(80);
+        continue;
+      }}
+      const record = records[index];
+      await window.setCollaborationStage(record);
+      document.documentElement.dataset.recordingStage = String(index + 1);
+      document.documentElement.dataset.recordingFlow = String(record.flow || '');
+      await delay(holdFor(record));
+      if (!playing || token !== generation) continue;
+      index = (index + 1) % records.length;
+      if (index === 0) await delay(900);
+    }}
+  }};
+
+  const restart = () => {{
+    generation += 1;
+    index = 0;
+    playing = true;
+    play(generation);
+  }};
+
+  window.addEventListener('resize', fitStage);
+  window.addEventListener('keydown', event => {{
+    if (event.code === 'Space') {{
+      event.preventDefault();
+      playing = !playing;
+      document.documentElement.dataset.recordingPaused = String(!playing);
+    }} else if (event.key.toLowerCase() === 'r') {{
+      restart();
+    }}
+  }});
+  window.v_aseCollaborationRecording = {{
+    records,
+    restart,
+    pause: () => {{ playing = false; }},
+    resume: () => {{ playing = true; }},
+    get index() {{ return index; }},
+    get playing() {{ return playing; }},
+  }};
+  fitStage();
+  play(generation);
+}})();
+</script>
+"""
+    document = figure_html.replace("</body>", f"{playback}</body>", 1)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(document, encoding="utf-8")
 
 
 ASSET_DIR = configured_asset_dir()
@@ -235,11 +348,18 @@ def set_display(page, options):
             const merged = {
                 ...current,
                 ...options,
-                labelRadii: options.labelRadii || current.labelRadii || {},
-                labelColors: options.labelColors || current.labelColors || {},
-                labelVisible: options.labelVisible || current.labelVisible || {},
-                pairwiseBondCutoffs: options.pairwiseBondCutoffs || current.pairwiseBondCutoffs || {},
-                pairwiseBondRanges: options.pairwiseBondRanges || current.pairwiseBondRanges || {},
+                labelRadii: {...(current.labelRadii || {}), ...(options.labelRadii || {})},
+                labelColors: {...(current.labelColors || {}), ...(options.labelColors || {})},
+                labelMaterials: {...(current.labelMaterials || {}), ...(options.labelMaterials || {})},
+                labelVisible: {...(current.labelVisible || {}), ...(options.labelVisible || {})},
+                pairwiseBondCutoffs: {
+                    ...(current.pairwiseBondCutoffs || {}),
+                    ...(options.pairwiseBondCutoffs || {})
+                },
+                pairwiseBondRanges: {
+                    ...(current.pairwiseBondRanges || {}),
+                    ...(options.pairwiseBondRanges || {})
+                },
                 manualBondPairs: options.manualBondPairs || current.manualBondPairs || [],
                 supercell: options.supercell || current.supercell || [1, 1, 1]
             };
@@ -559,7 +679,7 @@ def set_atomic_scale(page, pixels_per_angstrom: float):
     page.wait_for_timeout(250)
 
 
-def settle_view(page, *, target=None, position=None, fov=38):
+def settle_view(page, *, target=None, position=None, up=(0, 0, 1), fov=38):
     page.evaluate(
         """() => {
             const app = window.__V_ASE_APP__;
@@ -569,7 +689,7 @@ def settle_view(page, *, target=None, position=None, fov=38):
     )
     page.wait_for_timeout(400)
     if target is not None and position is not None:
-        set_camera(page, target=target, position=position, fov=fov)
+        set_camera(page, target=target, position=position, up=up, fov=fov)
 
 
 def update_positions(page, positions):
@@ -825,11 +945,11 @@ def capture_animation(
     save_gif(frames, path, duration=duration)
 
 
-def open_scene(browser, atoms_or_frames, *, show_bonds=False):
+def open_scene(browser, atoms_or_frames, *, show_bonds=False, viz_only=False):
     editor = view(
         atoms_or_frames,
         block=False,
-        viz_only=False,
+        viz_only=viz_only,
         show_cell=True,
         show_axes=True,
         show_bonds=show_bonds,
@@ -844,6 +964,76 @@ def open_scene(browser, atoms_or_frames, *, show_bonds=False):
     page.goto(url)
     page.wait_for_function("window.__V_ASE_APP__ && window.__V_ASE_APP__.state.atoms")
     return editor, page
+
+
+def external_ai_command_url(editor, *, workspace: bool = False) -> str:
+    """Return the same loopback command URL printed by ``v_ase gui --cli``."""
+    url = editor.url if workspace else (
+        f"http://127.0.0.1:{editor.port}/?session_id={editor.session_id}"
+    )
+    command_url = ai_handshake(url).get("command_url")
+    if not command_url:
+        raise AssertionError("README capture could not discover the AI command URL.")
+    return str(command_url)
+
+
+def run_external_ai_command(
+    command_url: str,
+    method: str,
+    params: dict | None = None,
+    *,
+    timeout: float = 180.0,
+):
+    """Invoke the public ``v_ase api`` executable, not an in-page helper."""
+    command = [
+        sys.executable,
+        "-m",
+        "v_ase.cli",
+        "api",
+        command_url,
+        method,
+        "--timeout",
+        f"{float(timeout):g}",
+    ]
+    if params is not None:
+        command.extend(["--params", json.dumps(params, separators=(",", ":"))])
+    try:
+        completed = subprocess.run(
+            command,
+            cwd=ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=timeout + 10.0,
+        )
+    except subprocess.CalledProcessError as exc:
+        raise AssertionError(
+            f"v_ase api {method} failed with exit {exc.returncode}: "
+            f"stdout={exc.stdout!r}; stderr={exc.stderr!r}"
+        ) from exc
+    try:
+        envelope = json.loads(completed.stdout.strip())
+    except json.JSONDecodeError as exc:
+        raise AssertionError(
+            f"v_ase api returned non-JSON output for {method}: {completed.stdout!r}"
+        ) from exc
+    if "result" not in envelope:
+        raise AssertionError(f"v_ase api returned no result for {method}: {envelope!r}")
+    return envelope["result"]
+
+
+def run_external_ai_apply(command_url: str, command: dict):
+    """Apply one revision-guarded command through the external CLI."""
+    before = run_external_ai_command(
+        command_url,
+        "describe",
+        {"includePositions": False},
+    )
+    guarded = {
+        **command,
+        "expectedRevision": before["collaboration"]["revision"],
+    }
+    return run_external_ai_command(command_url, "apply", guarded)
 
 
 def sinusoidal_frames(base: np.ndarray, index: int, delta_fn, count=34) -> list[np.ndarray]:
@@ -1073,7 +1263,7 @@ def capture_ferrocene_media(browser) -> None:
 
 def capture_commensurate_media(browser) -> None:
     atoms, indices = make_graphene_hbn_commensurate_scene()
-    editor, page = open_scene(browser, atoms, show_bonds=True)
+    editor, page = open_scene(browser, atoms, show_bonds=True, viz_only=True)
     try:
         set_display(page, {
             "atomRadiusScale": 0.52,
@@ -1083,61 +1273,987 @@ def capture_commensurate_media(browser) -> None:
             "showAxes": False,
             "viewportBackground": "white",
             "labelColors": {"C": "#46545b", "B": "#d89a4a", "N": "#3f72c9"},
-            "commensurateGuide": True,
+            "commensurateGuide": False,
             "commensurateSnap": False,
             "commensurateMaxIndex": 32,
             "commensurateStrainTolerance": 0.01,
+            "commensurateMaxAreaRatio": 16,
+            "commensurateShowAtoms": False,
+            "commensurateGuestAngleDeg": 17.0,
         })
-        set_selection(page, indices["hbn"])
-        configure_inspector(page, "structure", ["transform"], width=440)
+        configure_inspector(page, "structure", ["transform"], width=470)
+        page.add_style_tag(content="""
+            #measurement-overlay,
+            #selection-measure-readout,
+            #hover-readout,
+            #coord-readout { display: none !important; }
+            #commensurate-plot .xtitle,
+            #commensurate-plot .ytitle,
+            #commensurate-plot .ztitle { font-weight: 900 !important; }
+            #readme-commensurate-stage {
+                position: fixed; z-index: 5000; top: 76px; left: 22px;
+                max-width: 760px; padding: 12px 16px;
+                border: 2px solid #c6d4d2; border-left: 8px solid #161a1d;
+                border-radius: 6px; background: rgba(255,255,255,.97);
+                color: #223437; box-shadow: 0 6px 20px rgba(20,38,41,.14);
+                pointer-events: none;
+            }
+            #readme-commensurate-stage strong { display: block; font-size: 21px; }
+            #readme-commensurate-stage span { display: block; margin-top: 4px; font-size: 17px; font-weight: 760; }
+        """)
+        page.evaluate("""() => {
+            const overlay = document.createElement('div');
+            overlay.id = 'readme-commensurate-stage';
+            overlay.innerHTML = '<strong>PARENT LATTICES</strong><span>Host fixed · guest rotates · common cell hidden until a bounded strain match</span>';
+            document.body.appendChild(overlay);
+            window.__setReadmeCommensurateStage = (title, detail, color = '#161a1d') => {
+                overlay.querySelector('strong').textContent = title;
+                overlay.querySelector('span').textContent = detail;
+                overlay.style.borderLeftColor = color;
+            };
+        }""")
         center = np.mean(atoms.positions, axis=0)
-        camera_target = center + np.array([-2.2, 0.0, 0.45])
+        set_readme_lighting(page, center.tolist(), intensity=3.0, position_offset=(-10.0, -13.0, 18.0))
+        set_selection(page, indices["hbn"])
+        page.locator("#chk-commensurate-guide").set_checked(True)
+        page.wait_for_function("window.__V_ASE_APP__.state.commensurateCandidates?.length > 0")
+        page.wait_for_function(
+            "window.__V_ASE_APP__.state.display.commensurateShowAtoms === false"
+        )
+        page.wait_for_function("""() => {
+            const preview = window.__V_ASE_APP__.state.commensurateProposal?.data?.preview;
+            return preview && preview.include_atoms === false
+                && window.__V_ASE_APP__.renderer.commensurateSupercellGroup.children
+                    .some(child => child.userData?.commensurateHostPrimitiveGrid)
+                && window.__V_ASE_APP__.renderer.commensurateSupercellGroup.children
+                    .some(child => child.userData?.commensurateGuestPrimitiveGrid);
+        }""")
+        target_angle = page.evaluate("""() => {
+            const candidates = window.__V_ASE_APP__.state.commensurateCandidates || [];
+            const ranked = [...candidates]
+                .filter(candidate => Number(candidate.area_ratio || candidate.area) <= 16)
+                .sort((left, right) =>
+                    Math.abs(Math.abs(Number(left.angle_deg)) - 21.786789)
+                    - Math.abs(Math.abs(Number(right.angle_deg)) - 21.786789)
+                );
+            return Math.abs(Number(ranked[0]?.angle_deg || 21.786789));
+        }""")
+        preview_bounds = page.evaluate("""() => {
+            const app = window.__V_ASE_APP__;
+            const preview = app.state.commensurateProposal.data.preview;
+            const bounds = app.renderer.commensuratePreviewBounds(preview);
+            const minimum = bounds.min.toArray();
+            const maximum = bounds.max.toArray();
+            return {
+                center: minimum.map((value, index) => 0.5 * (value + maximum[index])),
+                size: minimum.map((value, index) => maximum[index] - value)
+            };
+        }""")
+        preview_center = preview_bounds["center"]
+        camera_distance = max(24.0, max(preview_bounds["size"][:2]) * 2.4)
         set_camera(
             page,
-            target=camera_target.tolist(),
-            position=(camera_target + np.array([0.0, 0.0, 31.0])).tolist(),
+            target=preview_center,
+            position=[preview_center[0], preview_center[1], preview_center[2] + camera_distance],
             up=(0.0, 1.0, 0.0),
             fov=32,
         )
-        set_readme_lighting(page, center.tolist(), intensity=3.0, position_offset=(-10.0, -13.0, 18.0))
-        set_atomic_scale(page, 59.0)
-        start_atom_rotation(
-            page,
-            indices["hbn"],
-            axis="Z",
-            pivot_mode="selection",
-        )
-        set_view_toggles(page, grid=False, axes=False, cell=True)
-        page.wait_for_function("window.__V_ASE_APP__.state.commensurateCandidates?.length > 0")
-        target_angle = page.evaluate("""() => {
-            const candidates = window.__V_ASE_APP__.state.commensurateCandidates || [];
-            const ranked = [...candidates].sort((left, right) =>
-                Math.abs(Math.abs(Number(left.angle_deg)) - 6)
-                - Math.abs(Math.abs(Number(right.angle_deg)) - 6)
+        page.evaluate("""() => {
+            const app = window.__V_ASE_APP__;
+            const bounds = app.renderer.commensuratePreviewBounds(
+                app.state.commensurateProposal.data.preview
             );
-            return Math.abs(Number(ranked[0]?.angle_deg || 6));
+            app.renderer.fitCameraToStructure(bounds);
+            app.renderer.renderNow();
         }""")
+        set_view_toggles(page, grid=False, axes=False, cell=True)
+        page.evaluate("window.__V_ASE_APP__.closeAnalysisDrawer()")
+        set_camera(
+            page,
+            target=preview_center,
+            position=[preview_center[0], preview_center[1], preview_center[2] + camera_distance],
+            up=(0.0, 1.0, 0.0),
+            fov=32,
+        )
+        set_atomic_scale(page, 55.0)
         rendered_frames: list[Image.Image] = []
-        count = 38
-        peak_frame = count // 2
+        initial_context = page.evaluate("""() => {
+            const app = window.__V_ASE_APP__;
+            const preview = app.state.commensurateProposal.data.preview;
+            const children = app.renderer.commensurateSupercellGroup.children;
+            return {
+                hostShape: preview.host_grid_shape,
+                guestShape: preview.guest_grid_shape,
+                hostOrigins: preview.host_grid_lattice_origins,
+                guestAnchor: preview.guest_offset,
+                guestGridCenter: [0, 1, 2].map(axis => (
+                    preview.guest_grid_lattice_origins.reduce(
+                        (sum, origin) => sum + Number(origin[axis]), 0
+                    ) / preview.guest_grid_lattice_origins.length
+                    + 0.5 * (
+                        Number(preview.guest_primitive_vectors[0][axis])
+                        + Number(preview.guest_primitive_vectors[1][axis])
+                    )
+                )),
+                guestGridRadii: preview.guest_grid_lattice_origins.map(origin => Math.hypot(
+                    ...origin.map((value, axis) => Number(value) - Number(preview.guest_offset[axis]))
+                )).sort((left, right) => left - right),
+                guestGridCount: preview.guest_grid_lattice_origins?.length,
+                parentFixed: preview.parent_lattices_fixed,
+                commonCells: children.filter(child => child.userData?.commensurateSuggestedCell).length,
+                hostGrids: children.filter(child => child.userData?.commensurateHostPrimitiveGrid).length,
+                guestGrids: children.filter(child => child.userData?.commensurateGuestPrimitiveGrid).length,
+                baseSelectionVisible: app.renderer.selectionOutlines.visible
+            };
+        }""")
+        if initial_context["commonCells"] != 0 or not initial_context["parentFixed"]:
+            raise AssertionError("Commensurate mode must start with fixed parent lattices and no common cell.")
+        if initial_context["hostGrids"] != 1 or initial_context["guestGrids"] != 1:
+            raise AssertionError("Both parent superlattices must be visible immediately.")
+        if initial_context["baseSelectionVisible"]:
+            raise AssertionError("Cells-only commensurate mode leaked base atom selection outlines.")
+        page.evaluate("""() => window.__setReadmeCommensurateStage(
+            '1 · PARENT LATTICES ONLY',
+            'Black host grid stays fixed · orange guest grid rotates · no common cell yet'
+        )""")
+        append_hold(rendered_frames, page, 8)
+        page.locator('details.commensurate-advanced').evaluate(
+            "element => { element.open = true; }"
+        )
+        page.locator("#chk-commensurate-show-atoms").set_checked(True)
+        page.wait_for_function(
+            "Number(window.__V_ASE_APP__.renderer.domElement.dataset.commensuratePreviewAtoms) > 0"
+        )
+        independent_atoms = page.evaluate("""() => ({
+            atoms: Number(window.__V_ASE_APP__.renderer.domElement.dataset.commensuratePreviewAtoms),
+            bonds: Number(window.__V_ASE_APP__.renderer.domElement.dataset.commensuratePreviewBonds),
+            common: window.__V_ASE_APP__.renderer.commensurateSupercellGroup.children
+                .filter(child => child.userData?.commensurateSuggestedCell).length
+        })""")
+        if independent_atoms["atoms"] <= 0 or independent_atoms["bonds"] <= 0:
+            raise AssertionError("Commensurate atom visibility did not include atoms and bonds.")
+        if independent_atoms["common"] != 0:
+            raise AssertionError("Showing atoms exposed an unresolved common cell.")
+        page.evaluate("""() => window.__setReadmeCommensurateStage(
+            '2 · OPTIONAL ATOMS + BONDS',
+            'Atom visibility is independent · the unresolved common cell remains hidden',
+            '#087f70'
+        )""")
+        append_hold(rendered_frames, page, 10)
+        page.locator("#chk-commensurate-show-atoms").set_checked(False)
+        page.wait_for_function(
+            "Number(window.__V_ASE_APP__.renderer.domElement.dataset.commensuratePreviewAtoms) === 0"
+        )
+        page.evaluate("""() => window.__setReadmeCommensurateStage(
+            '3 · ROTATE THE GUEST LATTICE',
+            'The parent grid extent and origin remain fixed while only its orientation changes',
+            '#f58220'
+        )""")
+        append_hold(rendered_frames, page, 8)
+        count = 24
+        initial_angle = 17.0
         for frame_index in range(count):
-            phase = 0.5 - 0.5 * math.cos(2 * math.pi * frame_index / (count - 1))
-            angle = target_angle * phase
-            set_atom_rotation_angle(
-                page,
+            phase = 0.5 - 0.5 * math.cos(math.pi * frame_index / (count - 1))
+            angle = initial_angle + (target_angle - initial_angle) * phase
+            page.evaluate(
+                """(angle) => {
+                    const input = document.getElementById('commensurate-guest-angle');
+                    input.value = Number(angle).toFixed(8);
+                    input.dispatchEvent(new Event('input', {bubbles: true}));
+                }""",
                 angle,
-                f"cell match: {target_angle:.2f} deg",
             )
-            page.wait_for_timeout(35)
+            page.wait_for_function(
+                """angle => Math.abs(
+                    Number(window.__V_ASE_APP__.state.commensurateProposal?.data?.preview?.display_angle_deg)
+                    - Number(angle)
+                ) < 1e-5""",
+                arg=angle,
+            )
+            invariant = page.evaluate("""() => {
+                const app = window.__V_ASE_APP__;
+                const preview = app.state.commensurateProposal.data.preview;
+                return {
+                    hostShape: preview.host_grid_shape,
+                    guestShape: preview.guest_grid_shape,
+                    hostOrigins: preview.host_grid_lattice_origins,
+                    guestAnchor: preview.guest_offset,
+                    guestGridCenter: [0, 1, 2].map(axis => (
+                        preview.guest_grid_lattice_origins.reduce(
+                            (sum, origin) => sum + Number(origin[axis]), 0
+                        ) / preview.guest_grid_lattice_origins.length
+                        + 0.5 * (
+                            Number(preview.guest_primitive_vectors[0][axis])
+                            + Number(preview.guest_primitive_vectors[1][axis])
+                        )
+                    )),
+                    guestGridRadii: preview.guest_grid_lattice_origins.map(origin => Math.hypot(
+                        ...origin.map((value, axis) => Number(value) - Number(preview.guest_offset[axis]))
+                    )).sort((left, right) => left - right),
+                    guestGridCount: preview.guest_grid_lattice_origins?.length,
+                    parentFixed: preview.parent_lattices_fixed,
+                    baseSelectionVisible: app.renderer.selectionOutlines.visible
+                };
+            }""")
+            if {
+                key: value for key, value in invariant.items()
+                if key not in {"guestGridCenter", "guestGridRadii"}
+            } != {
+                "hostShape": initial_context["hostShape"],
+                "guestShape": initial_context["guestShape"],
+                "hostOrigins": initial_context["hostOrigins"],
+                "guestAnchor": initial_context["guestAnchor"],
+                "guestGridCount": initial_context["guestGridCount"],
+                "parentFixed": True,
+                "baseSelectionVisible": False,
+            }:
+                raise AssertionError("A commensurate candidate resized the fixed parent-lattice window.")
+            np.testing.assert_allclose(
+                invariant["guestGridCenter"],
+                initial_context["guestAnchor"],
+                atol=1e-8,
+            )
+            np.testing.assert_allclose(
+                invariant["guestGridRadii"],
+                initial_context["guestGridRadii"],
+                atol=1e-7,
+            )
             rendered_frames.append(screenshot_frame(page))
+        cells_only_frame = rendered_frames[0].copy()
+        page.wait_for_function(
+            "window.__V_ASE_APP__.state.commensurateProposal?.data?.suggestion_visible === true"
+        )
+        preview_context = page.evaluate("""() => {
+            const app = window.__V_ASE_APP__;
+            const preview = app.state.commensurateProposal.data.preview;
+            const children = app.renderer.commensurateSupercellGroup.children;
+            return {
+                hostGridShape: preview.host_grid_shape,
+                guestGridShape: preview.guest_grid_shape,
+                hostNotation: preview.host_notation,
+                guestNotation: preview.guest_notation,
+                hostLabels: children.filter(child => child.userData?.commensurateHostCellLabel).length,
+                guestLabels: children.filter(child => child.userData?.commensurateGuestCellLabel).length,
+                suggestedCell: children.some(child => child.userData?.commensurateSuggestedCell)
+            };
+        }""")
+        if min(preview_context["hostGridShape"][:2]) < 3:
+            raise AssertionError("README host primitive grid does not surround the common cell.")
+        if min(preview_context["guestGridShape"][:2]) < 3:
+            raise AssertionError("README guest primitive grid does not surround the common cell.")
+        if not all((
+            preview_context["hostNotation"],
+            preview_context["guestNotation"],
+            preview_context["suggestedCell"],
+        )):
+            raise AssertionError("README commensurate cells are missing notation or boundaries.")
+        if preview_context["hostLabels"] or preview_context["guestLabels"]:
+            raise AssertionError("Fixed parent-lattice labels clutter the commensurate viewport.")
+        if page.locator("#chk-commensurate-show-atoms").is_checked():
+            raise AssertionError("Candidate discovery changed the user-controlled atom visibility.")
+        page.evaluate("""() => window.__setReadmeCommensurateStage(
+            '4 · STRAIN-QUALIFIED COMMON CELL',
+            'The teal boundary appears only at the accepted commensurate angle',
+            '#139c68'
+        )""")
+        append_hold(rendered_frames, page, 12)
         save_gif(
             rendered_frames,
             ASSET_DIR / "readme_commensurate.gif",
             duration=95,
         )
-        rendered_frames[peak_frame].save(
+        cells_only_frame.save(
             ASSET_DIR / "readme_commensurate.png",
             optimize=True,
+        )
+    finally:
+        page.close()
+        editor.close()
+
+    fixture = ROOT / "examples" / "commensurate_host_guest"
+    host = read(fixture / "graphene_host.extxyz")
+    host_guest_target_angle = 19.10660535
+    editor, page = open_scene(browser, host, show_bonds=True, viz_only=True)
+    try:
+        set_display(page, {
+            "atomRadiusScale": 0.52,
+            "showBonds": True,
+            "showGrid": False,
+            "showCell": True,
+            "showAxes": False,
+            "viewportBackground": "white",
+            "commensurateGuide": False,
+            "commensurateSnap": False,
+            "commensurateStrainTolerance": 0.025,
+            "commensurateMaxAreaRatio": 16,
+            "commensurateShowAtoms": False,
+            "commensurateGuestAngleDeg": 8.0,
+        })
+        configure_inspector(page, "structure", ["transform"], width=470)
+        page.add_style_tag(content="""
+            #measurement-overlay,
+            #selection-measure-readout,
+            #hover-readout,
+            #coord-readout { display: none !important; }
+            #readme-host-guest-stage {
+                position: fixed; z-index: 5000; top: 76px; left: 22px;
+                max-width: 815px; padding: 12px 16px;
+                border: 2px solid #c6d4d2; border-left: 8px solid #161a1d;
+                border-radius: 6px; background: rgba(255,255,255,.97);
+                color: #223437; box-shadow: 0 6px 20px rgba(20,38,41,.14);
+                pointer-events: none;
+            }
+            #readme-host-guest-stage strong { display: block; font-size: 21px; }
+            #readme-host-guest-stage span { display: block; margin-top: 4px; font-size: 17px; font-weight: 760; }
+        """)
+        page.evaluate("""() => {
+            const overlay = document.createElement('div');
+            overlay.id = 'readme-host-guest-stage';
+            overlay.innerHTML = '<strong>HEXAGONAL GRAPHENE HOST + RECTANGULAR MoS₂ GUEST</strong><span>Different cell shapes and lengths · cells only by default</span>';
+            document.body.appendChild(overlay);
+            window.__setReadmeHostGuestStage = (title, detail, color = '#161a1d') => {
+                overlay.querySelector('strong').textContent = title;
+                overlay.querySelector('span').textContent = detail;
+                overlay.style.borderLeftColor = color;
+            };
+        }""")
+        center = np.mean(host.positions, axis=0)
+        set_camera(
+            page,
+            target=center.tolist(),
+            position=(center + np.array([0.0, 0.0, 26.0])).tolist(),
+            up=(0.0, 1.0, 0.0),
+            fov=32,
+        )
+        set_view_toggles(page, grid=False, axes=False, cell=True)
+        page.locator("#chk-commensurate-guide").set_checked(True)
+        page.wait_for_function("window.__V_ASE_APP__.state.commensurateCandidates?.length > 0")
+        page.locator("#commensurate-guest-file").set_input_files(
+            str(fixture / "mos2_guest.extxyz")
+        )
+        page.wait_for_function(
+            "window.__V_ASE_APP__.state.display.commensurateMode === 'host-guest'"
+        )
+        page.wait_for_function(
+            "window.__V_ASE_APP__.state.commensurateProposal?.data?.preview?.mode === 'host-guest'"
+        )
+        page.wait_for_function(
+            "window.__V_ASE_APP__.state.commensurateProposal?.data?.preview?.include_atoms === false"
+        )
+        preview_bounds = page.evaluate("""() => {
+            const app = window.__V_ASE_APP__;
+            const bounds = app.renderer.commensuratePreviewBounds(
+                app.state.commensurateProposal.data.preview
+            );
+            const minimum = bounds.min.toArray();
+            const maximum = bounds.max.toArray();
+            return {
+                center: minimum.map((value, index) => 0.5 * (value + maximum[index])),
+                size: minimum.map((value, index) => maximum[index] - value)
+            };
+        }""")
+        preview_center = preview_bounds["center"]
+        camera_distance = max(24.0, max(preview_bounds["size"][:2]) * 2.4)
+        set_camera(
+            page,
+            target=preview_center,
+            position=[preview_center[0], preview_center[1], preview_center[2] + camera_distance],
+            up=(0.0, 1.0, 0.0),
+            fov=32,
+        )
+        page.evaluate("""() => {
+            const app = window.__V_ASE_APP__;
+            const bounds = app.renderer.commensuratePreviewBounds(
+                app.state.commensurateProposal.data.preview
+            );
+            app.renderer.fitCameraToStructure(bounds);
+            app.renderer.renderNow();
+        }""")
+        page.wait_for_function("""() => {
+            const traces = Array.from(document.getElementById('commensurate-plot').data || []);
+            return traces.some(trace => trace.meta?.role === 'angle-area-floor')
+                && traces.some(trace => trace.meta?.role === 'candidate-floor-projection')
+                && traces.some(trace => trace.meta?.role === 'commensurate-candidates')
+                && traces.some(trace => trace.meta?.role === 'current-angle-plane');
+        }""")
+        page.evaluate("""() => {
+            const drawer = document.getElementById('analysis-drawer');
+            drawer.style.height = '520px';
+            window.Plotly?.Plots?.resize?.(document.getElementById('commensurate-plot'));
+            window.__V_ASE_APP__.closeAnalysisDrawer();
+        }""")
+        common_center = page.evaluate("""() => {
+            const cell = window.__V_ASE_APP__.state.commensurateProposal
+                ?.data?.preview?.common_cell;
+            if (!Array.isArray(cell) || cell.length !== 3) return null;
+            return [0, 1, 2].map(axis => 0.5 * (
+                Number(cell[0][axis] || 0)
+                + Number(cell[1][axis] || 0)
+                + Number(cell[2][axis] || 0)
+            ));
+        }""")
+        if common_center is None:
+            raise AssertionError("Host/guest capture is missing the bounded common-cell geometry.")
+        graph_target = preview_center
+        set_camera(
+            page,
+            target=graph_target,
+            position=[graph_target[0], graph_target[1], graph_target[2] + camera_distance],
+            up=(0.0, 1.0, 0.0),
+            fov=32,
+        )
+        set_atomic_scale(page, 32.0)
+        graph_state = page.evaluate("""() => {
+            const plot = document.getElementById('commensurate-plot');
+            return {
+                xTitle: plot.layout.scene?.xaxis?.title?.text,
+                perspective: plot.layout.scene?.camera?.projection?.type,
+                xAspect: Number(plot.layout.scene?.aspectratio?.x || 0),
+                zAspect: Number(plot.layout.scene?.aspectratio?.z || 0),
+                roles: Array.from(plot.data || []).map(trace => trace.meta?.role || ''),
+                previewBonds: Number(window.__V_ASE_APP__.renderer.domElement.dataset.commensuratePreviewBonds || 0)
+            };
+        }""")
+        if graph_state["xTitle"] != "rotation θ / °":
+            raise AssertionError("README commensurate graph does not expose rotation as its x axis.")
+        if graph_state["perspective"] != "perspective" or graph_state["xAspect"] <= graph_state["zAspect"]:
+            raise AssertionError("README commensurate graph is not presented as a legible 3D landscape.")
+        if "current-angle-outline" not in graph_state["roles"] or graph_state["previewBonds"] != 0:
+            raise AssertionError(
+                "README host/guest example must begin as a cells-only parent-lattice view."
+            )
+        initial_lattices = page.evaluate("""() => {
+            const app = window.__V_ASE_APP__;
+            const preview = app.state.commensurateProposal.data.preview;
+            const children = app.renderer.commensurateSupercellGroup.children;
+            return {
+                hostShape: preview.host_grid_shape,
+                guestShape: preview.guest_grid_shape,
+                hostOrigins: preview.host_grid_lattice_origins,
+                guestAnchor: preview.guest_offset,
+                guestGridCenter: [0, 1, 2].map(axis => (
+                    preview.guest_grid_lattice_origins.reduce(
+                        (sum, origin) => sum + Number(origin[axis]), 0
+                    ) / preview.guest_grid_lattice_origins.length
+                    + 0.5 * (
+                        Number(preview.guest_primitive_vectors[0][axis])
+                        + Number(preview.guest_primitive_vectors[1][axis])
+                    )
+                )),
+                guestGridRadii: preview.guest_grid_lattice_origins.map(origin => Math.hypot(
+                    ...origin.map((value, axis) => Number(value) - Number(preview.guest_offset[axis]))
+                )).sort((left, right) => left - right),
+                commonCenter: [0, 1, 2].map(axis => 0.5 * (
+                    Number(preview.common_cell?.[0]?.[axis] || 0)
+                    + Number(preview.common_cell?.[1]?.[axis] || 0)
+                    + Number(preview.common_cell?.[2]?.[axis] || 0)
+                )),
+                guestGridCount: preview.guest_grid_lattice_origins?.length,
+                hostLengths: preview.host_primitive_vectors.map(vector => Math.hypot(...vector)),
+                guestLengths: preview.guest_primitive_vectors.map(vector => Math.hypot(...vector)),
+                parentFixed: preview.parent_lattices_fixed,
+                commonCells: children.filter(child => child.userData?.commensurateSuggestedCell).length,
+                hostLabels: children.filter(child => child.userData?.commensurateHostCellLabel).length,
+                guestLabels: children.filter(child => child.userData?.commensurateGuestCellLabel).length,
+                baseSelectionVisible: app.renderer.selectionOutlines.visible
+            };
+        }""")
+        if initial_lattices["commonCells"] != 0 or not initial_lattices["parentFixed"]:
+            raise AssertionError("Host/guest mode exposed a result cell before the mobile lattice matched.")
+        np.testing.assert_allclose(
+            np.asarray(initial_lattices["guestAnchor"], dtype=float)[:2],
+            [0.0, 0.0],
+            atol=0.0,
+        )
+        np.testing.assert_allclose(
+            np.asarray(initial_lattices["commonCenter"], dtype=float)[:2],
+            np.asarray(common_center, dtype=float)[:2],
+            atol=1e-8,
+        )
+        if initial_lattices["baseSelectionVisible"]:
+            raise AssertionError("Host/guest cells-only mode leaked base selection outlines.")
+        if np.allclose(
+            initial_lattices["hostLengths"][:2],
+            initial_lattices["guestLengths"][:2],
+            atol=0.05,
+        ):
+            raise AssertionError("Host/guest README fixture does not show visibly different lattices.")
+        np.testing.assert_allclose(initial_lattices["hostLengths"][:2], [2.46, 2.46], atol=0.03)
+        np.testing.assert_allclose(initial_lattices["guestLengths"][:2], [3.18, 5.5079], atol=0.03)
+        if initial_lattices["hostLabels"] or initial_lattices["guestLabels"]:
+            raise AssertionError("Fixed host/guest parent lattices should remain label-free in the viewport.")
+        graph_frames: list[Image.Image] = []
+        page.evaluate("""() => window.__setReadmeHostGuestStage(
+            '1 · DISTINCT PARENT LATTICES',
+            'Black hexagonal host: 2.46 Å · orange rectangular guest: 3.18 × 5.51 Å · shared origin',
+            '#161a1d'
+        )""")
+        append_hold(graph_frames, page, 14)
+        page.locator('details.commensurate-advanced').evaluate(
+            "element => { element.open = true; }"
+        )
+        page.locator("#chk-commensurate-show-atoms").set_checked(True)
+        page.wait_for_function(
+            "Number(window.__V_ASE_APP__.renderer.domElement.dataset.commensuratePreviewAtoms) > 0"
+        )
+        independent_atoms = page.evaluate("""() => ({
+            atoms: Number(window.__V_ASE_APP__.renderer.domElement.dataset.commensuratePreviewAtoms),
+            bonds: Number(window.__V_ASE_APP__.renderer.domElement.dataset.commensuratePreviewBonds),
+            common: window.__V_ASE_APP__.renderer.commensurateSupercellGroup.children
+                .filter(child => child.userData?.commensurateSuggestedCell).length
+        })""")
+        if independent_atoms["atoms"] <= 0 or independent_atoms["bonds"] <= 0:
+            raise AssertionError("Host/guest atom visibility did not include both bonded lattices.")
+        if independent_atoms["common"] != 0:
+            raise AssertionError("Host/guest atom visibility exposed an unresolved common cell.")
+        page.evaluate("""() => window.__setReadmeHostGuestStage(
+            '2 · OPTIONAL ATOMS + BONDS',
+            'Atoms can be shown at any angle; this does not create or hide a common cell',
+            '#087f70'
+        )""")
+        append_hold(graph_frames, page, 14)
+        page.locator("#chk-commensurate-show-atoms").set_checked(False)
+        page.wait_for_function(
+            "Number(window.__V_ASE_APP__.renderer.domElement.dataset.commensuratePreviewAtoms) === 0"
+        )
+        page.evaluate("""() => window.__setReadmeHostGuestStage(
+            '3 · ROTATE MoS₂, KEEP BOTH GRIDS FIXED',
+            'Only the guest orientation changes; neither parent lattice resizes or drifts',
+            '#f58220'
+        )""")
+        append_hold(graph_frames, page, 7)
+        host_guest_initial_angle = 8.0
+        animation_angles = [
+            host_guest_initial_angle
+            + (host_guest_target_angle - host_guest_initial_angle)
+            * (0.5 - 0.5 * math.cos(math.pi * index / 21))
+            for index in range(22)
+        ]
+        for frame_index, angle in enumerate(animation_angles):
+            page.evaluate(
+                """angle => {
+                    const input = document.getElementById('commensurate-guest-angle');
+                    input.value = Number(angle).toFixed(8);
+                    input.dispatchEvent(new Event('input', {bubbles: true}));
+                }""",
+                angle,
+            )
+            page.wait_for_function(
+                """angle => Math.abs(
+                    Number(window.__V_ASE_APP__.state.commensurateProposal?.data?.preview?.display_angle_deg)
+                    - Number(angle)
+                ) < 1e-5""",
+                arg=angle,
+                timeout=30_000,
+            )
+            invariant = page.evaluate("""() => {
+                const app = window.__V_ASE_APP__;
+                const preview = app.state.commensurateProposal.data.preview;
+                return {
+                    hostShape: preview.host_grid_shape,
+                    guestShape: preview.guest_grid_shape,
+                    hostOrigins: preview.host_grid_lattice_origins,
+                    guestAnchor: preview.guest_offset,
+                    guestGridCenter: [0, 1, 2].map(axis => (
+                        preview.guest_grid_lattice_origins.reduce(
+                            (sum, origin) => sum + Number(origin[axis]), 0
+                        ) / preview.guest_grid_lattice_origins.length
+                        + 0.5 * (
+                            Number(preview.guest_primitive_vectors[0][axis])
+                            + Number(preview.guest_primitive_vectors[1][axis])
+                        )
+                    )),
+                    guestGridRadii: preview.guest_grid_lattice_origins.map(origin => Math.hypot(
+                        ...origin.map((value, axis) => Number(value) - Number(preview.guest_offset[axis]))
+                    )).sort((left, right) => left - right),
+                    guestGridCount: preview.guest_grid_lattice_origins?.length,
+                    hostLengths: preview.host_primitive_vectors.map(vector => Math.hypot(...vector)),
+                    guestLengths: preview.guest_primitive_vectors.map(vector => Math.hypot(...vector)),
+                    hostLabels: app.renderer.commensurateSupercellGroup.children.filter(
+                        child => child.userData?.commensurateHostCellLabel
+                    ).length,
+                    guestLabels: app.renderer.commensurateSupercellGroup.children.filter(
+                        child => child.userData?.commensurateGuestCellLabel
+                    ).length,
+                    parentFixed: preview.parent_lattices_fixed,
+                    baseSelectionVisible: app.renderer.selectionOutlines.visible
+                };
+            }""")
+            if {
+                key: value for key, value in invariant.items()
+                if key not in {
+                    "guestGridCenter",
+                    "guestGridRadii",
+                    "hostLengths",
+                    "guestLengths",
+                }
+            } != {
+                "hostShape": initial_lattices["hostShape"],
+                "guestShape": initial_lattices["guestShape"],
+                "hostOrigins": initial_lattices["hostOrigins"],
+                "guestAnchor": initial_lattices["guestAnchor"],
+                "guestGridCount": initial_lattices["guestGridCount"],
+                "hostLabels": 0,
+                "guestLabels": 0,
+                "parentFixed": True,
+                "baseSelectionVisible": False,
+            }:
+                raise AssertionError("Host/guest parent superlattices changed size with the candidate cell.")
+            np.testing.assert_allclose(
+                invariant["hostLengths"],
+                initial_lattices["hostLengths"],
+                atol=1e-8,
+            )
+            np.testing.assert_allclose(
+                invariant["guestLengths"],
+                initial_lattices["guestLengths"],
+                atol=1e-8,
+            )
+            np.testing.assert_allclose(
+                invariant["guestGridCenter"],
+                initial_lattices["guestAnchor"],
+                atol=1e-8,
+            )
+            np.testing.assert_allclose(
+                invariant["guestGridRadii"],
+                initial_lattices["guestGridRadii"],
+                atol=1e-7,
+            )
+            if frame_index == 0:
+                unresolved = page.evaluate("""() => ({
+                    resolved: window.__V_ASE_APP__.state.commensurateProposal?.data?.match_resolved,
+                    commonCells: window.__V_ASE_APP__.renderer.commensurateSupercellGroup.children
+                        .filter(child => child.userData?.commensurateSuggestedCell).length
+                })""")
+                if unresolved["resolved"] or unresolved["commonCells"]:
+                    raise AssertionError("README commensurate animation emphasizes a common cell before matching.")
+            page.evaluate("""async () => {
+                await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+            }""")
+            page.wait_for_timeout(70)
+            graph_frames.append(screenshot_frame(page))
+        resolved = page.evaluate("""() => ({
+            resolved: window.__V_ASE_APP__.state.commensurateProposal?.data?.match_resolved,
+            angle: window.__V_ASE_APP__.state.commensurateProposal?.context?.displayAngleDeg,
+            target: window.__V_ASE_APP__.state.commensurateProposal?.context?.candidate?.targetAngleDeg,
+            delta: window.__V_ASE_APP__.state.commensurateProposal?.context?.candidate?.deltaDeg,
+            mode: window.__V_ASE_APP__.state.display.commensurateMode,
+            commonCells: window.__V_ASE_APP__.renderer.commensurateSupercellGroup.children
+                .filter(child => child.userData?.commensurateSuggestedCell).length
+        })""")
+        if not resolved["resolved"] or resolved["commonCells"] != 1:
+            raise AssertionError(
+                f"README commensurate animation did not resolve its final common cell: {resolved!r}"
+            )
+        page.evaluate("""() => window.__setReadmeHostGuestStage(
+            '4 · BOUNDED COMMON CELL FOUND',
+            'The teal cell appears only when the current angle satisfies the strain limit',
+            '#139c68'
+        )""")
+        cells_only_host_guest = graph_frames[0].copy()
+        if page.locator("#chk-commensurate-show-atoms").is_checked():
+            raise AssertionError("Candidate discovery changed the user-controlled atom visibility.")
+        append_hold(graph_frames, page, 16)
+        page.evaluate("""() => {
+            const app = window.__V_ASE_APP__;
+            app.showAnalysisDrawer('commensurate', 'Commensurate Angle–Area–Strain Landscape');
+            const drawer = document.getElementById('analysis-drawer');
+            drawer.style.height = '520px';
+            window.Plotly?.Plots?.resize?.(document.getElementById('commensurate-plot'));
+            window.__setReadmeHostGuestStage(
+                '5 · EXPLORE ALL BOUNDED MATCHES',
+                'Interactive 3D landscape: rotation angle × host area × strain',
+                '#087f70'
+            );
+        }""")
+        page.wait_for_timeout(240)
+        append_hold(graph_frames, page, 28)
+        save_gif(
+            graph_frames,
+            ASSET_DIR / "readme_commensurate_host_guest.gif",
+            duration=125,
+        )
+        cells_only_host_guest.save(
+            ASSET_DIR / "readme_commensurate_host_guest.png",
+            optimize=True,
+        )
+    finally:
+        page.close()
+        editor.close()
+
+
+def capture_registry_media(browser) -> None:
+    atoms, indices = make_graphene_hbn_commensurate_scene()
+    editor, page = open_scene(browser, atoms, show_bonds=True, viz_only=False)
+    try:
+        command_url = external_ai_command_url(editor)
+        set_display(page, {
+            "atomRadiusScale": 0.48,
+            "showBonds": True,
+            "bondThickness": 0.16,
+            "showGrid": False,
+            "showCell": True,
+            "showAxes": False,
+            "viewportBackground": "white",
+            "supercell": [4, 4, 1],
+            "labelColors": {"C": "#3f4b50", "B": "#d69a4b", "N": "#3c70c5"},
+        })
+        configure_inspector(page, "analysis", ["registry-map"], width=455)
+        page.add_style_tag(content="""
+            #measurement-overlay,
+            #selection-measure-readout,
+            #hover-readout,
+            #coord-readout { display: none !important; }
+        """)
+        set_selection(page, indices["hbn"])
+        cell = np.asarray(atoms.cell.array, dtype=float)
+        result = run_external_ai_apply(command_url, {
+            "operation": {
+                "name": "calculate-registry-map",
+                "indices": indices["hbn"],
+                "hkl": [0, 0, 1],
+                "metric": "bond-strain",
+                "gridX": 40,
+                "gridY": 40,
+                "pairCutoffs": {
+                    "B|C": {"enabled": True, "max": 4.2},
+                    "C|N": {"enabled": True, "max": 4.2},
+                },
+            },
+        })
+        registry = result["analysis"]["registryMap"]
+        if registry["grid"] != [40, 40] or registry["selectedIndices"] != indices["hbn"]:
+            raise AssertionError("README registry map did not retain its selected layer or grid.")
+        if registry["metric"] != "bond-strain":
+            raise AssertionError("README registry map did not retain its physical bond-strain metric.")
+        page.wait_for_selector("#registry-plot .plotly", state="attached")
+        page.evaluate("""() => {
+            const drawer = document.getElementById('analysis-drawer');
+            drawer.style.height = '430px';
+            window.Plotly?.Plots?.resize?.(document.getElementById('registry-plot'));
+            window.__V_ASE_APP__.renderer.fitCameraToStructure();
+            window.__V_ASE_APP__.renderer.renderNow();
+        }""")
+        target = (
+            np.mean(atoms.positions, axis=0)
+            + 1.5 * (cell[0] + cell[1])
+            + np.asarray([2.4, -2.15, 0.0])
+        )
+        set_camera(
+            page,
+            target=target.tolist(),
+            position=(target + np.array([0.0, 0.0, 34.0])).tolist(),
+            up=(0.0, 1.0, 0.0),
+            fov=32,
+        )
+        set_atomic_scale(page, 46.0)
+        page.wait_for_timeout(300)
+        plot_state = page.evaluate("""() => {
+            const plot = document.getElementById('registry-plot');
+            const titleText = title => typeof title === 'string' ? title : title?.text;
+            return {
+                traceCount: plot.data?.length || 0,
+                roles: Array.from(plot.data || []).map(trace => trace.meta?.role || ''),
+                xTitle: titleText(plot.layout?.xaxis?.title),
+                yTitle: titleText(plot.layout?.yaxis?.title),
+                xRange: plot.layout?.xaxis?.range,
+                yRange: plot.layout?.yaxis?.range,
+                xConstraint: plot.layout?.xaxis?.constrain,
+                yConstraint: plot.layout?.yaxis?.constrain,
+                valueSpan: (() => {
+                    const score = Array.from(plot.data || []).find(
+                        trace => trace.meta?.role === 'registry-score'
+                    );
+                    const values = Array.from(score?.marker?.color || [])
+                        .map(Number).filter(Number.isFinite);
+                    return values.length ? Math.max(...values) - Math.min(...values) : 0;
+                })(),
+                optimum: window.__V_ASE_APP__.state.registryResult?.optimum_fractional,
+                active: window.__V_ASE_APP__.state.activeAnalysisPlot
+            };
+        }""")
+        expected_roles = {
+            "registry-score",
+            "host-reference-cell",
+            "host-reference-basis",
+            "registry-optimum",
+            "registry-current",
+            "registry-current-vector",
+        }
+        if plot_state["traceCount"] != 6 or set(plot_state["roles"]) != expected_roles:
+            raise AssertionError("README registry heatmap is missing its host cell, basis, or map markers.")
+        if plot_state["active"] != "registry":
+            raise AssertionError("README registry heatmap is not the active analysis plot.")
+        if plot_state["xTitle"] != "plane x / Å" or plot_state["yTitle"] != "plane y / Å":
+            raise AssertionError("README registry map is missing its physical plane axes.")
+        if not (
+            plot_state["xRange"][1] > plot_state["xRange"][0]
+            and plot_state["yRange"][1] > plot_state["yRange"][0]
+        ):
+            raise AssertionError("README registry map has a degenerate physical plane boundary.")
+        if plot_state["xConstraint"] != "domain" or plot_state["yConstraint"] != "domain":
+            raise AssertionError("README registry map does not preserve a readable square domain.")
+        if len(plot_state["optimum"] or []) != 2:
+            raise AssertionError("README registry map does not expose a suggested minimum.")
+        if plot_state["valueSpan"] < 0.02:
+            raise AssertionError("README registry heatmap lacks a visibly meaningful value range.")
+        screenshot_frame(page).save(
+            ASSET_DIR / "readme_registry_map.png",
+            optimize=True,
+        )
+
+        baseline_positions = np.asarray(
+            page.evaluate("window.__V_ASE_APP__.state.atoms.positions"),
+            dtype=float,
+        )
+        page.evaluate("""() => {
+            window.__V_ASE_APP__.invalidateRegistryResult(
+                'Map hidden while rigid translation trials are optimized.'
+            );
+        }""")
+        run_external_ai_apply(command_url, {
+            "operation": {
+                "name": "start-registry-relaxation",
+                "indices": indices["hbn"],
+                "hkl": [0, 0, 1],
+            },
+        })
+        run_external_ai_apply(command_url, {
+            "operation": {
+                "name": "set-registry-translation",
+                "coordinates": [0.16, 0.10],
+            },
+        })
+        run_external_ai_apply(command_url, {
+            "operation": {
+                "name": "run-registry-relaxation",
+                "fmax": 0.002,
+                "steps": 80,
+                "calculator": {
+                    # Use physical cross-layer onsets independent from both
+                    # the visual bond table and other label pairs.
+                    "cutoffMode": "absolute",
+                    "pairCutoffs": {"B|C": 4.0, "C|N": 4.0},
+                    "kRepulsion": 2.4,
+                },
+            },
+        })
+        page.wait_for_function("""() => {
+            const app = window.__V_ASE_APP__;
+            return app.state.registryRelaxation
+                && app.state.registryRelaxation.is_relaxing === false
+                && app.state.relaxTrajectory?.kind === 'registry'
+                && app.state.relaxTrajectory.frames.length >= 2;
+        }""", timeout=20_000)
+        relaxation = page.evaluate("""() => ({
+            frames: window.__V_ASE_APP__.state.relaxTrajectory.frames,
+            hkl: window.__V_ASE_APP__.state.registryRelaxation.hkl,
+            basis: window.__V_ASE_APP__.state.registryRelaxation.translation_basis_angstrom,
+            selected: window.__V_ASE_APP__.state.registryRelaxation.selected_indices
+        })""")
+        if relaxation["hkl"] != [0, 0, 1]:
+            raise AssertionError("README rigid translation did not retain its requested plane.")
+        registry_frames = [np.asarray(frame, dtype=float) for frame in relaxation["frames"]]
+        selected = np.asarray(relaxation["selected"], dtype=int)
+        host = np.asarray([index for index in range(len(atoms)) if index not in set(selected)], dtype=int)
+        for frame in registry_frames:
+            np.testing.assert_allclose(frame[host], baseline_positions[host], atol=0.0)
+            np.testing.assert_allclose(
+                frame[selected] - frame[selected[0]],
+                baseline_positions[selected] - baseline_positions[selected[0]],
+                atol=2e-8,
+            )
+            np.testing.assert_allclose(frame[selected, 2], baseline_positions[selected, 2], atol=2e-8)
+
+        endpoint_shift = float(np.linalg.norm(
+            np.mean(registry_frames[-1][selected] - registry_frames[0][selected], axis=0)
+        ))
+        if endpoint_shift < 0.03:
+            raise AssertionError(
+                "README rigid registry relaxation did not produce a visible translation."
+            )
+
+        def minimum_projected_host_guest_distance(positions: np.ndarray) -> float:
+            trial = atoms.copy()
+            trial.positions = positions
+            distances = []
+            for host_index in host:
+                vectors = trial.get_distances(host_index, selected, mic=True, vector=True)
+                distances.extend(np.linalg.norm(vectors[:, :2], axis=1).tolist())
+            return float(min(distances))
+
+        initial_clearance = minimum_projected_host_guest_distance(registry_frames[0])
+        final_clearance = minimum_projected_host_guest_distance(registry_frames[-1])
+        if final_clearance < 0.70 or final_clearance < initial_clearance + 0.20:
+            raise AssertionError(
+                "README registry relaxation did not resolve the visible host/guest overlap: "
+                f"{initial_clearance:.4f} Å -> {final_clearance:.4f} Å."
+            )
+
+        gif_frames: list[Image.Image] = []
+        translation_basis = np.asarray(relaxation["basis"], dtype=float)
+        visual_frames = registry_frames
+        if len(registry_frames) < 10:
+            visual_frames = []
+            segment_steps = max(3, math.ceil(10 / max(1, len(registry_frames) - 1)))
+            for first, second in zip(registry_frames[:-1], registry_frames[1:]):
+                for alpha in np.linspace(0.0, 1.0, segment_steps, endpoint=False):
+                    visual_frames.append((1.0 - alpha) * first + alpha * second)
+            visual_frames.append(registry_frames[-1])
+        for frame_index, positions in enumerate(visual_frames):
+            translation = np.mean(
+                positions[selected] - baseline_positions[selected],
+                axis=0,
+            )
+            coordinates = np.linalg.lstsq(
+                translation_basis.T,
+                translation,
+                rcond=None,
+            )[0]
+            page.evaluate(
+                """({positions, index, frameCount, coordinates}) => {
+                    const app = window.__V_ASE_APP__;
+                    app.state.atoms.positions = positions.map(position => [...position]);
+                    app.renderer.updatePositions(app.state.atoms.positions);
+                    app.updateRegistryMapMarker(coordinates);
+                    app.setRegistryRelaxStatus(
+                        'ready',
+                        'Rigid translation trials',
+                        `q₁ ${Number(coordinates[0] || 0).toFixed(4)} · `
+                        + `q₂ ${Number(coordinates[1] || 0).toFixed(4)}`
+                    );
+                    if (app.state.relaxTrajectory?.active) {
+                        const sourceCount = app.state.relaxTrajectory.frames.length;
+                        app.state.relaxTrajectory.frame = Math.min(
+                            sourceCount - 1,
+                            Math.round(index * Math.max(1, sourceCount - 1) / Math.max(1, frameCount - 1))
+                        );
+                    }
+                    app.updateTrajectoryUI();
+                }""",
+                {
+                    "positions": positions.tolist(),
+                    "index": frame_index,
+                    "frameCount": len(visual_frames),
+                    "coordinates": coordinates.tolist(),
+                },
+            )
+            page.wait_for_timeout(60)
+            gif_frames.append(screenshot_frame(page))
+        append_hold(gif_frames, page, 5)
+        run_external_ai_apply(command_url, {
+            "operation": {"name": "finish-registry-relaxation"},
+        })
+        page.wait_for_function("""() =>
+            window.__V_ASE_APP__.state.registryRelaxation === null
+            && window.__V_ASE_APP__.state.relaxTrajectory.active === false
+            && document.getElementById('trajectory-panel').classList.contains('hidden')
+        """)
+        append_hold(gif_frames, page, 7)
+        save_gif(
+            gif_frames,
+            ASSET_DIR / "readme_registry_relax.gif",
+            duration=115,
         )
     finally:
         page.close()
@@ -1334,12 +2450,263 @@ def capture_material_media(browser) -> None:
         page.close()
         editor.close()
 
+    capture_cu5o4_view_appearance_media(browser)
+
+
+def capture_cu5o4_view_appearance_media(browser) -> None:
+    atoms, groups = make_cu5o4_appearance_scene()
+    editor, page = open_scene(browser, atoms, show_bonds=True, viz_only=True)
+    try:
+        set_display(page, {
+            "atomRadiusScale": 0.60,
+            "showBonds": True,
+            "showGrid": False,
+            "showAxes": False,
+            "showCell": True,
+            "viewportBackground": "white",
+            "bondMode": "pairwise",
+            "pairwiseBondRanges": {
+                "Cu-Cu": {"enabled": False, "max": 2.8},
+                "Cu-O_surface_oxide": {"enabled": True, "max": 2.25},
+                "O_surface_oxide-O_surface_oxide": {"enabled": False, "max": 3.0},
+            },
+            "pairwiseBondCutoffs": {
+                "Cu-Cu": 0.0,
+                "Cu-O_surface_oxide": 2.25,
+                "O_surface_oxide-O_surface_oxide": 0.0,
+            },
+            "bondThickness": 0.22,
+            "bondColorMode": "split",
+            "labelColors": {
+                "Cu": "#c98442",
+                "O_surface_oxide": "#d9363e",
+            },
+            "labelMaterials": {
+                "Cu": "standard",
+                "O_surface_oxide": "rubber",
+            },
+        })
+        configure_inspector(page, "structure", ["appearance"], width=525)
+        center = np.mean(atoms.positions, axis=0)
+        center[2] = 4.3
+        radius = 27.0
+        set_camera(
+            page,
+            target=center.tolist(),
+            position=(center + np.array([0.0, -radius, 0.0])).tolist(),
+            up=(0, 0, 1),
+            fov=32,
+        )
+        set_atomic_scale(page, 48.0)
+        set_readme_lighting(
+            page,
+            center.tolist(),
+            intensity=3.0,
+            position_offset=(-10.0, -18.0, 18.0),
+        )
+        page.evaluate("""() => {
+            const stage = document.createElement('div');
+            stage.id = 'readme-style-stage';
+            stage.innerHTML = '<strong>1 · BOX-SELECT SUBSTRATE</strong><span>drag around the lower Cu layers</span>';
+            document.body.appendChild(stage);
+            const style = document.createElement('style');
+            style.textContent = `
+                #readme-style-stage {
+                    position: fixed; z-index: 5000; top: 78px; left: 510px;
+                    min-width: 660px; display: flex; align-items: baseline; gap: 16px;
+                    padding: 10px 15px; border: 2px solid #bfd0ce;
+                    border-left: 7px solid #087f70; border-radius: 6px;
+                    background: rgba(255,255,255,.96); color: #243638;
+                    box-shadow: 0 5px 18px rgba(26,45,48,.13); pointer-events: none;
+                }
+                #readme-style-stage strong { color: #08796d; font-size: 18px; }
+                #readme-style-stage span { font-size: 15px; font-weight: 800; }
+            `;
+            document.head.appendChild(style);
+            window.__setReadmeStyleStage = (title, detail) => {
+                stage.querySelector('strong').textContent = title;
+                stage.querySelector('span').textContent = detail;
+            };
+        }""")
+
+        frames: list[Image.Image] = []
+        append_hold(frames, page, 8)
+        substrate = groups["substrate_copper"]
+        rectangle = page.evaluate("""indices => {
+            const app = window.__V_ASE_APP__;
+            const canvas = app.renderer.renderer.domElement;
+            const rect = canvas.getBoundingClientRect();
+            const camera = app.renderer.camera;
+            camera.updateMatrixWorld(true);
+            const wanted = new Set(indices.map(Number));
+            const selected = [];
+            const excluded = [];
+            app.renderer.forEachAtomProxy((mesh, index) => {
+                const point = mesh.position.clone().project(camera);
+                const projected = {
+                    x: rect.left + 0.5 * (point.x + 1) * rect.width,
+                    y: rect.top + 0.5 * (1 - point.y) * rect.height,
+                };
+                (wanted.has(index) ? selected : excluded).push(projected);
+            });
+            const selectedTop = Math.min(...selected.map(point => point.y));
+            const excludedBottom = Math.max(...excluded.map(point => point.y));
+            const top = 0.5 * (selectedTop + excludedBottom);
+            return {
+                left: Math.max(rect.left + 8, Math.min(...selected.map(point => point.x)) - 24),
+                right: Math.min(rect.right - 8, Math.max(...selected.map(point => point.x)) + 24),
+                top,
+                bottom: Math.min(rect.bottom - 12, Math.max(...selected.map(point => point.y)) + 24),
+            };
+        }""", substrate)
+        page.mouse.move(rectangle["left"], rectangle["top"])
+        page.mouse.down(button="left")
+        for fraction in np.linspace(0.2, 1.0, 5):
+            page.mouse.move(
+                rectangle["left"] + fraction * (rectangle["right"] - rectangle["left"]),
+                rectangle["top"] + fraction * (rectangle["bottom"] - rectangle["top"]),
+            )
+            page.wait_for_timeout(70)
+            frames.append(screenshot_frame(page))
+        page.mouse.up(button="left")
+        page.wait_for_function(
+            "count => window.__V_ASE_APP__.state.selected.size === count",
+            arg=len(substrate),
+        )
+        selected_indices = page.evaluate(
+            "[...window.__V_ASE_APP__.state.selected].sort((a, b) => a - b)"
+        )
+        if selected_indices != sorted(substrate):
+            raise AssertionError("README appearance marquee did not select exactly the substrate layer.")
+        append_hold(frames, page, 8)
+        page.evaluate("""() => window.__setReadmeStyleStage(
+            '2 · ASSIGN A VISUAL LABEL',
+            '32 selected Cu atoms · ASE element remains Cu'
+        )""")
+        page.fill("#selected-atom-label", "Cu_substrate")
+        append_hold(frames, page, 4)
+        page.click("#btn-apply-selected-label")
+        page.wait_for_function(
+            "indices => indices.every(index => window.__V_ASE_APP__.state.atoms.symbols[index] === 'Cu_substrate')",
+            arg=substrate,
+        )
+        visual_identity = page.evaluate("""indices => ({
+            labels: indices.map(index => window.__V_ASE_APP__.state.atoms.symbols[index]),
+            elements: indices.map(index => window.__V_ASE_APP__.state.atoms.chemical_symbols[index]),
+            mode: window.__V_ASE_APP__.state.vizOnly,
+        })""", substrate)
+        if not visual_identity["mode"] or set(visual_identity["elements"]) != {"Cu"}:
+            raise AssertionError("README Cu5O4 label split changed ASE element identity in View mode.")
+        append_hold(frames, page, 7)
+
+        page.evaluate("""() => window.__setReadmeStyleStage(
+            '3 · STYLE THE SELECTED LABEL',
+            'Metal material · white · 2.00 Å radius'
+        )""")
+        page.select_option("#selected-atom-material", "metal")
+        page.wait_for_function(
+            "window.__V_ASE_APP__.state.display.atomMaterials && "
+            "Object.values(window.__V_ASE_APP__.state.display.atomMaterials).every(value => value === 'metal')"
+        )
+        append_hold(frames, page, 5)
+        page.evaluate("""() => {
+            const table = document.getElementById('appearance-table');
+            table.scrollLeft = table.scrollWidth;
+        }""")
+        radius_input = page.locator(
+            '.label-radius-input[data-atom-label="Cu_substrate"]'
+        )
+        radius_input.fill("2.0")
+        radius_input.blur()
+        color_input = page.locator(
+            '.label-color-input[data-atom-label="Cu_substrate"]'
+        )
+        color_input.evaluate("""input => {
+            input.value = '#ffffff';
+            input.dispatchEvent(new Event('input', {bubbles: true}));
+            input.dispatchEvent(new Event('change', {bubbles: true}));
+        }""")
+        page.wait_for_function("""() => (
+            Math.abs(Number(window.__V_ASE_APP__.state.display.labelRadii.Cu_substrate) - 2.0) < 1e-9
+            && window.__V_ASE_APP__.state.display.labelColors.Cu_substrate === '#ffffff'
+        )""")
+        append_hold(frames, page, 8)
+
+        set_display(page, {
+            "labelRadii": {
+                "Cu": 1.28,
+                "O_surface_oxide": 0.76,
+            },
+            "labelColors": {
+                "Cu": "#d4934d",
+                "O_surface_oxide": "#d9363e",
+            },
+            "labelMaterials": {
+                "Cu": "standard",
+                "O_surface_oxide": "rubber",
+            },
+            "pairwiseBondRanges": {
+                "Cu-Cu": {"enabled": False, "max": 2.8},
+                "Cu-Cu_substrate": {"enabled": False, "max": 2.8},
+                "Cu-O_surface_oxide": {"enabled": True, "max": 2.25},
+                "Cu_substrate-Cu_substrate": {"enabled": False, "max": 2.8},
+                "Cu_substrate-O_surface_oxide": {"enabled": False, "max": 2.25},
+                "O_surface_oxide-O_surface_oxide": {"enabled": False, "max": 3.0},
+            },
+            "pairwiseBondCutoffs": {
+                "Cu-Cu": 0.0,
+                "Cu-Cu_substrate": 0.0,
+                "Cu-O_surface_oxide": 2.25,
+                "Cu_substrate-Cu_substrate": 0.0,
+                "Cu_substrate-O_surface_oxide": 0.0,
+                "O_surface_oxide-O_surface_oxide": 0.0,
+            },
+        })
+        page.evaluate("""() => {
+            const app = window.__V_ASE_APP__;
+            document.getElementById('appearance-table').scrollLeft = 0;
+            app.clearAtomSelection();
+            app.renderer.selectionOutlines.visible = false;
+            app.renderer.renderNow();
+            window.__setReadmeStyleStage(
+                '4 · VISUAL STYLE APPLIED',
+                'coordinates and ASE element identities are unchanged'
+            );
+        }""")
+        append_hold(frames, page, 10)
+        page.evaluate("document.getElementById('readme-style-stage').remove()")
+
+        for angle_degrees in np.linspace(0.0, 90.0, 28):
+            angle = math.radians(float(angle_degrees))
+            offset = np.array([0.0, -radius * math.cos(angle), radius * math.sin(angle)])
+            up = np.array([0.0, math.sin(angle), math.cos(angle)])
+            set_camera(
+                page,
+                target=center.tolist(),
+                position=(center + offset).tolist(),
+                up=up.tolist(),
+                fov=32,
+                wait_ms=45,
+            )
+            frames.append(screenshot_frame(page))
+        append_hold(frames, page, 12)
+        save_gif(frames, ASSET_DIR / "readme_cu5o4_view_appearance.gif", duration=125)
+        frames[-1].save(
+            ASSET_DIR / "readme_cu5o4_view_appearance.png",
+            optimize=True,
+            compress_level=9,
+        )
+    finally:
+        page.close()
+        editor.close()
+
 
 def capture_ai_edit_media(browser) -> None:
     source, expected_final, metadata = make_ai_pyridinic_graphene_scene()
     editor, page = open_scene(browser, source, show_bonds=True)
     try:
         page.wait_for_function("window.v_aseAI")
+        command_url = external_ai_command_url(editor)
         set_display(page, {
             "atomRadiusScale": 0.58,
             "bondThickness": 0.18,
@@ -1384,38 +2751,39 @@ def capture_ai_edit_media(browser) -> None:
             frames.extend(frame.copy() for _ in range(count))
 
         hold(6)
-        set_selection(page, [metadata["vacancy_index"]])
+        run_external_ai_apply(command_url, {
+            "mode": "edit",
+            "selection": {
+                "clear": True,
+                "indices": [metadata["vacancy_index"]],
+            },
+        })
         hold(5)
-        page.evaluate(
-            """async (index) => {
-                await window.v_aseAI.apply({
-                    mode: 'edit',
-                    selection: {clear: true, indices: [index]},
-                    operation: {name: 'delete-selection', indices: [index]}
-                });
-            }""",
-            metadata["vacancy_index"],
-        )
+        run_external_ai_apply(command_url, {
+            "operation": {
+                "name": "delete-selection",
+                "indices": [metadata["vacancy_index"]],
+            },
+        })
         page.wait_for_function(
             "window.__V_ASE_APP__.state.atoms.positions.length === 71"
         )
         hold(7)
-        set_selection(page, metadata["neighbors_after"])
+        run_external_ai_apply(command_url, {
+            "selection": {
+                "clear": True,
+                "indices": metadata["neighbors_after"],
+            },
+        })
         hold(5)
-        page.evaluate(
-            """async (indices) => {
-                await window.v_aseAI.apply({
-                    selection: {clear: true, indices},
-                    operation: {
-                        name: 'set-identity',
-                        indices,
-                        label: 'N_pyridinic',
-                        element: 'N'
-                    }
-                });
-            }""",
-            metadata["neighbors_after"],
-        )
+        run_external_ai_apply(command_url, {
+            "operation": {
+                "name": "set-identity",
+                "indices": metadata["neighbors_after"],
+                "label": "N_pyridinic",
+                "element": "N",
+            },
+        })
         page.wait_for_function(
             "window.__V_ASE_APP__.state.atoms.symbols.filter(label => label === 'N_pyridinic').length === 3"
         )
@@ -1431,21 +2799,15 @@ def capture_ai_edit_media(browser) -> None:
                 "Li_site": "metal",
             },
         })
-        set_selection(page, metadata["neighbors_after"])
         hold(7)
-        page.evaluate(
-            """async ({position}) => {
-                await window.v_aseAI.apply({
-                    operation: {
-                        name: 'add-atom',
-                        label: 'Li_site',
-                        element: 'Li',
-                        position
-                    }
-                });
-            }""",
-            {"position": metadata["li_position"]},
-        )
+        run_external_ai_apply(command_url, {
+            "operation": {
+                "name": "add-atom",
+                "label": "Li_site",
+                "element": "Li",
+                "position": metadata["li_position"],
+            },
+        })
         page.wait_for_function(
             "window.__V_ASE_APP__.state.atoms.positions.length === 72"
         )
@@ -1461,19 +2823,23 @@ def capture_ai_edit_media(browser) -> None:
                 "Li_site": "metal",
             },
         })
-        set_selection(page, [*metadata["neighbors_after"], metadata["li_index"]])
+        run_external_ai_apply(command_url, {
+            "selection": {
+                "clear": True,
+                "indices": [*metadata["neighbors_after"], metadata["li_index"]],
+            },
+        })
         hold(10)
-        set_selection(page, [])
+        run_external_ai_apply(command_url, {
+            "selection": {"clear": True, "indices": []},
+        })
         hold(8)
 
-        final_state = page.evaluate("""() => {
-            const atoms = window.__V_ASE_APP__.state.atoms;
-            return {
-                positions: atoms.positions,
-                chemicalSymbols: atoms.chemical_symbols,
-                labels: atoms.symbols
-            };
-        }""")
+        final_state = run_external_ai_command(
+            command_url,
+            "describe",
+            {"includePositions": True},
+        )
         if not np.allclose(final_state["positions"], expected_final.positions):
             raise AssertionError("AI README edit did not reproduce the generated final coordinates.")
         if final_state["chemicalSymbols"] != expected_final.get_chemical_symbols():
@@ -1508,8 +2874,65 @@ def capture_ai_collaboration_figure(browser) -> None:
     try:
         page.goto(editor.url)
         page.wait_for_function("window.v_aseAI")
-        initial = page.evaluate(
-            "async () => { await window.v_aseAI.ready(); return await window.v_aseAI.describe(); }"
+        command_url = external_ai_command_url(editor, workspace=True)
+        run_external_ai_command(command_url, "ready")
+        initial = run_external_ai_command(
+            command_url,
+            "describe",
+            {"includePositions": True},
+        )
+        child = next(
+            frame for frame in page.frames
+            if "workspace_child=1" in frame.url
+        )
+        collapse_inspector(child)
+        child.add_style_tag(content="""
+            #top-bar,
+            #right-inspector,
+            #inspector-handle,
+            #orientation-gizmo,
+            #orientation-widget,
+            .inspector-edge-toggle,
+            #trajectory-panel,
+            #btn-create-atom-toggle,
+            #measurement-overlay,
+            #selection-measure-readout,
+            #hover-readout,
+            #coord-readout { display: none !important; }
+        """)
+        set_atomic_scale(child, 56.0)
+        page.wait_for_timeout(180)
+
+        stage_records: list[dict[str, object]] = []
+
+        def viewport_screenshot() -> bytes:
+            return child.locator("#app-viewport").screenshot(type="png")
+
+        def record_stage(
+            stage: str,
+            operation: str,
+            state: dict[str, object],
+            flow: str,
+        ) -> None:
+            child.evaluate("window.__V_ASE_APP__.renderer.renderNow()")
+            page.wait_for_timeout(250)
+            screenshot = viewport_screenshot()
+            stage_records.append({
+                "stage": stage,
+                "flow": flow,
+                "operation": operation,
+                "revision": int(state.get("collaboration", {}).get("revision", 0)),
+                "image": "data:image/png;base64," + base64.b64encode(screenshot).decode("ascii"),
+            })
+
+        record_stage("human", "request received", initial, "request")
+        record_stage(
+            "agent",
+            (
+                "read current structure"
+            ),
+            initial,
+            "command",
         )
 
         async_commands = [
@@ -1546,6 +2969,8 @@ def capture_ai_collaboration_figure(browser) -> None:
                     "showAxes": False,
                     "showGrid": False,
                     "viewportBackground": "white",
+                    "cellColor": "#7d6a30",
+                    "cellThickness": 0.055,
                     "lightingMode": "studio-shadow",
                     "sunIntensity": 3.05,
                     "labelColors": {
@@ -1570,37 +2995,74 @@ def capture_ai_collaboration_figure(browser) -> None:
                 },
             },
         ]
-        state = initial
-        for command in async_commands:
-            command["expectedRevision"] = state["collaboration"]["revision"]
-            state = page.evaluate(
-                "async command => await window.v_aseAI.apply(command)",
-                command,
-            )
-
-        child = next(
-            frame for frame in page.frames
-            if "workspace_child=1" in frame.url
+        operation_labels = (
+            "delete vacancy-site C",
+            "set its 3 neighbors to N",
+            "add Li at the exact requested site",
+            "set camera +Z · screen up +Y",
         )
-        collapse_inspector(child)
+        state = initial
+        for command, operation_label in zip(async_commands, operation_labels):
+            record_stage(
+                "agent",
+                operation_label,
+                state,
+                "command",
+            )
+            state = run_external_ai_apply(command_url, command)
+            record_stage(
+                "vase",
+                operation_label,
+                state,
+                "live",
+            )
         agent_revision = state["collaboration"]["revision"]
 
-        # This is deliberately a GUI-originated edit, not an AI bridge call.
+        # These are deliberately separate GUI-originated edits, not AI bridge calls.
         child.evaluate("""() => {
-            const app = window.__ASE_APP__;
-            app.renderer.setPixelsPerAngstrom(82);
-            app.syncAtomicScaleFromCamera?.({forceInput: true});
             const radius = document.getElementById('atom-radius-scale');
-            radius.value = '0.68';
-            radius.dispatchEvent(new Event('input', {bubbles: true}));
+            radius.value = '0.64';
             radius.dispatchEvent(new Event('change', {bubbles: true}));
-            document.querySelector('[data-view-rotate="right"]').click();
         }""")
         child.wait_for_function(
             "revision => window.__ASE_APP__.collaborationRevision > revision",
             arg=agent_revision,
         )
-        page.wait_for_timeout(450)
+        revision_after_radius = child.evaluate(
+            "() => window.__ASE_APP__.collaborationRevision"
+        )
+        radius_state = run_external_ai_command(
+            command_url,
+            "describe",
+            {"includePositions": False},
+        )
+        record_stage(
+            "human",
+            "You changed the atom radius",
+            radius_state,
+            "refine",
+        )
+        child.evaluate("""() => {
+            const thickness = document.getElementById('bond-thickness');
+            thickness.value = '0.20';
+            thickness.dispatchEvent(new Event('change', {bubbles: true}));
+        }""")
+        child.wait_for_function(
+            "revision => window.__ASE_APP__.collaborationRevision > revision",
+            arg=revision_after_radius,
+        )
+        page.wait_for_timeout(420)
+        human_state = run_external_ai_command(
+            command_url,
+            "describe",
+            {"includePositions": False},
+        )
+        record_stage(
+            "human",
+            "You refined radius and bond width",
+            human_state,
+            "refine",
+        )
 
         stream = page.evaluate(
             """async ({workspaceId, after}) => {
@@ -1616,9 +3078,11 @@ def capture_ai_collaboration_figure(browser) -> None:
             event for event in stream["events"]
             if event.get("source") == "human"
         ]
-        if not human_events:
-            raise AssertionError("The collaboration demo did not emit a human GUI event.")
-        required_categories = {"camera", "display"}
+        if len(human_events) < 2:
+            raise AssertionError(
+                "The collaboration demo did not emit two distinct human GUI events."
+            )
+        required_categories = {"display"}
         observed_categories = {
             category
             for event in human_events
@@ -1629,33 +3093,137 @@ def capture_ai_collaboration_figure(browser) -> None:
                 f"Expected human camera/display events, received {human_events!r}"
             )
 
-        final_state = page.evaluate(
-            "async () => await window.v_aseAI.describe({includePositions: true})"
+        final_state = run_external_ai_command(
+            command_url,
+            "describe",
+            {"includePositions": True},
         )
         if not np.allclose(final_state["positions"], expected_final.positions):
             raise AssertionError("Collaboration example changed the verified coordinates.")
         if final_state["chemicalSymbols"] != expected_final.get_chemical_symbols():
             raise AssertionError("Collaboration example changed the verified elements.")
+        camera_position = np.asarray(final_state["camera"]["position"], dtype=float)
+        camera_target = np.asarray(final_state["camera"]["target"], dtype=float)
+        camera_direction = camera_position - camera_target
+        camera_direction /= np.linalg.norm(camera_direction)
+        if not np.allclose(camera_direction, [0.0, 0.0, 1.0], atol=1e-7):
+            raise AssertionError("Collaboration result is not the requested +Z top view.")
+        if not np.allclose(final_state["camera"]["up"], [0.0, 1.0, 0.0], atol=1e-7):
+            raise AssertionError("Collaboration result does not keep +Y pointing upward.")
+        record_stage(
+            "agent",
+            "read GUI refinements · verify shared state",
+            final_state,
+            "revision",
+        )
+        record_stage(
+            "vase",
+            (
+                "requested structure ready · GUI refinements preserved"
+            ),
+            final_state,
+            "complete",
+        )
+        record_stage(
+            "agent",
+            (
+                "Revision received · radius 0.64 · bond width 0.20 Å · verified"
+            ),
+            final_state,
+            "reply",
+        )
+
+        # Reuse one verified render for the final state transitions so the
+        # animation communicates state flow without a lighting flicker.
+        child.evaluate("window.__V_ASE_APP__.renderer.renderNow()")
+        page.wait_for_timeout(300)
+        stable_final = (
+            "data:image/png;base64,"
+            + base64.b64encode(viewport_screenshot()).decode("ascii")
+        )
+        for record in stage_records[-3:]:
+            record["image"] = stable_final
 
         live_path = ASSET_DIR / "readme_ai_collaboration_live.png"
-        live_image = Image.open(BytesIO(page.screenshot(type="png"))).convert("RGB")
+        live_image = Image.open(BytesIO(viewport_screenshot())).convert("RGB")
         live_image.save(live_path, optimize=True, compress_level=9)
 
         figure_page = browser.new_page(
-            viewport={"width": 2400, "height": 1200},
+            viewport={"width": 1800, "height": 1080},
             device_scale_factor=1,
         )
         try:
-            figure_page.goto((ROOT / "docs/design/ai_collaboration_figure.html").as_uri())
-            figure_page.wait_for_function(
-                """() => {
-                    const image = document.querySelector('.gui img');
-                    return image?.complete && image.naturalWidth > 0;
-                }"""
+            figure_source = ROOT / "docs/design/ai_collaboration_figure.html"
+            figure_html = figure_source.read_text(encoding="utf-8").replace(
+                "<head>",
+                f'<head><base href="{figure_source.parent.as_uri()}/">',
+                1,
             )
-            figure_page.locator("body").screenshot(
-                path=ASSET_DIR / "readme_ai_collaboration.png",
-                type="png",
+            logo_data = (
+                "data:image/png;base64,"
+                + base64.b64encode(
+                    (ASSET_DIR / "v_ase-logo.png").read_bytes()
+                ).decode("ascii")
+            )
+            figure_html = figure_html.replace(
+                "../assets/v_ase-logo.png",
+                logo_data,
+            )
+            write_ai_collaboration_recording_html(
+                figure_html,
+                stage_records,
+                ROOT / "docs/design/ai_collaboration_recording.html",
+            )
+            # set_content avoids Chromium retaining a previous file:// document
+            # between targeted README capture runs.
+            figure_page.set_content(figure_html, wait_until="load")
+            # The verified viewport is injected as a data URL for every stage.
+            # Do not block on the decorative placeholder's file:// URL: that
+            # URL may be intentionally unavailable in a sandboxed Chromium.
+            figure_page.wait_for_function(
+                "() => typeof window.setCollaborationStage === 'function'"
+            )
+            base_frames: list[Image.Image] = []
+            for record_index, record in enumerate(stage_records):
+                figure_page.evaluate(
+                    "record => window.setCollaborationStage(record)",
+                    record,
+                )
+                figure_page.wait_for_timeout(70)
+                frame = Image.open(BytesIO(
+                    figure_page.locator("body").screenshot(type="png")
+                )).convert("RGB")
+                base_frames.append(frame)
+            complete_record = {
+                **stage_records[-1],
+                "stage": "vase",
+                "flow": "complete",
+                "showReply": True,
+            }
+            figure_page.evaluate(
+                "record => window.setCollaborationStage(record)",
+                complete_record,
+            )
+            figure_page.wait_for_timeout(100)
+            final_frame = Image.open(BytesIO(
+                figure_page.locator("body").screenshot(type="png")
+            )).convert("RGB")
+            collaboration_frames: list[Image.Image] = []
+            for record_index, frame in enumerate(base_frames):
+                # Keep each state optically exact. Cross-fading two structures
+                # reads as a transient duplicate or rollback in README GIFs.
+                hold = 14 if record_index in {0, len(base_frames) - 1} else 11
+                collaboration_frames.extend([frame.copy() for _ in range(hold)])
+            collaboration_frames.extend(final_frame.copy() for _ in range(18))
+            save_gif(
+                collaboration_frames,
+                ASSET_DIR / "readme_ai_collaboration.gif",
+                duration=130,
+            )
+            final_frame.save(
+                ASSET_DIR / "readme_ai_collaboration.png",
+                optimize=True,
+                compress_level=9,
             )
         finally:
             figure_page.close()
@@ -1665,6 +3233,7 @@ def capture_ai_collaboration_figure(browser) -> None:
         for name in (
             "readme_ai_collaboration_live.png",
             "readme_ai_collaboration.png",
+            "readme_ai_collaboration.gif",
         ):
             shutil.copy2(ASSET_DIR / name, github_dir / name)
     finally:
@@ -1687,13 +3256,17 @@ def capture_constraint_media(browser) -> None:
         set_selection(page, [line_idx["ion"]])
         configure_inspector(page, "structure", ["constraints", "transform"])
         target = np.asarray(fixedline_atoms.positions[line_idx["ion"]], dtype=float)
+        view_target = target - np.array([0.0, 0.0, 2.8])
         settle_view(
             page,
-            target=target.tolist(),
-            position=(target + np.array([5.2, -7.0, 4.0])).tolist(),
+            target=view_target.tolist(),
+            position=(view_target + np.array([7.0, -12.0, 0.0])).tolist(),
+            up=(12.0, 7.0, 0.0),
             fov=34,
         )
-        set_atomic_scale(page, 142.0)
+        # Align the channel axis with the wide viewport so the complete CNT,
+        # moving ion, and centerline stay visible throughout the trajectory.
+        set_atomic_scale(page, 68.0)
         set_readme_lighting(
             page,
             target.tolist(),
@@ -1701,6 +3274,7 @@ def capture_constraint_media(browser) -> None:
             position_offset=(-7.0, -10.0, 12.0),
         )
         collapse_inspector(page)
+        set_view_toggles(page, grid=False, axes=False, cell=False)
         set_selection(page, [])
         page.screenshot(path=ASSET_DIR / "readme_constraints.png")
         fixedline_frames: list[Image.Image] = []
@@ -1724,6 +3298,7 @@ def capture_constraint_media(browser) -> None:
     finally:
         page.close()
         editor.close()
+
 
     fixedplane_atoms, plane_idx = make_surface_fixedplane_scene()
     editor, page = open_scene(browser, fixedplane_atoms, show_bonds=True)
@@ -1788,9 +3363,24 @@ def capture_constraint_media(browser) -> None:
         base = hookean_atoms.get_positions()
         carbon_pos = base[indices["carbon"]].copy()
         oxygen_pos = base[indices["oxygen"]].copy()
+        hookean = next(
+            constraint
+            for constraint in hookean_atoms.constraints
+            if getattr(constraint, "indices", None) == [indices["carbon"], indices["oxygen"]]
+        )
+        threshold = float(hookean.threshold)
+        spring_constant = float(hookean.spring)
+        initial_distance = float(hookean_atoms.get_distance(
+            indices["carbon"],
+            indices["oxygen"],
+            mic=True,
+        ))
+        if initial_distance >= threshold:
+            raise AssertionError("README Hookean example must begin inside its zero-force rt region.")
         direction = oxygen_pos - carbon_pos
         direction /= np.linalg.norm(direction)
-        preview_delta = direction * 1.38
+        preview_distance = threshold + 0.95
+        preview_delta = direction * (preview_distance - initial_distance)
         target = (carbon_pos + oxygen_pos) * 0.5 + preview_delta * 0.48 + np.array([0.15, 0.05, 0.12])
         settle_view(page, target=target.tolist(), position=(target + np.array([3.9, -4.7, 2.9])).tolist(), fov=33)
         set_atomic_scale(page, min(230.0, MEDIA_SIZE[0] / 9.5))
@@ -1799,14 +3389,1002 @@ def capture_constraint_media(browser) -> None:
         active_preview[indices["oxygen"]] += preview_delta
         active_preview[indices["hydroxyl_h"]] += preview_delta
         update_positions(page, active_preview)
+        rendered_hookean = page.evaluate("""() => {
+            const group = window.__V_ASE_APP__.renderer.hookeanGroup.children[0];
+            const spring = group.children.find(child => child.userData?.springLine);
+            spring.geometry.computeBoundingBox();
+            const bounds = spring.geometry.boundingBox;
+            return {
+                state: group.userData.hookeanState,
+                distance: group.userData.hookeanDistance,
+                threshold: group.userData.hookeanThreshold,
+                extension: group.userData.hookeanExtension,
+                spriteCount: group.children.filter(child => child.isSprite).length,
+                springXSpan: bounds.max.x - bounds.min.x,
+                springZSpan: bounds.max.z - bounds.min.z
+            };
+        }""")
+        if rendered_hookean["state"] != "active":
+            raise AssertionError("README Hookean spring is not shown in its active regime.")
+        if not np.isclose(rendered_hookean["distance"], preview_distance, atol=1e-7):
+            raise AssertionError("README Hookean distance does not match the displayed atom geometry.")
+        if not np.isclose(rendered_hookean["threshold"], threshold, atol=1e-12):
+            raise AssertionError("README Hookean rt does not match the ASE constraint.")
+        if not np.isclose(
+            rendered_hookean["extension"],
+            preview_distance - threshold,
+            atol=1e-7,
+        ):
+            raise AssertionError("README Hookean extension is not max(0, distance - rt).")
+        if rendered_hookean["spriteCount"] != 0:
+            raise AssertionError("README Hookean visualization must not add numeric annotations.")
+        if min(rendered_hookean["springXSpan"], rendered_hookean["springZSpan"]) <= 0.18:
+            raise AssertionError("README Hookean spring does not retain visible 3D helical depth.")
+        expected_force = spring_constant * (preview_distance - threshold)
+        if expected_force <= 0:
+            raise AssertionError("README Hookean active force must be positive beyond rt.")
         page.screenshot(path=ASSET_DIR / "readme_hookean.png")
-        end = carbon_pos + direction * 3.02
+        end = carbon_pos + direction * (threshold + 1.50)
         delta = end - oxygen_pos
         capture_animation(
             page,
             ASSET_DIR / "readme_hookean.gif",
             hookean_group_frames(base, [indices["oxygen"], indices["hydroxyl_h"]], delta),
         )
+    finally:
+        page.close()
+        editor.close()
+
+
+def _add_insertion_region(page, *, role: str, name: str, bounds: Sequence[float]) -> None:
+    """Create one region through the same controls used by an end user."""
+    if role not in {"allow", "reject"}:
+        raise ValueError(f"Unsupported insertion-region role: {role}")
+    normalized = [float(value) for value in bounds]
+    if len(normalized) != 6:
+        raise ValueError("Insertion-region bounds require xmin/xmax/ymin/ymax/zmin/zmax.")
+    before = page.locator("#add-atoms-region-list .add-atoms-region-item").count()
+    page.click(f"#btn-add-atoms-{role}-region")
+    page.wait_for_function(
+        "count => document.querySelectorAll('#add-atoms-region-list .add-atoms-region-item').length === count",
+        arg=before + 1,
+    )
+    page.fill("#add-atoms-region-name", name)
+    page.locator("#add-atoms-region-name").blur()
+    for selector, value in zip(
+        (
+            "#add-atoms-xmin", "#add-atoms-xmax",
+            "#add-atoms-ymin", "#add-atoms-ymax",
+            "#add-atoms-zmin", "#add-atoms-zmax",
+        ),
+        normalized,
+    ):
+        page.fill(selector, f"{value:.12g}")
+        page.locator(selector).blur()
+
+
+def _atom_mesh_visual_state(page, count: int) -> list[dict[str, object]]:
+    """Read the rendered radius and temporary fixed-material state."""
+    return page.evaluate("""count => Array.from(
+        {length: count},
+        (_, index) => {
+            const renderer = window.__V_ASE_APP__.renderer;
+            const mesh = renderer.atomMeshByIndex.get(index);
+            const instance = renderer.atomInstanceRefs.get(index);
+            const offset = instance?.matrixOffset ?? (instance?.instanceId ?? 0) * 16;
+            const matrix = instance?.matrix || instance?.mesh?.instanceMatrix?.array;
+            const scale = matrix
+                ? [matrix[offset], matrix[offset + 5], matrix[offset + 10]]
+                : (mesh?.scale?.toArray?.() || null);
+            return {
+                scale,
+                fixed: Boolean(mesh?.userData?.fixed),
+                radius: renderer.atomVisualRadius(index)
+            };
+        }
+    )""", count)
+
+
+def _assert_temporary_fix_is_material_only(
+    before: Sequence[dict[str, object]],
+    current: Sequence[dict[str, object]],
+    *,
+    expected_fixed: bool,
+) -> None:
+    """Reject temporary fixation that changes a configured atom radius."""
+    np.testing.assert_allclose(
+        [item["scale"] for item in current],
+        [item["scale"] for item in before],
+        # InstancedMesh matrices use Float32Array on the GPU path.
+        atol=1e-7,
+        rtol=0.0,
+    )
+    np.testing.assert_allclose(
+        [item["radius"] for item in current],
+        [item["radius"] for item in before],
+        atol=0.0,
+        rtol=0.0,
+    )
+    fixed = [bool(item["fixed"]) for item in current]
+    if fixed != [expected_fixed] * len(current):
+        raise AssertionError(
+            "Temporary host fixation changed an unexpected set of atom materials."
+        )
+
+
+def _configure_shared_add_atoms_relaxation(
+    page,
+    *,
+    cutoff_distance: float,
+    strength: float,
+    fmax: float,
+    steps: int,
+) -> None:
+    """Set the same Structure > Relaxation controls used outside Add Atoms."""
+    page.evaluate(
+        """settings => {
+            const assign = (id, value) => {
+                const control = document.getElementById(id);
+                if (!control) throw new Error(`Missing shared relaxation control: ${id}`);
+                control.value = String(value);
+                control.dispatchEvent(new Event('input', {bubbles: true}));
+                control.dispatchEvent(new Event('change', {bubbles: true}));
+            };
+            assign('calc-device', 'cpu');
+            assign('calc-cpus', settings.cpuThreads);
+            assign('calc-cutoff-mode', 'absolute');
+            assign('calc-cutoff-distance', settings.cutoffDistance);
+            document.getElementById('btn-repulsion-set-all').click();
+            assign('calc-strength', settings.strength);
+            assign('relax-fmax', settings.fmax);
+            assign('relax-steps', settings.steps);
+        }""",
+        {
+            "cpuThreads": min(4, os.cpu_count() or 1),
+            "cutoffDistance": cutoff_distance,
+            "strength": strength,
+            "fmax": fmax,
+            "steps": steps,
+        },
+    )
+
+
+def _start_shared_add_atoms_relaxation(page) -> None:
+    page.evaluate("document.getElementById('btn-relax').click()")
+
+
+def _capture_add_atoms_variant(
+    browser,
+    *,
+    gif_name: str,
+    save_static: bool = False,
+) -> None:
+    host, metadata = make_random_addition_scene()
+    editor, page = open_scene(browser, host, show_bonds=False, viz_only=False)
+    try:
+        lengths = host.cell.lengths()
+        allow_region = metadata["allow_region"]
+        bounds = np.asarray(allow_region["bounds"], dtype=float)
+        center = np.asarray([
+            lengths[0] * 0.5,
+            lengths[1] * 0.5,
+            0.5 * (bounds[4] + bounds[5]),
+        ])
+        set_display(page, {
+            "viewportBackground": "white",
+            "projectionMode": "orthographic",
+            "showGrid": False,
+            "showAxes": False,
+            "showCell": True,
+            "showBonds": False,
+            "showOverlays": True,
+            "atomRadiusScale": 0.54,
+            "labelRadii": {
+                "Cu_surface": 1.12,
+                "O_subsurface": 0.84,
+            },
+            "labelColors": {
+                "Cu_surface": "#b96f38",
+                "O_subsurface": "#dc3f3f",
+            },
+            "labelMaterials": {
+                "Cu_surface": "metal",
+                "O_subsurface": "standard",
+            },
+            "cellColor": "#96722f",
+            "cellThickness": 0.055,
+        })
+        page.evaluate("window.__V_ASE_APP__.renderer.setProjectionMode('orthographic')")
+        set_camera(
+            page,
+            target=center.tolist(),
+            position=(center + np.asarray([1.5, -42.0, 1.5])).tolist(),
+            up=(0, 0, 1),
+            fov=35,
+        )
+        page.evaluate("window.__V_ASE_APP__.renderer.fitCameraToStructure()")
+        set_atomic_scale(page, 40.0)
+        set_readme_lighting(
+            page,
+            center.tolist(),
+            intensity=2.75,
+            position_offset=(-15.0, -20.0, 23.0),
+        )
+        host_visual_before = _atom_mesh_visual_state(page, len(host))
+        _assert_temporary_fix_is_material_only(
+            host_visual_before,
+            host_visual_before,
+            expected_fixed=False,
+        )
+
+        page.click("#btn-create-atom-toggle")
+        page.click("#add-atoms-tab-batch")
+        page.evaluate("""() => {
+            const widget = document.getElementById('create-atom-widget');
+            widget.style.left = '22px';
+            widget.style.right = 'auto';
+            widget.style.top = '82px';
+            widget.style.bottom = 'auto';
+        }""")
+
+        _add_insertion_region(
+            page,
+            role="allow",
+            name=allow_region["name"],
+            bounds=bounds,
+        )
+        page.locator("#add-atoms-constrain-domain").set_checked(True)
+
+        for entry_index, entry in enumerate(metadata["entries"]):
+            if entry_index:
+                page.click("#btn-add-atoms-entry")
+            row = page.locator("#add-atoms-entries .add-atoms-entry-row").nth(entry_index)
+            row.locator(".add-atoms-entry-type").select_option(entry["element"])
+            row.locator(".add-atoms-entry-label").fill(entry["label"])
+            row.locator(".add-atoms-entry-count").fill(str(entry["count"]))
+        page.fill("#add-atoms-seed", str(metadata["seed"]))
+
+        frames: list[Image.Image] = []
+        append_hold(frames, page, 7)
+        page.click("#btn-add-atoms-scatter")
+        added_count = sum(int(entry["count"]) for entry in metadata["entries"])
+        page.wait_for_function(
+            "count => window.__V_ASE_APP__.addAtomsUI?.active?.new_count === count",
+            arg=added_count,
+        )
+        page.wait_for_function(
+            "window.__V_ASE_APP__.renderer.addAtomsRegionGroup.visible === true"
+        )
+        # Newly introduced labels are initialized by the live structure load;
+        # apply the publication palette after that catalog exists.
+        set_display(page, {
+            "labelRadii": {
+                "Cu_surface": 1.12,
+                "O_subsurface": 0.84,
+            },
+            "labelColors": {
+                "Cu_surface": "#b96f38",
+                "O_subsurface": "#dc3f3f",
+            },
+            "labelMaterials": {
+                "Cu_surface": "metal",
+                "O_subsurface": "standard",
+            },
+        })
+        _assert_temporary_fix_is_material_only(
+            host_visual_before,
+            _atom_mesh_visual_state(page, len(host)),
+            expected_fixed=True,
+        )
+        scattered_positions = np.asarray(
+            page.evaluate("window.__V_ASE_APP__.state.atoms.positions"),
+            dtype=float,
+        )
+        np.testing.assert_array_equal(scattered_positions[: len(host)], host.positions)
+        inserted = scattered_positions[len(host):]
+        inserted_inside = np.all(
+            (inserted >= bounds[::2]) & (inserted <= bounds[1::2]),
+            axis=1,
+        )
+        if not bool(np.all(inserted_inside)):
+            raise AssertionError("Cu(111) Add Atoms demo scattered outside its bulk-like zone.")
+        append_hold(frames, page, 8)
+
+        page.evaluate("""() => {
+            const app = window.__V_ASE_APP__;
+            window.__VASE_ADD_ATOMS_TRACE__ = [];
+            const original = app.renderer.updatePositions.bind(app.renderer);
+            app.renderer.updatePositions = positions => {
+                if (app.addAtomsUI?.active?.is_relaxing && Array.isArray(positions)) {
+                    window.__VASE_ADD_ATOMS_TRACE__.push(
+                        positions.map(position => [...position])
+                    );
+                }
+                return original(positions);
+            };
+        }""")
+        _configure_shared_add_atoms_relaxation(
+            page,
+            cutoff_distance=2.40,
+            strength=3.0,
+            fmax=0.010,
+            steps=220,
+        )
+        _start_shared_add_atoms_relaxation(page)
+        page.wait_for_function(
+            "window.__V_ASE_APP__.addAtomsUI?.active?.is_relaxing === true"
+        )
+        page.wait_for_function(
+            "window.__V_ASE_APP__.addAtomsUI?.active?.is_relaxing === false",
+            timeout=180_000,
+        )
+        page.wait_for_function("""() => {
+            const app = window.__V_ASE_APP__;
+            return app.state.relaxTrajectory?.active === true
+                && app.state.relaxTrajectory?.kind === 'add-atoms'
+                && app.state.relaxTrajectory.frames.length > 1;
+        }""")
+        page.evaluate("""() => {
+            const app = window.__V_ASE_APP__;
+            app.setAddAtomsPane('batch');
+            app.setAddAtomsRegionSelected(true, {update: false});
+            app.updateAddAtomsRegionPreview();
+            app.updateTrajectoryUI();
+        }""")
+        page.wait_for_function("""() =>
+            document.getElementById('add-atoms-tab-batch')?.classList.contains('active')
+            && !document.getElementById('trajectory-panel')?.classList.contains('hidden')
+            && !document.getElementById('add-atoms-mode-badge')?.classList.contains('hidden')
+        """)
+        trace = page.evaluate("window.__VASE_ADD_ATOMS_TRACE__")
+        if len(trace) < 4:
+            raise AssertionError(
+                f"README Add Atoms optimizer produced only {len(trace)} recorded states."
+            )
+        sample_indices = np.unique(
+            np.linspace(0, len(trace) - 1, min(42, len(trace)), dtype=int)
+        )
+        for output_index, trace_index in enumerate(sample_indices, start=1):
+            update_positions(page, trace[int(trace_index)])
+            page.evaluate(
+                """([step, total]) => window.__V_ASE_APP__.setAddAtomsStatus(
+                    'running', `Repelling atoms · ${step}/${total}`
+                )""",
+                [output_index, len(sample_indices)],
+            )
+            frames.append(screenshot_frame(page))
+        relaxed_positions = np.asarray(
+            trace[-1],
+            dtype=float,
+        )
+        update_positions(page, relaxed_positions)
+        page.evaluate("""() => window.__V_ASE_APP__.setAddAtomsStatus(
+            'active', 'Bulk-like zone · O placement complete'
+        )""")
+        page.evaluate("""() => {
+            const app = window.__V_ASE_APP__;
+            app.setAddAtomsPane('batch');
+            app.setAddAtomsRegionSelected(true, {update: false});
+            app.updateAddAtomsRegionPreview();
+            app.updateTrajectoryUI();
+        }""")
+        np.testing.assert_array_equal(relaxed_positions[: len(host)], host.positions)
+        displacement = np.linalg.norm(
+            relaxed_positions[len(host):] - scattered_positions[len(host):],
+            axis=1,
+        )
+        if float(displacement.max(initial=0.0)) <= 0.05:
+            raise AssertionError("README Add Atoms repulsion did not move any inserted atom visibly.")
+        append_hold(frames, page, 8)
+        placement_frame = frames[-1].copy()
+
+        page.click("#btn-add-atoms-finish")
+        page.wait_for_function(
+            "window.__V_ASE_APP__.state.atoms.metadata.atom_addition === null"
+        )
+        page.wait_for_function(
+            "window.__V_ASE_APP__.renderer.addAtomsRegionGroup.visible === false"
+        )
+        _assert_temporary_fix_is_material_only(
+            host_visual_before,
+            _atom_mesh_visual_state(page, len(host)),
+            expected_fixed=False,
+        )
+        append_hold(frames, page, 10)
+        save_gif(frames, ASSET_DIR / gif_name, duration=105)
+        if save_static:
+            placement_frame.save(
+                ASSET_DIR / "readme_add_atoms.png",
+                optimize=True,
+                compress_level=9,
+            )
+    finally:
+        page.close()
+        editor.close()
+
+
+def capture_add_atoms_media(browser) -> None:
+    _capture_scratch_amorphous_media(browser)
+    _capture_add_atoms_variant(
+        browser,
+        gif_name="readme_add_atoms_allowed.gif",
+        save_static=True,
+    )
+    shutil.copy2(
+        ASSET_DIR / "readme_add_atoms_allowed.gif",
+        ASSET_DIR / "readme_add_atoms.gif",
+    )
+    _capture_add_molecules_media(browser)
+
+
+def _capture_scratch_amorphous_media(browser) -> None:
+    """Record a real empty-document -> cell -> random batch -> repel workflow."""
+    editor, page = open_scene(browser, Atoms(), show_bonds=False, viz_only=False)
+    try:
+        cell = np.diag([9.2, 9.2, 9.2])
+        center = np.asarray([4.6, 4.6, 4.6])
+        set_display(page, {
+            "viewportBackground": "white",
+            "projectionMode": "orthographic",
+            "showGrid": False,
+            "showAxes": False,
+            "showCell": True,
+            "showBonds": False,
+            "showOverlays": True,
+            "atomRadiusScale": 0.58,
+            "cellColor": "#7d672f",
+            "cellThickness": 0.055,
+        })
+        configure_inspector(page, "structure", ["cell-replication"], width=430)
+        page.evaluate("document.querySelector('[data-panel=\"cell-replication\"]')?.scrollIntoView({block: 'start'})")
+        frames: list[Image.Image] = []
+        append_hold(frames, page, 7)
+
+        for row in range(3):
+            for column in range(3):
+                selector = f"#cell-{row}{column}"
+                page.fill(selector, f"{cell[row, column]:.6g}")
+                page.locator(selector).blur()
+        for axis in "xyz":
+            page.locator(f"#cell-pbc-{axis}").set_checked(True)
+        append_hold(frames, page, 5)
+        page.click("#btn-set-unit-cell")
+        page.wait_for_function("window.__V_ASE_APP__.hasUsableCell() === true")
+        page.wait_for_function("document.getElementById('empty-workspace').classList.contains('hidden')")
+        loaded_cell = np.asarray(page.evaluate("window.__V_ASE_APP__.state.atoms.cell"), dtype=float)
+        np.testing.assert_allclose(loaded_cell, cell, atol=1e-12)
+        if page.evaluate("window.__V_ASE_APP__.state.atoms.positions.length") != 0:
+            raise AssertionError("Scratch README scene unexpectedly loaded atoms before insertion.")
+        set_camera(
+            page,
+            target=center.tolist(),
+            position=(center + np.asarray([15.5, -20.0, 14.0])).tolist(),
+            up=(0, 0, 1),
+            fov=34,
+        )
+        append_hold(frames, page, 7)
+        collapse_inspector(page)
+
+        page.click("#btn-create-atom-toggle")
+        page.click("#add-atoms-tab-batch")
+        page.evaluate("""() => {
+            const widget = document.getElementById('create-atom-widget');
+            widget.style.left = '22px';
+            widget.style.right = 'auto';
+            widget.style.top = '82px';
+            widget.style.bottom = 'auto';
+        }""")
+        row = page.locator("#add-atoms-entries .add-atoms-entry-row").first
+        row.locator(".add-atoms-entry-type").select_option("Ga")
+        row.locator(".add-atoms-entry-label").fill("Ga_amorphous")
+        row.locator(".add-atoms-entry-count").fill("54")
+        page.click("#add-atoms-placement-random")
+        page.fill("#add-atoms-seed", "20260813")
+        page.locator(".add-atoms-session-actions").scroll_into_view_if_needed()
+        append_hold(frames, page, 7)
+
+        page.click("#btn-add-atoms-scatter")
+        page.wait_for_function("window.__V_ASE_APP__.addAtomsUI?.active?.new_count === 54")
+        page.wait_for_function("window.__V_ASE_APP__.state.atoms.positions.length === 54")
+        set_display(page, {
+            "labelRadii": {"Ga_amorphous": 1.12},
+            "labelColors": {"Ga_amorphous": "#7f91a7"},
+            "labelMaterials": {"Ga_amorphous": "metal"},
+        })
+        scattered = np.asarray(
+            page.evaluate("window.__V_ASE_APP__.state.atoms.positions"),
+            dtype=float,
+        )
+        if not np.all((scattered >= 0.0) & (scattered < 9.2)):
+            raise AssertionError("Scratch random placement escaped the half-open primary cell.")
+        page.evaluate("window.__V_ASE_APP__.renderer.fitCameraToStructure()")
+        set_atomic_scale(page, 49.0)
+        set_readme_lighting(
+            page,
+            center.tolist(),
+            intensity=2.8,
+            position_offset=(-13.0, -16.0, 20.0),
+        )
+        append_hold(frames, page, 9)
+
+        page.evaluate("""() => {
+            const app = window.__V_ASE_APP__;
+            window.__VASE_SCRATCH_TRACE__ = [];
+            const original = app.renderer.updatePositions.bind(app.renderer);
+            app.renderer.updatePositions = positions => {
+                if (app.addAtomsUI?.active?.is_relaxing && Array.isArray(positions)) {
+                    window.__VASE_SCRATCH_TRACE__.push(
+                        positions.map(position => [...position])
+                    );
+                }
+                return original(positions);
+            };
+        }""")
+        _configure_shared_add_atoms_relaxation(
+            page,
+            cutoff_distance=2.55,
+            strength=2.8,
+            fmax=0.025,
+            steps=180,
+        )
+        _start_shared_add_atoms_relaxation(page)
+        page.wait_for_function("window.__V_ASE_APP__.addAtomsUI?.active?.is_relaxing === true")
+        page.wait_for_function(
+            "window.__V_ASE_APP__.addAtomsUI?.active?.is_relaxing === false",
+            timeout=30_000,
+        )
+        trace = page.evaluate("window.__VASE_SCRATCH_TRACE__")
+        if len(trace) < 4:
+            raise AssertionError(
+                f"Scratch amorphous relaxation produced only {len(trace)} visible states."
+            )
+        sample_indices = np.unique(
+            np.linspace(0, len(trace) - 1, min(44, len(trace)), dtype=int)
+        )
+        for output_index, trace_index in enumerate(sample_indices, start=1):
+            update_positions(page, trace[int(trace_index)])
+            page.evaluate(
+                """([step, total]) => window.__V_ASE_APP__.setAddAtomsStatus(
+                    'running', `Building amorphous Ga · ${step}/${total}`
+                )""",
+                [output_index, len(sample_indices)],
+            )
+            frames.append(screenshot_frame(page))
+        relaxed = np.asarray(trace[-1], dtype=float)
+        if float(np.max(np.linalg.norm(relaxed - scattered, axis=1))) <= 0.08:
+            raise AssertionError("Scratch README relaxation did not move a Ga atom visibly.")
+        update_positions(page, relaxed)
+        page.evaluate("""() => window.__V_ASE_APP__.setAddAtomsStatus(
+            'active', 'Amorphous Ga · placement ready'
+        )""")
+        append_hold(frames, page, 9)
+        page.click("#btn-add-atoms-finish")
+        page.wait_for_function("window.__V_ASE_APP__.state.atoms.metadata.atom_addition === null")
+        page.wait_for_function("window.__V_ASE_APP__.state.atoms.positions.length === 54")
+        append_hold(frames, page, 10)
+        save_gif(
+            frames,
+            ASSET_DIR / "readme_scratch_amorphous.gif",
+            duration=120,
+        )
+        frames[-1].save(
+            ASSET_DIR / "readme_scratch_amorphous.png",
+            optimize=True,
+            compress_level=9,
+        )
+    finally:
+        page.close()
+        editor.close()
+
+
+def _capture_add_molecules_media(browser) -> None:
+    host, metadata = make_layered_water_channel_scene()
+    editor, page = open_scene(browser, host, show_bonds=True, viz_only=False)
+    try:
+        center = np.sum(np.asarray(host.cell.array, dtype=float), axis=0) * 0.5
+        set_display(page, {
+            "viewportBackground": "white",
+            "projectionMode": "orthographic",
+            "showGrid": False,
+            "showAxes": False,
+            "showCell": True,
+            "showBonds": True,
+            "showPeriodicBonds": True,
+            "showOverlays": True,
+            "atomRadiusScale": 0.57,
+            "labelRadii": {
+                "C_GO_lower": 0.62,
+                "C_GO_upper": 0.62,
+                "O_GO_lower": 0.70,
+                "O_GO_upper": 0.70,
+                "H_GO_lower": 0.43,
+                "H_GO_upper": 0.43,
+                "O_water": 0.72,
+                "H_water": 0.48,
+            },
+            "labelColors": {
+                "C_GO_lower": "#46535a",
+                "C_GO_upper": "#68767d",
+                "O_GO_lower": "#c44740",
+                "O_GO_upper": "#c44740",
+                "H_GO_lower": "#f2f3f4",
+                "H_GO_upper": "#f2f3f4",
+                "O_water": "#d9433f",
+                "H_water": "#f4f5f6",
+            },
+            "labelMaterials": {
+                "C_GO_lower": "standard",
+                "C_GO_upper": "standard",
+                "O_GO_lower": "standard",
+                "O_GO_upper": "standard",
+                "H_GO_lower": "standard",
+                "H_GO_upper": "standard",
+                "O_water": "standard",
+                "H_water": "standard",
+            },
+            "bondMode": "auto",
+            "bondCutoffScale": 1.0,
+            "bondThickness": 0.13,
+            "cellColor": "#8b6c2c",
+            "cellThickness": 0.055,
+        })
+        page.evaluate("window.__V_ASE_APP__.renderer.setProjectionMode('orthographic')")
+        set_camera(
+            page,
+            target=center.tolist(),
+            position=(center + np.asarray([1.8, -46.0, 2.8])).tolist(),
+            up=(0, 0, 1),
+            fov=35,
+        )
+        page.evaluate("window.__V_ASE_APP__.renderer.fitCameraToStructure()")
+        set_atomic_scale(page, 44.0)
+        set_readme_lighting(page, center.tolist(), intensity=2.8, position_offset=(-16, -18, 22))
+        host_visual_before = _atom_mesh_visual_state(page, len(host))
+        _assert_temporary_fix_is_material_only(
+            host_visual_before,
+            host_visual_before,
+            expected_fixed=False,
+        )
+
+        page.click("#btn-create-atom-toggle")
+        page.click("#add-atoms-tab-batch")
+        page.click("#add-atoms-content-molecules")
+        page.wait_for_function(
+            "document.querySelector('#add-molecule-entries select')?.options.length >= 150"
+        )
+        page.evaluate("""() => {
+            const widget = document.getElementById('create-atom-widget');
+            widget.style.left = '22px';
+            widget.style.right = 'auto';
+            widget.style.top = '82px';
+            widget.style.bottom = 'auto';
+            const overlay = document.createElement('div');
+            overlay.id = 'readme-molecule-stage';
+            overlay.innerHTML = `
+                <div class="readme-stage-line">
+                    <strong id="readme-molecule-step">1 · PROTECT GO LAYERS</strong>
+                    <span>edge + basal OH graphene oxide · 6 Å periodic channels</span>
+                </div>
+                <div class="readme-stage-facts">
+                    <span><i class="reject"></i>GO REJECT REGIONS ×<b id="readme-reject-count">0</b></span>
+                    <span id="readme-domain-volume">cell domain</span>
+                    <span id="readme-molecule-detail">exclude each functionalized layer</span>
+                </div>`;
+            document.body.appendChild(overlay);
+            const sceneLabels = document.createElement('div');
+            sceneLabels.id = 'readme-molecule-scene-labels';
+            sceneLabels.innerHTML = `
+                <span class="region-label upper">REJECT · upper GO plane · 2 Å</span>
+                <span class="spacing-label"><b>6 Å</b><i></i></span>
+                <span class="region-label lower">REJECT · lower GO plane · 2 Å</span>`;
+            document.body.appendChild(sceneLabels);
+            const style = document.createElement('style');
+            style.textContent = `
+                #readme-molecule-stage {
+                    position: fixed; z-index: 5000; top: 78px; left: 500px;
+                    width: 920px; padding: 11px 15px 10px;
+                    border: 2px solid #bed0cd; border-left: 7px solid #087f70;
+                    border-radius: 6px; background: rgba(255,255,255,.96);
+                    color: #243638; box-shadow: 0 5px 18px rgba(26,45,48,.13);
+                    pointer-events: none; letter-spacing: 0;
+                }
+                .readme-stage-line { display: flex; align-items: baseline; gap: 17px; }
+                .readme-stage-line strong { color: #08796d; font-size: 18px; }
+                .readme-stage-line span { font-size: 16px; font-weight: 800; }
+                .readme-stage-facts { display: flex; align-items: center; gap: 17px; margin-top: 6px; font-size: 14px; font-weight: 750; }
+                .readme-stage-facts i { display: inline-block; width: 14px; height: 14px; margin-right: 5px; vertical-align: -2px; border: 3px solid; }
+                .readme-stage-facts i.reject { border-color: #ad3b98; background: rgba(173,59,152,.14); }
+                #readme-molecule-detail { color: #754d05; }
+                #trajectory-panel { display: none !important; }
+                #toast-container, .status-group { display: none !important; }
+                #readme-molecule-scene-labels { position: fixed; inset: 0; z-index: 4999; pointer-events: none; }
+                .region-label { display: none; position: absolute; padding: 5px 8px; border: 2px solid; border-radius: 4px; background: rgba(255,255,255,.94); font-size: 14px; font-weight: 900; }
+                .region-label.upper { left: 1370px; top: 315px; color: #8d247a; border-color: #ad3b98; }
+                .region-label.lower { left: 1370px; top: 655px; color: #8d247a; border-color: #ad3b98; }
+                .spacing-label { position: absolute; left: 845px; top: 468px; display: flex; align-items: center; gap: 7px; color: #674f1f; font-size: 16px; font-weight: 950; }
+                .spacing-label i { display: block; width: 2px; height: 86px; background: #8b6c2c; box-shadow: 0 -5px 0 #8b6c2c, 0 5px 0 #8b6c2c; }
+            `;
+            document.head.appendChild(style);
+            window.__setReadmeMoleculeStage = (step, detail) => {
+                document.getElementById('readme-molecule-step').textContent = step;
+                document.getElementById('readme-molecule-detail').textContent = detail;
+            };
+            window.__setReadmeMoleculeDomain = (reject, volume) => {
+                document.getElementById('readme-reject-count').textContent = String(reject);
+                document.getElementById('readme-domain-volume').textContent = volume;
+                document.querySelector('.region-label.lower').style.display = reject >= 1 ? 'block' : 'none';
+                document.querySelector('.region-label.upper').style.display = reject >= 2 ? 'block' : 'none';
+            };
+        }""")
+        row = page.locator("#add-molecule-entries .add-molecule-entry-row").first
+        molecule_spec = metadata["molecules"][0]
+        row.locator(".add-molecule-entry-name").select_option(molecule_spec["name"])
+        row.locator(".add-molecule-entry-label").fill(molecule_spec["label"])
+        row.locator(".add-molecule-entry-count").fill(
+            str(metadata["expected_molecule_count"])
+        )
+        frames: list[Image.Image] = []
+        page.evaluate("window.__setReadmeMoleculeStage('1 · PROTECT GO LAYERS', 'the finite periodic cell is the Allow domain')")
+        append_hold(frames, page, 11)
+        for region_index, region in enumerate(metadata["regions"], start=1):
+            _add_insertion_region(
+                page,
+                role=region["role"],
+                name=region["name"],
+                bounds=region["bounds"],
+            )
+            detail = f"{region['name']} subtracted exactly"
+            page.evaluate(
+                "detail => window.__setReadmeMoleculeStage('1 · PROTECT GO LAYERS', detail)",
+                detail,
+            )
+            current_volume = page.locator("#add-atoms-domain-volume").inner_text()
+            page.evaluate(
+                "([reject, volume]) => window.__setReadmeMoleculeDomain(reject, volume)",
+                [region_index, f"exact solvent volume {current_volume}"],
+            )
+            append_hold(frames, page, 12)
+        page.click("#add-molecules-quantity-density")
+        page.fill(
+            "#add-molecules-target-density",
+            f"{float(metadata['target_density_g_cm3']):.6f}",
+        )
+        page.locator("#add-atoms-region-list .add-atoms-region-item").first.click()
+        page.wait_for_timeout(100)
+        region_visuals = page.evaluate("""() => {
+            const children = window.__V_ASE_APP__.renderer.addAtomsRegionGroup.children;
+            const sourceFills = children.filter(child => (
+                child.userData?.insertionRegionSourceBox
+                && !child.userData?.cellEdgeInstances
+            ));
+            const wrappedFills = children.filter(child => (
+                child.userData?.insertionRegionWrappedFragment
+                && !child.userData?.cellEdgeInstances
+            ));
+            const inlet = sourceFills[0];
+            inlet?.geometry?.computeBoundingBox?.();
+            return {
+                sourceFillCount: sourceFills.length,
+                wrappedFillCount: wrappedFills.length,
+                sourceEdgeCount: children.filter(child => (
+                    child.userData?.insertionRegionSourceBox
+                    && child.userData?.cellEdgeInstances
+                )).length,
+                wrappedEdgeCount: children.filter(child => (
+                    child.userData?.insertionRegionWrappedFragment
+                    && child.userData?.cellEdgeInstances
+                )).length,
+                inletBounds: inlet?.geometry?.boundingBox
+                    ? [inlet.geometry.boundingBox.min.x, inlet.geometry.boundingBox.max.x]
+                    : null,
+                wrappedShifts: wrappedFills.map(child => child.userData.shift),
+            };
+        }""")
+        if region_visuals["sourceFillCount"] != len(metadata["regions"]):
+            raise AssertionError("README Add Molecules did not render one intact source box per region.")
+        if region_visuals["sourceEdgeCount"] != len(metadata["regions"]):
+            raise AssertionError("README Add Molecules source boxes are missing complete edge sets.")
+        if region_visuals["wrappedFillCount"] != 0 or region_visuals["wrappedEdgeCount"] != 0:
+            raise AssertionError("README Add Molecules uses in-cell regions and should not need wrapped fragments.")
+        np.testing.assert_allclose(
+            region_visuals["inletBounds"],
+            metadata["regions"][0]["bounds"][:2],
+            atol=1e-6,
+        )
+
+        page.wait_for_function(
+            "expected => document.querySelector('#add-molecules-actual-density')?.textContent.includes(`${expected} molecules`)",
+            arg=metadata["expected_molecule_count"],
+        )
+        page.evaluate(
+            "([count, volume]) => { window.__setReadmeMoleculeDomain(2, `exact solvent volume ${volume}`); window.__setReadmeMoleculeStage('2 · READY TO PLACE', `${count} H₂O from target density 1.00 g/cm³`); }",
+            [metadata["expected_molecule_count"], page.locator("#add-atoms-domain-volume").inner_text()],
+        )
+        page.wait_for_function(
+            "expected => Math.abs(Number(window.__V_ASE_APP__.addAtomsUI?.domainPreview?.domain?.volume_angstrom3) - expected) < 1e-8",
+            arg=float(metadata["accessible_volume_angstrom3"]),
+        )
+        accessible_volume = float(page.evaluate(
+            "window.__V_ASE_APP__.addAtomsUI.domainPreview.domain.volume_angstrom3"
+        ))
+        if not np.isclose(
+            accessible_volume,
+            float(metadata["accessible_volume_angstrom3"]),
+            atol=1e-8,
+            rtol=0.0,
+        ):
+            raise AssertionError(
+                f"README multi-region volume {accessible_volume} does not match the exact reference."
+            )
+        page.click("#add-atoms-placement-random")
+        if not page.locator("#add-atoms-coordinate-basis").is_hidden():
+            raise AssertionError("Random molecule placement unexpectedly exposed spacing controls.")
+        page.fill("#add-atoms-seed", str(metadata["seed"]))
+        page.locator("#add-molecules-random-orientation").set_checked(True)
+        page.locator("#add-molecules-rigid").set_checked(True)
+        page.locator("#add-atoms-select-added").set_checked(True)
+        page.locator("#add-atoms-constrain-domain").set_checked(True)
+        page.evaluate(
+            "count => window.__setReadmeMoleculeStage('2 · READY TO PLACE', "
+            "`${count} H₂O · rigid · random orientation · shared repulsion settings`)",
+            metadata["expected_molecule_count"],
+        )
+
+        append_hold(frames, page, 12)
+        page.click("#btn-add-atoms-scatter")
+        page.wait_for_function(
+            "count => window.__V_ASE_APP__.addAtomsUI?.active?.molecule_count === count",
+            arg=metadata["expected_molecule_count"],
+        )
+        page.wait_for_function(
+            "count => window.__V_ASE_APP__.state.selected.size === count",
+            arg=metadata["expected_molecule_count"] * 3,
+        )
+        summary = page.evaluate("window.__V_ASE_APP__.addAtomsUI.active")
+        if [region["role"] for region in summary["regions"]] != ["reject", "reject"]:
+            raise AssertionError("README Add Molecules did not preserve the multi-region Boolean domain.")
+        if not np.isclose(
+            float(summary["domain"]["volume_angstrom3"]),
+            float(metadata["accessible_volume_angstrom3"]),
+            atol=1e-8,
+        ):
+            raise AssertionError("README Add Molecules session changed the exact accessible volume.")
+        set_display(page, {
+            "labelRadii": {"O_water": 0.72, "H_water": 0.48},
+            "labelColors": {"O_water": "#d9433f", "H_water": "#f4f5f6"},
+            "labelMaterials": {"O_water": "standard", "H_water": "standard"},
+            "pairwiseBondRanges": {"H_water-O_water": {"enabled": True, "max": 1.15}},
+            "pairwiseBondCutoffs": {"H_water-O_water": 1.15},
+        })
+        _assert_temporary_fix_is_material_only(
+            host_visual_before,
+            _atom_mesh_visual_state(page, len(host)),
+            expected_fixed=True,
+        )
+        page.evaluate("window.__V_ASE_APP__.renderer.selectionOutlines.visible = false")
+        scattered = np.asarray(page.evaluate("window.__V_ASE_APP__.state.atoms.positions"))
+        np.testing.assert_array_equal(scattered[: len(host)], host.positions)
+        page.evaluate(
+            "count => window.__setReadmeMoleculeStage('2 · RANDOM PLACEMENT', `${count} H₂O · random positions + orientations in Boolean domain`)",
+            metadata["expected_molecule_count"],
+        )
+        append_hold(frames, page, 12)
+
+        page.evaluate("""() => {
+            const app = window.__V_ASE_APP__;
+            window.__VASE_ADD_MOLECULES_TRACE__ = [];
+            const original = app.renderer.updatePositions.bind(app.renderer);
+            app.renderer.updatePositions = positions => {
+                if (app.addAtomsUI?.active?.is_relaxing && Array.isArray(positions)) {
+                    window.__VASE_ADD_MOLECULES_TRACE__.push(positions.map(position => [...position]));
+                }
+                return original(positions);
+            };
+        }""")
+        _configure_shared_add_atoms_relaxation(
+            page,
+            cutoff_distance=2.60,
+            strength=3.2,
+            fmax=0.5,
+            steps=220,
+        )
+        _start_shared_add_atoms_relaxation(page)
+        page.wait_for_function("window.__V_ASE_APP__.addAtomsUI?.active?.is_relaxing === true")
+        page.wait_for_function(
+            "window.__V_ASE_APP__.addAtomsUI?.active?.is_relaxing === false",
+            timeout=180_000,
+        )
+        trace = page.evaluate("window.__VASE_ADD_MOLECULES_TRACE__")
+        final_positions = page.evaluate("window.__V_ASE_APP__.state.atoms.positions")
+        if not trace or not np.allclose(
+            np.asarray(trace[-1], dtype=float),
+            np.asarray(final_positions, dtype=float),
+            atol=1e-12,
+        ):
+            trace.append(final_positions)
+        if len(trace) < 3:
+            raise AssertionError("README Add Molecules optimizer produced too few visible states.")
+        sample_indices = np.unique(np.linspace(0, len(trace) - 1, min(36, len(trace)), dtype=int))
+        for output_index, trace_index in enumerate(sample_indices, start=1):
+            update_positions(page, trace[int(trace_index)])
+            page.evaluate("window.__V_ASE_APP__.renderer.selectionOutlines.visible = false")
+            page.evaluate(
+                """([step, total]) => window.__V_ASE_APP__.setAddAtomsStatus(
+                    'running', `Optimizer trajectory · frame ${step}/${total}`
+                )""",
+                [output_index, len(sample_indices)],
+            )
+            page.evaluate(
+                """([step, total]) => window.__setReadmeMoleculeStage(
+                    '3 · RIGID-BODY REPULSION',
+                    `MIC · GO fixed · rigid H₂O · solvent domain enforced · frame ${step}/${total}`
+                )""",
+                [output_index, len(sample_indices)],
+            )
+            frame = screenshot_frame(page)
+            frames.append(frame)
+        relaxed = np.asarray(trace[-1], dtype=float)
+        np.testing.assert_array_equal(relaxed[: len(host)], host.positions)
+        molecule_center_motion = []
+        for start in range(len(host), len(relaxed), 3):
+            center_delta = np.mean(
+                relaxed[start:start + 3] - scattered[start:start + 3],
+                axis=0,
+            )
+            mic_delta, _ = find_mic(center_delta, host.cell, host.pbc)
+            molecule_center_motion.append(float(np.linalg.norm(mic_delta)))
+        center_rms_motion = float(np.sqrt(np.mean(np.square(molecule_center_motion))))
+        if center_rms_motion < 0.50:
+            raise AssertionError(
+                "README rigid-water example did not show enough molecular motion: "
+                f"MIC center RMS {center_rms_motion:.4f} Angstrom."
+            )
+        reference = molecule("H2O").positions
+        reference_distances = np.linalg.norm(reference[:, None] - reference[None, :], axis=2)
+        for start in range(len(host), len(relaxed), 3):
+            current = relaxed[start:start + 3]
+            current_distances = np.linalg.norm(current[:, None] - current[None, :], axis=2)
+            np.testing.assert_allclose(current_distances, reference_distances, atol=2e-7)
+        page.evaluate(
+            "([count, status, step, maximum]) => window.__setReadmeMoleculeStage("
+            "'4 · READY', `${count} rigid H₂O · ${status} ${step}/${maximum} · host/cell unchanged`) ",
+            [
+                metadata["expected_molecule_count"],
+                str(page.evaluate("window.__V_ASE_APP__.addAtomsUI.active.status")),
+                int(page.evaluate("window.__V_ASE_APP__.addAtomsUI.active.step || 0")),
+                int(page.evaluate("window.__V_ASE_APP__.addAtomsUI.active.max_steps || 0")),
+            ],
+        )
+        page.evaluate(
+            "total => window.__V_ASE_APP__.setAddAtomsStatus('complete', `Optimizer trajectory complete · ${total} frames`)",
+            len(sample_indices),
+        )
+        append_hold(frames, page, 18)
+        final_frame = frames[-1].copy()
+        final_frame.save(
+            ASSET_DIR / "readme_add_molecules.png",
+            optimize=True,
+            compress_level=9,
+        )
+        page.click("#btn-add-atoms-finish")
+        page.wait_for_function("window.__V_ASE_APP__.state.atoms.metadata.atom_addition === null")
+        if page.evaluate("window.__V_ASE_APP__.renderer.addAtomsRegionGroup.visible"):
+            raise AssertionError("Finishing Add Molecules left its temporary regions visible.")
+        _assert_temporary_fix_is_material_only(
+            host_visual_before,
+            _atom_mesh_visual_state(page, len(host)),
+            expected_fixed=False,
+        )
+        page.evaluate(
+            "count => { window.__setReadmeMoleculeDomain(0, 'regions removed'); "
+            "window.__setReadmeMoleculeStage("
+            "'5 · COMMITTED', `${count} H₂O retained · temporary host fixation released · regions removed`); } ",
+            metadata["expected_molecule_count"],
+        )
+        if page.locator(".region-label:visible").count():
+            raise AssertionError("Committed Add Molecules media retained a temporary region label.")
+        append_hold(frames, page, 18)
+        save_gif(frames, ASSET_DIR / "readme_add_molecules.gif", duration=115)
     finally:
         page.close()
         editor.close()
@@ -1944,6 +4522,520 @@ def capture_relaxation_media(browser) -> None:
         editor.close()
 
 
+def capture_volumetric_media(browser) -> None:
+    atoms, values = make_graphene_pi_volumetric_scene()
+    cube_path = ROOT / ".v_ase-readme-graphene-pi.cube"
+    with cube_path.open("w", encoding="utf-8") as handle:
+        write_cube(handle, atoms, data=values)
+
+    editor, page = open_scene(browser, atoms, show_bonds=True)
+    try:
+        command_url = external_ai_command_url(editor)
+        set_display(page, {
+            "atomRadiusScale": 0.54,
+            "showBonds": True,
+            "bondThickness": 0.18,
+            "showGrid": False,
+            "showCell": False,
+            "showAxes": False,
+            "viewportBackground": "white",
+            "lightingMode": "studio-shadow",
+            "labelColors": {
+                "C_pi_A": "#30383d",
+                "C_pi_B": "#607078",
+            },
+            "labelMaterials": {
+                "C_pi_A": "standard",
+                "C_pi_B": "standard",
+            },
+        })
+        configure_inspector(page, "analysis", ["volumetric"], width=470)
+        loaded = run_external_ai_apply(command_url, {
+            "operation": {
+                "name": "load-volumetric",
+                "path": cube_path.relative_to(ROOT).as_posix(),
+            },
+        })
+        dataset = loaded["analysis"]["volumetricDatasets"][-1]
+        result = run_external_ai_apply(command_url, {
+            "operation": {
+                "name": "show-volumetric",
+                "datasetId": dataset["id"],
+                "level": float(np.max(np.abs(values)) * 0.22),
+                "surfaceMode": "signed",
+                "stepSize": 1,
+                "smearingSigma": 0.45,
+                "smoothingIterations": 7,
+                "opacity": 0.56,
+                "positiveColor": "#258fbd",
+                "negativeColor": "#dc5976",
+            },
+        })
+        if not result["analysis"]["volumetricDatasets"]:
+            raise AssertionError("README volumetric scene did not load its scalar field.")
+        page.wait_for_function(
+            """() => Number(
+                window.__V_ASE_APP__.renderer.domElement.dataset.volumetricSurfaceCount || 0
+            ) >= 2"""
+        )
+        center = np.mean(atoms.positions, axis=0)
+        settle_view(
+            page,
+            target=center.tolist(),
+            position=(center + np.array([8.8, -10.5, 6.8])).tolist(),
+            fov=33,
+        )
+        set_atomic_scale(page, 86.0)
+        set_readme_lighting(
+            page,
+            center.tolist(),
+            intensity=3.0,
+            position_offset=(-7.0, -9.0, 12.0),
+        )
+        opacity_state = page.evaluate(
+            """() => {
+                const app = window.__V_ASE_APP__;
+                return {
+                    value: document.getElementById('volume-opacity-value')?.textContent,
+                    smearing: document.getElementById('volume-smearing')?.value,
+                    smoothing: document.getElementById('volume-smoothing')?.value,
+                    status: document.getElementById('volume-status')?.textContent,
+                    materials: app.renderer.volumetricSurfaces.map(surface => ({
+                        opacity: surface.material.opacity,
+                        transparent: surface.material.transparent
+                    }))
+                };
+            }"""
+        )
+        if opacity_state["value"] != "0.56":
+            raise AssertionError("README volumetric opacity readout is not synchronized.")
+        if opacity_state["smearing"] != "0.45" or opacity_state["smoothing"] != "7":
+            raise AssertionError("README volumetric refinement controls are not synchronized.")
+        if "σ 0.45 voxel" not in opacity_state["status"] or "7 smoothing passes" not in opacity_state["status"]:
+            raise AssertionError("README volumetric refinement status is incomplete.")
+        if not all(
+            abs(material["opacity"] - 0.56) < 1e-6 and material["transparent"]
+            for material in opacity_state["materials"]
+        ):
+            raise AssertionError("README isosurface opacity was not applied to its materials.")
+        level_frames = []
+        maximum_level = float(max(abs(dataset["minimum"]), abs(dataset["maximum"])))
+        level_fractions = [
+            *np.linspace(0.05, 0.46, 12),
+            *np.linspace(0.46, 0.05, 12)[1:],
+        ]
+        level_values = [maximum_level * float(fraction) for fraction in level_fractions]
+        for level in level_values:
+            page.evaluate(
+                """async level => {
+                    const app = window.__V_ASE_APP__;
+                    app.state.display.volumetricLevel = Number(level);
+                    app.syncVolumetricControls();
+                    await app.updateVolumetricSurface({recordHistory: false});
+                }""",
+                level,
+            )
+            page.wait_for_function(
+                """level => {
+                    const app = window.__V_ASE_APP__;
+                    const summary = app.state.volumetricSurfaceSummary;
+                    return summary
+                        && Math.abs(Number(summary.requestedLevel) - Number(level)) < 1e-8
+                        && Number(app.renderer.domElement.dataset.volumetricSurfaceCount || 0) >= 2;
+                }""",
+                arg=level,
+                timeout=30_000,
+            )
+            page.wait_for_timeout(55)
+            level_frames.append(screenshot_frame(page))
+        save_gif(
+            level_frames,
+            ASSET_DIR / "readme_volumetric.gif",
+            duration=195,
+        )
+        page.evaluate(
+            """level => {
+                const slider = document.getElementById('volume-level-slider');
+                slider.value = `${level}`;
+                slider.dispatchEvent(new Event('input', {bubbles: true}));
+                slider.dispatchEvent(new Event('change', {bubbles: true}));
+            }""",
+            float(np.max(np.abs(values)) * 0.22),
+        )
+        page.wait_for_function(
+            """level => Math.abs(
+                Number(window.__V_ASE_APP__.state.volumetricSurfaceSummary?.requestedLevel)
+                - Number(level)
+            ) < 1e-8""",
+            arg=float(np.max(np.abs(values)) * 0.22),
+            timeout=30_000,
+        )
+        screenshot_frame(page).save(
+            ASSET_DIR / "readme_volumetric.png",
+            optimize=True,
+        )
+
+        plane_result = run_external_ai_apply(command_url, {
+            "operation": {
+                "name": "add-volumetric-plane",
+                "datasetId": dataset["id"],
+                "planeName": "(1 0 0) multi-center pi-field section",
+                "hkl": [1, 0, 0],
+                "resolution": 1024,
+                "colormap": "coolwarm",
+                "autoRange": False,
+                "vmin": -maximum_level * 0.30,
+                "vmax": maximum_level * 0.30,
+                "opacity": 0.84,
+                "visible": True,
+            },
+        })
+        plane = plane_result["analysis"]["volumetricPlanes"][-1]
+        plane_state = {
+            "id": plane["id"],
+            "minimum": plane["offsetRangeAngstrom"][0],
+            "maximum": plane["offsetRangeAngstrom"][1],
+            "vmin": -maximum_level * 0.30,
+            "vmax": maximum_level * 0.30,
+        }
+        page.wait_for_function(
+            """() => window.__V_ASE_APP__.renderer.volumetricPlanes.size === 1"""
+        )
+        run_external_ai_apply(command_url, {
+            "display": {
+                "showVolumetric": False,
+                "showCell": True,
+                "showGrid": False,
+                "showAxes": False,
+            },
+        })
+        page.evaluate(
+            """() => {
+                const app = window.__V_ASE_APP__;
+                app.setVolumetricToolView('planes');
+                const panel = document.querySelector('.volume-plane-panel');
+                panel.scrollIntoView({block: 'start', behavior: 'instant'});
+            }"""
+        )
+        set_camera(
+            page,
+            target=center.tolist(),
+            position=(center + np.array([13.5, -15.5, 10.5])).tolist(),
+            up=(0.0, 0.0, 1.0),
+            fov=32,
+        )
+        set_atomic_scale(page, 58.0)
+        page.wait_for_timeout(180)
+        span = plane_state["maximum"] - plane_state["minimum"]
+        offsets = [
+            *np.linspace(0.12, 0.88, 33),
+            *np.linspace(0.86, 0.14, 31),
+        ]
+        plane_frames = []
+        for fraction in offsets:
+            offset = plane_state["minimum"] + span * fraction
+            run_external_ai_apply(command_url, {
+                "operation": {
+                    "name": "update-volumetric-planes",
+                    "planeIds": [plane_state["id"]],
+                    "offsetAngstrom": offset,
+                    "autoRange": False,
+                    "vmin": plane_state["vmin"],
+                    "vmax": plane_state["vmax"],
+                },
+            })
+            fixed_range = page.evaluate(
+                """id => {
+                    const plane = window.__V_ASE_APP__.state.display.volumetricPlanes
+                        .find(candidate => candidate.id === id);
+                    return [plane.autoRange, plane.vmin, plane.vmax];
+                }""",
+                plane_state["id"],
+            )
+            if fixed_range[0] or not np.allclose(
+                fixed_range[1:],
+                [plane_state["vmin"], plane_state["vmax"]],
+            ):
+                raise AssertionError("README plane animation changed its fixed color range.")
+            page.wait_for_timeout(45)
+            plane_frames.append(screenshot_frame(page))
+        save_gif(
+            plane_frames,
+            ASSET_DIR / "readme_volumetric_plane.gif",
+            duration=105,
+        )
+        plane_frames[len(plane_frames) // 2].save(
+            ASSET_DIR / "readme_volumetric_plane.png",
+            optimize=True,
+        )
+    finally:
+        page.close()
+        editor.close()
+        cube_path.unlink(missing_ok=True)
+
+
+def capture_atom_colorscale_media(browser) -> None:
+    frames = make_atom_colorscale_trajectory()
+    force_norms = np.concatenate([
+        np.linalg.norm(frame.get_forces(), axis=1)
+        for frame in frames
+    ])
+    if float(np.ptp(force_norms)) < 0.18:
+        raise AssertionError("README force colorscale lacks a visible trajectory-wide range.")
+    editor, page = open_scene(browser, frames, show_bonds=False, viz_only=True)
+    try:
+        set_display(page, {
+            "atomRadiusScale": 0.46,
+            "showBonds": False,
+            "showGrid": False,
+            "showCell": True,
+            "showAxes": False,
+            "viewportBackground": "white",
+            "lightingMode": "studio-shadow",
+            "showForceVectors": True,
+            "forceVectorStyle": "3d",
+            "forceVectorScale": 3.4,
+            "forceVectorThickness": 0.04,
+            "forceVectorColor": "#db4b32",
+        })
+        configure_inspector(page, "structure", ["appearance"], width=475)
+        result = page.evaluate(
+            """async () => {
+                await window.v_aseAI.apply({
+                    operation: {
+                        name: 'set-atom-colorscale',
+                        enabled: true,
+                        field: 'force:norm',
+                        map: 'turbo',
+                        scope: 'all',
+                        rangeMode: 'trajectory',
+                        gamma: 0.72
+                    }
+                });
+                return await window.v_aseAI.describe({includePositions: false});
+            }"""
+        )
+        color_scale = result["display"]
+        if color_scale["atomColorScaleField"] != "force:norm":
+            raise AssertionError("README colorscale did not select force magnitude.")
+        if color_scale["atomColorScaleRangeMode"] != "trajectory":
+            raise AssertionError("README colorscale did not lock a full-trajectory range.")
+        if color_scale["atomColorScaleScope"] != "all":
+            raise AssertionError("README colorscale did not apply to the complete structure.")
+        page.wait_for_selector("#atom-colorscale-legend:not(.hidden)")
+        page.wait_for_function(
+            "count => window.__V_ASE_APP__.renderer.atomColorScaleColors?.filter(Boolean).length === count",
+            arg=len(frames[0]),
+        )
+        page.wait_for_function(
+            "count => Number(window.__V_ASE_APP__.renderer.domElement.dataset.forceVectorCount) === count - 1",
+            arg=len(frames[0]),
+        )
+        page.evaluate(
+            """() => {
+                const panel = document.querySelector('[data-panel="appearance"]');
+                panel?.scrollIntoView({block: 'start'});
+                document.getElementById('inspector-content').scrollTop = 0;
+                window.__V_ASE_APP__.renderer.selectionOutlines.visible = false;
+                const badge = document.createElement('div');
+                badge.id = 'readme-force-contract';
+                badge.textContent = '193 / 193 atoms mapped · neighbour-shell force response';
+                Object.assign(badge.style, {
+                    position: 'fixed', left: '34px', bottom: '38px', zIndex: '4000',
+                    padding: '10px 15px', border: '2px solid #26383b', borderRadius: '5px',
+                    background: 'rgba(255,255,255,.96)', color: '#1d2f32',
+                    fontSize: '17px', fontWeight: '850', letterSpacing: '0'
+                });
+                document.body.appendChild(badge);
+            }"""
+        )
+        center = np.mean(frames[0].positions, axis=0)
+        settle_view(
+            page,
+            target=center.tolist(),
+            position=(center + np.array([18.0, -24.0, 15.0])).tolist(),
+            fov=34,
+        )
+        set_atomic_scale(page, 39.0)
+        set_readme_lighting(
+            page,
+            center.tolist(),
+            intensity=2.9,
+            position_offset=(-12.0, -12.0, 18.0),
+        )
+        gif_frames = []
+        ranges = []
+        force_signatures = []
+        for frame_index in range(len(frames)):
+            page.evaluate(
+                "async (index) => await window.__V_ASE_APP__.loadFrame(index)",
+                frame_index,
+            )
+            page.wait_for_function(
+                "index => window.__V_ASE_APP__.state.atoms.metadata.current_frame === index",
+                arg=frame_index,
+            )
+            page.wait_for_timeout(55)
+            page.evaluate("window.__V_ASE_APP__.renderer.selectionOutlines.visible = false")
+            color_state = page.evaluate("""() => ({
+                count: window.__V_ASE_APP__.renderer.atomColorScaleColors?.filter(Boolean).length,
+                unique: new Set(window.__V_ASE_APP__.renderer.atomColorScaleColors || []).size
+            })""")
+            if color_state["count"] != len(frames[frame_index]) or color_state["unique"] < 6:
+                raise AssertionError("README probe scan did not color every atom with a useful range.")
+            ranges.append(page.evaluate(
+                """() => [
+                    window.__V_ASE_APP__.state.display.atomColorScaleMin,
+                    window.__V_ASE_APP__.state.display.atomColorScaleMax
+                ]"""
+            ))
+            force_snapshot = page.evaluate("""expectedForces => {
+                const app = window.__V_ASE_APP__;
+                const entries = app.renderer.forceVectorGroup.userData.entries || [];
+                return {
+                    alignments: entries.map(entry => {
+                    const source = expectedForces[entry.index] || [0, 0, 0];
+                    const direction = entry.vector || [0, 0, 0];
+                    const sourceLength = Math.hypot(...source);
+                    const directionLength = Math.hypot(...direction);
+                    if (sourceLength <= 1e-12 || directionLength <= 1e-12) return 0;
+                    return direction.reduce(
+                        (sum, value, axis) => sum + value * source[axis],
+                        0
+                    ) / (sourceLength * directionLength);
+                    }),
+                    vectors: entries.map(entry => [entry.index, ...entry.vector])
+                };
+            }""", frames[frame_index].get_forces().tolist())
+            if (
+                len(force_snapshot["alignments"]) != len(frames[frame_index]) - 1
+                or min(force_snapshot["alignments"]) < 1 - 1e-8
+            ):
+                raise AssertionError("README force arrows do not follow the stored Cartesian forces.")
+            force_signatures.append(np.asarray(force_snapshot["vectors"], dtype=float))
+            gif_frames.append(screenshot_frame(page))
+        reference_range = np.asarray(ranges[0], dtype=float)
+        if not all(np.allclose(np.asarray(item, dtype=float), reference_range) for item in ranges[1:]):
+            raise AssertionError("README trajectory colorscale changed vmin/vmax between frames.")
+        if not any(
+            current.shape == force_signatures[0].shape
+            and not np.allclose(current[:, 1:], force_signatures[0][:, 1:])
+            for current in force_signatures[1:]
+        ):
+            raise AssertionError("README trajectory force arrows stayed fixed between frames.")
+        save_gif(
+            gif_frames + list(reversed(gif_frames[1:-1])),
+            ASSET_DIR / "readme_atom_colorscale.gif",
+            duration=230,
+        )
+        gif_frames[len(gif_frames) // 2].save(
+            ASSET_DIR / "readme_atom_colorscale.png",
+            optimize=True,
+        )
+    finally:
+        page.close()
+        editor.close()
+
+
+def capture_rdf_media(browser) -> None:
+    atoms = make_amorphous_cuzr_rdf_scene()
+    editor, page = open_scene(browser, atoms, show_bonds=False)
+    try:
+        set_display(page, {
+            "atomRadiusScale": 0.34,
+            "showBonds": False,
+            "showGrid": False,
+            "showCell": True,
+            "showAxes": False,
+            "viewportBackground": "white",
+            "lightingMode": "studio-shadow",
+            "labelColors": {
+                "Cu_glass": "#b66b36",
+                "Zr_glass": "#63a5b5",
+            },
+            "labelMaterials": {
+                "Cu_glass": "metal",
+                "Zr_glass": "standard",
+            },
+        })
+        configure_inspector(page, "analysis", ["rdf"], width=450)
+        result = page.evaluate(
+            """async () => {
+                await window.v_aseAI.apply({
+                    operation: {
+                        name: 'calculate-rdf',
+                        cutoff: 11.0,
+                        bins: 180,
+                        pairMode: 'all'
+                    }
+                });
+                const rdf = window.__V_ASE_APP__.state.rdfResult;
+                const tail = rdf.radius
+                    .map((radius, index) => [radius, rdf.total[index]])
+                    .filter(([radius]) => radius > 7.0)
+                    .map(([, value]) => value);
+                const mean = tail.reduce((sum, value) => sum + value, 0) / tail.length;
+                const variance = tail.reduce(
+                    (sum, value) => sum + (value - mean) ** 2,
+                    0
+                ) / tail.length;
+                return {
+                    mean,
+                    standardDeviation: Math.sqrt(variance),
+                    tailCount: tail.length,
+                    partialNames: Object.keys(rdf.partial || {})
+                };
+            }"""
+        )
+        if abs(result["mean"] - 1.0) > 0.05 or result["standardDeviation"] > 0.08:
+            raise AssertionError(
+                "README amorphous RDF does not reach a flat bulk plateau."
+            )
+        if len(result["partialNames"]) < 3:
+            raise AssertionError("README RDF does not show all pairwise curves.")
+        page.wait_for_selector("#rdf-plot .plotly", state="attached")
+        page.wait_for_selector(
+            "#rdf-plot .annotation-text",
+            state="attached",
+        )
+        page.evaluate(
+            """() => {
+                const drawer = document.getElementById('analysis-drawer');
+                drawer.style.height = '390px';
+                window.Plotly?.Plots?.resize?.(document.getElementById('rdf-plot'));
+            }"""
+        )
+        center = np.mean(atoms.positions, axis=0)
+        settle_view(
+            page,
+            target=center.tolist(),
+            position=(center + np.array([37.0, -42.0, 34.0])).tolist(),
+            fov=34,
+        )
+        set_atomic_scale(page, 23.0)
+        set_readme_lighting(
+            page,
+            center.tolist(),
+            intensity=2.9,
+            position_offset=(-22.0, -25.0, 34.0),
+        )
+        page.wait_for_timeout(350)
+        screenshot_frame(page).save(
+            ASSET_DIR / "readme_rdf.png",
+            optimize=True,
+        )
+    finally:
+        page.close()
+        editor.close()
+
+
+def capture_analysis_media(browser) -> None:
+    capture_registry_media(browser)
+    capture_volumetric_media(browser)
+    capture_atom_colorscale_media(browser)
+    capture_rdf_media(browser)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -1962,13 +5054,20 @@ def main() -> int:
             "phosphorene",
             "ferrocene",
             "commensurate",
+            "registry",
             "bonds",
             "materials",
             "ai",
             "collaboration",
+            "scratch",
+            "add-atoms",
             "constraints",
             "measurement",
             "relaxation",
+            "volumetric",
+            "colorscale",
+            "rdf",
+            "analysis",
         ),
         help="Regenerate one README scene group.",
     )
@@ -1991,18 +5090,27 @@ def main() -> int:
                 "phosphorene": capture_phosphorene_media,
                 "ferrocene": capture_ferrocene_media,
                 "commensurate": capture_commensurate_media,
+                "registry": capture_registry_media,
                 "bonds": capture_bond_media,
                 "materials": capture_material_media,
                 "ai": capture_ai_edit_media,
                 "collaboration": capture_ai_collaboration_figure,
+                "scratch": _capture_scratch_amorphous_media,
+                "add-atoms": capture_add_atoms_media,
                 "constraints": capture_constraint_media,
                 "measurement": capture_measurement_media,
                 "relaxation": capture_relaxation_media,
+                "volumetric": capture_volumetric_media,
+                "colorscale": capture_atom_colorscale_media,
+                "rdf": capture_rdf_media,
+                "analysis": capture_analysis_media,
             }
             if args.only:
                 captures[args.only](browser)
             else:
-                for capture in captures.values():
+                for name, capture in captures.items():
+                    if name == "analysis":
+                        continue
                     capture(browser)
         finally:
             browser.close()

@@ -9,10 +9,11 @@ from __future__ import annotations
 
 import base64
 import binascii
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import json
 import mmap
 from pathlib import Path
+import re
 import tempfile
 from typing import Any, Iterable
 import zipfile
@@ -28,6 +29,7 @@ from ._version import __version__
 from .io import atom_labels, set_atom_labels
 from .repulsion import VAseRepulsionCalculator, copy_calculator, is_vase_repulsion_calculator
 from .session import EditorSession, copy_atoms_with_calc, replace_session_frames
+from .volumetric import DEFAULT_MAX_GRID_POINTS, VolumetricData
 
 
 PROJECT_SCHEMA = "v_ase.project.v1"
@@ -35,6 +37,13 @@ SETTINGS_SCHEMA = "v_ase.visual_settings.v3"
 PROJECT_MIME = "application/vnd.v-ase.project+zip"
 MAX_MANIFEST_BYTES = 8 * 1024 * 1024
 MAX_ARCHIVE_UNCOMPRESSED_BYTES = 16 * 1024 * 1024 * 1024
+MAX_ARCHIVE_MEMBERS = 4096
+MAX_NPZ_MEMBERS = 100_000
+MAX_VOLUMETRIC_MEMBER_BYTES = (
+    DEFAULT_MAX_GRID_POINTS * np.dtype(np.float64).itemsize
+    + 16 * 1024 * 1024
+)
+MAX_SIDECAR_NPZ_UNCOMPRESSED_BYTES = 8 * 1024 * 1024 * 1024
 HTML_PROJECT_SCRIPT_ID = "v-ase-project-data"
 HTML_PROJECT_FORMAT = "vase-html-project"
 _HTML_PROJECT_ID_MARKER = f'id="{HTML_PROJECT_SCRIPT_ID}"'.encode("ascii")
@@ -55,6 +64,9 @@ class VaseProject:
     settings: dict[str, Any]
     current_frame: int
     manifest: dict[str, Any]
+    volumetric_datasets: list[VolumetricData] = field(default_factory=list)
+    commensurate_guest_atoms: Atoms | None = None
+    commensurate_guest_name: str | None = None
 
 
 def _json_copy(value: Any) -> Any:
@@ -105,6 +117,71 @@ def normalize_visual_settings(settings: Any) -> dict[str, Any]:
         if current_key not in display and legacy_key in display:
             display[current_key] = display[legacy_key]
         display.pop(legacy_key, None)
+    if isinstance(display.get("labelOpacities"), dict):
+        normalized_opacities = {}
+        for label, value in display["labelOpacities"].items():
+            try:
+                opacity = float(value)
+            except (TypeError, ValueError):
+                continue
+            if np.isfinite(opacity):
+                normalized_opacities[str(label)] = max(0.0, min(1.0, opacity))
+        display["labelOpacities"] = normalized_opacities
+    else:
+        display.pop("labelOpacities", None)
+    atom_record_specs = {
+        "atomRadiusScales": (0.25, 2.5),
+        "atomOpacities": (0.0, 1.0),
+    }
+    for key, (minimum, maximum) in atom_record_specs.items():
+        source = display.get(key)
+        if not isinstance(source, dict):
+            display.pop(key, None)
+            continue
+        normalized = {}
+        for raw_index, raw_value in source.items():
+            try:
+                index = int(raw_index)
+                value = float(raw_value)
+            except (TypeError, ValueError):
+                continue
+            if index >= 0 and np.isfinite(value):
+                normalized[str(index)] = max(minimum, min(maximum, value))
+        display[key] = normalized
+    if isinstance(display.get("atomColors"), dict):
+        display["atomColors"] = {
+            str(index): str(color).lower()
+            for index, color in display["atomColors"].items()
+            if str(index).isdigit()
+            and re.fullmatch(r"#[0-9A-Fa-f]{6}", str(color))
+        }
+    else:
+        display.pop("atomColors", None)
+    if isinstance(display.get("atomBondStyles"), dict):
+        normalized_bond_styles = {}
+        for raw_index, raw_style in display["atomBondStyles"].items():
+            if not str(raw_index).isdigit() or not isinstance(raw_style, dict):
+                continue
+            style = {}
+            if raw_style.get("material") in {"standard", "metal", "rubber", "unlit"}:
+                style["material"] = raw_style["material"]
+            try:
+                opacity = float(raw_style.get("opacity"))
+            except (TypeError, ValueError):
+                opacity = None
+            if opacity is not None and np.isfinite(opacity):
+                style["opacity"] = max(0.0, min(1.0, opacity))
+            color = raw_style.get("color")
+            if re.fullmatch(r"#[0-9A-Fa-f]{6}", str(color or "")):
+                style["color"] = str(color).lower()
+            if style:
+                normalized_bond_styles[str(raw_index)] = style
+        display["atomBondStyles"] = normalized_bond_styles
+    else:
+        display.pop("atomBondStyles", None)
+    display["selectedAppearanceAffectsBonds"] = (
+        display.get("selectedAppearanceAffectsBonds") is not False
+    )
     if display.get("bondMode") == "element":
         display["bondMode"] = "pairwise"
     clean["schema"] = SETTINGS_SCHEMA
@@ -220,6 +297,45 @@ def _safe_array(array: Any) -> np.ndarray | None:
     return None
 
 
+def _validate_npz_container(
+    path: Path,
+    *,
+    max_uncompressed_bytes: int,
+    required_names: set[str] | None = None,
+) -> None:
+    """Reject nested ZIP bombs and non-array members before ``numpy.load``."""
+
+    try:
+        with zipfile.ZipFile(path, mode="r") as archive:
+            infos = archive.infolist()
+            if len(infos) > MAX_NPZ_MEMBERS:
+                raise ValueError("An NPZ sidecar contains too many array members.")
+            names = [info.filename for info in infos]
+            if len(names) != len(set(names)):
+                raise ValueError("Invalid NPZ sidecar: duplicate members.")
+            if any(
+                Path(name).is_absolute()
+                or ".." in Path(name).parts
+                or Path(name).parent != Path(".")
+                or not name.endswith(".npy")
+                for name in names
+            ):
+                raise ValueError("Invalid NPZ sidecar member name.")
+            array_names = {name[:-4] for name in names}
+            if required_names is not None and array_names != required_names:
+                raise ValueError("A .vase volumetric dataset contains unexpected arrays.")
+            total_size = sum(info.file_size for info in infos)
+            if total_size > max_uncompressed_bytes:
+                raise ValueError("An NPZ sidecar expands beyond the supported size limit.")
+            if any(info.flag_bits & 0x1 for info in infos):
+                raise ValueError("Encrypted NPZ sidecars are not supported.")
+            bad_member = archive.testzip()
+            if bad_member:
+                raise ValueError(f"Corrupt NPZ sidecar member: {bad_member}.")
+    except zipfile.BadZipFile as exc:
+        raise ValueError("Invalid NPZ sidecar in .vase project.") from exc
+
+
 def _write_array_sidecar(path: Path, frames: list[Atoms]) -> dict[str, Any]:
     entries: list[dict[str, Any]] = []
     stored: dict[str, np.ndarray] = {}
@@ -255,6 +371,10 @@ def _restore_array_sidecar(frames: list[Atoms], path: Path, manifest: Any) -> No
     if not path.exists() or not isinstance(manifest, dict):
         return
     entries = manifest.get("entries") or []
+    _validate_npz_container(
+        path,
+        max_uncompressed_bytes=MAX_SIDECAR_NPZ_UNCOMPRESSED_BYTES,
+    )
     with np.load(path, allow_pickle=False) as arrays:
         for entry in entries:
             name = entry.get("name")
@@ -313,6 +433,13 @@ def _write_calculator_sidecar(path: Path, frames: list[Atoms]) -> dict[str, Any]
                 "set_region_as_prohibited": calculator.set_region_as_prohibited,
                 "k_boundary": calculator.k_boundary,
                 "k_repulsion": calculator.k_repulsion,
+                "cutoff_mode": calculator.cutoff_mode,
+                "cutoff_basis": calculator.cutoff_basis,
+                "cutoff_distance": (
+                    calculator.cutoff_distance
+                    if calculator._absolute_global_override
+                    else None
+                ),
                 "cutoff_scale": calculator.cutoff_scale,
                 "max_force_norm": calculator.max_force_norm,
                 "mic": calculator.mic,
@@ -345,6 +472,10 @@ def _restore_calculator_sidecar(frames: list[Atoms], path: Path, manifest: Any) 
     frame_entries = manifest.get("frames") or []
     if len(frame_entries) != len(frames):
         raise ValueError("Calculator result metadata does not match the .vase frame count.")
+    _validate_npz_container(
+        path,
+        max_uncompressed_bytes=MAX_SIDECAR_NPZ_UNCOMPRESSED_BYTES,
+    )
     with np.load(path, allow_pickle=False) as arrays:
         for frame, entry in zip(frames, frame_entries):
             if not entry:
@@ -359,6 +490,9 @@ def _restore_calculator_sidecar(frames: list[Atoms], path: Path, manifest: Any) 
                 # Projects written before cutoff_scale was persisted used the
                 # unscaled radius threshold. Preserve that behavior on load.
                 parameters.setdefault("cutoff_scale", 1.0)
+                parameters.setdefault("cutoff_mode", "scaled")
+                parameters.setdefault("cutoff_basis", "covalent")
+                parameters.setdefault("cutoff_distance", 2.0)
                 calculator = VAseRepulsionCalculator(**parameters)
                 calculator.atoms = frame.copy()
                 calculator.results = results
@@ -397,6 +531,8 @@ def write_project_archive(
         trajectory_path = Path(tmp_dir) / "structure.traj"
         arrays_path = Path(tmp_dir) / "atom_arrays.npz"
         calculator_path = Path(tmp_dir) / "calculator_results.npz"
+        volumetric_paths: list[tuple[Path, str]] = []
+        guest_path: Path | None = None
         _write_frames(trajectory_path, frames)
         arrays_manifest = _write_array_sidecar(arrays_path, frames)
         calculator_manifest = _write_calculator_sidecar(calculator_path, frames)
@@ -409,6 +545,32 @@ def write_project_archive(
         manifest["structure"]["portable_calculator_config_included"] = any(
             entry.get("kind") == "v_ase_repulsion" for entry in calculator_entries
         )
+        volumetric_manifest = []
+        for dataset_index, dataset in enumerate(session.volumetric_datasets):
+            if not isinstance(dataset, VolumetricData):
+                raise ValueError("Project volumetric datasets contain an invalid object.")
+            archive_name = f"volumetric/{dataset_index:04d}.npz"
+            dataset_path = Path(tmp_dir) / f"volumetric_{dataset_index:04d}.npz"
+            np.savez(
+                dataset_path,
+                values=dataset.values,
+                cell=dataset.cell,
+                origin=dataset.origin,
+                pbc=dataset.pbc,
+            )
+            entry = dataset.summary()
+            entry["path"] = archive_name
+            volumetric_manifest.append(entry)
+            volumetric_paths.append((dataset_path, archive_name))
+        manifest["volumetric_datasets"] = volumetric_manifest
+        if session.commensurate_guest_atoms is not None:
+            guest_path = Path(tmp_dir) / "commensurate_guest.traj"
+            _write_frames(guest_path, [session.commensurate_guest_atoms])
+            manifest["commensurate_guest"] = {
+                "path": "commensurate_guest.traj",
+                "labels_path": "commensurate_guest_labels.json",
+                "name": session.commensurate_guest_name or "Guest structure",
+            }
         with zipfile.ZipFile(destination, mode="w", compression=zipfile.ZIP_DEFLATED, compresslevel=6) as archive:
             archive.writestr(
                 "manifest.json",
@@ -425,11 +587,26 @@ def write_project_archive(
             archive.write(trajectory_path, arcname="structure.traj")
             archive.write(arrays_path, arcname="atom_arrays.npz")
             archive.write(calculator_path, arcname="calculator_results.npz")
+            if guest_path is not None:
+                archive.write(guest_path, arcname="commensurate_guest.traj")
+                archive.writestr(
+                    "commensurate_guest_labels.json",
+                    json.dumps(
+                        _label_payload([session.commensurate_guest_atoms]),
+                        ensure_ascii=True,
+                        separators=(",", ":"),
+                    ).encode("utf-8"),
+                )
+            for dataset_path, archive_name in volumetric_paths:
+                archive.write(dataset_path, arcname=archive_name)
     return destination
 
 
 def _validate_archive(archive: zipfile.ZipFile) -> None:
-    member_names = archive.namelist()
+    infos = archive.infolist()
+    if len(infos) > MAX_ARCHIVE_MEMBERS:
+        raise ValueError("The .vase project contains too many archive members.")
+    member_names = [info.filename for info in infos]
     names = set(member_names)
     if len(names) != len(member_names):
         raise ValueError("Invalid .vase project: duplicate archive members.")
@@ -437,10 +614,10 @@ def _validate_archive(archive: zipfile.ZipFile) -> None:
     if not required.issubset(names):
         missing = ", ".join(sorted(required - names))
         raise ValueError(f"Invalid .vase project: missing {missing}.")
-    total_size = sum(info.file_size for info in archive.infolist())
+    total_size = sum(info.file_size for info in infos)
     if total_size > MAX_ARCHIVE_UNCOMPRESSED_BYTES:
         raise ValueError("The .vase project expands beyond the supported size limit.")
-    for info in archive.infolist():
+    for info in infos:
         path = Path(info.filename)
         if path.is_absolute() or ".." in path.parts:
             raise ValueError("Invalid path inside .vase project.")
@@ -453,6 +630,8 @@ def _validate_archive(archive: zipfile.ZipFile) -> None:
 
 def read_project_archive(path: str | Path) -> VaseProject:
     source = Path(path)
+    guest_atoms: Atoms | None = None
+    guest_name: str | None = None
     try:
         with zipfile.ZipFile(source, mode="r") as archive:
             _validate_archive(archive)
@@ -462,6 +641,17 @@ def read_project_archive(path: str | Path) -> VaseProject:
             manifest = json.loads(manifest_bytes.decode("utf-8"))
             if manifest.get("schema") != PROJECT_SCHEMA:
                 raise ValueError(f"Unsupported .vase project schema: {manifest.get('schema')!r}.")
+            volumetric_manifest = manifest.get("volumetric_datasets") or []
+            if not isinstance(volumetric_manifest, list) or len(volumetric_manifest) > 256:
+                raise ValueError("Invalid .vase project volumetric dataset manifest.")
+            dataset_ids = [str(entry.get("id") or "") for entry in volumetric_manifest if isinstance(entry, dict)]
+            if len(dataset_ids) != len(volumetric_manifest) or any(not value for value in dataset_ids):
+                raise ValueError("Every .vase volumetric dataset requires a non-empty id.")
+            if len(dataset_ids) != len(set(dataset_ids)):
+                raise ValueError("A .vase project contains duplicate volumetric dataset ids.")
+            guest_manifest = manifest.get("commensurate_guest")
+            if guest_manifest is not None and not isinstance(guest_manifest, dict):
+                raise ValueError("Invalid .vase commensurate guest manifest.")
             with tempfile.TemporaryDirectory(prefix="v_ase_project_load_") as tmp_dir:
                 trajectory_path = Path(tmp_dir) / "structure.traj"
                 arrays_path = Path(tmp_dir) / "atom_arrays.npz"
@@ -481,6 +671,101 @@ def read_project_archive(path: str | Path) -> VaseProject:
                 frames = loaded if isinstance(loaded, list) else [loaded]
                 _restore_array_sidecar(frames, arrays_path, manifest.get("atom_arrays"))
                 _restore_calculator_sidecar(frames, calculator_path, manifest.get("calculator_results"))
+                volumetric_datasets = []
+                for dataset_index, entry in enumerate(volumetric_manifest):
+                    if not isinstance(entry, dict):
+                        raise ValueError("Invalid volumetric dataset metadata in .vase project.")
+                    archive_name = str(entry.get("path") or "")
+                    if archive_name not in archive.namelist():
+                        raise ValueError(
+                            f"Invalid .vase project: missing volumetric dataset {dataset_index + 1}."
+                        )
+                    member = archive.getinfo(archive_name)
+                    if member.file_size > MAX_VOLUMETRIC_MEMBER_BYTES:
+                        raise ValueError(
+                            f"Volumetric dataset {dataset_index + 1} exceeds the configured grid limit."
+                        )
+                    dataset_path = Path(tmp_dir) / f"volumetric_{dataset_index:04d}.npz"
+                    with archive.open(archive_name) as incoming, dataset_path.open("wb") as outgoing:
+                        while chunk := incoming.read(1024 * 1024):
+                            outgoing.write(chunk)
+                    _validate_npz_container(
+                        dataset_path,
+                        max_uncompressed_bytes=MAX_VOLUMETRIC_MEMBER_BYTES,
+                        required_names={"values", "cell", "origin", "pbc"},
+                    )
+                    with np.load(dataset_path, allow_pickle=False) as arrays:
+                        required_arrays = {"values", "cell", "origin", "pbc"}
+                        if not required_arrays.issubset(arrays.files):
+                            raise ValueError("A .vase volumetric dataset is incomplete.")
+                        values = arrays["values"]
+                        declared_shape = tuple(int(value) for value in entry.get("shape") or ())
+                        if declared_shape and values.shape != declared_shape:
+                            raise ValueError(
+                                "A .vase volumetric grid shape does not match its manifest."
+                            )
+                        if values.dtype not in {
+                            np.dtype(np.float32),
+                            np.dtype(np.float64),
+                        }:
+                            raise ValueError(
+                                "A .vase volumetric grid must use portable float32 "
+                                "or float64 encoding."
+                            )
+                        declared_precision = str(
+                            entry.get("precision") or values.dtype.name
+                        )
+                        if declared_precision != values.dtype.name:
+                            raise ValueError(
+                                "A .vase volumetric grid precision does not match "
+                                "its manifest."
+                            )
+                        source_frame = int((entry.get("metadata") or {}).get("source_frame", 0))
+                        source_atoms = (
+                            frames[source_frame].copy()
+                            if 0 <= source_frame < len(frames)
+                            else frames[0].copy()
+                        )
+                        volumetric_datasets.append(
+                            VolumetricData(
+                                name=str(entry.get("name") or f"Volumetric data {dataset_index + 1}"),
+                                values=values,
+                                cell=arrays["cell"],
+                                origin=arrays["origin"],
+                                pbc=arrays["pbc"],
+                                quantity=str(entry.get("quantity") or "scalar_field"),
+                                units=str(entry.get("units") or "file_native"),
+                                source_format=str(entry.get("source_format") or "unknown"),
+                                component=str(entry.get("component") or "total"),
+                                endpoint_inclusive=bool(entry.get("endpoint_inclusive", False)),
+                                precision=declared_precision,
+                                atoms=source_atoms,
+                                metadata=dict(entry.get("metadata") or {}),
+                                dataset_id=str(entry.get("id") or ""),
+                            )
+                        )
+                if guest_manifest:
+                    guest_archive_name = str(guest_manifest.get("path") or "")
+                    if guest_archive_name != "commensurate_guest.traj":
+                        raise ValueError("Invalid .vase commensurate guest path.")
+                    if guest_archive_name not in archive.namelist():
+                        raise ValueError("Invalid .vase project: missing commensurate guest structure.")
+                    guest_path = Path(tmp_dir) / "commensurate_guest.traj"
+                    with archive.open(guest_archive_name) as incoming, guest_path.open("wb") as outgoing:
+                        while chunk := incoming.read(1024 * 1024):
+                            outgoing.write(chunk)
+                    loaded_guest = read(guest_path, index=0, format="traj")
+                    if not isinstance(loaded_guest, Atoms) or len(loaded_guest) < 1:
+                        raise ValueError("The .vase commensurate guest structure is empty.")
+                    guest_labels_path = str(
+                        guest_manifest.get("labels_path")
+                        or "commensurate_guest_labels.json"
+                    )
+                    if guest_labels_path in archive.namelist():
+                        guest_labels = json.loads(archive.read(guest_labels_path).decode("utf-8"))
+                        _restore_labels([loaded_guest], guest_labels)
+                    guest_atoms = loaded_guest
+                    guest_name = str(guest_manifest.get("name") or "Guest structure")
             labels_payload = json.loads(archive.read("labels.json").decode("utf-8")) if "labels.json" in archive.namelist() else None
             info_payload = json.loads(archive.read("frame_info.json").decode("utf-8")) if "frame_info.json" in archive.namelist() else None
     except zipfile.BadZipFile as exc:
@@ -511,6 +796,13 @@ def read_project_archive(path: str | Path) -> VaseProject:
         settings=settings,
         current_frame=current_frame,
         manifest=manifest,
+        volumetric_datasets=volumetric_datasets,
+        commensurate_guest_atoms=(
+            _copy_with_cached_results(guest_atoms)
+            if guest_atoms is not None
+            else None
+        ),
+        commensurate_guest_name=guest_name,
     )
 
 
@@ -642,4 +934,12 @@ def replace_session_from_project(session: EditorSession, project: VaseProject) -
         project.frames,
         current_frame=project.current_frame,
         initial_design_settings=_json_copy(project.settings),
+        volumetric_datasets=project.volumetric_datasets,
     )
+    session.commensurate_guest_atoms = (
+        copy_atoms_with_calc(project.commensurate_guest_atoms, attach_default=False)
+        if project.commensurate_guest_atoms is not None
+        else None
+    )
+    session.commensurate_guest_name = project.commensurate_guest_name
+    session.commensurate_search_cache = None

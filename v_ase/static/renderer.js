@@ -9,6 +9,15 @@ function numberArrayEqual(first = [], second = []) {
     return true;
 }
 
+function stringArrayEqual(first = [], second = []) {
+    if (first === second) return true;
+    if (first.length !== second.length) return false;
+    for (let index = 0; index < first.length; index++) {
+        if (String(first[index]) !== String(second[index])) return false;
+    }
+    return true;
+}
+
 function flatPairArrayEqual(first = [], second = []) {
     if (first === second) return true;
     if (first.length !== second.length) return false;
@@ -71,6 +80,75 @@ function bondRangeRecordEqual(first = {}, second = {}) {
         }
     }
     return true;
+}
+
+function cloneBondStyleRecord(source = {}) {
+    return Object.fromEntries(Object.entries(source).flatMap(([key, style]) => (
+        style && typeof style === 'object'
+            ? [[key, {
+                style: style.style === 'flat' ? 'flat' : 'cylinder',
+                material: ['standard', 'metal', 'rubber', 'unlit'].includes(style.material)
+                    ? style.material
+                    : 'standard',
+                thickness: Math.max(0.02, Math.min(0.6, Number(style.thickness) || 0.25)),
+                colorMode: style.colorMode === 'custom' ? 'custom' : 'split',
+                color: typeof style.color === 'string' ? style.color : '#c8ccd0',
+                opacity: Math.max(0.05, Math.min(1, Number(style.opacity) || 1))
+            }]]
+            : []
+    )));
+}
+
+function bondStyleRecordEqual(first = {}, second = {}) {
+    if (first === second) return true;
+    const firstKeys = Object.keys(first);
+    const secondKeys = Object.keys(second);
+    if (firstKeys.length !== secondKeys.length) return false;
+    for (const key of firstKeys) {
+        const a = first[key];
+        const b = second[key];
+        if (
+            !b
+            || a.style !== b.style
+            || a.material !== b.material
+            || Number(a.thickness) !== Number(b.thickness)
+            || a.colorMode !== b.colorMode
+            || a.color !== b.color
+            || Number(a.opacity) !== Number(b.opacity)
+        ) return false;
+    }
+    return true;
+}
+
+function cloneAtomBondStyleRecord(source = {}) {
+    return Object.fromEntries(Object.entries(source).flatMap(([key, style]) => {
+        if (!style || typeof style !== 'object') return [];
+        const next = {};
+        if (['standard', 'metal', 'rubber', 'unlit'].includes(style.material)) {
+            next.material = style.material;
+        }
+        const opacity = Number(style.opacity);
+        if (Number.isFinite(opacity)) next.opacity = Math.max(0, Math.min(1, opacity));
+        if (typeof style.color === 'string' && /^#[0-9A-Fa-f]{6}$/.test(style.color)) {
+            next.color = style.color.toLowerCase();
+        }
+        return Object.keys(next).length ? [[String(key), next]] : [];
+    }));
+}
+
+function atomBondStyleRecordEqual(first = {}, second = {}) {
+    if (first === second) return true;
+    const firstKeys = Object.keys(first);
+    const secondKeys = Object.keys(second);
+    if (firstKeys.length !== secondKeys.length) return false;
+    return firstKeys.every(key => {
+        const a = first[key] || {};
+        const b = second[key];
+        return b
+            && a.material === b.material
+            && Number(a.opacity) === Number(b.opacity)
+            && a.color === b.color;
+    });
 }
 
 class BlenderTumbleControls {
@@ -381,6 +459,25 @@ class BlenderTumbleControls {
     update() {
         return false;
     }
+
+    dispose() {
+        this.enabled = false;
+        this.endGesture(null, { force: true });
+        this.finishWheelGesture();
+        this.removeWindowGestureListeners();
+        const element = this.domElement;
+        element.removeEventListener('contextmenu', this.onContextMenu);
+        element.removeEventListener('auxclick', this.onAuxClick);
+        element.removeEventListener('pointerdown', this.onPointerDown);
+        element.removeEventListener('pointermove', this.onPointerMove);
+        element.removeEventListener('pointerup', this.onPointerUp);
+        element.removeEventListener('pointercancel', this.onPointerCancel);
+        element.removeEventListener('lostpointercapture', this.onLostPointerCapture);
+        element.removeEventListener('wheel', this.onWheel);
+        this.onChange = null;
+        this.onGestureStart = null;
+        this.onGestureEnd = null;
+    }
 }
 
 const FALLBACK_ATOM_COLOR = '#cccccc';
@@ -488,6 +585,8 @@ export class ASERenderer {
         };
         this.previewRenderCount = 0;
         this.lastExportPreview = null;
+        this.exportPreviewCamera = null;
+        this.exportPreviewTarget = null;
 
         this.controls = new BlenderTumbleControls(this.camera, this.renderer.domElement);
         this.controls.onChange = () => {
@@ -558,6 +657,10 @@ export class ASERenderer {
         this.sunShadowBoundsCache = null;
         this.onLightingChange = null;
 
+        this.renderAreaGizmoGroup = this.buildRenderAreaGizmo();
+        this.scene.add(this.renderAreaGizmoGroup);
+        this.renderAreaRaycaster = new THREE.Raycaster();
+
         this.viewportGuides = this.buildViewportGuides();
         this.gridGroup = this.viewportGuides.gridGroup;
         this.axesHelper = this.viewportGuides.axisGroup;
@@ -574,14 +677,35 @@ export class ASERenderer {
 
         this.cellGroup = new THREE.Group();
         this.scene.add(this.cellGroup);
+        this.addAtomsRegionGroup = new THREE.Group();
+        this.addAtomsRegionConfiguration = null;
+        this.addAtomsRegionGroup.name = 'v_ase_add_atoms_region';
+        this.scene.add(this.addAtomsRegionGroup);
         this.bondGroup = new THREE.Group();
         this.scene.add(this.bondGroup);
         this.displacementGroup = new THREE.Group();
         this.displacementGroup.name = 'v_ase_displacement_vectors';
         this.scene.add(this.displacementGroup);
+        this.forceVectorGroup = new THREE.Group();
+        this.forceVectorGroup.name = 'v_ase_force_vectors';
+        this.scene.add(this.forceVectorGroup);
+        this.volumetricGroup = new THREE.Group();
+        this.volumetricGroup.name = 'v_ase_volumetric_isosurfaces';
+        this.scene.add(this.volumetricGroup);
+        this.volumetricSurfaces = [];
+        this.volumetricPlaneGroup = new THREE.Group();
+        this.volumetricPlaneGroup.name = 'v_ase_volumetric_planes';
+        this.scene.add(this.volumetricPlaneGroup);
+        this.volumetricPlanes = new Map();
         this.commensurateGuideGroup = new THREE.Group();
         this.scene.add(this.commensurateGuideGroup);
         this.commensurateGuideSignature = null;
+        this.commensurateSupercellGroup = new THREE.Group();
+        this.commensurateSupercellGroup.name = 'v_ase_commensurate_supercell_preview';
+        this.scene.add(this.commensurateSupercellGroup);
+        this.commensurateSupercellPreview = null;
+        this.commensurateBaseVisibility = null;
+        this.commensurateCameraSnapshot = null;
         this.supercellGroup = new THREE.Group();
         this.scene.add(this.supercellGroup);
         this.constraintMarkGroup = new THREE.Group();
@@ -595,10 +719,12 @@ export class ASERenderer {
         this.scene.add(this.hookeanGroup);
         this.atomMeshByIndex = new Map();
         this.atomInstanceRefs = new Map();
+        this.atomInstanceRefsByIndex = [];
         this.atomInstanceMeshes = new Set();
         this.atomIndicesByLabel = new Map();
         this.useInstancedAtoms = false;
         this.instanceDummy = new THREE.Object3D();
+        this.atomColorScratch = new THREE.Color();
         this.bondInstanceDummy = new THREE.Object3D();
         this.bondDeltaScratch = new THREE.Vector3();
         this.yAxis = new THREE.Vector3(0, 1, 0);
@@ -609,6 +735,7 @@ export class ASERenderer {
         this.bondNeighborCache = null;
         this.needsInitialCameraFit = true;
         this.customColors = {};
+        this.atomColorScaleColors = null;
         this.displayOptions = {
             showCell: true,
             showAxes: true,
@@ -624,20 +751,30 @@ export class ASERenderer {
             pairwiseBondCutoffs: {},
             pairwiseBondRanges: {},
             bondStyle: 'cylinder',
+            bondMaterial: 'standard',
             bondThickness: 0.25,
             bondColorMode: 'split',
             bondCustomColor: '#c8ccd0',
+            bondOpacity: 1,
+            pairwiseBondStyles: {},
             atomRadiusScale: 0.6,
             labelRadii: {},
             labelColors: {},
+            labelOpacities: {},
             labelVisible: {},
             labelMaterials: {},
+            atomRadiusScales: {},
+            atomColors: {},
+            atomOpacities: {},
             atomMaterials: {},
+            atomBondStyles: {},
+            hiddenAtomReferences: [],
             rotatePivot: 'selection',
-            commensurateGuide: true,
+            commensurateGuide: false,
             commensurateSnap: false,
             commensurateStrainTolerance: 0.01,
             commensurateMaxIndex: 32,
+            commensurateMaxAreaRatio: 16,
             commensurateSnapRangeDeg: 2.0,
             projectionMode: 'orthographic',
             viewportBackground: 'white',
@@ -666,7 +803,12 @@ export class ASERenderer {
             displacementStyle: '3d',
             displacementScale: 1,
             displacementThickness: 0.08,
-            displacementColor: '#e58b2a'
+            displacementColor: '#e58b2a',
+            showForceVectors: false,
+            forceVectorStyle: '3d',
+            forceVectorScale: 1,
+            forceVectorThickness: 0.08,
+            forceVectorColor: '#c43f5e'
         };
         this.lightingOptions = {
             lightingMode: 'modeling',
@@ -680,6 +822,7 @@ export class ASERenderer {
         this.supercellBridgeBondRecords = [];
         this.cellEdgeGeometry = new THREE.CylinderGeometry(1, 1, 1, 10, 1, false);
         this.cellEdgeDummy = new THREE.Object3D();
+        this.cellEdgeCameraSignature = '';
         this.bondCylinderGeometry = new THREE.CylinderGeometry(0.5, 0.5, 1, 16);
         this.bondFlatGeometry = new THREE.PlaneGeometry(1, 1);
         this.displacementConeGeometry = new THREE.ConeGeometry(0.5, 1, 12);
@@ -695,6 +838,8 @@ export class ASERenderer {
         this.displacementFlatHeadGeometry.computeVertexNormals();
         this.displacementData = null;
         this.displacementCameraSignature = '';
+        this.forceVectorData = null;
+        this.forceVectorCameraSignature = '';
         this.displacementDummy = new THREE.Object3D();
         this.displacementDirection = new THREE.Vector3();
         this.displacementStart = new THREE.Vector3();
@@ -709,6 +854,13 @@ export class ASERenderer {
             side: THREE.BackSide,
             transparent: true,
             opacity: 1.0,
+            depthWrite: false
+        });
+        this.replicaSelectionMutedMaterial = new THREE.MeshBasicMaterial({
+            color: 0xffc400,
+            side: THREE.BackSide,
+            transparent: true,
+            opacity: 0.36,
             depthWrite: false
         });
         this.constraintMaterials = {
@@ -886,6 +1038,14 @@ export class ASERenderer {
                 depthTest: true,
                 depthWrite: false
             }),
+            hookeanFlat: new THREE.MeshBasicMaterial({
+                color: 0xff9f43,
+                transparent: true,
+                opacity: 0.92,
+                depthTest: true,
+                depthWrite: false,
+                toneMapped: false
+            }),
             hookeanInactive: new THREE.MeshBasicMaterial({
                 color: 0x8fb7ff,
                 transparent: true,
@@ -1029,6 +1189,121 @@ export class ASERenderer {
         return group;
     }
 
+    buildRenderAreaGizmo() {
+        const group = new THREE.Group();
+        group.name = 'v_ase_render_area_eye';
+        group.visible = false;
+        group.renderOrder = 140;
+
+        const canvas = document.createElement('canvas');
+        canvas.width = 160;
+        canvas.height = 112;
+        const context = canvas.getContext('2d');
+        context.clearRect(0, 0, canvas.width, canvas.height);
+        context.lineWidth = 8;
+        context.lineCap = 'round';
+        context.lineJoin = 'round';
+        context.strokeStyle = '#69dfc7';
+        context.fillStyle = 'rgba(17, 31, 31, 0.82)';
+        context.beginPath();
+        context.moveTo(12, 56);
+        context.bezierCurveTo(44, 10, 116, 10, 148, 56);
+        context.bezierCurveTo(116, 102, 44, 102, 12, 56);
+        context.closePath();
+        context.fill();
+        context.stroke();
+        context.beginPath();
+        context.arc(80, 56, 22, 0, Math.PI * 2);
+        context.fillStyle = '#69dfc7';
+        context.fill();
+        context.beginPath();
+        context.arc(80, 56, 9, 0, Math.PI * 2);
+        context.fillStyle = '#10201f';
+        context.fill();
+        const texture = new THREE.CanvasTexture(canvas);
+        texture.colorSpace = THREE.SRGBColorSpace;
+        texture.needsUpdate = true;
+        const material = new THREE.SpriteMaterial({
+            map: texture,
+            transparent: true,
+            depthTest: false,
+            depthWrite: false,
+            sizeAttenuation: true
+        });
+        const eye = new THREE.Sprite(material);
+        eye.name = 'v_ase_render_area_eye_handle';
+        eye.userData.renderAreaEye = true;
+        eye.renderOrder = 142;
+
+        const directionMaterial = new THREE.LineDashedMaterial({
+            color: 0x69dfc7,
+            transparent: true,
+            opacity: 0.54,
+            dashSize: 0.22,
+            gapSize: 0.16,
+            depthTest: false,
+            depthWrite: false
+        });
+        const direction = new THREE.Line(
+            new THREE.BufferGeometry().setFromPoints([
+                new THREE.Vector3(10, 10, 10),
+                new THREE.Vector3(0, 0, 0)
+            ]),
+            directionMaterial
+        );
+        direction.name = 'v_ase_render_area_direction';
+        direction.renderOrder = 139;
+        direction.computeLineDistances();
+        group.add(direction, eye);
+        group.userData = { eye, direction };
+        return group;
+    }
+
+    setRenderAreaGizmo(cameraSettings, { visible = false, selected = false } = {}) {
+        const group = this.renderAreaGizmoGroup;
+        if (!group) return;
+        group.visible = Boolean(visible && cameraSettings);
+        if (!group.visible) {
+            this.requestRender();
+            return;
+        }
+        const position = new THREE.Vector3(...cameraSettings.position);
+        const target = new THREE.Vector3(...cameraSettings.target);
+        const { eye, direction } = group.userData;
+        eye.position.copy(position);
+        eye.material.color.set(selected ? 0xffc857 : 0xffffff);
+        const attribute = direction.geometry.getAttribute('position');
+        attribute.setXYZ(0, position.x, position.y, position.z);
+        attribute.setXYZ(1, target.x, target.y, target.z);
+        attribute.needsUpdate = true;
+        direction.geometry.computeBoundingSphere();
+        direction.computeLineDistances();
+        direction.material.color.set(selected ? 0xffc857 : 0x69dfc7);
+        this.updateRenderAreaGizmoScale();
+        this.requestRender();
+    }
+
+    updateRenderAreaGizmoScale() {
+        if (!this.renderAreaGizmoGroup?.visible) return;
+        const eye = this.renderAreaGizmoGroup.userData.eye;
+        const scale = Math.max(0.42, this.sunWorldPerPixel(eye.position) * 64);
+        eye.scale.set(scale * 1.42, scale, 1);
+    }
+
+    pickRenderAreaEye(event) {
+        if (!this.renderAreaGizmoGroup?.visible || !event) return false;
+        const rect = this.domElement.getBoundingClientRect();
+        const pointer = new THREE.Vector2(
+            ((event.clientX - rect.left) / Math.max(1, rect.width)) * 2 - 1,
+            -((event.clientY - rect.top) / Math.max(1, rect.height)) * 2 + 1
+        );
+        this.renderAreaRaycaster.setFromCamera(pointer, this.camera);
+        return this.renderAreaRaycaster.intersectObject(
+            this.renderAreaGizmoGroup.userData.eye,
+            false
+        ).length > 0;
+    }
+
     normalizedLightingVector(value, fallback) {
         if (!Array.isArray(value) || value.length < 3) return [...fallback];
         return value.slice(0, 3).map((component, index) => {
@@ -1066,11 +1341,16 @@ export class ASERenderer {
             this.replicaSelectionOutlines,
             this.bondGroup,
             this.displacementGroup,
+            this.forceVectorGroup,
+            this.volumetricGroup,
+            this.volumetricPlaneGroup,
             this.commensurateGuideGroup,
+            this.commensurateSupercellGroup,
             this.constraintMarkGroup,
             this.constraintGuideGroup,
             this.constraintMotionGuideGroup,
-            this.hookeanGroup
+            this.hookeanGroup,
+            this.addAtomsRegionGroup
         ].forEach(group => {
             if (group) group.position.copy(translation);
         });
@@ -1096,6 +1376,7 @@ export class ASERenderer {
         const mode = ['studio', 'studio-shadow'].includes(options.lightingMode)
             ? options.lightingMode
             : 'modeling';
+        const flatDisplay = this.atomDisplayMode() === '2d';
         const intensity = Math.max(0, Number(options.sunIntensity ?? this.lightingOptions?.sunIntensity ?? 2.2));
         const position = this.normalizedLightingVector(
             options.sunPosition || this.lightingOptions?.sunPosition,
@@ -1115,8 +1396,8 @@ export class ASERenderer {
         };
         Object.assign(this.displayOptions, this.lightingOptions);
 
-        const studio = mode !== 'modeling';
-        this.modelingLightGroup.visible = !studio;
+        const studio = !flatDisplay && mode !== 'modeling';
+        this.modelingLightGroup.visible = !flatDisplay && !studio;
         this.studioLightGroup.visible = studio;
         this.studioSunLight.intensity = this.lightingOptions.sunIntensity;
         this.applyStudioSunDirection();
@@ -1124,11 +1405,11 @@ export class ASERenderer {
         if (!this.sunGizmoGroup.visible) this.setSunGizmoSelected(false, { requestRender });
         this.renderer.toneMapping = studio ? THREE.ACESFilmicToneMapping : THREE.NoToneMapping;
         this.renderer.toneMappingExposure = studio ? 1.05 : 1.0;
-        this.domElement.dataset.lightingMode = mode;
-        this.domElement.dataset.shadowMode = mode === 'studio-shadow' ? 'true' : 'false';
-        this.setShadowMode(mode === 'studio-shadow');
+        this.domElement.dataset.lightingMode = flatDisplay ? 'flat' : mode;
+        this.domElement.dataset.shadowMode = !flatDisplay && mode === 'studio-shadow' ? 'true' : 'false';
+        this.setShadowMode(!flatDisplay && mode === 'studio-shadow');
         this.syncSunGizmo();
-        if (previousMode !== mode && mode === 'studio-shadow') this.fitSunShadowCamera();
+        if (!flatDisplay && previousMode !== mode && mode === 'studio-shadow') this.fitSunShadowCamera();
         if (requestRender) this.requestRender();
     }
 
@@ -1148,10 +1429,17 @@ export class ASERenderer {
 
     applyShadowFlags() {
         const enabled = Boolean(this.shadowModeActive);
-        [this.atomMeshes, this.cellGroup, this.bondGroup, this.supercellGroup].forEach(group => {
+        [
+            this.atomMeshes,
+            this.cellGroup,
+            this.bondGroup,
+            this.supercellGroup,
+            this.volumetricGroup
+        ].forEach(group => {
             group?.traverse?.(object => {
                 if (!object.isMesh) return;
-                object.castShadow = enabled;
+                const opacity = Number(object.userData?.opacity);
+                object.castShadow = enabled && !(Number.isFinite(opacity) && opacity < 0.999);
                 object.receiveShadow = enabled;
             });
         });
@@ -1167,12 +1455,19 @@ export class ASERenderer {
         const low = new THREE.Vector3();
         const high = new THREE.Vector3();
         this.forEachAtomProxy?.((proxy, index) => {
-            if (!proxy || proxy.visible === false || !this.atomLabelVisible(index)) return;
+            if (!proxy || proxy.visible === false || !this.atomReferenceVisible(index)) return;
             const radius = Math.max(0.05, Number(this.atomVisualRadius(index) || 0.5));
             low.copy(proxy.position).addScalar(-radius);
             high.copy(proxy.position).addScalar(radius);
             base.expandByPoint(low);
             base.expandByPoint(high);
+        });
+        this.volumetricSurfaces?.forEach(surface => {
+            surface.geometry?.computeBoundingBox?.();
+            const bounds = surface.geometry?.boundingBox;
+            if (!bounds?.isEmpty?.()) {
+                base.union(bounds);
+            }
         });
 
         if (base.isEmpty()) {
@@ -1379,10 +1674,10 @@ export class ASERenderer {
         return this.displayOptions?.atomDisplayMode === '2d' ? '2d' : '3d';
     }
 
-    effectiveBondStyle() {
+    effectiveBondStyle(requestedStyle = this.displayOptions?.bondStyle) {
         return this.atomDisplayMode() === '2d'
             ? 'flat'
-            : (this.displayOptions?.bondStyle === 'flat' ? 'flat' : 'cylinder');
+            : (requestedStyle === 'flat' ? 'flat' : 'cylinder');
     }
 
     atomVisualRadius(index) {
@@ -1392,8 +1687,15 @@ export class ASERenderer {
             ? labelRadius
             : Number(this.atomsData?.visual?.radii?.[index]);
         const scale = Number(this.displayOptions?.atomRadiusScale || 0.6);
+        const atomScaleValue = Number(
+            this.displayOptions?.atomRadiusScales?.[index]
+            ?? this.displayOptions?.atomRadiusScales?.[String(index)]
+        );
+        const atomScale = Number.isFinite(atomScaleValue) && atomScaleValue > 0
+            ? atomScaleValue
+            : 1;
         const radius = Number.isFinite(sourceRadius) && sourceRadius > 0 ? sourceRadius : FALLBACK_ATOM_RADIUS;
-        return radius * (Number.isFinite(scale) && scale > 0 ? scale : 0.6);
+        return radius * (Number.isFinite(scale) && scale > 0 ? scale : 0.6) * atomScale;
     }
 
     atomCovalentRadius(index) {
@@ -1415,12 +1717,28 @@ export class ASERenderer {
     }
 
     atomVisualColor(index, explicitColor = null) {
+        const scaleColor = this.atomColorScaleColors?.[index];
+        if (this.validHexColor(scaleColor)) return scaleColor;
+        const atomColor = this.displayOptions?.atomColors?.[index]
+            ?? this.displayOptions?.atomColors?.[String(index)];
+        if (this.validHexColor(atomColor)) return atomColor;
         const label = this.atomsData?.symbols?.[index];
         const labelColor = this.displayOptions?.labelColors?.[label];
         if (this.validHexColor(labelColor)) return labelColor;
         if (this.validHexColor(explicitColor)) return explicitColor;
         const color = this.atomsData?.visual?.colors?.[index];
         return this.validHexColor(color) ? color : FALLBACK_ATOM_COLOR;
+    }
+
+    atomVisualOpacity(index) {
+        const atomOpacity = Number(
+            this.displayOptions?.atomOpacities?.[index]
+            ?? this.displayOptions?.atomOpacities?.[String(index)]
+        );
+        if (Number.isFinite(atomOpacity)) return Math.max(0, Math.min(1, atomOpacity));
+        const label = this.atomsData?.symbols?.[index];
+        const configured = Number(this.displayOptions?.labelOpacities?.[label]);
+        return Math.max(0, Math.min(1, Number.isFinite(configured) ? configured : 1));
     }
 
     fixedAtomDisplayEnabled() {
@@ -1520,11 +1838,16 @@ export class ASERenderer {
         return this.metalEnvironmentMap;
     }
 
-    createAtomMaterial(color, isFixed = false, presetName = 'standard') {
+    createAtomMaterial(color, isFixed = false, presetName = 'standard', opacity = 1) {
+        const normalizedOpacity = Math.max(0, Math.min(1, Number(opacity) || 0));
+        const transparent = normalizedOpacity < 0.999;
         if (this.atomDisplayMode() === '2d') {
             const material = new THREE.MeshBasicMaterial({
                 color: new THREE.Color(color),
-                toneMapped: false
+                toneMapped: false,
+                transparent,
+                opacity: normalizedOpacity,
+                depthWrite: !transparent
             });
             this.applyFlatAtomShader(material, isFixed);
             return material;
@@ -1541,8 +1864,9 @@ export class ASERenderer {
             emissive: spec.emissive,
             emissiveIntensity: spec.emissiveIntensity,
             flatShading: spec.flatShading,
-            transparent: false,
-            opacity: 1.0,
+            transparent,
+            opacity: normalizedOpacity,
+            depthWrite: !transparent,
             envMap: normalizedPreset === 'metal' ? this.ensureMetalEnvironmentMap() : null,
             envMapIntensity: spec.envMapIntensity
         });
@@ -1550,11 +1874,16 @@ export class ASERenderer {
         return material;
     }
 
-    createInstancedAtomMaterial(isFixed = false, presetName = 'standard') {
+    createInstancedAtomMaterial(isFixed = false, presetName = 'standard', opacity = 1) {
+        const normalizedOpacity = Math.max(0, Math.min(1, Number(opacity) || 0));
+        const transparent = normalizedOpacity < 0.999;
         if (this.atomDisplayMode() === '2d') {
             const material = new THREE.MeshBasicMaterial({
                 color: 0xffffff,
-                toneMapped: false
+                toneMapped: false,
+                transparent,
+                opacity: normalizedOpacity,
+                depthWrite: !transparent
             });
             this.applyFlatAtomShader(material, isFixed);
             return material;
@@ -1571,6 +1900,9 @@ export class ASERenderer {
             emissive: spec.emissive,
             emissiveIntensity: spec.emissiveIntensity,
             flatShading: spec.flatShading,
+            transparent,
+            opacity: normalizedOpacity,
+            depthWrite: !transparent,
             envMap: normalizedPreset === 'metal' ? this.ensureMetalEnvironmentMap() : null,
             envMapIntensity: spec.envMapIntensity
         });
@@ -1578,15 +1910,23 @@ export class ASERenderer {
         return material;
     }
 
-    atomMaterialCacheKey(color, isFixed, atomSegments, instanced = false, presetName = 'standard') {
+    atomMaterialCacheKey(
+        color,
+        isFixed,
+        atomSegments,
+        instanced = false,
+        presetName = 'standard',
+        opacity = 1
+    ) {
         const mode = this.atomDisplayMode();
         const outline = mode === '2d'
             ? `outline-${this.viewportBackgroundMode === 'white' ? 'dark' : 'light'}`
             : 'plain';
         const preset = this.normalizedAtomMaterialPreset(presetName);
+        const alpha = Math.max(0, Math.min(1, Number(opacity) || 0)).toFixed(4);
         return instanced
-            ? `unit-sphere:${mode}:${outline}:${isFixed ? 'fixed' : 'normal'}:${preset}:instanced`
-            : `${mode}:${outline}:${color}:${isFixed ? 'fixed' : 'normal'}:${preset}:${atomSegments}`;
+            ? `unit-sphere:${mode}:${outline}:${isFixed ? 'fixed' : 'normal'}:${preset}:alpha-${alpha}:instanced`
+            : `${mode}:${outline}:${color}:${isFixed ? 'fixed' : 'normal'}:${preset}:alpha-${alpha}:${atomSegments}`;
     }
 
     applyFlatAtomShader(material, isFixed = false) {
@@ -1600,12 +1940,14 @@ export class ASERenderer {
         material.userData.fixedEtchedFlatApplied = Boolean(isFixed);
         const etchedCode = isFixed
             ? `
-                vec2 etchedUv = gl_FragCoord.xy * 0.022;
-                float etchedLineA = abs(fract(etchedUv.x * 14.0) - 0.5);
-                float etchedLineB = abs(fract(etchedUv.y * 11.0 + etchedUv.x * 0.5) - 0.5);
-                float etchedGrid = 1.0 - smoothstep(0.030, 0.082, min(etchedLineA, etchedLineB));
-                diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * 0.30 + vec3(0.055), etchedGrid * 0.88);
-                diffuseColor.rgb = mix(diffuseColor.rgb, vec3(1.0, 0.74, 0.28), etchedGrid * 0.10);
+                vec2 fixedMark = vFlatViewNormal.xy;
+                float fixedDiagonal = abs(abs(fixedMark.x) - abs(fixedMark.y));
+                float fixedStrokeAA = max(fwidth(fixedDiagonal) * 1.55, 0.020);
+                float fixedStroke = 1.0 - smoothstep(0.080 - fixedStrokeAA, 0.135 + fixedStrokeAA, fixedDiagonal);
+                float fixedRadius = length(fixedMark);
+                float fixedReach = smoothstep(0.12, 0.22, fixedRadius)
+                    * (1.0 - smoothstep(0.74, 0.88, fixedRadius));
+                diffuseColor.rgb = mix(diffuseColor.rgb, ${outlineColor}, fixedStroke * fixedReach);
             `
             : '';
         const outlineCode = outline
@@ -1697,13 +2039,27 @@ export class ASERenderer {
         return material;
     }
 
-    fixedAdjustedColor(color, isFixed = false, presetName = 'standard') {
-        return this.atomMaterialSpec(color, isFixed, presetName).color;
+    fixedAdjustedColor(color, isFixed = false, presetName = 'standard', target = null) {
+        // Fixed/material presets change surface response, not the element hue.
+        return (target || new THREE.Color()).set(color);
     }
 
     atomLabelVisible(index) {
         const label = this.atomsData?.symbols?.[index];
         return !label || this.displayOptions?.labelVisible?.[label] !== false;
+    }
+
+    atomReferenceKey(index, cellOffset = null) {
+        return Array.isArray(cellOffset)
+            ? this.supercellReferenceKey(index, cellOffset)
+            : `atom:${index}`;
+    }
+
+    atomReferenceVisible(index, cellOffset = null) {
+        if (!this.atomLabelVisible(index)) return false;
+        const hidden = this.hiddenAtomReferenceSet
+            || new Set(this.displayOptions?.hiddenAtomReferences || []);
+        return !hidden.has(this.atomReferenceKey(index, cellOffset));
     }
 
     rebuildAtomLabelIndex() {
@@ -1722,7 +2078,7 @@ export class ASERenderer {
             const updateIndex = (index) => {
                 const proxy = this.atomMeshByIndex.get(index);
                 if (!proxy) return;
-                proxy.visible = this.atomLabelVisible(index);
+                proxy.visible = this.atomReferenceVisible(index);
                 this.updateAtomInstanceMatrix(index);
             };
             if (affectedIndices) affectedIndices.forEach(updateIndex);
@@ -1737,11 +2093,11 @@ export class ASERenderer {
                     return;
                 }
                 const idx = outline.userData.outlineFor;
-                outline.visible = this.atomLabelVisible(idx);
+                outline.visible = this.atomReferenceVisible(idx);
             });
             this.constraintMarkGroup.children.forEach(group => {
                 const idx = group.userData.constraintGuideFor;
-                group.visible = this.atomLabelVisible(idx);
+                group.visible = this.atomReferenceVisible(idx);
             });
             this.constraintGuideGroup.children.forEach(group => {
                 group.visible = this.constraintGuideVisible(group);
@@ -1756,15 +2112,15 @@ export class ASERenderer {
         const targets = affectedIndices || [...this.atomMeshByIndex.keys()];
         targets.forEach(index => {
             const mesh = this.atomMeshByIndex.get(index);
-            if (mesh) mesh.visible = this.atomLabelVisible(index);
+            if (mesh) mesh.visible = this.atomReferenceVisible(index);
         });
         this.selectionOutlines.children.forEach(outline => {
             const idx = outline.userData.outlineFor;
-            outline.visible = this.atomLabelVisible(idx);
+            outline.visible = this.atomReferenceVisible(idx);
         });
         this.constraintMarkGroup.children.forEach(group => {
             const idx = group.userData.constraintGuideFor;
-            group.visible = this.atomLabelVisible(idx);
+            group.visible = this.atomReferenceVisible(idx);
         });
         this.constraintGuideGroup.children.forEach(group => {
             group.visible = this.constraintGuideVisible(group);
@@ -1886,6 +2242,8 @@ export class ASERenderer {
 
     rebuildAtoms(atoms, customColors) {
         this.invalidateSunShadowBounds();
+        const commensuratePreviewToRestore = this.commensurateSupercellPreview;
+        this.clearCommensurateSupercellPreview();
         // Remove existing meshes cleanly
         while(this.atomMeshes.children.length > 0){ 
             const child = this.atomMeshes.children[0];
@@ -1894,7 +2252,9 @@ export class ASERenderer {
         this.clearGroup(this.cellGroup);
         this.clearGroup(this.bondGroup);
         this.clearDisplacementVectors();
+        this.clearForceVectors();
         this.clearCommensurateGuides();
+        this.clearGroup(this.commensurateSupercellGroup);
         this.clearGroup(this.supercellGroup);
         this.clearGroup(this.constraintMarkGroup);
         this.clearGroup(this.constraintGuideGroup);
@@ -1904,6 +2264,7 @@ export class ASERenderer {
         this.clearReplicaSelectionOutlines();
         this.atomMeshByIndex.clear();
         this.atomInstanceRefs.clear();
+        this.atomInstanceRefsByIndex.length = 0;
         this.atomInstanceMeshes.clear();
         this.atomIndicesByLabel.clear();
         this.atomsData = atoms;
@@ -1926,6 +2287,7 @@ export class ASERenderer {
             this.rebuildConstraintGuides();
             this.rebuildHookeanConstraints();
             this.rebuildSupercell();
+            this.setForceVectors(atoms.forces, this.displayOptions);
             this.applyVisualTranslation();
             this.applyOverlayVisibility();
             if (this.needsInitialCameraFit) {
@@ -1934,12 +2296,16 @@ export class ASERenderer {
             }
             this.applyShadowFlags();
             this.refreshStudioSunForStructure({ invalidate: false });
+            if (commensuratePreviewToRestore) {
+                this.setCommensurateSupercellPreview(commensuratePreviewToRestore);
+            }
             this.requestRender();
             return;
         }
         atoms.symbols.forEach((sym, i) => {
             const radius = this.atomVisualRadius(i);
             const color = this.atomVisualColor(i, customColors[i]);
+            const opacity = this.atomVisualOpacity(i);
             const isFixed = fixed.has(i);
             const materialPreset = this.atomMaterialPreset(i);
 
@@ -1951,9 +2317,14 @@ export class ASERenderer {
                     new THREE.SphereGeometry(1, atomSegments, Math.max(8, Math.floor(atomSegments * 0.65)))
                 );
             }
-            const materialKey = this.atomMaterialCacheKey(color, isFixed, atomSegments, false, materialPreset);
+            const materialKey = this.atomMaterialCacheKey(
+                color, isFixed, atomSegments, false, materialPreset, opacity
+            );
             if (!this.materialCache.has(materialKey)) {
-                this.materialCache.set(materialKey, this.createAtomMaterial(color, isFixed, materialPreset));
+                this.materialCache.set(
+                    materialKey,
+                    this.createAtomMaterial(color, isFixed, materialPreset, opacity)
+                );
             }
             const geo = this.geometryCache.get(geometryKey);
             const mat = this.materialCache.get(materialKey);
@@ -1962,8 +2333,8 @@ export class ASERenderer {
             const pos = atoms.positions[i];
             mesh.position.set(pos[0], pos[1], pos[2]);
             mesh.scale.setScalar(radius);
-            mesh.userData = { index: i, symbol: sym, fixed: isFixed, materialPreset };
-            mesh.visible = this.atomLabelVisible(i);
+            mesh.userData = { index: i, symbol: sym, fixed: isFixed, materialPreset, opacity };
+            mesh.visible = this.atomReferenceVisible(i);
             
             this.atomMeshes.add(mesh);
             this.atomMeshByIndex.set(i, mesh);
@@ -1975,6 +2346,7 @@ export class ASERenderer {
         this.rebuildConstraintGuides();
         this.rebuildHookeanConstraints();
         this.rebuildSupercell();
+        this.setForceVectors(atoms.forces, this.displayOptions);
         this.applyVisualTranslation();
         this.applyOverlayVisibility();
         if (this.needsInitialCameraFit) {
@@ -1983,6 +2355,9 @@ export class ASERenderer {
         }
         this.applyShadowFlags();
         this.refreshStudioSunForStructure({ invalidate: false });
+        if (commensuratePreviewToRestore) {
+            this.setCommensurateSupercellPreview(commensuratePreviewToRestore);
+        }
         this.requestRender();
     }
 
@@ -1994,7 +2369,7 @@ export class ASERenderer {
     atomProxy(index, position, symbol, fixed = false, materialPreset = 'standard') {
         return {
             position: position.clone(),
-            visible: this.atomLabelVisible(index),
+            visible: this.atomReferenceVisible(index),
             userData: { index, symbol, fixed, materialPreset }
         };
     }
@@ -2004,16 +2379,20 @@ export class ASERenderer {
         atoms.symbols.forEach((sym, i) => {
             const isFixed = fixed.has(i);
             const materialPreset = this.atomMaterialPreset(i);
+            const opacity = this.atomVisualOpacity(i);
             const atomSegments = isFixed ? this.fixedAtomSegments(segmentCount) : segmentCount;
             const geometryKey = `unit-sphere:${isFixed ? 'fixed' : 'normal'}:${atomSegments}`;
-            const materialKey = this.atomMaterialCacheKey('#ffffff', isFixed, atomSegments, true, materialPreset);
-            const key = `${isFixed ? 'fixed' : 'normal'}:${materialPreset}:${atomSegments}`;
+            const materialKey = this.atomMaterialCacheKey(
+                '#ffffff', isFixed, atomSegments, true, materialPreset, opacity
+            );
+            const key = `${isFixed ? 'fixed' : 'normal'}:${materialPreset}:alpha-${opacity.toFixed(4)}:${atomSegments}`;
             if (!groups.has(key)) {
                 groups.set(key, {
                     geometryKey,
                     materialKey,
                     fixed: isFixed,
                     materialPreset,
+                    opacity,
                     segments: atomSegments,
                     indices: []
                 });
@@ -2031,7 +2410,9 @@ export class ASERenderer {
             if (!this.materialCache.has(group.materialKey)) {
                 this.materialCache.set(
                     group.materialKey,
-                    this.createInstancedAtomMaterial(group.fixed, group.materialPreset)
+                    this.createInstancedAtomMaterial(
+                        group.fixed, group.materialPreset, group.opacity
+                    )
                 );
             }
             const mesh = new THREE.InstancedMesh(
@@ -2044,6 +2425,7 @@ export class ASERenderer {
                 atomIndices: group.indices,
                 fixed: group.fixed,
                 materialPreset: group.materialPreset,
+                opacity: group.opacity,
                 sharedGeometry: true,
                 sharedMaterial: true
             };
@@ -2062,7 +2444,15 @@ export class ASERenderer {
                     group.materialPreset
                 );
                 this.atomMeshByIndex.set(index, proxy);
-                this.atomInstanceRefs.set(index, { mesh, instanceId });
+                const ref = {
+                    mesh,
+                    instanceId,
+                    proxy,
+                    matrix: mesh.instanceMatrix.array,
+                    matrixOffset: instanceId * 16
+                };
+                this.atomInstanceRefs.set(index, ref);
+                this.atomInstanceRefsByIndex[index] = ref;
                 mesh.setColorAt(
                     instanceId,
                     this.fixedAdjustedColor(
@@ -2071,6 +2461,8 @@ export class ASERenderer {
                         group.materialPreset
                     )
                 );
+                ref.color = mesh.instanceColor.array;
+                ref.colorOffset = instanceId * 3;
                 this.updateAtomInstanceMatrix(index);
             });
             mesh.instanceMatrix.needsUpdate = true;
@@ -2082,7 +2474,7 @@ export class ASERenderer {
         const ref = this.atomInstanceRefs.get(index);
         const proxy = this.atomMeshByIndex.get(index);
         if (!ref || !proxy) return;
-        const visible = proxy.visible !== false && this.atomLabelVisible(index);
+        const visible = proxy.visible !== false && this.atomReferenceVisible(index);
         const scale = visible ? this.atomVisualRadius(index) : 0;
         const matrix = ref.mesh.instanceMatrix.array;
         const offset = ref.instanceId * 16;
@@ -2105,12 +2497,14 @@ export class ASERenderer {
     }
 
     updateAtomInstanceTranslation(index, x, y, z) {
-        const ref = this.atomInstanceRefs.get(index);
-        const proxy = this.atomMeshByIndex.get(index);
+        const ref = this.atomInstanceRefsByIndex[index] || this.atomInstanceRefs.get(index);
+        const proxy = ref?.proxy || this.atomMeshByIndex.get(index);
         if (!ref || !proxy) return;
-        proxy.position.set(x, y, z);
-        const matrix = ref.mesh.instanceMatrix.array;
-        const offset = ref.instanceId * 16;
+        proxy.position.x = x;
+        proxy.position.y = y;
+        proxy.position.z = z;
+        const matrix = ref.matrix || ref.mesh.instanceMatrix.array;
+        const offset = ref.matrixOffset ?? ref.instanceId * 16;
         matrix[offset + 12] = x;
         matrix[offset + 13] = y;
         matrix[offset + 14] = z;
@@ -2148,6 +2542,7 @@ export class ASERenderer {
         const geometries = new Set();
         const materials = new Set();
         root.traverse(object => {
+            object.userData?.commensurateTexture?.dispose?.();
             if (object.geometry && !object.userData?.sharedGeometry) geometries.add(object.geometry);
             if (!object.material || object.userData?.sharedMaterial) return;
             const values = Array.isArray(object.material) ? object.material : [object.material];
@@ -2181,7 +2576,10 @@ export class ASERenderer {
     }
 
     fixedAtomSegments(segmentCount) {
-        return Math.max(10, Math.min(18, Math.floor(segmentCount * 0.55)));
+        // FixAtoms is a surface-material state. Reusing the exact sphere
+        // tessellation keeps every user-selected radius and silhouette
+        // unchanged while the etched/rough material communicates fixation.
+        return segmentCount;
     }
 
     applyExportSphereQuality(quality = 'viewport', scale = 1) {
@@ -2284,46 +2682,66 @@ export class ASERenderer {
         return hasPoint && !box.isEmpty() ? box : null;
     }
 
-    fitCameraToStructure() {
-        const box = this.structureBounds();
+    fitCameraToStructure(bounds = null) {
+        const box = bounds || this.structureBounds();
         if (!box) return;
         const center = new THREE.Vector3();
-        const size = new THREE.Vector3();
         box.getCenter(center);
-        box.getSize(size);
-        const radius = Math.max(size.length() * 0.5, 1.0);
 
-        const currentDirection = new THREE.Vector3().subVectors(this.camera.position, this.controls.target);
-        if (currentDirection.lengthSq() < 1e-10) {
-            currentDirection.set(1, 1, 0.8);
+        const backward = new THREE.Vector3().subVectors(this.camera.position, this.controls.target);
+        if (backward.lengthSq() < 1e-10) {
+            backward.set(1, 1, 0.8);
         }
-        currentDirection.normalize();
+        backward.normalize();
+        const forward = backward.clone().negate();
+        const right = new THREE.Vector3().crossVectors(forward, this.camera.up);
+        if (right.lengthSq() < 1e-10) right.set(1, 0, 0);
+        right.normalize();
+        const screenUp = new THREE.Vector3().crossVectors(right, forward).normalize();
+
+        let halfWidth = 0;
+        let halfHeight = 0;
+        let halfDepth = 0;
+        this.boxCorners(box).forEach(corner => {
+            const offset = corner.sub(center);
+            halfWidth = Math.max(halfWidth, Math.abs(offset.dot(right)));
+            halfHeight = Math.max(halfHeight, Math.abs(offset.dot(screenUp)));
+            halfDepth = Math.max(halfDepth, Math.abs(offset.dot(backward)));
+        });
+        halfWidth = Math.max(halfWidth, 0.5);
+        halfHeight = Math.max(halfHeight, 0.5);
 
         const aspect = this.viewportAspect();
-        const verticalFov = THREE.MathUtils.degToRad(this.perspectiveCamera?.fov || this.camera.fov || 50);
+        const verticalFov = THREE.MathUtils.degToRad(this.perspectiveCamera?.fov || 50);
         const horizontalFov = 2 * Math.atan(Math.tan(verticalFov / 2) * Math.max(aspect, 1e-6));
-        const fitFov = Math.max(0.1, Math.min(verticalFov, horizontalFov));
-        const distance = Math.max(4.0, (radius / Math.sin(fitFov / 2)) * 1.18);
+        const fitMargin = 1.12;
+        const perspectiveDistance = Math.max(
+            halfHeight / Math.max(Math.tan(verticalFov / 2), 1e-6),
+            halfWidth / Math.max(Math.tan(horizontalFov / 2), 1e-6)
+        ) * fitMargin + halfDepth;
+        const distance = Math.max(4.0, perspectiveDistance);
+        const near = Math.max(0.01, distance - halfDepth * 2 - 10);
+        const far = Math.max(1000, distance + halfDepth * 2 + 100);
 
         this.controls.target.copy(center);
-        this.camera.position.copy(center).addScaledVector(currentDirection, distance);
-        this.camera.near = Math.max(0.01, distance / 1000);
-        this.camera.far = Math.max(1000, distance + radius * 20);
-        this.camera.lookAt(center);
-        if (this.camera !== this.perspectiveCamera) {
-            this.perspectiveCamera.position.copy(this.camera.position);
-            this.perspectiveCamera.up.copy(this.camera.up);
-        }
-        if (this.camera !== this.orthographicCamera) {
-            this.orthographicCamera.position.copy(this.camera.position);
-            this.orthographicCamera.up.copy(this.camera.up);
-        }
-        this.perspectiveCamera.near = this.camera.near;
-        this.perspectiveCamera.far = this.camera.far;
-        this.orthographicCamera.near = this.camera.near;
-        this.orthographicCamera.far = this.camera.far;
-        this.updateCameraProjection(aspect);
+        [this.perspectiveCamera, this.orthographicCamera].forEach(camera => {
+            camera.position.copy(center).addScaledVector(backward, distance);
+            camera.up.copy(screenUp);
+            camera.near = near;
+            camera.far = far;
+            camera.lookAt(center);
+        });
+        this.perspectiveCamera.aspect = aspect;
+        this.perspectiveCamera.updateProjectionMatrix();
+        const orthographicHalfHeight = Math.max(halfHeight, halfWidth / Math.max(aspect, 1e-6)) * fitMargin;
+        this.orthographicCamera.zoom = 1;
+        this.orthographicCamera.left = -orthographicHalfHeight * aspect;
+        this.orthographicCamera.right = orthographicHalfHeight * aspect;
+        this.orthographicCamera.top = orthographicHalfHeight;
+        this.orthographicCamera.bottom = -orthographicHalfHeight;
+        this.orthographicCamera.updateProjectionMatrix();
         this.controls.update?.();
+        this.updateViewLighting();
         this.onCameraChange?.({ source: 'fit' });
     }
 
@@ -2406,6 +2824,7 @@ export class ASERenderer {
             }
         }
         this.updateSunGizmoScale();
+        this.updateRenderAreaGizmoScale();
     }
 
     currentPixelsPerAngstrom() {
@@ -2451,24 +2870,81 @@ export class ASERenderer {
         return this.currentPixelsPerAngstrom();
     }
 
+    cameraFromSettings(settings, aspect = 1) {
+        if (!settings || typeof settings !== 'object') return null;
+        const vector = (value, fallback) => (
+            Array.isArray(value)
+            && value.length === 3
+            && value.every(component => Number.isFinite(Number(component)))
+                ? value.map(Number)
+                : [...fallback]
+        );
+        const projection = settings.projection === 'perspective'
+            ? 'perspective'
+            : 'orthographic';
+        const position = vector(settings.position, [10, 10, 10]);
+        const target = new THREE.Vector3(...vector(settings.target, [0, 0, 0]));
+        const up = vector(settings.up, [0, 0, 1]);
+        const near = Number(settings.near);
+        const far = Number(settings.far);
+        let camera;
+        if (projection === 'perspective') {
+            const fov = Number(settings.fov);
+            camera = new THREE.PerspectiveCamera(
+                Number.isFinite(fov) && fov > 1 && fov < 179 ? fov : 50,
+                Math.max(0.01, Number(aspect) || 1),
+                Number.isFinite(near) && near > 0 ? near : 0.1,
+                Number.isFinite(far) && far > 0 ? far : 10000
+            );
+            const zoom = Number(settings.zoom);
+            camera.zoom = Number.isFinite(zoom) && zoom > 0 ? zoom : 1;
+        } else {
+            const scale = Number(settings.ortho_scale);
+            const worldHeight = Number.isFinite(scale) && scale > 0 ? scale : 20;
+            const halfHeight = worldHeight * 0.5;
+            const halfWidth = halfHeight * Math.max(0.01, Number(aspect) || 1);
+            camera = new THREE.OrthographicCamera(
+                -halfWidth,
+                halfWidth,
+                halfHeight,
+                -halfHeight,
+                Number.isFinite(near) && near > 0 ? near : 0.1,
+                Number.isFinite(far) && far > 0 ? far : 10000
+            );
+            camera.zoom = 1;
+        }
+        camera.position.fromArray(position);
+        camera.up.fromArray(up).normalize();
+        camera.lookAt(target);
+        camera.updateProjectionMatrix();
+        camera.updateMatrixWorld(true);
+        return { camera, target };
+    }
+
     exportCameraSetup(width, height, options = {}) {
         const outputWidth = Math.max(1, Math.round(Number(width) || 1));
         const outputHeight = Math.max(1, Math.round(Number(height) || 1));
         const outputAspect = outputWidth / outputHeight;
         const scaleMode = options.scaleMode === 'physical' ? 'physical' : 'viewport';
-        const target = (this.controls?.target || new THREE.Vector3()).clone();
-        const camera = this.camera.clone();
-        camera.position.copy(this.camera.position);
-        camera.quaternion.copy(this.camera.quaternion);
-        camera.up.copy(this.camera.up);
-        camera.near = this.camera.near;
-        camera.far = this.camera.far;
+        const configured = this.cameraFromSettings(options.camera, outputAspect);
+        const target = configured?.target
+            || (this.controls?.target || new THREE.Vector3()).clone();
+        const camera = configured?.camera || this.camera.clone();
+        if (!configured) {
+            camera.position.copy(this.camera.position);
+            camera.quaternion.copy(this.camera.quaternion);
+            camera.up.copy(this.camera.up);
+            camera.near = this.camera.near;
+            camera.far = this.camera.far;
+        }
 
         let renderWidth = outputWidth;
         let renderHeight = outputHeight;
         let offsetX = 0;
         let offsetY = 0;
-        let pixelsPerAngstrom = this.currentPixelsPerAngstrom();
+        let pixelsPerAngstrom = configured && camera.isOrthographicCamera
+            ? outputHeight / Math.max(1e-9, Math.abs(camera.top - camera.bottom))
+            : this.currentPixelsPerAngstrom();
 
         if (scaleMode === 'physical') {
             pixelsPerAngstrom = Math.max(0.1, Math.min(5000, Number(options.pixelsPerAngstrom) || 100));
@@ -2569,7 +3045,11 @@ export class ASERenderer {
             this.exportPreviewDimensions.textContent = `${width} x ${height}`;
         }
         this.domElement.dataset.exportPreview = next.enabled ? 'true' : 'false';
-        if (!next.enabled) this.lastExportPreview = null;
+        if (!next.enabled) {
+            this.lastExportPreview = null;
+            this.exportPreviewCamera = null;
+            this.exportPreviewTarget = null;
+        }
         if (previousSignature !== nextSignature) this.requestRender();
     }
 
@@ -2631,6 +3111,64 @@ export class ASERenderer {
         this.exportPreviewFrame.dataset.frameAspect = `${rect.width / Math.max(1, rect.height)}`;
     }
 
+    interactionProjectionContext(clientX, clientY) {
+        const canvasRect = this.domElement.getBoundingClientRect();
+        const preview = this.lastExportPreview?.frameRect;
+        if (this.exportPreview?.enabled && preview && this.exportPreviewCamera) {
+            const rect = {
+                left: canvasRect.left + preview.left,
+                top: canvasRect.top + preview.top,
+                width: preview.width,
+                height: preview.height
+            };
+            rect.right = rect.left + rect.width;
+            rect.bottom = rect.top + rect.height;
+            if (
+                clientX >= rect.left && clientX <= rect.right
+                && clientY >= rect.top && clientY <= rect.bottom
+            ) {
+                return {
+                    camera: this.exportPreviewCamera,
+                    target: this.exportPreviewTarget,
+                    rect,
+                    kind: 'render-area'
+                };
+            }
+        }
+        return {
+            camera: this.camera,
+            target: this.controls?.target,
+            rect: {
+                left: canvasRect.left,
+                top: canvasRect.top,
+                right: canvasRect.right,
+                bottom: canvasRect.bottom,
+                width: Math.max(1, canvasRect.width),
+                height: Math.max(1, canvasRect.height)
+            },
+            kind: 'viewport'
+        };
+    }
+
+    pointerNdc(event, context = null) {
+        const view = context || this.interactionProjectionContext(event.clientX, event.clientY);
+        const rect = view.rect;
+        return new THREE.Vector2(
+            ((event.clientX - rect.left) / Math.max(1, rect.width)) * 2 - 1,
+            -((event.clientY - rect.top) / Math.max(1, rect.height)) * 2 + 1
+        );
+    }
+
+    projectWorldToClient(position, context) {
+        const view = context || this.interactionProjectionContext(-1, -1);
+        const projected = position.clone().project(view.camera);
+        return {
+            x: view.rect.left + (projected.x + 1) * 0.5 * view.rect.width,
+            y: view.rect.top + (1 - projected.y) * 0.5 * view.rect.height,
+            z: projected.z
+        };
+    }
+
     beginExportScene(options = {}) {
         const oldLighting = {
             ...this.lightingOptions,
@@ -2646,6 +3184,7 @@ export class ASERenderer {
         const oldGridVisible = this.gridGroup?.visible;
         const oldAxesVisible = this.axesHelper?.visible;
         const oldCellVisible = this.cellGroup?.visible;
+        const oldRenderAreaGizmoVisible = this.renderAreaGizmoGroup?.visible;
         const supercellCellPreviews = (this.supercellGroup?.children || [])
             .filter(child => child.userData?.supercellCellPreview)
             .map(child => ({ child, visible: child.visible }));
@@ -2683,6 +3222,7 @@ export class ASERenderer {
         if (this.axesHelper) {
             this.axesHelper.visible = options.includeAxes !== false && this.displayOptions.showAxes;
         }
+        if (this.renderAreaGizmoGroup) this.renderAreaGizmoGroup.visible = false;
         const includeCell = options.includeCell !== false;
         if (this.cellGroup) this.cellGroup.visible = includeCell;
         supercellCellPreviews.forEach(({ child }) => { child.visible = includeCell; });
@@ -2696,19 +3236,31 @@ export class ASERenderer {
                 if (this.gridGroup) this.gridGroup.visible = oldGridVisible;
                 if (this.axesHelper) this.axesHelper.visible = oldAxesVisible;
                 if (this.cellGroup) this.cellGroup.visible = oldCellVisible;
+                if (this.renderAreaGizmoGroup) {
+                    this.renderAreaGizmoGroup.visible = oldRenderAreaGizmoVisible;
+                }
                 supercellCellPreviews.forEach(({ child, visible }) => { child.visible = visible; });
             }
         };
     }
 
     renderExportView(exportView, sceneState) {
-        this.updateBondPositions();
-        this.syncSelectionOutlines();
-        this.updateHookeanPositions();
-        this.updateViewLighting(exportView.camera, exportView.target);
-        this.renderer.render(this.scene, exportView.camera);
-        if (sceneState.requestedMode === 'studio-shadow') {
+        const previousFlatOrientationCamera = this.flatOrientationCamera;
+        this.flatOrientationCamera = exportView.camera;
+        try {
+            this.updateBondPositions();
+            this.updateDisplacementVectorMatrices(true);
+            this.updateForceVectorMatrices(true);
+            this.updateFlatCellEdgeMatrices(true);
+            this.syncSelectionOutlines();
+            this.updateHookeanPositions();
+            this.updateViewLighting(exportView.camera, exportView.target);
             this.renderer.render(this.scene, exportView.camera);
+            if (sceneState.requestedMode === 'studio-shadow') {
+                this.renderer.render(this.scene, exportView.camera);
+            }
+        } finally {
+            this.flatOrientationCamera = previousFlatOrientationCamera;
         }
     }
 
@@ -2799,6 +3351,9 @@ export class ASERenderer {
         );
         this.renderer.setScissorTest(capture.oldScissorTest);
         this.updateBondPositions();
+        this.updateDisplacementVectorMatrices(true);
+        this.updateForceVectorMatrices(true);
+        this.updateFlatCellEdgeMatrices(true);
         this.syncSelectionOutlines();
         this.updateViewLighting();
         this.exportCaptureActive = false;
@@ -2811,6 +3366,8 @@ export class ASERenderer {
         const rect = this.exportPreviewRect(width, height);
         this.updateExportPreviewFrame(rect);
         const exportView = this.exportCameraSetup(width, height, options);
+        this.exportPreviewCamera = exportView.camera;
+        this.exportPreviewTarget = exportView.target;
         const oldViewport = this.renderer.getViewport(new THREE.Vector4());
         const oldScissor = this.renderer.getScissor(new THREE.Vector4());
         const oldScissorTest = this.renderer.getScissorTest();
@@ -2853,6 +3410,7 @@ export class ASERenderer {
                 cameraProjection: exportView.camera.projectionMatrix.elements.slice(),
                 cameraPosition: exportView.camera.position.toArray(),
                 cameraQuaternion: exportView.camera.quaternion.toArray(),
+                cameraTarget: exportView.target.toArray(),
                 options: JSON.parse(JSON.stringify(options || {}))
             };
         } finally {
@@ -2861,6 +3419,9 @@ export class ASERenderer {
             this.renderer.setScissor(oldScissor.x, oldScissor.y, oldScissor.z, oldScissor.w);
             this.renderer.setScissorTest(oldScissorTest);
             this.updateBondPositions();
+            this.updateDisplacementVectorMatrices(true);
+            this.updateForceVectorMatrices(true);
+            this.updateFlatCellEdgeMatrices(true);
             this.syncSelectionOutlines();
             this.updateViewLighting();
         }
@@ -2892,9 +3453,430 @@ export class ASERenderer {
         ];
         const edgePairs = [[0,1],[0,2],[0,3],[1,4],[1,5],[2,4],[2,6],[3,5],[3,6],[4,7],[5,7],[6,7]];
         const segments = edgePairs.map(([i, j]) => [corners[i], corners[j]]);
+        if (!this.displayOptions.vizOnly) {
+            const haloColor = this.viewportBackgroundMode === 'white' ? '#263238' : '#f2f5f4';
+            const haloMaterial = new THREE.MeshBasicMaterial({
+                color: haloColor,
+                transparent: true,
+                opacity: 0.52,
+                depthTest: true,
+                depthWrite: false,
+                toneMapped: false
+            });
+            this.addCellEdgeInstances(
+                this.cellGroup,
+                segments,
+                { unitCell: true, editableCellHalo: true },
+                {
+                    material: haloMaterial,
+                    radius: Math.max(0.026, this.normalizedCellThickness() * 0.86)
+                }
+            );
+        }
         this.addCellEdgeInstances(this.cellGroup, segments, { unitCell: true });
         this.updateCellVisibility();
         this.requestRender();
+    }
+
+    clearAddAtomsRegion() {
+        if (!this.addAtomsRegionGroup) return;
+        this.clearGroup(this.addAtomsRegionGroup);
+        this.addAtomsRegionGroup.visible = false;
+        this.addAtomsRegionGroup.userData = {};
+        this.requestRender();
+    }
+
+    insertionRegionBasis(cell) {
+        if (!Array.isArray(cell) || cell.length !== 3) return null;
+        const basis = cell.map(row => new THREE.Vector3(...row.map(Number)));
+        if (basis.some(vector => !Number.isFinite(vector.lengthSq()))) return null;
+        const determinant = basis[0].dot(new THREE.Vector3().crossVectors(basis[1], basis[2]));
+        if (Math.abs(determinant) <= 1e-10) return null;
+        return {
+            basis,
+            reciprocal: [
+                new THREE.Vector3().crossVectors(basis[1], basis[2]).divideScalar(determinant),
+                new THREE.Vector3().crossVectors(basis[2], basis[0]).divideScalar(determinant),
+                new THREE.Vector3().crossVectors(basis[0], basis[1]).divideScalar(determinant)
+            ]
+        };
+    }
+
+    insertionRegionBoundsCorners(bounds) {
+        const [xmin, xmax, ymin, ymax, zmin, zmax] = bounds.map(Number);
+        return [
+            [xmin, ymin, zmin], [xmax, ymin, zmin],
+            [xmin, ymax, zmin], [xmin, ymin, zmax],
+            [xmax, ymax, zmin], [xmax, ymin, zmax],
+            [xmin, ymax, zmax], [xmax, ymax, zmax]
+        ].map(value => new THREE.Vector3(...value));
+    }
+
+    insertionRegionImages(region, cellData, pbc, pbcAware) {
+        const bounds = region.bounds.map(Number);
+        if (!cellData || !pbcAware || !pbc.some(Boolean)) {
+            return [{ bounds, shift: [0, 0, 0] }];
+        }
+        const fractional = this.insertionRegionBoundsCorners(bounds).map(point => (
+            cellData.reciprocal.map(vector => point.dot(vector))
+        ));
+        const ranges = [0, 1, 2].map(axis => {
+            if (!pbc[axis]) return [0];
+            const values = fractional.map(value => value[axis]);
+            const lower = Math.ceil(-Math.max(...values) - 1e-9);
+            const upper = Math.floor(1 - Math.min(...values) + 1e-9);
+            return Array.from({ length: Math.max(0, upper - lower + 1) }, (_, index) => lower + index);
+        });
+        const images = [];
+        for (const i of ranges[0]) {
+            for (const j of ranges[1]) {
+                for (const k of ranges[2]) {
+                    const translation = new THREE.Vector3()
+                        .addScaledVector(cellData.basis[0], i)
+                        .addScaledVector(cellData.basis[1], j)
+                        .addScaledVector(cellData.basis[2], k);
+                    images.push({
+                        shift: [i, j, k],
+                        bounds: [
+                            bounds[0] + translation.x, bounds[1] + translation.x,
+                            bounds[2] + translation.y, bounds[3] + translation.y,
+                            bounds[4] + translation.z, bounds[5] + translation.z
+                        ]
+                    });
+                    if (images.length > 4096) {
+                        throw new Error('Insertion region produces too many periodic images.');
+                    }
+                }
+            }
+        }
+        return images;
+    }
+
+    solveInsertionPlanes(first, second, third) {
+        const cross23 = new THREE.Vector3().crossVectors(second.normal, third.normal);
+        const determinant = first.normal.dot(cross23);
+        if (Math.abs(determinant) <= 1e-11) return null;
+        return cross23.multiplyScalar(first.limit)
+            .add(new THREE.Vector3().crossVectors(third.normal, first.normal).multiplyScalar(second.limit))
+            .add(new THREE.Vector3().crossVectors(first.normal, second.normal).multiplyScalar(third.limit))
+            .divideScalar(determinant);
+    }
+
+    clippedInsertionRegionGeometry(bounds, cellData = null) {
+        const [xmin, xmax, ymin, ymax, zmin, zmax] = bounds.map(Number);
+        if (![xmin, xmax, ymin, ymax, zmin, zmax].every(Number.isFinite)) return null;
+        if (xmax <= xmin || ymax <= ymin || zmax <= zmin) return null;
+        const planes = [
+            { normal: new THREE.Vector3(1, 0, 0), limit: xmax },
+            { normal: new THREE.Vector3(-1, 0, 0), limit: -xmin },
+            { normal: new THREE.Vector3(0, 1, 0), limit: ymax },
+            { normal: new THREE.Vector3(0, -1, 0), limit: -ymin },
+            { normal: new THREE.Vector3(0, 0, 1), limit: zmax },
+            { normal: new THREE.Vector3(0, 0, -1), limit: -zmin }
+        ];
+        if (cellData) {
+            cellData.reciprocal.forEach(normal => {
+                planes.push({ normal: normal.clone(), limit: 1 });
+                planes.push({ normal: normal.clone().multiplyScalar(-1), limit: 0 });
+            });
+        }
+        const vertices = [];
+        const vertexKeys = new Set();
+        for (let first = 0; first < planes.length - 2; first++) {
+            for (let second = first + 1; second < planes.length - 1; second++) {
+                for (let third = second + 1; third < planes.length; third++) {
+                    const point = this.solveInsertionPlanes(planes[first], planes[second], planes[third]);
+                    if (!point || planes.some(plane => plane.normal.dot(point) > plane.limit + 2e-7)) continue;
+                    const key = [point.x, point.y, point.z]
+                        .map(value => Math.round(value * 1e8))
+                        .join(':');
+                    if (vertexKeys.has(key)) continue;
+                    vertexKeys.add(key);
+                    vertices.push(point);
+                }
+            }
+        }
+        if (vertices.length < 4) return null;
+
+        // Intersections that merely touch a periodic boundary can contain a
+        // coplanar polygon but no 3D volume.  Treat those as empty so a box
+        // spanning a complete periodic direction does not draw duplicate
+        // zero-thickness wrapped fragments on both cell faces.
+        const origin = vertices[0];
+        let volumeDeterminant = 0;
+        for (let first = 1; first < vertices.length - 2 && volumeDeterminant <= 1e-10; first++) {
+            const firstVector = vertices[first].clone().sub(origin);
+            for (let second = first + 1; second < vertices.length - 1 && volumeDeterminant <= 1e-10; second++) {
+                const secondVector = vertices[second].clone().sub(origin);
+                for (let third = second + 1; third < vertices.length; third++) {
+                    const thirdVector = vertices[third].clone().sub(origin);
+                    volumeDeterminant = Math.max(
+                        volumeDeterminant,
+                        Math.abs(firstVector.dot(new THREE.Vector3().crossVectors(secondVector, thirdVector)))
+                    );
+                    if (volumeDeterminant > 1e-10) break;
+                }
+            }
+        }
+        if (volumeDeterminant <= 1e-10) return null;
+
+        const triangles = [];
+        const edgeKeys = new Set();
+        const segments = [];
+        planes.forEach(plane => {
+            const face = vertices
+                .map((point, index) => ({ point, index }))
+                .filter(item => Math.abs(plane.normal.dot(item.point) - plane.limit) <= 5e-7);
+            if (face.length < 3) return;
+            const center = face.reduce(
+                (sum, item) => sum.add(item.point),
+                new THREE.Vector3()
+            ).divideScalar(face.length);
+            const normal = plane.normal.clone().normalize();
+            const reference = Math.abs(normal.x) < 0.8
+                ? new THREE.Vector3(1, 0, 0)
+                : new THREE.Vector3(0, 1, 0);
+            const firstAxis = new THREE.Vector3().crossVectors(normal, reference).normalize();
+            const secondAxis = new THREE.Vector3().crossVectors(normal, firstAxis).normalize();
+            face.sort((left, right) => {
+                const leftDelta = left.point.clone().sub(center);
+                const rightDelta = right.point.clone().sub(center);
+                return Math.atan2(leftDelta.dot(secondAxis), leftDelta.dot(firstAxis))
+                    - Math.atan2(rightDelta.dot(secondAxis), rightDelta.dot(firstAxis));
+            });
+            for (let offset = 1; offset < face.length - 1; offset++) {
+                triangles.push(face[0].index, face[offset].index, face[offset + 1].index);
+            }
+            face.forEach((item, index) => {
+                const next = face[(index + 1) % face.length];
+                const key = [item.index, next.index].sort((a, b) => a - b).join(':');
+                if (edgeKeys.has(key)) return;
+                edgeKeys.add(key);
+                segments.push([item.point, next.point]);
+            });
+        });
+        if (!triangles.length) return null;
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute(
+            'position',
+            new THREE.Float32BufferAttribute(vertices.flatMap(vertex => vertex.toArray()), 3)
+        );
+        geometry.setIndex(triangles);
+        geometry.computeVertexNormals();
+        return { geometry, segments };
+    }
+
+    insertionRegionSegmentKey(start, end) {
+        const pointKey = point => point.toArray()
+            .map(value => Math.round(Number(value) * 1e7))
+            .join(':');
+        return [pointKey(start), pointKey(end)].sort().join('|');
+    }
+
+    setAddAtomsRegions(configuration = null) {
+        if (!this.addAtomsRegionGroup) return;
+        this.addAtomsRegionConfiguration = configuration
+            ? JSON.parse(JSON.stringify(configuration))
+            : null;
+        this.clearGroup(this.addAtomsRegionGroup);
+        const regions = Array.isArray(configuration?.regions) ? configuration.regions : [];
+        if (!configuration || configuration.visible === false || !regions.length) {
+            this.addAtomsRegionGroup.visible = false;
+            this.requestRender();
+            return;
+        }
+        const selected = new Set((configuration.selectedIds || []).map(String));
+        const cell = configuration.cell || this.atomsData?.cell;
+        const cellData = this.insertionRegionBasis(cell);
+        const pbc = Array.isArray(configuration.pbc)
+            ? configuration.pbc.map(Boolean)
+            : (this.atomsData?.pbc || [false, false, false]).map(Boolean);
+        const pickables = [];
+        regions.forEach(region => {
+            const regionId = String(region.id || '');
+            const bounds = Array.isArray(region.bounds) ? region.bounds.map(Number) : [];
+            if (!regionId || bounds.length !== 6 || bounds.some(value => !Number.isFinite(value))) return;
+            const rejected = region.role === 'reject' || region.role === 'prohibited';
+            const isSelected = selected.has(regionId);
+            const color = rejected ? 0xad3b98 : 0x008f78;
+            const source = this.clippedInsertionRegionGeometry(bounds, null);
+            if (!source) return;
+            const sourceEdgeMaterial = new THREE.MeshBasicMaterial({
+                color,
+                transparent: true,
+                opacity: isSelected ? 1 : 0.94,
+                depthTest: true,
+                depthWrite: false
+            });
+            if (isSelected) sourceEdgeMaterial.color.offsetHSL(0, 0, 0.12);
+            const sourceEdgeMesh = this.addCellEdgeInstances(
+                this.addAtomsRegionGroup,
+                source.segments,
+                {
+                    addAtomsRegion: true,
+                    insertionRegionSourceBox: true,
+                    regionId
+                },
+                {
+                    material: sourceEdgeMaterial,
+                    radius: isSelected ? 0.062 : 0.047
+                }
+            );
+            if (sourceEdgeMesh) {
+                sourceEdgeMesh.renderOrder = 15;
+                sourceEdgeMesh.userData.role = rejected ? 'reject' : 'allow';
+                sourceEdgeMesh.userData.shift = [0, 0, 0];
+                pickables.push(sourceEdgeMesh);
+            }
+            const sourceFillOptions = {
+                    color,
+                    transparent: true,
+                    opacity: isSelected ? 0.18 : (rejected ? 0.13 : 0.10),
+                    side: THREE.DoubleSide,
+                    depthTest: true,
+                    depthWrite: false
+            };
+            const sourceFillMaterial = this.atomDisplayMode() === '2d'
+                ? new THREE.MeshBasicMaterial({ ...sourceFillOptions, toneMapped: false })
+                : new THREE.MeshStandardMaterial({
+                    ...sourceFillOptions,
+                    emissive: color,
+                    emissiveIntensity: isSelected ? 0.16 : 0.09,
+                    metalness: 0.02,
+                    roughness: 0.52
+                });
+            const sourceFill = new THREE.Mesh(
+                source.geometry,
+                sourceFillMaterial
+            );
+            sourceFill.renderOrder = 14;
+            sourceFill.userData = {
+                addAtomsRegion: true,
+                insertionRegionSourceBox: true,
+                regionId,
+                role: rejected ? 'reject' : 'allow',
+                shift: [0, 0, 0]
+            };
+            this.addAtomsRegionGroup.add(sourceFill);
+
+            const images = this.insertionRegionImages(
+                { ...region, bounds },
+                cellData,
+                pbc,
+                configuration.pbcAware !== false
+            );
+            const wrappedSegments = [];
+            const segmentKeys = new Set(source.segments.map(
+                ([start, end]) => this.insertionRegionSegmentKey(start, end)
+            ));
+            images.forEach(image => {
+                if (image.shift.every(value => value === 0)) return;
+                const clipped = this.clippedInsertionRegionGeometry(image.bounds, cellData);
+                if (!clipped) return;
+                clipped.segments.forEach(segment => {
+                    const key = this.insertionRegionSegmentKey(segment[0], segment[1]);
+                    if (segmentKeys.has(key)) return;
+                    segmentKeys.add(key);
+                    wrappedSegments.push(segment);
+                });
+                const wrappedFillOptions = {
+                        color,
+                        transparent: true,
+                        opacity: isSelected ? 0.12 : (rejected ? 0.085 : 0.065),
+                        side: THREE.DoubleSide,
+                        depthTest: true,
+                        depthWrite: false,
+                        polygonOffset: true,
+                        polygonOffsetFactor: -1,
+                        polygonOffsetUnits: -1
+                };
+                const wrappedFillMaterial = this.atomDisplayMode() === '2d'
+                    ? new THREE.MeshBasicMaterial({ ...wrappedFillOptions, toneMapped: false })
+                    : new THREE.MeshStandardMaterial({
+                        ...wrappedFillOptions,
+                        emissive: color,
+                        emissiveIntensity: isSelected ? 0.12 : 0.06,
+                        metalness: 0.02,
+                        roughness: 0.56
+                    });
+                const fill = new THREE.Mesh(
+                    clipped.geometry,
+                    wrappedFillMaterial
+                );
+                fill.renderOrder = 13;
+                fill.userData = {
+                    addAtomsRegion: true,
+                    insertionRegionWrappedFragment: true,
+                    regionId,
+                    role: rejected ? 'reject' : 'allow',
+                    shift: image.shift
+                };
+                this.addAtomsRegionGroup.add(fill);
+            });
+            if (wrappedSegments.length) {
+                const wrappedEdgeMaterial = new THREE.MeshBasicMaterial({
+                    color,
+                    transparent: true,
+                    opacity: isSelected ? 0.72 : 0.52,
+                    depthTest: true,
+                    depthWrite: false
+                });
+                if (isSelected) wrappedEdgeMaterial.color.offsetHSL(0, 0, 0.12);
+                const wrappedEdgeMesh = this.addCellEdgeInstances(
+                    this.addAtomsRegionGroup,
+                    wrappedSegments,
+                    {
+                        addAtomsRegion: true,
+                        insertionRegionWrappedFragment: true,
+                        regionId
+                    },
+                    {
+                        material: wrappedEdgeMaterial,
+                        radius: isSelected ? 0.040 : 0.030
+                    }
+                );
+                if (wrappedEdgeMesh) {
+                    wrappedEdgeMesh.renderOrder = 14;
+                    wrappedEdgeMesh.userData.role = rejected ? 'reject' : 'allow';
+                    pickables.push(wrappedEdgeMesh);
+                }
+            }
+        });
+        this.addAtomsRegionGroup.userData = {
+            pickables,
+            selectedIds: [...selected],
+            regionCount: regions.length
+        };
+        this.addAtomsRegionGroup.visible = pickables.length > 0;
+        this.addAtomsRegionGroup.position.copy(this.visualTranslationVector());
+        this.requestRender();
+    }
+
+    setAddAtomsRegion(region = null) {
+        if (!region || region.mode !== 'box') {
+            this.setAddAtomsRegions(null);
+            return;
+        }
+        this.setAddAtomsRegions({
+            regions: [{
+                id: 'legacy-region',
+                name: 'Region',
+                role: region.role === 'prohibited' ? 'reject' : 'allow',
+                bounds: region.bounds
+            }],
+            cell: region.cell,
+            pbc: this.atomsData?.pbc,
+            pbcAware: true,
+            selectedIds: region.selected ? ['legacy-region'] : []
+        });
+    }
+
+    pickAddAtomsRegion(event) {
+        const pickables = this.addAtomsRegionGroup?.userData?.pickables || [];
+        if (!event || !this.addAtomsRegionGroup?.visible || !pickables.length) return false;
+        this.sunRaycaster.setFromCamera(this.sunPointerNdc(event), this.camera);
+        const intersection = this.sunRaycaster.intersectObjects(pickables, false)[0];
+        return intersection?.object?.userData?.regionId || false;
     }
 
     normalizedCellColor() {
@@ -2908,6 +3890,7 @@ export class ASERenderer {
     }
 
     normalizedCellMaterial() {
+        if (this.atomDisplayMode() === '2d') return 'unlit';
         const value = String(this.displayOptions.cellMaterial || 'unlit');
         return ['unlit', 'standard', 'metal'].includes(value) ? value : 'unlit';
     }
@@ -2938,7 +3921,7 @@ export class ASERenderer {
         return new THREE.MeshBasicMaterial(common);
     }
 
-    addCellEdgeInstances(group, segments, userData = {}) {
+    addCellEdgeInstances(group, segments, userData = {}, style = {}) {
         const valid = (segments || []).filter(([start, end]) => (
             start instanceof THREE.Vector3
             && end instanceof THREE.Vector3
@@ -2946,34 +3929,69 @@ export class ASERenderer {
         ));
         if (!valid.length) return null;
 
+        const flat = this.atomDisplayMode() === '2d';
         const mesh = new THREE.InstancedMesh(
-            this.cellEdgeGeometry,
-            this.createCellMaterial(),
+            flat ? this.bondFlatGeometry : this.cellEdgeGeometry,
+            style.material || this.createCellMaterial(),
             valid.length
         );
-        const radius = this.normalizedCellThickness() * 0.5;
-        valid.forEach(([start, end], index) => {
-            const delta = end.clone().sub(start);
-            const length = delta.length();
-            this.cellEdgeDummy.position.copy(start).add(end).multiplyScalar(0.5);
-            this.cellEdgeDummy.quaternion.setFromUnitVectors(
-                this.yAxis,
-                delta.multiplyScalar(1 / length)
-            );
-            this.cellEdgeDummy.scale.set(radius, length, radius);
-            this.cellEdgeDummy.updateMatrix();
-            mesh.setMatrixAt(index, this.cellEdgeDummy.matrix);
-        });
-        mesh.instanceMatrix.needsUpdate = true;
+        const radius = Number.isFinite(Number(style.radius))
+            ? Math.max(0.004, Number(style.radius))
+            : this.normalizedCellThickness() * 0.5;
         mesh.frustumCulled = false;
         mesh.renderOrder = 3;
         mesh.userData = {
             ...userData,
             sharedGeometry: true,
-            cellEdgeInstances: true
+            cellEdgeInstances: true,
+            flatCellEdges: flat,
+            cellEdgeRadius: radius,
+            cellEdgeSegments: valid.map(([start, end]) => [start.clone(), end.clone()])
         };
+        this.updateCellEdgeInstanceMatrices(mesh);
         group.add(mesh);
         return mesh;
+    }
+
+    updateCellEdgeInstanceMatrices(mesh) {
+        const segments = mesh?.userData?.cellEdgeSegments;
+        if (!mesh?.isInstancedMesh || !Array.isArray(segments)) return;
+        const flat = mesh.userData.flatCellEdges === true;
+        const radius = Math.max(0.004, Number(mesh.userData.cellEdgeRadius) || 0.02);
+        segments.forEach(([start, end], index) => {
+            const delta = end.clone().sub(start);
+            const length = delta.length();
+            this.cellEdgeDummy.position.copy(start).add(end).multiplyScalar(0.5);
+            if (flat) {
+                this.cellEdgeDummy.scale.set(radius * 2, length, 1);
+                this.orientFlatBond(this.cellEdgeDummy, delta);
+            } else {
+                this.cellEdgeDummy.quaternion.setFromUnitVectors(
+                    this.yAxis,
+                    delta.multiplyScalar(1 / length)
+                );
+                this.cellEdgeDummy.scale.set(radius, length, radius);
+            }
+            this.cellEdgeDummy.updateMatrix();
+            mesh.setMatrixAt(index, this.cellEdgeDummy.matrix);
+        });
+        mesh.instanceMatrix.needsUpdate = true;
+    }
+
+    updateFlatCellEdgeMatrices(force = false) {
+        if (this.atomDisplayMode() !== '2d') return;
+        const signature = this.displacementCameraKey();
+        if (!force && signature === this.cellEdgeCameraSignature) return;
+        this.cellEdgeCameraSignature = signature;
+        [
+            this.cellGroup,
+            this.supercellGroup,
+            this.addAtomsRegionGroup,
+            this.commensurateSupercellGroup,
+            this.commensurateGuideGroup
+        ].forEach(group => group?.traverse?.(object => {
+            if (object.userData?.flatCellEdges) this.updateCellEdgeInstanceMatrices(object);
+        }));
     }
 
     updateCellVisibility() {
@@ -3025,6 +4043,7 @@ export class ASERenderer {
         this.refreshBondsForCurrentPositions();
         this.updateSupercellPositions({ translationsOnly: true });
         this.updateHookeanPositions();
+        this.updateForceVectorMatrices(true);
         this.refreshStudioSunForStructure();
         this.requestRender();
     }
@@ -3033,17 +4052,26 @@ export class ASERenderer {
         if (!values || !count) return;
         const atomPositions = this.atomsData?.positions;
         if (this.useInstancedAtoms) {
+            const refs = this.atomInstanceRefsByIndex;
             for (let index = 0; index < count; index++) {
                 const base = offset + index * 3;
+                const x = values[base];
+                const y = values[base + 1];
+                const z = values[base + 2];
                 const position = atomPositions?.[index];
                 if (position) {
-                    position[0] = values[base];
-                    position[1] = values[base + 1];
-                    position[2] = values[base + 2];
+                    position[0] = x;
+                    position[1] = y;
+                    position[2] = z;
                 }
-                this.updateAtomInstanceTranslation(
-                    index, values[base], values[base + 1], values[base + 2]
-                );
+                const ref = refs[index];
+                if (!ref) continue;
+                ref.proxy.position.x = x;
+                ref.proxy.position.y = y;
+                ref.proxy.position.z = z;
+                ref.matrix[ref.matrixOffset + 12] = x;
+                ref.matrix[ref.matrixOffset + 13] = y;
+                ref.matrix[ref.matrixOffset + 14] = z;
             }
             this.atomInstanceMeshes.forEach(mesh => {
                 mesh.instanceMatrix.needsUpdate = true;
@@ -3055,6 +4083,7 @@ export class ASERenderer {
                 this.updateSupercellPositions({ translationsOnly: true });
             }
             if (this.hookeanGroup.children.length) this.updateHookeanPositions();
+            if (this.forceVectorGroup.children.length) this.updateForceVectorMatrices(true);
             this.refreshStudioSunForStructure();
             this.requestRender();
             return;
@@ -3080,6 +4109,7 @@ export class ASERenderer {
         this.refreshBondsForCurrentPositions();
         this.updateSupercellPositions({ translationsOnly: true });
         this.updateHookeanPositions();
+        this.updateForceVectorMatrices(true);
         this.refreshStudioSunForStructure();
         this.requestRender();
     }
@@ -3094,30 +4124,60 @@ export class ASERenderer {
             pairwiseBondRanges: cloneBondRangeRecord(
                 options.pairwiseBondRanges || this.displayOptions.pairwiseBondRanges || {}
             ),
+            pairwiseBondStyles: cloneBondStyleRecord(
+                options.pairwiseBondStyles || this.displayOptions.pairwiseBondStyles || {}
+            ),
             labelRadii: { ...(options.labelRadii || this.displayOptions.labelRadii || {}) },
             labelColors: { ...(options.labelColors || this.displayOptions.labelColors || {}) },
+            labelOpacities: { ...(options.labelOpacities || this.displayOptions.labelOpacities || {}) },
             labelVisible: { ...(options.labelVisible || this.displayOptions.labelVisible || {}) },
             labelMaterials: { ...(options.labelMaterials || this.displayOptions.labelMaterials || {}) },
+            atomRadiusScales: { ...(options.atomRadiusScales || this.displayOptions.atomRadiusScales || {}) },
+            atomColors: { ...(options.atomColors || this.displayOptions.atomColors || {}) },
+            atomOpacities: { ...(options.atomOpacities || this.displayOptions.atomOpacities || {}) },
             atomMaterials: { ...(options.atomMaterials || this.displayOptions.atomMaterials || {}) },
+            atomBondStyles: cloneAtomBondStyleRecord(
+                options.atomBondStyles || this.displayOptions.atomBondStyles || {}
+            ),
+            hiddenAtomReferences: [...(options.hiddenAtomReferences || this.displayOptions.hiddenAtomReferences || [])],
             supercell: [...(options.supercell || this.displayOptions.supercell || [1, 1, 1])],
             translation: [...(options.translation || this.displayOptions.translation || [0, 0, 0])],
             sunPosition: [...(options.sunPosition || this.displayOptions.sunPosition || [8, -10, 14])],
             sunTarget: [...(options.sunTarget || this.displayOptions.sunTarget || [0, 0, 0])]
         };
+        this.hiddenAtomReferenceSet = new Set(this.displayOptions.hiddenAtomReferences);
         const antiAliasingChanged = previous.antiAliasing !== this.displayOptions.antiAliasing;
         const sphereQualityChanged = previous.sphereQuality !== this.displayOptions.sphereQuality;
         const atomDisplayModeChanged = previous.atomDisplayMode !== this.displayOptions.atomDisplayMode;
         const viewportBackgroundChanged = previous.viewportBackground !== this.displayOptions.viewportBackground;
+        const pairUsesFlatBonds = record => Object.values(record || {}).some(
+            style => style?.style === 'flat'
+        );
         const flatOutlineChanged = viewportBackgroundChanged && (
-            previous.atomDisplayMode === '2d' || this.displayOptions.atomDisplayMode === '2d'
+            previous.atomDisplayMode === '2d'
+            || this.displayOptions.atomDisplayMode === '2d'
+            || previous.bondStyle === 'flat'
+            || this.displayOptions.bondStyle === 'flat'
+            || pairUsesFlatBonds(previous.pairwiseBondStyles)
+            || pairUsesFlatBonds(this.displayOptions.pairwiseBondStyles)
         );
         const radiusChanged = previous.atomRadiusScale !== this.displayOptions.atomRadiusScale ||
-            !scalarRecordEqual(previous.labelRadii, this.displayOptions.labelRadii);
-        const colorChanged = !scalarRecordEqual(previous.labelColors, this.displayOptions.labelColors);
+            !scalarRecordEqual(previous.labelRadii, this.displayOptions.labelRadii) ||
+            !scalarRecordEqual(previous.atomRadiusScales, this.displayOptions.atomRadiusScales);
+        const colorChanged = !scalarRecordEqual(previous.labelColors, this.displayOptions.labelColors) ||
+            !scalarRecordEqual(previous.atomColors, this.displayOptions.atomColors);
+        const opacityChanged = !scalarRecordEqual(
+            previous.labelOpacities,
+            this.displayOptions.labelOpacities
+        ) || !scalarRecordEqual(previous.atomOpacities, this.displayOptions.atomOpacities);
         const materialChanged = !scalarRecordEqual(previous.labelMaterials, this.displayOptions.labelMaterials) ||
             !scalarRecordEqual(previous.atomMaterials, this.displayOptions.atomMaterials);
         const overlayChanged = previous.showOverlays !== this.displayOptions.showOverlays;
         const visibilityChanged = !scalarRecordEqual(previous.labelVisible, this.displayOptions.labelVisible);
+        const hiddenReferencesChanged = !stringArrayEqual(
+            previous.hiddenAtomReferences,
+            this.displayOptions.hiddenAtomReferences
+        );
         const changedVisibilityLabels = visibilityChanged
             ? [...new Set([
                 ...Object.keys(previous.labelVisible || {}),
@@ -3135,11 +4195,21 @@ export class ASERenderer {
             previous.sunGizmo !== this.displayOptions.sunGizmo ||
             !numberArrayEqual(previous.sunPosition, this.displayOptions.sunPosition) ||
             !numberArrayEqual(previous.sunTarget, this.displayOptions.sunTarget);
-        const displacementChanged = previous.showDisplacements !== this.displayOptions.showDisplacements ||
+        const displacementChanged = atomDisplayModeChanged ||
+            previous.showDisplacements !== this.displayOptions.showDisplacements ||
             previous.displacementStyle !== this.displayOptions.displacementStyle ||
             previous.displacementScale !== this.displayOptions.displacementScale ||
             previous.displacementThickness !== this.displayOptions.displacementThickness ||
             previous.displacementColor !== this.displayOptions.displacementColor;
+        const forceVectorsChanged = atomDisplayModeChanged ||
+            previous.showForceVectors !== this.displayOptions.showForceVectors ||
+            previous.forceVectorStyle !== this.displayOptions.forceVectorStyle ||
+            previous.forceVectorScale !== this.displayOptions.forceVectorScale ||
+            previous.forceVectorThickness !== this.displayOptions.forceVectorThickness ||
+            previous.forceVectorColor !== this.displayOptions.forceVectorColor;
+        const volumetricVisibilityChanged = (
+            previous.showVolumetric !== this.displayOptions.showVolumetric
+        );
         if (previous.projectionMode !== this.displayOptions.projectionMode) {
             this.setProjectionMode(this.displayOptions.projectionMode);
         }
@@ -3147,10 +4217,13 @@ export class ASERenderer {
             this.setViewportBackground(this.displayOptions.viewportBackground);
         }
         this.domElement.dataset.atomDisplayMode = this.atomDisplayMode();
-        if (lightingChanged) this.setLightingOptions(this.displayOptions);
+        if (lightingChanged || atomDisplayModeChanged) this.setLightingOptions(this.displayOptions);
         if (!rebuild) {
             if (antiAliasingChanged) this.updateRenderQuality();
             if (translationChanged) this.applyVisualTranslation();
+            if (volumetricVisibilityChanged) {
+                this.setVolumetricSurfaceVisibility(this.displayOptions.showVolumetric === true);
+            }
             this.updateCellVisibility();
             if (this.axesHelper) this.axesHelper.visible = this.displayOptions.showAxes;
             if (this.gridGroup) this.gridGroup.visible = this.displayOptions.showGrid;
@@ -3159,9 +4232,19 @@ export class ASERenderer {
             return;
         }
         if (antiAliasingChanged) this.updateRenderQuality();
-        if (sphereQualityChanged || overlayChanged || atomDisplayModeChanged || flatOutlineChanged || materialChanged) {
+        if (
+            sphereQualityChanged
+            || overlayChanged
+            || atomDisplayModeChanged
+            || flatOutlineChanged
+            || materialChanged
+            || opacityChanged
+        ) {
             if (this.atomsData) {
                 this.rebuildAtoms(this.atomsData, this.customColors);
+            }
+            if (this.addAtomsRegionConfiguration) {
+                this.setAddAtomsRegions(this.addAtomsRegionConfiguration);
             }
             this.applyOverlayVisibility();
             this.requestRender();
@@ -3188,33 +4271,70 @@ export class ASERenderer {
             previous.bondMode !== this.displayOptions.bondMode ||
             previous.bondCutoffScale !== this.displayOptions.bondCutoffScale ||
             previous.bondStyle !== this.displayOptions.bondStyle ||
+            previous.bondMaterial !== this.displayOptions.bondMaterial ||
             atomDisplayModeChanged ||
             previous.bondThickness !== this.displayOptions.bondThickness ||
             previous.bondColorMode !== this.displayOptions.bondColorMode ||
             previous.bondCustomColor !== this.displayOptions.bondCustomColor ||
+            previous.bondOpacity !== this.displayOptions.bondOpacity ||
+            !bondStyleRecordEqual(previous.pairwiseBondStyles, this.displayOptions.pairwiseBondStyles) ||
+            !atomBondStyleRecordEqual(previous.atomBondStyles, this.displayOptions.atomBondStyles) ||
             (colorChanged && this.displayOptions.bondColorMode === 'split') ||
             !flatPairArrayEqual(previous.manualBondPairs, this.displayOptions.manualBondPairs) ||
             !scalarRecordEqual(previous.pairwiseBondCutoffs, this.displayOptions.pairwiseBondCutoffs) ||
             !bondRangeRecordEqual(previous.pairwiseBondRanges, this.displayOptions.pairwiseBondRanges) ||
-            visibilityChanged;
+            visibilityChanged ||
+            hiddenReferencesChanged;
         if (bondsChanged) this.invalidateBondNeighborCache();
-        if (visibilityChanged) this.applyAtomVisibility(changedVisibilityLabels);
+        if (visibilityChanged || hiddenReferencesChanged) {
+            this.applyAtomVisibility(hiddenReferencesChanged ? null : changedVisibilityLabels);
+        }
         else if (bondsChanged) this.rebuildBonds();
         if (supercellChanged) this.rebuildSupercell();
-        if ((displacementChanged || visibilityChanged || supercellChanged) && this.displacementData) {
+        if (supercellChanged && this.volumetricSurfaces.length) {
+            this.rebuildVolumetricSurfaces();
+        }
+        if ((displacementChanged || visibilityChanged || hiddenReferencesChanged || supercellChanged) && this.displacementData) {
             this.setDisplacementVectors(this.displacementData, this.displayOptions);
         }
+        if ((forceVectorsChanged || visibilityChanged || hiddenReferencesChanged || supercellChanged) && this.atomsData) {
+            this.setForceVectors(this.atomsData.forces, this.displayOptions);
+        }
         if (translationChanged) this.applyVisualTranslation();
+        if (volumetricVisibilityChanged) {
+            this.setVolumetricSurfaceVisibility(this.displayOptions.showVolumetric === true);
+        }
         if ((radiusChanged || supercellChanged) && !visibilityChanged) {
             this.refreshStudioSunForStructure();
+        }
+        if (
+            this.commensurateSupercellPreview
+            && (
+                radiusChanged
+                || colorChanged
+                || opacityChanged
+                || materialChanged
+                || visibilityChanged
+                || hiddenReferencesChanged
+                || bondsChanged
+                || cellStyleChanged
+            )
+        ) {
+            this.setCommensurateSupercellPreview(this.commensurateSupercellPreview);
         }
         this.requestRender();
     }
 
     applyOverlayVisibility() {
         const visible = this.displayOptions.showOverlays !== false;
-        if (this.selectionOutlines) this.selectionOutlines.visible = visible;
-        if (this.replicaSelectionOutlines) this.replicaSelectionOutlines.visible = visible;
+        // A commensurate preview replaces the base structure. Base-selection
+        // shells refer to the unrotated atom scene and must never leak into a
+        // cells-only (or materialized preview-atom) lattice view.
+        const baseSelectionVisible = visible && !this.commensurateSupercellPreview;
+        if (this.selectionOutlines) this.selectionOutlines.visible = baseSelectionVisible;
+        if (this.replicaSelectionOutlines) {
+            this.replicaSelectionOutlines.visible = baseSelectionVisible;
+        }
         if (this.constraintGuideGroup) this.constraintGuideGroup.visible = visible;
         if (this.constraintMotionGuideGroup) this.constraintMotionGuideGroup.visible = visible;
         if (this.constraintMarkGroup) this.constraintMarkGroup.visible = visible;
@@ -3222,12 +4342,15 @@ export class ASERenderer {
         if (this.displacementGroup) {
             this.displacementGroup.visible = visible && this.displayOptions.showDisplacements === true;
         }
+        if (this.forceVectorGroup) {
+            this.forceVectorGroup.visible = visible && this.displayOptions.showForceVectors === true;
+        }
     }
 
     renameAtomLabel(oldSymbol, label, indices = [], displayOptions = null, baseSymbol = null) {
         if (!this.atomsData?.symbols) return;
         indices.forEach(index => {
-            if (this.atomsData.symbols[index] === oldSymbol) {
+            if (!oldSymbol || this.atomsData.symbols[index] === oldSymbol) {
                 this.atomsData.symbols[index] = label;
             }
             if (baseSymbol && Array.isArray(this.atomsData.chemical_symbols)) {
@@ -3248,11 +4371,22 @@ export class ASERenderer {
                 ),
                 labelRadii: { ...(displayOptions.labelRadii || this.displayOptions.labelRadii || {}) },
                 labelColors: { ...(displayOptions.labelColors || this.displayOptions.labelColors || {}) },
+                labelOpacities: { ...(displayOptions.labelOpacities || this.displayOptions.labelOpacities || {}) },
                 labelVisible: { ...(displayOptions.labelVisible || this.displayOptions.labelVisible || {}) },
                 labelMaterials: { ...(displayOptions.labelMaterials || this.displayOptions.labelMaterials || {}) },
+                atomRadiusScales: { ...(displayOptions.atomRadiusScales || this.displayOptions.atomRadiusScales || {}) },
+                atomColors: { ...(displayOptions.atomColors || this.displayOptions.atomColors || {}) },
+                atomOpacities: { ...(displayOptions.atomOpacities || this.displayOptions.atomOpacities || {}) },
                 atomMaterials: { ...(displayOptions.atomMaterials || this.displayOptions.atomMaterials || {}) },
+                atomBondStyles: cloneAtomBondStyleRecord(
+                    displayOptions.atomBondStyles || this.displayOptions.atomBondStyles || {}
+                ),
                 supercell: [...(displayOptions.supercell || this.displayOptions.supercell || [1, 1, 1])]
             };
+        }
+        if (this.useInstancedAtoms) {
+            this.rebuildAtoms(this.atomsData, this.customColors);
+            return;
         }
         this.refreshAtomAppearance(indices);
         this.invalidateBondNeighborCache();
@@ -3294,6 +4428,7 @@ export class ASERenderer {
             if (!mesh) return;
             const radius = this.atomVisualRadius(index);
             const color = this.atomVisualColor(index, this.customColors[index]);
+            const opacity = this.atomVisualOpacity(index);
             const isFixed = Boolean(mesh.userData.fixed) && this.fixedAtomDisplayEnabled();
             const materialPreset = this.atomMaterialPreset(index);
             const atomSegments = isFixed ? this.fixedAtomSegments(segmentCount) : segmentCount;
@@ -3304,16 +4439,121 @@ export class ASERenderer {
                     new THREE.SphereGeometry(1, atomSegments, Math.max(8, Math.floor(atomSegments * 0.65)))
                 );
             }
-            const materialKey = this.atomMaterialCacheKey(color, isFixed, atomSegments, false, materialPreset);
+            const materialKey = this.atomMaterialCacheKey(
+                color, isFixed, atomSegments, false, materialPreset, opacity
+            );
             if (!this.materialCache.has(materialKey)) {
-                this.materialCache.set(materialKey, this.createAtomMaterial(color, isFixed, materialPreset));
+                this.materialCache.set(
+                    materialKey,
+                    this.createAtomMaterial(color, isFixed, materialPreset, opacity)
+                );
             }
             mesh.geometry = this.geometryCache.get(geometryKey);
             mesh.material = this.materialCache.get(materialKey);
             mesh.scale.setScalar(radius);
-            mesh.visible = this.atomLabelVisible(index);
+            mesh.visible = this.atomReferenceVisible(index);
             mesh.userData.materialPreset = materialPreset;
+            mesh.userData.opacity = opacity;
         });
+        this.requestRender();
+    }
+
+    refreshAtomColors(indices = []) {
+        if (!this.atomsData?.symbols) return;
+        if (this.useInstancedAtoms) {
+            const changed = new Set();
+            const refs = this.atomInstanceRefsByIndex;
+            const scratch = this.atomColorScratch;
+            const updateIndex = index => {
+                const ref = refs[index] || this.atomInstanceRefs.get(index);
+                const proxy = ref?.proxy || this.atomMeshByIndex.get(index);
+                if (!ref || !proxy) return;
+                this.fixedAdjustedColor(
+                    this.atomVisualColor(index, this.customColors[index]),
+                    Boolean(proxy.userData.fixed),
+                    proxy.userData.materialPreset || this.atomMaterialPreset(index),
+                    scratch
+                );
+                if (ref.color) scratch.toArray(ref.color, ref.colorOffset);
+                else ref.mesh.setColorAt(ref.instanceId, scratch);
+                changed.add(ref.mesh);
+            };
+            if (indices.length) indices.forEach(updateIndex);
+            else for (let index = 0; index < refs.length; index++) updateIndex(index);
+            changed.forEach(mesh => {
+                if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+            });
+            this.requestRender();
+            return;
+        }
+        const targets = indices.length ? indices : this.atomsData.symbols.map((_, index) => index);
+        const segmentCount = this.sphereQualitySegments(this.atomsData.symbols.length);
+        targets.forEach(index => {
+            const mesh = this.atomMeshByIndex.get(index);
+            if (!mesh) return;
+            const color = this.atomVisualColor(index, this.customColors[index]);
+            const opacity = this.atomVisualOpacity(index);
+            const isFixed = Boolean(mesh.userData.fixed) && this.fixedAtomDisplayEnabled();
+            const materialPreset = this.atomMaterialPreset(index);
+            const atomSegments = isFixed ? this.fixedAtomSegments(segmentCount) : segmentCount;
+            const materialKey = this.atomMaterialCacheKey(
+                color, isFixed, atomSegments, false, materialPreset, opacity
+            );
+            if (!this.materialCache.has(materialKey)) {
+                this.materialCache.set(
+                    materialKey,
+                    this.createAtomMaterial(color, isFixed, materialPreset, opacity)
+                );
+            }
+            mesh.material = this.materialCache.get(materialKey);
+        });
+        this.requestRender();
+    }
+
+    refreshSupercellAtomColors() {
+        if (!this.useInstancedAtoms || !this.supercellGroup?.children?.length) return false;
+        let changed = false;
+        this.supercellGroup.children.forEach(mesh => {
+            const indices = mesh.userData?.atomIndices;
+            const shifts = mesh.userData?.shifts;
+            if (!mesh.isInstancedMesh || !Array.isArray(indices) || !Array.isArray(shifts)) return;
+            let instanceId = 0;
+            shifts.forEach(() => {
+                indices.forEach(index => {
+                    mesh.setColorAt(
+                        instanceId,
+                        this.fixedAdjustedColor(
+                            this.atomVisualColor(index, this.customColors[index]),
+                            Boolean(mesh.userData.fixed),
+                            mesh.userData.materialPreset || this.atomMaterialPreset(index)
+                        )
+                    );
+                    instanceId += 1;
+                });
+            });
+            if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+            changed = true;
+        });
+        return changed;
+    }
+
+    setAtomColorScaleColors(colors = null, { refreshBonds = true } = {}) {
+        const atomCount = this.atomsData?.symbols?.length || 0;
+        this.atomColorScaleColors = Array.isArray(colors) && colors.length === atomCount
+            ? [...colors]
+            : null;
+        if (!this.atomsData) return;
+        this.refreshAtomColors();
+        const hasReplicas = (this.displayOptions.supercell || [1, 1, 1]).some(value => value > 1);
+        if (hasReplicas) {
+            if (!this.refreshSupercellAtomColors()) this.rebuildSupercell();
+            else if (refreshBonds && this.displayOptions.showBonds && this.displayOptions.bondColorMode === 'split') {
+                this.rebuildSupercellBonds();
+            }
+        }
+        if (refreshBonds && this.displayOptions.showBonds && this.displayOptions.bondColorMode === 'split') {
+            this.rebuildBonds();
+        }
         this.requestRender();
     }
 
@@ -3958,12 +5198,327 @@ export class ASERenderer {
         this.requestRender();
     }
 
+    clearForceVectors({ keepData = false } = {}) {
+        this.clearGroup(this.forceVectorGroup);
+        this.forceVectorGroup.userData = {};
+        if (!keepData) this.forceVectorData = null;
+        this.forceVectorCameraSignature = '';
+        this.domElement.dataset.forceVectorCount = '0';
+        this.requestRender();
+    }
+
+    clearVolumetricSurfaces() {
+        if (!this.volumetricGroup) return;
+        while (this.volumetricGroup.children.length) {
+            this.volumetricGroup.remove(this.volumetricGroup.children[0]);
+        }
+        this.volumetricSurfaces.forEach(surface => {
+            surface.geometry?.dispose?.();
+            surface.material?.dispose?.();
+        });
+        this.volumetricSurfaces = [];
+        this.domElement.dataset.volumetricSurfaceCount = '0';
+        this.requestRender();
+    }
+
+    setVolumetricSurfaceVisibility(visible) {
+        if (!this.volumetricGroup) return;
+        this.volumetricGroup.visible = visible === true;
+        this.requestRender();
+    }
+
+    disposeVolumetricPlaneRecord(record) {
+        if (!record) return;
+        record.geometry?.dispose?.();
+        record.texture?.dispose?.();
+        record.material?.dispose?.();
+        record.perimeterGeometry?.dispose?.();
+        record.perimeterMaterial?.dispose?.();
+    }
+
+    clearVolumetricPlanes(planeIds = null) {
+        const requested = planeIds ? new Set(planeIds) : null;
+        [...this.volumetricPlanes.entries()].forEach(([planeId, record]) => {
+            if (requested && !requested.has(planeId)) return;
+            record.group?.removeFromParent?.();
+            this.disposeVolumetricPlaneRecord(record);
+            this.volumetricPlanes.delete(planeId);
+        });
+        this.domElement.dataset.volumetricPlaneCount = String(this.volumetricPlanes.size);
+        this.invalidateSunShadowBounds();
+        this.requestRender();
+    }
+
+    setVolumetricPlaneSlice(specification = {}) {
+        const planeId = String(specification.planeId || '');
+        if (!planeId) return;
+        this.clearVolumetricPlanes([planeId]);
+        const vertices = Array.isArray(specification.polygonVertices)
+            ? specification.polygonVertices
+            : [];
+        const uv = Array.isArray(specification.polygonUv) ? specification.polygonUv : [];
+        if (vertices.length < 3 || uv.length !== vertices.length) return;
+
+        const positions = new Float32Array(vertices.length * 3);
+        const textureCoordinates = new Float32Array(vertices.length * 2);
+        vertices.forEach((vertex, index) => {
+            positions.set(vertex.slice(0, 3).map(value => Number(value) || 0), index * 3);
+            textureCoordinates.set(uv[index].slice(0, 2).map(value => Number(value) || 0), index * 2);
+        });
+        const indices = [];
+        for (let index = 1; index < vertices.length - 1; index++) {
+            indices.push(0, index, index + 1);
+        }
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        geometry.setAttribute('uv', new THREE.BufferAttribute(textureCoordinates, 2));
+        geometry.setIndex(indices);
+        geometry.computeVertexNormals();
+        geometry.computeBoundingSphere();
+
+        const width = Math.max(2, Number(specification.width) || 2);
+        const height = Math.max(2, Number(specification.height) || 2);
+        const rgba = specification.rgba instanceof Uint8Array
+            ? specification.rgba
+            : new Uint8Array(specification.rgba || []);
+        const texture = new THREE.DataTexture(
+            rgba,
+            width,
+            height,
+            THREE.RGBAFormat,
+            THREE.UnsignedByteType
+        );
+        texture.colorSpace = THREE.SRGBColorSpace;
+        texture.minFilter = THREE.LinearFilter;
+        texture.magFilter = THREE.LinearFilter;
+        texture.generateMipmaps = false;
+        texture.flipY = false;
+        texture.needsUpdate = true;
+
+        const opacity = Math.max(0.05, Math.min(1, Number(specification.opacity) || 0.88));
+        const material = new THREE.MeshBasicMaterial({
+            map: texture,
+            side: THREE.DoubleSide,
+            transparent: opacity < 0.999,
+            opacity,
+            depthWrite: opacity >= 0.98,
+            toneMapped: false
+        });
+        const mesh = new THREE.Mesh(geometry, material);
+        mesh.name = `v_ase_volumetric_plane_${planeId}`;
+        mesh.renderOrder = 14;
+        mesh.userData = { volumetricPlane: true, planeId };
+
+        const perimeterPositions = new Float32Array((vertices.length + 1) * 3);
+        vertices.forEach((vertex, index) => {
+            perimeterPositions.set(vertex.slice(0, 3).map(value => Number(value) || 0), index * 3);
+        });
+        perimeterPositions.set(vertices[0].slice(0, 3).map(value => Number(value) || 0), vertices.length * 3);
+        const perimeterGeometry = new THREE.BufferGeometry();
+        perimeterGeometry.setAttribute('position', new THREE.BufferAttribute(perimeterPositions, 3));
+        const perimeterMaterial = new THREE.LineBasicMaterial({
+            color: specification.selected ? '#f4be54' : '#89d9cc',
+            transparent: true,
+            opacity: specification.selected ? 0.98 : 0.72,
+            depthTest: true,
+            toneMapped: false
+        });
+        const perimeter = new THREE.Line(perimeterGeometry, perimeterMaterial);
+        perimeter.renderOrder = 15;
+        perimeter.userData = { volumetricPlanePerimeter: true, planeId };
+
+        const group = new THREE.Group();
+        group.add(mesh, perimeter);
+        group.visible = specification.visible !== false;
+        group.userData = { volumetricPlane: true, planeId };
+        this.volumetricPlaneGroup.add(group);
+        this.volumetricPlaneGroup.position.copy(this.visualTranslationVector());
+        const record = {
+            ...specification,
+            planeId,
+            group,
+            mesh,
+            geometry,
+            texture,
+            material,
+            perimeter,
+            perimeterGeometry,
+            perimeterMaterial,
+            centroid: new THREE.Vector3(...(specification.centroid || [0, 0, 0])),
+            normal: new THREE.Vector3(...(specification.normal || [0, 0, 1])).normalize()
+        };
+        this.volumetricPlanes.set(planeId, record);
+        this.domElement.dataset.volumetricPlaneCount = String(this.volumetricPlanes.size);
+        this.invalidateSunShadowBounds();
+        this.requestRender();
+    }
+
+    updateVolumetricPlaneTexture(planeId, rgba, { opacity = null } = {}) {
+        const record = this.volumetricPlanes.get(String(planeId));
+        if (!record || !(rgba instanceof Uint8Array)) return;
+        record.texture.image.data = rgba;
+        record.texture.needsUpdate = true;
+        if (opacity !== null) {
+            const alpha = Math.max(0.05, Math.min(1, Number(opacity) || 0.88));
+            record.material.opacity = alpha;
+            record.material.transparent = alpha < 0.999;
+            record.material.depthWrite = alpha >= 0.98;
+            record.material.needsUpdate = true;
+        }
+        this.requestRender();
+    }
+
+    setVolumetricPlaneSelection(planeIds = []) {
+        const selected = new Set(planeIds);
+        this.volumetricPlanes.forEach((record, planeId) => {
+            const active = selected.has(planeId);
+            record.selected = active;
+            record.perimeterMaterial.color.set(active ? '#f4be54' : '#89d9cc');
+            record.perimeterMaterial.opacity = active ? 0.98 : 0.72;
+            record.perimeterMaterial.needsUpdate = true;
+        });
+        this.requestRender();
+    }
+
+    pickVolumetricPlane(event) {
+        if (!event || !this.volumetricPlanes.size) return null;
+        this.sunRaycaster.setFromCamera(this.sunPointerNdc(event), this.camera);
+        const meshes = [...this.volumetricPlanes.values()]
+            .filter(record => record.group.visible)
+            .map(record => record.mesh);
+        const hit = this.sunRaycaster.intersectObjects(meshes, false)[0];
+        return hit?.object?.userData?.planeId || null;
+    }
+
+    previewVolumetricPlaneTransforms(transforms = {}) {
+        this.volumetricPlanes.forEach((record, planeId) => {
+            record.group.position.set(0, 0, 0);
+            record.group.quaternion.identity();
+            const transform = transforms[planeId];
+            if (!transform) return;
+            if (Array.isArray(transform.translation)) {
+                record.group.position.add(new THREE.Vector3(...transform.translation));
+            }
+            if (Array.isArray(transform.quaternion) && transform.quaternion.length === 4) {
+                const quaternion = new THREE.Quaternion(...transform.quaternion).normalize();
+                const pivot = new THREE.Vector3(...(transform.pivot || record.centroid.toArray()));
+                record.group.quaternion.copy(quaternion);
+                record.group.position.add(pivot.clone().sub(pivot.clone().applyQuaternion(quaternion)));
+            }
+        });
+        this.requestRender();
+    }
+
+    resetVolumetricPlaneTransforms() {
+        this.volumetricPlanes.forEach(record => {
+            record.group.position.set(0, 0, 0);
+            record.group.quaternion.identity();
+        });
+        this.requestRender();
+    }
+
+    setVolumetricSurfaces(specifications = []) {
+        this.clearVolumetricSurfaces();
+        this.volumetricSurfaces = specifications.map(specification => {
+            const vertices = specification.vertices instanceof Float32Array
+                ? specification.vertices
+                : new Float32Array(specification.vertices || []);
+            const faces = specification.faces instanceof Uint32Array
+                ? specification.faces
+                : new Uint32Array(specification.faces || []);
+            const geometry = new THREE.BufferGeometry();
+            geometry.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
+            geometry.setIndex(new THREE.BufferAttribute(faces, 1));
+            geometry.computeVertexNormals();
+            geometry.computeBoundingSphere();
+            const opacity = Math.max(0.05, Math.min(1, Number(specification.opacity) || 0.72));
+            const material = new THREE.MeshStandardMaterial({
+                color: this.validHexColor(specification.color) ? specification.color : '#2f8fdb',
+                side: THREE.DoubleSide,
+                transparent: opacity < 0.999,
+                opacity,
+                depthWrite: opacity >= 0.96,
+                roughness: 0.42,
+                metalness: 0.04
+            });
+            return {
+                ...specification,
+                cell: (specification.cell || []).map(vector => [...vector]),
+                geometry,
+                material
+            };
+        });
+        this.rebuildVolumetricSurfaces();
+        this.setVolumetricSurfaceVisibility(this.displayOptions.showVolumetric === true);
+    }
+
+    updateVolumetricSurfaceStyle({
+        positiveColor = '#2f8fdb',
+        negativeColor = '#e05b78',
+        opacity = 0.72
+    } = {}) {
+        const alpha = Math.max(0.05, Math.min(1, Number(opacity) || 0.72));
+        this.volumetricSurfaces.forEach(surface => {
+            const color = Number(surface.level) < 0 ? negativeColor : positiveColor;
+            if (this.validHexColor(color)) surface.material.color.set(color);
+            surface.material.opacity = alpha;
+            surface.material.transparent = alpha < 0.999;
+            surface.material.depthWrite = alpha >= 0.96;
+            surface.material.needsUpdate = true;
+            surface.color = color;
+            surface.opacity = alpha;
+        });
+        this.invalidateSunShadowBounds();
+        if (this.shadowModeActive) this.fitSunShadowCamera();
+        this.requestRender();
+    }
+
+    rebuildVolumetricSurfaces() {
+        if (!this.volumetricGroup) return;
+        while (this.volumetricGroup.children.length) {
+            this.volumetricGroup.remove(this.volumetricGroup.children[0]);
+        }
+        const repetitions = this.displayOptions.supercell || [1, 1, 1];
+        let count = 0;
+        this.volumetricSurfaces.forEach(surface => {
+            const cell = surface.cell?.length === 3
+                ? surface.cell.map(vector => new THREE.Vector3(...vector))
+                : null;
+            const translations = [{ cellOffset: [0, 0, 0], vector: new THREE.Vector3() }];
+            if (cell) translations.push(...this.supercellTranslations(cell, repetitions));
+            translations.forEach(translation => {
+                const mesh = new THREE.Mesh(surface.geometry, surface.material);
+                mesh.position.copy(translation.vector);
+                mesh.userData = {
+                    volumetricSurface: true,
+                    datasetId: surface.datasetId,
+                    level: surface.level,
+                    cellOffset: translation.cellOffset,
+                    sharedGeometry: true,
+                    sharedMaterial: true
+                };
+                mesh.castShadow = Boolean(this.shadowModeActive);
+                mesh.receiveShadow = Boolean(this.shadowModeActive);
+                this.volumetricGroup.add(mesh);
+                count++;
+            });
+        });
+        this.volumetricGroup.position.copy(this.visualTranslationVector());
+        this.volumetricGroup.visible = this.displayOptions.showVolumetric === true;
+        this.domElement.dataset.volumetricSurfaceCount = String(count);
+        this.invalidateSunShadowBounds();
+        this.applyShadowFlags();
+        this.requestRender();
+    }
+
     displacementStyle(options = this.displayOptions) {
-        return options?.displacementStyle === '2d' ? '2d' : '3d';
+        return options?.atomDisplayMode === '2d' || options?.displacementStyle === '2d'
+            ? '2d'
+            : '3d';
     }
 
     displacementCameraKey() {
-        const quaternion = this.camera.quaternion;
+        const quaternion = (this.flatOrientationCamera || this.camera).quaternion;
         return [
             quaternion.x.toFixed(5),
             quaternion.y.toFixed(5),
@@ -4015,10 +5570,16 @@ export class ASERenderer {
             const magnitudeSquared = Number(vector[0]) ** 2 + Number(vector[1]) ** 2 + Number(vector[2]) ** 2;
             if (!Number.isFinite(magnitudeSquared) || magnitudeSquared < 1e-14) continue;
             const visibleStart = this.atomMeshByIndex.get(index)?.position;
-            const baseStart = visibleStart
-                ? visibleStart.clone()
-                : new THREE.Vector3(...start.map(Number));
+            const baseStart = this.displacementData.reference_mode === 'phonon'
+                ? this.toVisualAtomPosition(start.map(Number), options)
+                : (visibleStart
+                    ? visibleStart.clone()
+                    : this.toVisualAtomPosition(start.map(Number), options));
             displacementTranslations.forEach(translation => {
+                const cellReference = translation.cellOffset.some(Boolean)
+                    ? translation.cellOffset
+                    : null;
+                if (!this.atomReferenceVisible(index, cellReference)) return;
                 entries.push({
                     index,
                     cellOffset: [...translation.cellOffset],
@@ -4093,7 +5654,7 @@ export class ASERenderer {
         const cameraSignature = flat ? this.displacementCameraKey() : '3d';
         if (!force && cameraSignature === this.displacementCameraSignature) return;
         this.displacementCameraSignature = cameraSignature;
-        const scale = Math.max(0.05, Math.min(10, Number(this.displayOptions.displacementScale) || 1));
+        const scale = Math.max(0.05, Math.min(40, Number(this.displayOptions.displacementScale) || 1));
         const thickness = Math.max(
             0.01,
             Math.min(0.5, Number(this.displayOptions.displacementThickness) || 0.08)
@@ -4144,6 +5705,177 @@ export class ASERenderer {
         head.instanceMatrix.needsUpdate = true;
     }
 
+    forceVectorStyle(options = this.displayOptions) {
+        return options?.atomDisplayMode === '2d' || options?.forceVectorStyle === '2d'
+            ? '2d'
+            : '3d';
+    }
+
+    setForceVectors(forces, options = this.displayOptions) {
+        this.clearGroup(this.forceVectorGroup);
+        this.forceVectorGroup.userData = {};
+        this.forceVectorCameraSignature = '';
+        this.forceVectorData = Array.isArray(forces) ? forces : null;
+        if (options?.showForceVectors !== true || !this.forceVectorData?.length) {
+            this.domElement.dataset.forceVectorCount = '0';
+            this.applyOverlayVisibility();
+            this.requestRender();
+            return;
+        }
+
+        const translations = [{ cellOffset: [0, 0, 0], vector: new THREE.Vector3() }];
+        const repetitions = options?.supercell || [1, 1, 1];
+        if (this.hasValidCell() && repetitions.some(value => Number(value) > 1)) {
+            const cell = this.atomsData.cell.map(vector => new THREE.Vector3(...vector));
+            translations.push(...this.supercellTranslations(cell, repetitions));
+        }
+        const entries = [];
+        this.forceVectorData.forEach((vector, index) => {
+            if (
+                !this.atomLabelVisible(index)
+                || !Array.isArray(vector)
+                || vector.length < 3
+                || !vector.slice(0, 3).every(value => Number.isFinite(Number(value)))
+            ) return;
+            const values = vector.slice(0, 3).map(Number);
+            const magnitudeSquared = values.reduce((sum, value) => sum + value * value, 0);
+            if (magnitudeSquared < 1e-14) return;
+            translations.forEach(translation => {
+                const cellReference = translation.cellOffset.some(Boolean)
+                    ? translation.cellOffset
+                    : null;
+                if (!this.atomReferenceVisible(index, cellReference)) return;
+                entries.push({
+                    index,
+                    cellOffset: [...translation.cellOffset],
+                    translation: translation.vector.toArray(),
+                    vector: values
+                });
+            });
+        });
+        if (!entries.length) {
+            this.domElement.dataset.forceVectorCount = '0';
+            this.applyOverlayVisibility();
+            this.requestRender();
+            return;
+        }
+
+        const flat = this.forceVectorStyle(options) === '2d';
+        const color = this.validHexColor(options?.forceVectorColor)
+            ? options.forceVectorColor
+            : '#c43f5e';
+        const material = flat
+            ? new THREE.MeshBasicMaterial({
+                color,
+                side: THREE.DoubleSide,
+                toneMapped: false,
+                depthTest: true,
+                depthWrite: false
+            })
+            : new THREE.MeshStandardMaterial({
+                color,
+                roughness: 0.36,
+                metalness: 0.03
+            });
+        const shaft = new THREE.InstancedMesh(
+            flat ? this.bondFlatGeometry : this.bondCylinderGeometry,
+            material,
+            entries.length
+        );
+        const head = new THREE.InstancedMesh(
+            flat ? this.displacementFlatHeadGeometry : this.displacementConeGeometry,
+            material.clone(),
+            entries.length
+        );
+        [shaft, head].forEach(mesh => {
+            mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+            mesh.frustumCulled = false;
+            mesh.renderOrder = 6;
+            mesh.castShadow = false;
+            mesh.receiveShadow = false;
+            mesh.userData.sharedGeometry = true;
+        });
+        shaft.userData.forceVectorRole = 'shaft';
+        head.userData.forceVectorRole = 'head';
+        Object.assign(this.forceVectorGroup.userData, { entries, shaft, head, flat });
+        this.forceVectorGroup.add(shaft, head);
+        this.updateForceVectorMatrices(true);
+        this.domElement.dataset.forceVectorCount = String(entries.length);
+        this.applyOverlayVisibility();
+        this.requestRender();
+    }
+
+    updateForceVectorMatrices(force = false) {
+        const entries = this.forceVectorGroup?.userData?.entries;
+        const shaft = this.forceVectorGroup?.userData?.shaft;
+        const head = this.forceVectorGroup?.userData?.head;
+        if (!entries?.length || !shaft || !head) return;
+        const flat = this.forceVectorGroup.userData.flat === true;
+        const cameraSignature = flat ? this.displacementCameraKey() : '3d';
+        if (!force && cameraSignature === this.forceVectorCameraSignature) return;
+        this.forceVectorCameraSignature = cameraSignature;
+        const scale = Math.max(0.02, Math.min(5, Number(this.displayOptions.forceVectorScale) || 1));
+        const thickness = Math.max(
+            0.01,
+            Math.min(0.5, Number(this.displayOptions.forceVectorThickness) || 0.08)
+        );
+        const dummy = this.displacementDummy;
+        entries.forEach((entry, instanceId) => {
+            const atom = this.atomMeshByIndex.get(entry.index);
+            const cellReference = entry.cellOffset?.some(Boolean) ? entry.cellOffset : null;
+            if (!atom || !this.atomReferenceVisible(entry.index, cellReference)) {
+                dummy.position.set(0, 0, 0);
+                dummy.scale.setScalar(0);
+                dummy.updateMatrix();
+                shaft.setMatrixAt(instanceId, dummy.matrix);
+                head.setMatrixAt(instanceId, dummy.matrix);
+                return;
+            }
+            this.displacementStart.copy(atom.position).add(
+                new THREE.Vector3(...entry.translation)
+            );
+            this.displacementDirection.fromArray(entry.vector).multiplyScalar(scale);
+            const length = this.displacementDirection.length();
+            if (length < 1e-7) {
+                dummy.position.set(0, 0, 0);
+                dummy.scale.setScalar(0);
+                dummy.updateMatrix();
+                shaft.setMatrixAt(instanceId, dummy.matrix);
+                head.setMatrixAt(instanceId, dummy.matrix);
+                return;
+            }
+            const direction = this.displacementDirection.normalize();
+            this.displacementEnd.copy(this.displacementStart).addScaledVector(direction, length);
+            const headLength = Math.min(length * 0.45, Math.max(thickness * 4.2, 0.08));
+            const headWidth = Math.max(thickness * 2.7, headLength * 0.48);
+            const bodyLength = Math.max(1e-7, length - headLength * 0.72);
+
+            dummy.position.copy(this.displacementStart).addScaledVector(direction, bodyLength * 0.5);
+            if (flat) {
+                dummy.scale.set(thickness, bodyLength, 1);
+                this.orientFlatBond(dummy, direction);
+            } else {
+                dummy.scale.set(thickness, bodyLength, thickness);
+                dummy.quaternion.setFromUnitVectors(this.yAxis, direction);
+            }
+            dummy.updateMatrix();
+            shaft.setMatrixAt(instanceId, dummy.matrix);
+
+            dummy.position.copy(this.displacementEnd).addScaledVector(direction, -headLength * 0.5);
+            if (flat) {
+                dummy.scale.set(headWidth, headLength, 1);
+                this.orientFlatBond(dummy, direction);
+            } else {
+                dummy.scale.set(headWidth, headLength, headWidth);
+                dummy.quaternion.setFromUnitVectors(this.yAxis, direction);
+            }
+            dummy.updateMatrix();
+            head.setMatrixAt(instanceId, dummy.matrix);
+        });
+        shaft.instanceMatrix.needsUpdate = true;
+        head.instanceMatrix.needsUpdate = true;
+    }
+
     rebuildBonds(precomputedPairs = null, precomputedBridgeRecords = null) {
         this.clearGroup(this.bondGroup);
         this.clearSupercellBonds();
@@ -4152,7 +5884,14 @@ export class ASERenderer {
         this.domElement.dataset.bondCount = '0';
         this.domElement.dataset.supercellBridgeBondCount = '0';
         this.domElement.dataset.periodicBonds = this.displayOptions.showPeriodicBonds ? 'true' : 'false';
-        this.domElement.dataset.bondStyle = this.effectiveBondStyle();
+        const pairStyles = Object.values(this.displayOptions.pairwiseBondStyles || {});
+        const effectiveStyles = new Set([
+            this.effectiveBondStyle(),
+            ...pairStyles.map(style => this.effectiveBondStyle(style?.style))
+        ]);
+        this.domElement.dataset.bondStyle = effectiveStyles.size > 1
+            ? 'mixed'
+            : [...effectiveStyles][0];
         this.domElement.dataset.requestedBondStyle = this.displayOptions.bondStyle || 'cylinder';
         this.domElement.dataset.bondColorMode = this.displayOptions.bondColorMode || 'split';
         this.domElement.dataset.bondThickness = String(this.bondThickness());
@@ -4177,24 +5916,21 @@ export class ASERenderer {
                 !hookeanExcluded.has(this.hookeanPairKey(i, j)))
             : this.inferBondPairs());
         this.domElement.dataset.bondCount = String(this.bondPairs.length);
-        const split = this.displayOptions.bondColorMode !== 'custom';
-        const segments = this.bondPairs.flatMap(([i, j]) => split
-            ? [
-                { i, j, t0: 0, t1: 0.5, colorIndex: i },
-                { i, j, t0: 0.5, t1: 1, colorIndex: j }
-            ]
-            : [{ i, j, t0: 0, t1: 1, colorIndex: null }]);
-        const flat = this.effectiveBondStyle() === 'flat';
-        const segmentsByColor = new Map();
+        const segments = this.bondPairs.flatMap(([i, j]) => this.bondSegmentsForPair(i, j));
+        const segmentsByAppearance = new Map();
         segments.forEach(segment => {
-            const color = this.bondSegmentColor(segment);
-            if (!segmentsByColor.has(color)) segmentsByColor.set(color, []);
-            segmentsByColor.get(color).push(segment);
+            const key = this.bondAppearanceKey(segment);
+            if (!segmentsByAppearance.has(key)) segmentsByAppearance.set(key, []);
+            segmentsByAppearance.get(key).push(segment);
         });
-        segmentsByColor.forEach((colorSegments, color) => {
+        segmentsByAppearance.forEach(colorSegments => {
+            const sample = colorSegments[0];
+            const appearance = sample.appearance;
+            const color = this.bondSegmentColor(sample);
+            const flat = appearance.style === 'flat';
             const mesh = new THREE.InstancedMesh(
                 flat ? this.bondFlatGeometry : this.bondCylinderGeometry,
-                this.bondMaterial(flat ? 'flat' : 'cylinder', color),
+                this.bondMaterial(appearance.style, color, appearance.material, appearance.opacity),
                 colorSegments.length
             );
             mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
@@ -4205,10 +5941,10 @@ export class ASERenderer {
                 bondPairs: this.bondPairs,
                 bondSegments: colorSegments,
                 bondColor: color,
+                bondAppearance: { ...appearance },
                 sharedGeometry: true,
                 sharedMaterial: true
             };
-            const thickness = this.bondThickness();
             colorSegments.forEach((segment, instanceId) => {
                 this.positionBondInstance(
                     mesh,
@@ -4219,7 +5955,9 @@ export class ASERenderer {
                     segment.t1,
                     null,
                     null,
-                    thickness
+                    segment.appearance?.thickness ?? this.bondThickness(),
+                    null,
+                    appearance.style
                 );
             });
             mesh.instanceMatrix.needsUpdate = true;
@@ -4233,7 +5971,6 @@ export class ASERenderer {
     updateBondPositions() {
         if (!this.displayOptions.showBonds || !this.bondPairs?.length) return;
         if (this.bondGroup.children.length) {
-            const thickness = this.bondThickness();
             this.bondGroup.children.forEach(bond => {
                 if (bond.userData.instancedBonds) {
                     (bond.userData.bondSegments || []).forEach((segment, instanceId) => {
@@ -4246,7 +5983,9 @@ export class ASERenderer {
                             segment.t1,
                             null,
                             null,
-                            thickness
+                            segment.appearance?.thickness ?? this.bondThickness(),
+                            null,
+                            segment.appearance?.style
                         );
                     });
                     bond.instanceMatrix.needsUpdate = true;
@@ -4414,6 +6153,828 @@ export class ASERenderer {
         this.requestRender();
     }
 
+    commensuratePreviewBaseGroups() {
+        return [
+            this.atomMeshes,
+            this.selectionOutlines,
+            this.replicaSelectionOutlines,
+            this.cellGroup,
+            this.bondGroup,
+            this.supercellGroup,
+            this.displacementGroup,
+            this.forceVectorGroup,
+            this.volumetricGroup,
+            this.volumetricPlaneGroup,
+            this.constraintMarkGroup,
+            this.constraintGuideGroup,
+            this.constraintMotionGuideGroup,
+            this.hookeanGroup
+        ].filter(Boolean);
+    }
+
+    hideBaseSceneForCommensuratePreview() {
+        if (!this.commensurateBaseVisibility) {
+            this.commensurateBaseVisibility = new Map(
+                this.commensuratePreviewBaseGroups().map(group => [group, group.visible])
+            );
+        }
+        this.commensuratePreviewBaseGroups().forEach(group => {
+            group.visible = false;
+        });
+    }
+
+    restoreBaseSceneAfterCommensuratePreview() {
+        if (!this.commensurateBaseVisibility) return;
+        this.commensurateBaseVisibility.forEach((visible, group) => {
+            group.visible = visible;
+        });
+        this.commensurateBaseVisibility = null;
+    }
+
+    cameraSnapshot() {
+        const capture = camera => ({
+            position: camera.position.clone(),
+            quaternion: camera.quaternion.clone(),
+            up: camera.up.clone(),
+            near: camera.near,
+            far: camera.far,
+            zoom: camera.zoom,
+            left: camera.left,
+            right: camera.right,
+            top: camera.top,
+            bottom: camera.bottom,
+            aspect: camera.aspect
+        });
+        return {
+            projectionMode: this.projectionMode,
+            target: this.controls.target.clone(),
+            perspective: capture(this.perspectiveCamera),
+            orthographic: capture(this.orthographicCamera)
+        };
+    }
+
+    restoreCameraSnapshot(snapshot) {
+        if (!snapshot) return;
+        const restore = (camera, state) => {
+            camera.position.copy(state.position);
+            camera.quaternion.copy(state.quaternion);
+            camera.up.copy(state.up);
+            camera.near = state.near;
+            camera.far = state.far;
+            if (Number.isFinite(state.zoom)) camera.zoom = state.zoom;
+            if (Number.isFinite(state.left)) camera.left = state.left;
+            if (Number.isFinite(state.right)) camera.right = state.right;
+            if (Number.isFinite(state.top)) camera.top = state.top;
+            if (Number.isFinite(state.bottom)) camera.bottom = state.bottom;
+            if (Number.isFinite(state.aspect)) camera.aspect = state.aspect;
+            camera.updateProjectionMatrix();
+            camera.updateMatrixWorld(true);
+        };
+        restore(this.perspectiveCamera, snapshot.perspective);
+        restore(this.orthographicCamera, snapshot.orthographic);
+        this.projectionMode = snapshot.projectionMode === 'perspective' ? 'perspective' : 'orthographic';
+        this.camera = this.projectionMode === 'perspective'
+            ? this.perspectiveCamera
+            : this.orthographicCamera;
+        this.controls.camera = this.camera;
+        this.controls.target.copy(snapshot.target);
+        this.controls.update?.();
+        this.updateViewLighting();
+        this.onCameraChange?.({ source: 'commensurate-preview-restore' });
+    }
+
+    clearCommensurateSupercellPreview({ requestRender = true, restoreCamera = true } = {}) {
+        if (!this.commensurateSupercellGroup) return;
+        this.clearGroup(this.commensurateSupercellGroup);
+        this.commensurateSupercellPreview = null;
+        this.restoreBaseSceneAfterCommensuratePreview();
+        if (restoreCamera && this.commensurateCameraSnapshot) {
+            this.restoreCameraSnapshot(this.commensurateCameraSnapshot);
+        }
+        this.commensurateCameraSnapshot = null;
+        delete this.domElement.dataset.commensuratePreviewAtoms;
+        delete this.domElement.dataset.commensuratePreviewBonds;
+        if (requestRender) this.requestRender();
+    }
+
+    commensuratePreviewLabel(preview, row) {
+        const explicit = preview?.labels?.[row];
+        if (explicit !== undefined && explicit !== null) return String(explicit);
+        const index = Number(preview?.atom_indices?.[row]);
+        return this.atomsData?.symbols?.[index] || '';
+    }
+
+    commensuratePreviewChemicalSymbol(preview, row) {
+        const explicit = preview?.chemical_symbols?.[row];
+        if (explicit !== undefined && explicit !== null) return String(explicit);
+        const index = Number(preview?.atom_indices?.[row]);
+        return this.atomChemicalSymbol(index);
+    }
+
+    commensuratePreviewRowVisible(preview, row) {
+        const label = this.commensuratePreviewLabel(preview, row);
+        return this.displayOptions?.labelVisible?.[label] !== false;
+    }
+
+    commensuratePreviewRadius(preview, row) {
+        const label = this.commensuratePreviewLabel(preview, row);
+        const configured = Number(this.displayOptions?.labelRadii?.[label]);
+        const source = Number.isFinite(configured) && configured > 0
+            ? configured
+            : Number(preview?.radii?.[row]);
+        const scale = Number(this.displayOptions?.atomRadiusScale || 0.6);
+        return (Number.isFinite(source) && source > 0 ? source : FALLBACK_ATOM_RADIUS)
+            * (Number.isFinite(scale) && scale > 0 ? scale : 0.6);
+    }
+
+    commensuratePreviewCovalentRadius(preview, row) {
+        const source = Number(preview?.bond_radii?.[row]);
+        return Number.isFinite(source) && source > 0 ? source : FALLBACK_COVALENT_RADIUS;
+    }
+
+    commensuratePreviewColor(preview, row) {
+        const label = this.commensuratePreviewLabel(preview, row);
+        const configured = this.displayOptions?.labelColors?.[label];
+        if (this.validHexColor(configured)) return configured;
+        const explicit = preview?.colors?.[row];
+        return this.validHexColor(explicit) ? explicit : FALLBACK_ATOM_COLOR;
+    }
+
+    commensuratePreviewMaterial(preview, row) {
+        const label = this.commensuratePreviewLabel(preview, row);
+        return this.normalizedAtomMaterialPreset(this.displayOptions?.labelMaterials?.[label]);
+    }
+
+    commensuratePreviewOpacity(preview, row) {
+        const label = this.commensuratePreviewLabel(preview, row);
+        const configured = Number(this.displayOptions?.labelOpacities?.[label]);
+        return Math.max(0, Math.min(1, Number.isFinite(configured) ? configured : 1));
+    }
+
+    commensuratePreviewBounds(preview) {
+        const box = new THREE.Box3();
+        const positions = preview?.positions || [];
+        const atomIndices = preview?.atom_indices || [];
+        const translation = this.visualTranslationVector();
+        positions.forEach((position, row) => {
+            const index = Number(atomIndices[row]);
+            if (!Number.isInteger(index) || !this.commensuratePreviewRowVisible(preview, row)) return;
+            const center = new THREE.Vector3(...position).add(translation);
+            const radius = this.commensuratePreviewRadius(preview, row);
+            box.expandByPoint(center.clone().addScalar(radius));
+            box.expandByPoint(center.clone().addScalar(-radius));
+        });
+        const fixedParentLattices = preview?.parent_lattices_fixed === true;
+        const cellSpecs = [
+            [preview?.has_suggestion === false ? null : (preview?.common_cell || preview?.cell), [0, 0, 0]],
+            [fixedParentLattices ? preview?.host_parent_cell : preview?.host_cell, [0, 0, 0]],
+            [
+                fixedParentLattices ? preview?.guest_parent_cell : preview?.guest_cell,
+                preview?.guest_offset || [0, 0, 0]
+            ]
+        ];
+        cellSpecs.forEach(([cell, origin]) => this.commensurateCellSegments(cell, origin).forEach(segment => {
+            segment.forEach(point => box.expandByPoint(point.clone().add(translation)));
+        }));
+        [
+            [preview?.host_grid_lattice_origins, preview?.host_primitive_vectors],
+            [preview?.guest_grid_lattice_origins, preview?.guest_primitive_vectors]
+        ].forEach(([origins, vectors]) => {
+            this.commensuratePrimitiveSegments(origins, vectors).forEach(segment => {
+                segment.forEach(point => box.expandByPoint(point.clone().add(translation)));
+            });
+        });
+        return box.isEmpty() ? null : box;
+    }
+
+    commensurateCellSegments(cell, originValues = [0, 0, 0]) {
+        if (!Array.isArray(cell) || cell.length !== 3) return [];
+        const [a, b, c] = cell.map(values => new THREE.Vector3(...values));
+        const origin = new THREE.Vector3(...originValues);
+        const corners = [
+            origin,
+            origin.clone().add(a),
+            origin.clone().add(b),
+            origin.clone().add(c),
+            origin.clone().add(a).add(b),
+            origin.clone().add(a).add(c),
+            origin.clone().add(b).add(c),
+            origin.clone().add(a).add(b).add(c)
+        ];
+        return [[0,1],[0,2],[0,3],[1,4],[1,5],[2,4],[2,6],[3,5],[3,6],[4,7],[5,7],[6,7]]
+            .map(([first, second]) => [corners[first], corners[second]]);
+    }
+
+    commensuratePlanarCellSegments(cell, originValues = [0, 0, 0]) {
+        if (!Array.isArray(cell) || cell.length !== 3) return [];
+        const origin = new THREE.Vector3(...originValues);
+        const a = new THREE.Vector3(...cell[0]);
+        const b = new THREE.Vector3(...cell[1]);
+        const aCorner = origin.clone().add(a);
+        const bCorner = origin.clone().add(b);
+        const abCorner = origin.clone().add(a).add(b);
+        return [
+            [origin, aCorner],
+            [origin, bCorner],
+            [aCorner, abCorner],
+            [bCorner, abCorner]
+        ];
+    }
+
+    commensuratePrimitiveSegments(origins, vectors) {
+        if (!Array.isArray(origins) || !Array.isArray(vectors) || vectors.length < 2) return [];
+        const primitive = [vectors[0], vectors[1], [0, 0, 0]];
+        const unique = new Map();
+        const pointKey = point => [point.x, point.y, point.z]
+            .map(value => Math.round(value * 1e7))
+            .join(',');
+        origins.forEach(origin => {
+            this.commensuratePlanarCellSegments(primitive, origin).forEach(segment => {
+                const endpoints = segment.map(pointKey).sort();
+                const key = endpoints.join('|');
+                if (!unique.has(key)) unique.set(key, segment);
+            });
+        });
+        return [...unique.values()];
+    }
+
+    commensurateCellLabelSprite(text, color = '#159b8c') {
+        const canvas = document.createElement('canvas');
+        canvas.width = 760;
+        canvas.height = 128;
+        const context = canvas.getContext('2d');
+        context.clearRect(0, 0, canvas.width, canvas.height);
+        context.textAlign = 'center';
+        context.textBaseline = 'middle';
+        let fontSize = 42;
+        let metrics;
+        do {
+            context.font = `700 ${fontSize}px Inter, system-ui, sans-serif`;
+            metrics = context.measureText(text);
+            if (metrics.width <= canvas.width - 66 || fontSize <= 28) break;
+            fontSize -= 2;
+        } while (fontSize >= 28);
+        const boxWidth = Math.min(canvas.width - 12, Math.ceil(metrics.width + 54));
+        const left = (canvas.width - boxWidth) / 2;
+        context.fillStyle = 'rgba(255,255,255,0.94)';
+        context.strokeStyle = color;
+        context.lineWidth = 4;
+        context.beginPath();
+        if (typeof context.roundRect === 'function') context.roundRect(left, 14, boxWidth, 100, 14);
+        else context.rect(left, 14, boxWidth, 100);
+        context.fill();
+        context.stroke();
+        context.fillStyle = color;
+        context.fillText(text, canvas.width / 2, canvas.height / 2);
+        const texture = new THREE.CanvasTexture(canvas);
+        texture.colorSpace = THREE.SRGBColorSpace;
+        texture.minFilter = THREE.LinearFilter;
+        const material = new THREE.SpriteMaterial({
+            map: texture,
+            transparent: true,
+            depthTest: false,
+            depthWrite: false,
+            toneMapped: false
+        });
+        const sprite = new THREE.Sprite(material);
+        sprite.renderOrder = 52;
+        sprite.userData = {
+            commensurateCellLabel: true,
+            labelText: text,
+            commensurateTexture: texture
+        };
+        return sprite;
+    }
+
+    buildCommensuratePreviewAtoms(preview) {
+        const positions = preview.positions || [];
+        const atomIndices = preview.atom_indices || [];
+        const coreMask = preview.core_mask || [];
+        const components = preview.components || [];
+        const fixed = this.fixedAtomDisplayEnabled()
+            ? new Set(this.atomsData?.constraints?.fixed_indices || [])
+            : new Set();
+        const segmentCount = this.sphereQualitySegments(positions.length);
+        const groups = new Map();
+        positions.forEach((position, row) => {
+            const index = Number(atomIndices[row]);
+            if (!Number.isInteger(index) || !this.commensuratePreviewRowVisible(preview, row)) return;
+            const isFixed = components[row] !== 'guest' && fixed.has(index);
+            const materialPreset = this.commensuratePreviewMaterial(preview, row);
+            const opacity = this.commensuratePreviewOpacity(preview, row);
+            const atomSegments = isFixed ? this.fixedAtomSegments(segmentCount) : segmentCount;
+            const core = coreMask[row] !== false;
+            const component = String(components[row] || 'lattice');
+            const key = `${component}:${isFixed ? 'fixed' : 'normal'}:${materialPreset}:alpha-${opacity.toFixed(4)}:${atomSegments}`;
+            if (!groups.has(key)) {
+                groups.set(key, {
+                    component,
+                    isFixed,
+                    materialPreset,
+                    opacity,
+                    atomSegments,
+                    rows: [],
+                    coreRows: 0,
+                    haloRows: 0
+                });
+            }
+            groups.get(key).rows.push(row);
+            if (core) groups.get(key).coreRows += 1;
+            else groups.get(key).haloRows += 1;
+        });
+
+        groups.forEach(group => {
+            const geometryKey = `unit-sphere:${group.isFixed ? 'fixed' : 'normal'}:${group.atomSegments}`;
+            if (!this.geometryCache.has(geometryKey)) {
+                this.geometryCache.set(
+                    geometryKey,
+                    new THREE.SphereGeometry(
+                        1,
+                        group.atomSegments,
+                        Math.max(8, Math.floor(group.atomSegments * 0.65))
+                    )
+                );
+            }
+            const material = this.createInstancedAtomMaterial(
+                group.isFixed, group.materialPreset, group.opacity
+            );
+            const mesh = new THREE.InstancedMesh(
+                this.geometryCache.get(geometryKey),
+                material,
+                group.rows.length
+            );
+            mesh.frustumCulled = false;
+            mesh.renderOrder = 1;
+            mesh.userData = {
+                commensuratePreviewAtoms: true,
+                commensurateComponent: group.component,
+                commensurateCoreRows: group.coreRows,
+                commensurateHaloRows: group.haloRows,
+                opacity: group.opacity,
+                sharedGeometry: true
+            };
+            group.rows.forEach((row, instanceId) => {
+                const radius = this.commensuratePreviewRadius(preview, row);
+                this.instanceDummy.position.set(...positions[row]);
+                this.instanceDummy.quaternion.identity();
+                this.instanceDummy.scale.setScalar(radius);
+                this.instanceDummy.updateMatrix();
+                mesh.setMatrixAt(instanceId, this.instanceDummy.matrix);
+                mesh.setColorAt(
+                    instanceId,
+                    this.fixedAdjustedColor(
+                        this.commensuratePreviewColor(preview, row),
+                        group.isFixed,
+                        group.materialPreset
+                    )
+                );
+            });
+            mesh.instanceMatrix.needsUpdate = true;
+            if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+            this.commensurateSupercellGroup.add(mesh);
+        });
+    }
+
+    commensuratePreviewBondRange(preview, firstRow, secondRow) {
+        if (this.displayOptions.bondMode === 'pairwise') {
+            return this.pairwiseBondRange(
+                this.commensuratePreviewLabel(preview, firstRow),
+                this.commensuratePreviewLabel(preview, secondRow)
+            );
+        }
+        const scale = Math.max(0.1, Number(this.displayOptions.bondCutoffScale || 1));
+        const maximum = this.autoBondBaseCutoffFromValues(
+            this.commensuratePreviewCovalentRadius(preview, firstRow),
+            this.commensuratePreviewCovalentRadius(preview, secondRow),
+            this.autoBondElementClass(this.commensuratePreviewChemicalSymbol(preview, firstRow)),
+            this.autoBondElementClass(this.commensuratePreviewChemicalSymbol(preview, secondRow))
+        ) * scale;
+        return Number.isFinite(maximum) && maximum > 0
+            ? { min: 0, max: maximum }
+            : null;
+    }
+
+    commensuratePreviewMaximumBondCutoff(preview) {
+        if (this.displayOptions.bondMode === 'pairwise') {
+            return Object.values(this.displayOptions.pairwiseBondRanges || {}).reduce((maximum, range) => {
+                const value = range?.enabled === false ? 0 : Number(range?.max);
+                return Number.isFinite(value) ? Math.max(maximum, value) : maximum;
+            }, 0);
+        }
+        const radii = (preview?.bond_radii || [])
+            .map(Number)
+            .filter(value => Number.isFinite(value) && value > 0)
+            .sort((left, right) => right - left);
+        const radiusSum = (radii[0] || FALLBACK_COVALENT_RADIUS)
+            + (radii[1] || radii[0] || FALLBACK_COVALENT_RADIUS);
+        return (radiusSum + AUTO_BOND_COVALENT_SLACK)
+            * Math.max(0.1, Number(this.displayOptions.bondCutoffScale || 1));
+    }
+
+    commensuratePreviewBondPairs(preview) {
+        if (!this.displayOptions.showBonds) return [];
+        const positions = preview.positions || [];
+        const atomIndices = preview.atom_indices || [];
+        const components = preview.components || [];
+        if (!positions.length) return [];
+        const maxCutoff = Math.max(0, this.commensuratePreviewMaximumBondCutoff(preview));
+        if (maxCutoff <= 0) return [];
+        const inverseBucket = 1 / maxCutoff;
+        const buckets = new Map();
+        const keyFor = (x, y, z) => `${x},${y},${z}`;
+        positions.forEach((position, row) => {
+            const index = Number(atomIndices[row]);
+            if (!Number.isInteger(index) || !this.commensuratePreviewRowVisible(preview, row)) return;
+            const bucket = position.map(value => Math.floor(Number(value) * inverseBucket));
+            const key = keyFor(bucket[0], bucket[1], bucket[2]);
+            if (!buckets.has(key)) buckets.set(key, []);
+            buckets.get(key).push(row);
+        });
+        const manual = new Set((this.displayOptions.manualBondPairs || []).map(([first, second]) => (
+            `${Math.min(first, second)}:${Math.max(first, second)}`
+        )));
+        const hookeanExcluded = this.hookeanBondExclusions();
+        const pairs = [];
+        const maxPairs = 300000;
+        positions.forEach((position, firstRow) => {
+            if (pairs.length >= maxPairs) return;
+            const firstIndex = Number(atomIndices[firstRow]);
+            if (!Number.isInteger(firstIndex) || !this.commensuratePreviewRowVisible(preview, firstRow)) return;
+            const center = position.map(value => Math.floor(Number(value) * inverseBucket));
+            for (let dx = -1; dx <= 1; dx++) {
+                if (pairs.length >= maxPairs) break;
+                for (let dy = -1; dy <= 1; dy++) {
+                    if (pairs.length >= maxPairs) break;
+                    for (let dz = -1; dz <= 1; dz++) {
+                        if (pairs.length >= maxPairs) break;
+                        const rows = buckets.get(keyFor(center[0] + dx, center[1] + dy, center[2] + dz)) || [];
+                        for (const secondRow of rows) {
+                            if (secondRow <= firstRow) continue;
+                            // Host/reference and guest/rotating lattices are
+                            // independent structures until materialization.
+                            // Never infer an inter-layer bond merely because
+                            // the preview places their atoms nearby.
+                            if (components[firstRow] !== components[secondRow]) continue;
+                            const secondIndex = Number(atomIndices[secondRow]);
+                            const pairKey = `${Math.min(firstIndex, secondIndex)}:${Math.max(firstIndex, secondIndex)}`;
+                            if (hookeanExcluded.has(pairKey)) continue;
+                            if (this.displayOptions.bondMode === 'manual' && !manual.has(pairKey)) continue;
+                            const range = this.displayOptions.bondMode === 'manual'
+                                ? { min: 0, max: maxCutoff }
+                                : this.commensuratePreviewBondRange(preview, firstRow, secondRow);
+                            if (!range) continue;
+                            const second = positions[secondRow];
+                            const deltaX = Number(second[0]) - Number(position[0]);
+                            const deltaY = Number(second[1]) - Number(position[1]);
+                            const deltaZ = Number(second[2]) - Number(position[2]);
+                            const distanceSquared = deltaX * deltaX + deltaY * deltaY + deltaZ * deltaZ;
+                            if (
+                                distanceSquared <= 0.0225
+                                || distanceSquared < range.min * range.min
+                                || distanceSquared > range.max * range.max
+                            ) continue;
+                            pairs.push([firstRow, secondRow]);
+                            if (pairs.length >= maxPairs) break;
+                        }
+                    }
+                }
+            }
+        });
+        return pairs;
+    }
+
+    buildCommensuratePreviewBonds(preview) {
+        const positions = preview.positions || [];
+        const atomIndices = preview.atom_indices || [];
+        const pairs = this.commensuratePreviewBondPairs(preview);
+        const split = this.displayOptions.bondColorMode !== 'custom';
+        const segmentsByColor = new Map();
+        pairs.forEach(([firstRow, secondRow]) => {
+            const firstIndex = Number(atomIndices[firstRow]);
+            const secondIndex = Number(atomIndices[secondRow]);
+            const segments = split
+                ? [
+                    { firstRow, secondRow, t0: 0, t1: 0.5, color: this.commensuratePreviewColor(preview, firstRow) },
+                    { firstRow, secondRow, t0: 0.5, t1: 1, color: this.commensuratePreviewColor(preview, secondRow) }
+                ]
+                : [{ firstRow, secondRow, t0: 0, t1: 1, color: this.displayOptions.bondCustomColor }];
+            segments.forEach(segment => {
+                const color = this.validHexColor(segment.color)
+                    ? segment.color
+                    : this.displayOptions.bondCustomColor;
+                if (!segmentsByColor.has(color)) segmentsByColor.set(color, []);
+                segmentsByColor.get(color).push(segment);
+            });
+        });
+        const flat = this.effectiveBondStyle() === 'flat';
+        const thickness = this.bondThickness();
+        segmentsByColor.forEach((segments, color) => {
+            const mesh = new THREE.InstancedMesh(
+                flat ? this.bondFlatGeometry : this.bondCylinderGeometry,
+                this.bondMaterial(flat ? 'flat' : 'cylinder', color),
+                segments.length
+            );
+            mesh.frustumCulled = false;
+            mesh.renderOrder = -1;
+            mesh.userData = {
+                commensuratePreviewBonds: true,
+                sharedGeometry: true,
+                sharedMaterial: true
+            };
+            const dummy = this.bondInstanceDummy;
+            segments.forEach((segment, instanceId) => {
+                const start = new THREE.Vector3(...positions[segment.firstRow]);
+                const end = new THREE.Vector3(...positions[segment.secondRow]);
+                const fullDelta = end.clone().sub(start);
+                const fullLength = fullDelta.length();
+                const segmentStart = start.clone().addScaledVector(fullDelta, segment.t0);
+                const segmentEnd = start.clone().addScaledVector(fullDelta, segment.t1);
+                const segmentDelta = segmentEnd.clone().sub(segmentStart);
+                const segmentLength = segmentDelta.length();
+                const center = segmentStart.add(segmentEnd).multiplyScalar(0.5);
+                if (flat) {
+                    dummy.position.copy(center);
+                    dummy.scale.set(thickness, segmentLength, 1);
+                    this.orientFlatBond(dummy, segmentDelta);
+                    dummy.updateMatrix();
+                    mesh.setMatrixAt(instanceId, dummy.matrix);
+                } else {
+                    this.writeCylinderBondInstance(
+                        mesh,
+                        instanceId,
+                        segmentDelta,
+                        segmentLength,
+                        segmentLength,
+                        thickness,
+                        center.x,
+                        center.y,
+                        center.z
+                    );
+                }
+            });
+            mesh.instanceMatrix.needsUpdate = true;
+            this.commensurateSupercellGroup.add(mesh);
+        });
+        return pairs.length;
+    }
+
+    setCommensurateSupercellPreview(payload) {
+        const preview = payload?.preview;
+        const updatingExistingPreview = Boolean(this.commensurateSupercellPreview);
+        const cameraSnapshot = updatingExistingPreview
+            ? this.commensurateCameraSnapshot
+            : this.cameraSnapshot();
+        this.clearCommensurateSupercellPreview({ requestRender: false, restoreCamera: false });
+        if (!preview || !Array.isArray(preview.cell)) {
+            if (cameraSnapshot) this.restoreCameraSnapshot(cameraSnapshot);
+            this.requestRender();
+            return;
+        }
+        this.commensurateCameraSnapshot = cameraSnapshot;
+        this.hideBaseSceneForCommensuratePreview();
+        this.commensurateSupercellPreview = payload;
+        if (preview.positions?.length) this.buildCommensuratePreviewAtoms(preview);
+        const bondCount = preview.positions?.length ? this.buildCommensuratePreviewBonds(preview) : 0;
+        const addBoundary = (cell, color, opacity, metadata, origin = [0, 0, 0], scale = 1) => {
+            if (!Array.isArray(cell) || cell.length !== 3) return;
+            const material = new THREE.MeshBasicMaterial({
+                color,
+                transparent: true,
+                opacity,
+                depthTest: true,
+                depthWrite: false,
+                toneMapped: false
+            });
+            this.addCellEdgeInstances(
+                this.commensurateSupercellGroup,
+                this.commensuratePlanarCellSegments(cell, origin),
+                metadata,
+                {
+                    material,
+                    radius: Math.max(0.025, this.normalizedCellThickness() * scale)
+                }
+            );
+        };
+        const addPrimitiveGrid = (origins, vectors, color, metadata, opacity = 0.42) => {
+            const segments = this.commensuratePrimitiveSegments(origins, vectors);
+            if (!segments.length) return;
+            const material = new THREE.MeshBasicMaterial({
+                color,
+                transparent: true,
+                opacity,
+                depthTest: true,
+                depthWrite: false,
+                toneMapped: false
+            });
+            this.addCellEdgeInstances(
+                this.commensurateSupercellGroup,
+                segments,
+                metadata,
+                {
+                    material,
+                    radius: Math.max(0.016, this.normalizedCellThickness() * 0.42)
+                }
+            );
+        };
+        const addCellLabel = (text, cell, originValues, color, side, metadata) => {
+            if (!text || !Array.isArray(cell) || cell.length < 2) return;
+            const origin = new THREE.Vector3(...originValues);
+            const first = new THREE.Vector3(...cell[0]);
+            const second = new THREE.Vector3(...cell[1]);
+            const firstLength = first.length();
+            const secondLength = second.length();
+            if (firstLength <= 1e-8 || secondLength <= 1e-8) return;
+            const normal = second.clone().normalize().multiplyScalar(
+                side * Math.max(0.8, Math.min(firstLength, secondLength) * 0.16)
+            );
+            const sprite = this.commensurateCellLabelSprite(text, color);
+            sprite.position.copy(origin).addScaledVector(first, 0.5).add(normal);
+            const width = THREE.MathUtils.clamp(firstLength * 0.54, 3.3, 7.2);
+            sprite.scale.set(width, width * 0.175, 1);
+            sprite.userData = { ...sprite.userData, ...metadata };
+            this.commensurateSupercellGroup.add(sprite);
+        };
+        const addPrimitiveVectors = (origins, vectors, color, metadata) => {
+            if (!Array.isArray(origins) || !origins.length || !Array.isArray(vectors)) return;
+            const originValues = origins.reduce((nearest, candidate) => {
+                const candidateLength = new THREE.Vector3(...candidate).lengthSq();
+                const nearestLength = new THREE.Vector3(...nearest).lengthSq();
+                return candidateLength < nearestLength ? candidate : nearest;
+            }, origins[0]);
+            const origin = new THREE.Vector3(...originValues);
+            vectors.slice(0, 2).forEach((values, vectorIndex) => {
+                const direction = new THREE.Vector3(...values);
+                const length = direction.length();
+                if (!Number.isFinite(length) || length <= 1e-9) return;
+                direction.normalize();
+                const shaftRadius = Math.max(
+                    0.045,
+                    this.normalizedCellThickness() * 0.82
+                );
+                const headLength = Math.min(
+                    length * 0.24,
+                    Math.max(0.18, length * 0.17)
+                );
+                const shaftLength = Math.max(length - headLength * 0.72, length * 0.62);
+                const shaftEnd = origin.clone().addScaledVector(direction, shaftLength);
+                const arrow = new THREE.Group();
+                arrow.userData = { ...metadata, commensurateVectorIndex: vectorIndex };
+                const material = new THREE.MeshBasicMaterial({
+                    color,
+                    transparent: true,
+                    opacity: 1,
+                    depthTest: true,
+                    depthWrite: false,
+                    toneMapped: false
+                });
+                const shaft = this.addCellEdgeInstances(
+                    arrow,
+                    [[origin, shaftEnd]],
+                    { ...metadata, commensurateVectorShaft: true },
+                    { material, radius: shaftRadius }
+                );
+                if (shaft) shaft.renderOrder = 5;
+                const cone = new THREE.Mesh(
+                    new THREE.ConeGeometry(1, 1, 18, 1, false),
+                    material
+                );
+                cone.position.copy(origin).addScaledVector(
+                    direction,
+                    length - headLength * 0.5
+                );
+                cone.quaternion.setFromUnitVectors(this.yAxis, direction);
+                const headRadius = shaftRadius * 2.35;
+                cone.scale.set(headRadius, headLength, headRadius);
+                cone.renderOrder = 5;
+                cone.userData = {
+                    ...metadata,
+                    commensurateVectorHead: true,
+                    commensurateVectorIndex: vectorIndex
+                };
+                arrow.add(cone);
+                this.commensurateSupercellGroup.add(arrow);
+            });
+        };
+        const guestOrigin = preview.mode === 'host-guest'
+            ? (preview.guest_offset || [0, 0, 0])
+            : [0, 0, 0];
+        const gridLabel = (shape) => (
+            Array.isArray(shape)
+            && shape.length >= 2
+            && shape.slice(0, 2).every(value => Number.isFinite(Number(value)))
+                ? `${Math.trunc(Number(shape[0]))} × ${Math.trunc(Number(shape[1]))} grid`
+                : ''
+        );
+        const hostGridLabel = gridLabel(preview.host_grid_shape);
+        const guestGridLabel = gridLabel(preview.guest_grid_shape);
+        const fixedParentLattices = preview.parent_lattices_fixed === true;
+        const candidate = payload?.candidate || {};
+        const hostColor = this.displayOptions.viewportBackground === 'dark'
+            ? 0xf2f5f4
+            : 0x161a1d;
+        const guestColor = 0xf58220;
+        addPrimitiveGrid(
+            preview.host_grid_lattice_origins || preview.host_lattice_origins,
+            preview.host_primitive_vectors,
+            hostColor,
+            { commensurateHostPrimitiveGrid: true },
+            fixedParentLattices ? 0.68 : 0.38
+        );
+        addPrimitiveGrid(
+            preview.guest_grid_lattice_origins || preview.guest_lattice_origins,
+            preview.guest_primitive_vectors,
+            guestColor,
+            { commensurateGuestPrimitiveGrid: true },
+            fixedParentLattices ? 0.72 : 0.44
+        );
+        addPrimitiveVectors(
+            preview.host_lattice_origins,
+            preview.host_primitive_vectors,
+            hostColor,
+            { commensurateHostPrimitiveVector: true }
+        );
+        addPrimitiveVectors(
+            preview.guest_lattice_origins,
+            preview.guest_primitive_vectors,
+            guestColor,
+            { commensurateGuestPrimitiveVector: true }
+        );
+        const displayedHostCell = fixedParentLattices
+            ? (preview.host_parent_cell || preview.host_cell)
+            : preview.host_cell;
+        const displayedGuestCell = fixedParentLattices
+            ? (preview.guest_parent_cell || preview.guest_cell)
+            : preview.guest_cell;
+        addBoundary(
+            displayedHostCell,
+            hostColor,
+            0.94,
+            { commensurateHostCell: true },
+            [0, 0, 0],
+            1.08
+        );
+        addBoundary(
+            displayedGuestCell,
+            guestColor,
+            0.94,
+            { commensurateGuestCell: true },
+            guestOrigin,
+            1.08
+        );
+        // The fixed parent-lattice view can contain hundreds of primitive
+        // cells. Keep its viewport geometric: the control panel carries the
+        // lattice names and metrics, while the exact primitive vectors and
+        // contrasting grids identify host and guest at their shared origin.
+        // Labels remain useful for a bounded, candidate-specific preview.
+        if (!fixedParentLattices) {
+            addCellLabel(
+                `HOST ${hostGridLabel} · ${preview.host_notation || ''}`.trim(),
+                displayedHostCell,
+                [0, 0, 0],
+                this.displayOptions.viewportBackground === 'dark' ? '#f2f5f4' : '#161a1d',
+                -1,
+                { commensurateHostCellLabel: true }
+            );
+            addCellLabel(
+                `GUEST ${guestGridLabel} · ${preview.guest_notation || ''}`.trim(),
+                displayedGuestCell,
+                guestOrigin,
+                '#d8660f',
+                1,
+                { commensurateGuestCellLabel: true }
+            );
+        }
+        if (preview.has_suggestion !== false && (preview.common_cell || preview.cell)) {
+            const suggestionColor = 0x139c68;
+            addBoundary(
+                preview.common_cell || preview.cell,
+                suggestionColor,
+                0.92,
+                { commensurateSuggestedCell: true },
+                [0, 0, 0],
+                1.28
+            );
+            const notation = candidate.host_notation
+                || candidate.target_notation
+                || candidate.host_matrix_text
+                || candidate.target_matrix_text
+                || 'validated common cell';
+            addCellLabel(
+                `COMMON CELL · ${notation}`,
+                preview.common_cell || preview.cell,
+                [0, 0, 0],
+                '#0b7b51',
+                1.55,
+                { commensurateSuggestedCellLabel: true }
+            );
+        }
+        this.commensurateSupercellGroup.position.copy(this.visualTranslationVector());
+        this.domElement.dataset.commensuratePreviewAtoms = String(preview.preview_atom_count || preview.positions.length);
+        this.domElement.dataset.commensuratePreviewBonds = String(bondCount);
+        this.applyShadowFlags();
+        this.requestRender();
+    }
+
     getAtomPosition(index) {
         const mesh = this.atomMeshByIndex.get(index);
         if (mesh) return mesh.position.clone();
@@ -4569,27 +7130,136 @@ export class ASERenderer {
         return Number.isFinite(value) ? Math.max(0.02, Math.min(0.6, value)) : 0.25;
     }
 
+    normalizedBondMaterial(value) {
+        return ['standard', 'metal', 'rubber', 'unlit'].includes(value)
+            ? value
+            : 'standard';
+    }
+
+    bondAppearance(i, j, endpointIndex = null) {
+        const left = this.atomsData?.symbols?.[i] || '';
+        const right = this.atomsData?.symbols?.[j] || '';
+        const override = this.displayOptions.pairwiseBondStyles?.[this.labelPairKey(left, right)];
+        const source = override && typeof override === 'object' ? override : {};
+        const endpoint = endpointIndex === null
+            ? null
+            : (
+                this.displayOptions.atomBondStyles?.[endpointIndex]
+                ?? this.displayOptions.atomBondStyles?.[String(endpointIndex)]
+            );
+        const endpointSource = endpoint && typeof endpoint === 'object' ? endpoint : {};
+        const opacity = Number(endpointSource.opacity ?? source.opacity ?? this.displayOptions.bondOpacity);
+        const thickness = Number(source.thickness ?? this.displayOptions.bondThickness);
+        const customColor = this.validHexColor(endpointSource.color)
+            ? endpointSource.color.toLowerCase()
+            : (this.validHexColor(source.color)
+                ? source.color.toLowerCase()
+                : (this.validHexColor(this.displayOptions.bondCustomColor)
+                    ? this.displayOptions.bondCustomColor.toLowerCase()
+                    : '#c8ccd0'));
+        return {
+            style: this.effectiveBondStyle(source.style ?? this.displayOptions.bondStyle),
+            material: this.normalizedBondMaterial(
+                endpointSource.material ?? source.material ?? this.displayOptions.bondMaterial
+            ),
+            thickness: Math.max(0.02, Math.min(0.6, Number.isFinite(thickness)
+                ? thickness
+                : this.bondThickness())),
+            colorMode: (source.colorMode ?? this.displayOptions.bondColorMode) === 'custom'
+                ? 'custom'
+                : 'split',
+            customColor,
+            opacity: Math.max(0, Math.min(1, Number.isFinite(opacity) ? opacity : 1))
+        };
+    }
+
+    bondSegmentsForPair(i, j) {
+        const base = this.bondAppearance(i, j);
+        const leftAppearance = this.bondAppearance(i, j, i);
+        const rightAppearance = this.bondAppearance(i, j, j);
+        const endpointStyles = this.displayOptions.atomBondStyles || {};
+        const leftOverride = endpointStyles[i] ?? endpointStyles[String(i)];
+        const rightOverride = endpointStyles[j] ?? endpointStyles[String(j)];
+        if (
+            base.colorMode === 'custom'
+            && !leftOverride
+            && !rightOverride
+        ) {
+            return [{ i, j, t0: 0, t1: 1, colorIndex: null, appearance: base }];
+        }
+        return [
+            {
+                i, j, t0: 0, t1: 0.5,
+                colorIndex: base.colorMode === 'custom' ? null : i,
+                appearance: leftAppearance
+            },
+            {
+                i, j, t0: 0.5, t1: 1,
+                colorIndex: base.colorMode === 'custom' ? null : j,
+                appearance: rightAppearance
+            }
+        ];
+    }
+
+    bondAppearanceKey(segment) {
+        const appearance = segment.appearance || this.bondAppearance(segment.i, segment.j);
+        const color = this.bondSegmentColor(segment);
+        return [
+            appearance.style,
+            appearance.material,
+            appearance.thickness.toFixed(4),
+            appearance.opacity.toFixed(4),
+            color
+        ].join(':');
+    }
+
     bondSegmentColor(segment) {
         const requested = segment.colorIndex === null
-            ? this.displayOptions.bondCustomColor
+            ? (segment.appearance?.customColor || this.displayOptions.bondCustomColor)
             : this.atomVisualColor(segment.colorIndex, this.customColors[segment.colorIndex]);
         return this.validHexColor(requested) ? requested.toLowerCase() : '#c8ccd0';
     }
 
-    bondMaterial(style, color) {
-        const key = `bond:${style}:${style === 'flat' ? this.viewportBackgroundMode : 'lit'}:${color}`;
+    bondMaterial(style, color, presetName = 'standard', opacity = 1) {
+        const preset = this.normalizedBondMaterial(presetName);
+        const parsedOpacity = Number(opacity);
+        const normalizedOpacity = Math.max(0, Math.min(1, Number.isFinite(parsedOpacity)
+            ? parsedOpacity
+            : 1));
+        const transparent = normalizedOpacity < 0.999;
+        const key = [
+            'bond', style, preset,
+            style === 'flat' ? this.viewportBackgroundMode : 'lit',
+            color, normalizedOpacity.toFixed(4)
+        ].join(':');
         if (this.materialCache.has(key)) return this.materialCache.get(key);
-        const material = style === 'flat'
-            ? new THREE.MeshBasicMaterial({
+        let material;
+        if (preset === 'unlit') {
+            material = new THREE.MeshBasicMaterial({
                 color,
-                side: THREE.DoubleSide,
-                toneMapped: false
-            })
-            : new THREE.MeshStandardMaterial({
-                color,
-                roughness: 0.5,
-                metalness: 0.03
+                side: style === 'flat' ? THREE.DoubleSide : THREE.FrontSide,
+                toneMapped: false,
+                transparent,
+                opacity: normalizedOpacity,
+                depthWrite: !transparent
             });
+        } else {
+            const spec = ATOM_MATERIAL_PRESETS[preset];
+            material = new THREE.MeshPhysicalMaterial({
+                color,
+                roughness: spec.roughness,
+                metalness: spec.metalness,
+                clearcoat: spec.clearcoat,
+                clearcoatRoughness: spec.clearcoatRoughness,
+                specularIntensity: spec.specularIntensity,
+                envMap: preset === 'metal' ? this.ensureMetalEnvironmentMap() : null,
+                envMapIntensity: spec.envMapIntensity,
+                side: style === 'flat' ? THREE.DoubleSide : THREE.FrontSide,
+                transparent,
+                opacity: normalizedOpacity,
+                depthWrite: !transparent
+            });
+        }
         if (style === 'flat') this.applyFlatBondShader(material);
         this.materialCache.set(key, material);
         return material;
@@ -4646,11 +7316,12 @@ export class ASERenderer {
     }
 
     orientFlatBond(object, direction) {
+        const camera = this.flatOrientationCamera || this.camera;
         const y = this.bondFlatY.copy(direction).normalize();
-        const z = this.camera.getWorldDirection(this.bondFlatZ).multiplyScalar(-1);
+        const z = camera.getWorldDirection(this.bondFlatZ).multiplyScalar(-1);
         z.addScaledVector(y, -z.dot(y));
         if (z.lengthSq() < 1e-10) {
-            z.copy(this.camera.up).addScaledVector(y, -this.camera.up.dot(y));
+            z.copy(camera.up).addScaledVector(y, -camera.up.dot(y));
         }
         if (z.lengthSq() < 1e-10) {
             z.set(0, 0, 1).addScaledVector(y, -y.z);
@@ -4668,7 +7339,7 @@ export class ASERenderer {
     positionBondMesh(bond, i, j) {
         const a = this.atomMeshByIndex.get(i);
         const b = this.atomMeshByIndex.get(j);
-        if (!a || !b || !this.atomLabelVisible(i) || !this.atomLabelVisible(j)) {
+        if (!a || !b || !this.atomReferenceVisible(i) || !this.atomReferenceVisible(j)) {
             bond.visible = false;
             return;
         }
@@ -4681,7 +7352,8 @@ export class ASERenderer {
         }
         bond.visible = true;
         bond.position.copy(start).addScaledVector(delta, 0.5);
-        if (this.effectiveBondStyle() === 'flat') {
+        const style = this.bondAppearance(i, j).style;
+        if (style === 'flat') {
             bond.scale.set(this.bondThickness(), length, 1);
             this.orientFlatBond(bond, delta);
         } else {
@@ -4699,12 +7371,29 @@ export class ASERenderer {
         t1 = 1,
         shift = null,
         imageOffset = null,
-        thickness = this.bondThickness()
+        thickness = this.bondThickness(),
+        cellOffset = null,
+        style = this.effectiveBondStyle()
     ) {
         const a = this.atomMeshByIndex.get(i);
         const b = this.atomMeshByIndex.get(j);
         const dummy = this.bondInstanceDummy;
-        if (!a || !b || !this.atomLabelVisible(i) || !this.atomLabelVisible(j)) {
+        const startOffset = Array.isArray(cellOffset) ? cellOffset : [0, 0, 0];
+        const endpointImageOffset = Array.isArray(imageOffset)
+            ? imageOffset
+            : (this.displayOptions.showPeriodicBonds
+                ? this.minimumImageBondData(i, j).imageOffset
+                : [0, 0, 0]);
+        const endOffset = startOffset.map((value, axis) => (
+            Number(value) + (Number(endpointImageOffset[axis]) || 0)
+        ));
+        const startCellReference = startOffset.some(Boolean) ? startOffset : null;
+        const endCellReference = endOffset.some(Boolean) ? endOffset : null;
+        if (
+            !a || !b
+            || !this.atomReferenceVisible(i, startCellReference)
+            || !this.atomReferenceVisible(j, endCellReference)
+        ) {
             this.hideBondInstance(mesh, instanceId);
             return;
         }
@@ -4726,7 +7415,7 @@ export class ASERenderer {
         const centerX = atomStart.x + (shift?.x || 0) + fullDelta.x * midpointFactor;
         const centerY = atomStart.y + (shift?.y || 0) + fullDelta.y * midpointFactor;
         const centerZ = atomStart.z + (shift?.z || 0) + fullDelta.z * midpointFactor;
-        if (this.effectiveBondStyle() === 'flat') {
+        if (style === 'flat') {
             dummy.position.set(centerX, centerY, centerZ);
             dummy.scale.set(thickness, length, 1);
             this.orientFlatBond(dummy, fullDelta);
@@ -4865,11 +7554,17 @@ export class ASERenderer {
         this.requestRender();
     }
 
+    supercellAxisOffsets(count) {
+        const size = Math.max(1, Math.floor(Number(count) || 1));
+        const start = -Math.floor((size - 1) / 2);
+        return Array.from({ length: size }, (_, index) => start + index);
+    }
+
     supercellTranslations(cell, reps) {
         const translations = [];
-        for (let ix = 0; ix < reps[0]; ix++) {
-            for (let iy = 0; iy < reps[1]; iy++) {
-                for (let iz = 0; iz < reps[2]; iz++) {
+        for (const ix of this.supercellAxisOffsets(reps[0])) {
+            for (const iy of this.supercellAxisOffsets(reps[1])) {
+                for (const iz of this.supercellAxisOffsets(reps[2])) {
                     if (ix === 0 && iy === 0 && iz === 0) continue;
                     translations.push({
                         cellOffset: [ix, iy, iz],
@@ -4901,15 +7596,20 @@ export class ASERenderer {
         this.atomsData.symbols.forEach((sym, index) => {
             const isFixed = fixed.has(index);
             const materialPreset = this.atomMaterialPreset(index);
+            const opacity = this.atomVisualOpacity(index);
             const atomSegments = isFixed ? this.fixedAtomSegments(segmentCount) : segmentCount;
             const geometryKey = `unit-sphere:${isFixed ? 'fixed' : 'normal'}:${atomSegments}`;
             const color = this.atomVisualColor(index, this.customColors[index]);
             const perInstanceColor = this.useInstancedAtoms;
             const materialKey = perInstanceColor
-                ? this.atomMaterialCacheKey('#ffffff', isFixed, atomSegments, true, materialPreset)
-                : this.atomMaterialCacheKey(color, isFixed, atomSegments, false, materialPreset);
+                ? this.atomMaterialCacheKey(
+                    '#ffffff', isFixed, atomSegments, true, materialPreset, opacity
+                )
+                : this.atomMaterialCacheKey(
+                    color, isFixed, atomSegments, false, materialPreset, opacity
+                );
             const key = perInstanceColor
-                ? `${isFixed ? 'fixed' : 'normal'}:${materialPreset}:${atomSegments}`
+                ? `${isFixed ? 'fixed' : 'normal'}:${materialPreset}:alpha-${opacity.toFixed(4)}:${atomSegments}`
                 : materialKey;
             if (!groups.has(key)) {
                 groups.set(key, {
@@ -4918,6 +7618,7 @@ export class ASERenderer {
                     geometryKey,
                     materialKey,
                     materialPreset,
+                    opacity,
                     color,
                     perInstanceColor,
                     indices: []
@@ -4935,14 +7636,19 @@ export class ASERenderer {
             }
             if (!this.materialCache.has(group.materialKey)) {
                 const material = group.perInstanceColor
-                    ? this.createInstancedAtomMaterial(group.isFixed, group.materialPreset)
-                    : this.createAtomMaterial(group.color, group.isFixed, group.materialPreset);
+                    ? this.createInstancedAtomMaterial(
+                        group.isFixed, group.materialPreset, group.opacity
+                    )
+                    : this.createAtomMaterial(
+                        group.color, group.isFixed, group.materialPreset, group.opacity
+                    );
                 this.materialCache.set(group.materialKey, material);
             }
             const total = group.indices.length * shifts.length;
+            const material = this.materialCache.get(group.materialKey);
             const mesh = new THREE.InstancedMesh(
                 this.geometryCache.get(group.geometryKey),
-                this.materialCache.get(group.materialKey),
+                material,
                 total
             );
             mesh.frustumCulled = false;
@@ -4954,13 +7660,21 @@ export class ASERenderer {
                 cellOffsets,
                 fixed: group.isFixed,
                 materialPreset: group.materialPreset,
+                opacity: group.opacity,
                 sharedGeometry: true,
-                sharedMaterial: true
+                sharedMaterial: true,
+                replicaOpacity: 1
             };
             let instanceId = 0;
-            shifts.forEach(shift => {
+            shifts.forEach((shift, shiftIndex) => {
                 group.indices.forEach(index => {
-                    this.setSupercellInstanceMatrix(mesh, instanceId, index, shift);
+                    this.setSupercellInstanceMatrix(
+                        mesh,
+                        instanceId,
+                        index,
+                        shift,
+                        cellOffsets[shiftIndex]
+                    );
                     if (group.perInstanceColor) {
                         mesh.setColorAt(
                             instanceId,
@@ -5008,7 +7722,7 @@ export class ASERenderer {
             const cellOffsets = mesh.userData.cellOffsets || [];
             cellOffsets.forEach(cellOffset => {
                 atomIndices.forEach(index => {
-                    if (!this.atomLabelVisible(index)) return;
+                    if (!this.atomReferenceVisible(index, cellOffset)) return;
                     if (symbol !== null && this.atomsData?.symbols?.[index] !== symbol) return;
                     references.push({
                         kind: 'replica',
@@ -5020,6 +7734,16 @@ export class ASERenderer {
             });
         });
         return references;
+    }
+
+    equivalentReplicaSelectionReferences(indices = []) {
+        const selected = new Set(
+            [...indices]
+                .map(value => Number(value))
+                .filter(Number.isInteger)
+        );
+        if (!selected.size) return [];
+        return this.supercellSelectionReferences().filter(reference => selected.has(reference.index));
     }
 
     replicaSelectionPosition(reference) {
@@ -5091,13 +7815,15 @@ export class ASERenderer {
 
     supercellBridgeStartOffsets(imageOffset, repeats) {
         const normalized = [0, 1, 2].map(axis => Math.max(1, Math.floor(Number(repeats[axis]) || 1)));
+        const allowed = normalized.map(value => this.supercellAxisOffsets(value));
+        const allowedSets = allowed.map(values => new Set(values));
         const offsets = [];
-        for (let ix = 0; ix < normalized[0]; ix++) {
-            for (let iy = 0; iy < normalized[1]; iy++) {
-                for (let iz = 0; iz < normalized[2]; iz++) {
+        for (const ix of allowed[0]) {
+            for (const iy of allowed[1]) {
+                for (const iz of allowed[2]) {
                     const start = [ix, iy, iz];
                     const end = start.map((value, axis) => value + (Number(imageOffset[axis]) || 0));
-                    if (end.every((value, axis) => value >= 0 && value < normalized[axis])) {
+                    if (end.every((value, axis) => allowedSets[axis].has(value))) {
                         offsets.push(start);
                     }
                 }
@@ -5131,28 +7857,31 @@ export class ASERenderer {
         const repeats = reps || this.displayOptions.supercell || [1, 1, 1];
         if (repeats.every(value => value <= 1)) return;
         const basis = cell || this.atomsData.cell.map(values => new THREE.Vector3(...values));
-        const shifts = this.supercellShifts(basis, repeats);
-        if (!shifts.length) return;
+        const translations = this.supercellTranslations(basis, repeats);
+        if (!translations.length) return;
 
-        const split = this.displayOptions.bondColorMode !== 'custom';
-        const segmentsForPair = (i, j) => split
-            ? [
-                { i, j, t0: 0, t1: 0.5, colorIndex: i },
-                { i, j, t0: 0.5, t1: 1, colorIndex: j }
-            ]
-            : [{ i, j, t0: 0, t1: 1, colorIndex: null }];
-        const flat = this.effectiveBondStyle() === 'flat';
-        const thickness = this.bondThickness();
-        const instancesByColor = new Map();
-        const addInstance = (segment, shift, imageOffset = null, bridge = false) => {
-            const color = this.bondSegmentColor(segment);
-            if (!instancesByColor.has(color)) instancesByColor.set(color, []);
-            instancesByColor.get(color).push({ segment, shift, imageOffset, bridge });
+        const instancesByAppearance = new Map();
+        const addInstance = (
+            segment,
+            shift,
+            imageOffset = null,
+            bridge = false,
+            cellOffset = null
+        ) => {
+            const key = this.bondAppearanceKey(segment);
+            if (!instancesByAppearance.has(key)) instancesByAppearance.set(key, []);
+            instancesByAppearance.get(key).push({ segment, shift, imageOffset, bridge, cellOffset });
         };
 
         this.bondPairs.forEach(([i, j]) => {
-            segmentsForPair(i, j).forEach(segment => {
-                shifts.forEach(shift => addInstance(segment, shift));
+            this.bondSegmentsForPair(i, j).forEach(segment => {
+                translations.forEach(translation => addInstance(
+                    segment,
+                    translation.vector,
+                    null,
+                    false,
+                    translation.cellOffset
+                ));
             });
         });
 
@@ -5168,18 +7897,28 @@ export class ASERenderer {
         bridgeRecords.forEach(record => {
             this.supercellBridgeStartOffsets(record.imageOffset, repeats).forEach(cellOffset => {
                 const shift = this.cellOffsetVector(cellOffset, basis);
-                segmentsForPair(record.i, record.j).forEach(segment => {
-                    addInstance(segment, shift, record.imageOffset, true);
+                this.bondSegmentsForPair(record.i, record.j).forEach(segment => {
+                    addInstance(segment, shift, record.imageOffset, true, cellOffset);
                 });
                 bridgeBondCount++;
             });
         });
         this.domElement.dataset.supercellBridgeBondCount = String(bridgeBondCount);
 
-        instancesByColor.forEach((bondInstances, color) => {
+        instancesByAppearance.forEach(bondInstances => {
+            const sample = bondInstances[0].segment;
+            const appearance = sample.appearance;
+            const color = this.bondSegmentColor(sample);
+            const flat = appearance.style === 'flat';
+            const material = this.bondMaterial(
+                appearance.style,
+                color,
+                appearance.material,
+                appearance.opacity
+            );
             const mesh = new THREE.InstancedMesh(
                 flat ? this.bondFlatGeometry : this.bondCylinderGeometry,
-                this.bondMaterial(flat ? 'flat' : 'cylinder', color),
+                material,
                 bondInstances.length
             );
             mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
@@ -5189,8 +7928,10 @@ export class ASERenderer {
                 supercellBonds: true,
                 bondInstances,
                 bondColor: color,
+                bondAppearance: { ...appearance },
                 sharedGeometry: true,
-                sharedMaterial: true
+                sharedMaterial: true,
+                replicaOpacity: 1
             };
             bondInstances.forEach((instance, instanceId) => {
                 const segment = instance.segment;
@@ -5203,7 +7944,9 @@ export class ASERenderer {
                     segment.t1,
                     instance.shift,
                     instance.imageOffset,
-                    thickness
+                    segment.appearance?.thickness ?? this.bondThickness(),
+                    instance.cellOffset,
+                    appearance.style
                 );
             });
             mesh.instanceMatrix.needsUpdate = true;
@@ -5212,7 +7955,6 @@ export class ASERenderer {
     }
 
     updateSupercellBondPositions() {
-        const thickness = this.bondThickness();
         this.supercellGroup.children.forEach(mesh => {
             if (!mesh.userData?.supercellBonds) return;
             (mesh.userData.bondInstances || []).forEach((instance, instanceId) => {
@@ -5226,16 +7968,18 @@ export class ASERenderer {
                     segment.t1,
                     instance.shift,
                     instance.imageOffset,
-                    thickness
+                    segment.appearance?.thickness ?? this.bondThickness(),
+                    instance.cellOffset,
+                    segment.appearance?.style
                 );
             });
             mesh.instanceMatrix.needsUpdate = true;
         });
     }
 
-    setSupercellInstanceMatrix(mesh, instanceId, index, shift) {
+    setSupercellInstanceMatrix(mesh, instanceId, index, shift, cellOffset = null) {
         const atom = this.atomMeshByIndex.get(index);
-        const visible = atom && this.atomLabelVisible(index);
+        const visible = atom && this.atomReferenceVisible(index, cellOffset);
         const scale = visible ? this.atomVisualRadius(index) : 0;
         const matrix = mesh.instanceMatrix.array;
         const offset = instanceId * 16;
@@ -5294,9 +8038,9 @@ export class ASERenderer {
                 o.clone().add(cell[0]).add(cell[1]).add(cell[2])
             ];
         };
-        for (let ix = 0; ix < reps[0]; ix++) {
-            for (let iy = 0; iy < reps[1]; iy++) {
-                for (let iz = 0; iz < reps[2]; iz++) {
+        for (const ix of this.supercellAxisOffsets(reps[0])) {
+            for (const iy of this.supercellAxisOffsets(reps[1])) {
+                for (const iz of this.supercellAxisOffsets(reps[2])) {
                     const shift = new THREE.Vector3()
                         .addScaledVector(cell[0], ix)
                         .addScaledVector(cell[1], iy)
@@ -5328,12 +8072,18 @@ export class ASERenderer {
             if (mesh.userData.supercellCellPreview || mesh.userData.supercellBonds) return;
             if (mesh.userData.supercellInstanced) {
                 let instanceId = 0;
-                mesh.userData.shifts.forEach(shift => {
+                mesh.userData.shifts.forEach((shift, shiftIndex) => {
                     mesh.userData.atomIndices.forEach(index => {
                         if (translationsOnly) {
                             this.setSupercellInstanceTranslation(mesh, instanceId, index, shift);
                         } else {
-                            this.setSupercellInstanceMatrix(mesh, instanceId, index, shift);
+                            this.setSupercellInstanceMatrix(
+                                mesh,
+                                instanceId,
+                                index,
+                                shift,
+                                mesh.userData.cellOffsets?.[shiftIndex]
+                            );
                         }
                         instanceId++;
                     });
@@ -5366,7 +8116,7 @@ export class ASERenderer {
 
     constraintGuideVisible(group) {
         const indices = this.constraintGuideIndices(group);
-        return indices.some(idx => this.atomLabelVisible(idx));
+        return indices.some(idx => this.atomReferenceVisible(idx));
     }
 
     orientYAxis(object, direction) {
@@ -5589,7 +8339,7 @@ export class ASERenderer {
             const normalValues = fixedPlane[index] || fixedPlane[String(index)];
             const source = originalPositions[index];
             const atom = this.atomMeshByIndex.get(index);
-            if ((!lineValues && !normalValues) || (!source && !atom) || !this.atomLabelVisible(index)) return;
+            if ((!lineValues && !normalValues) || (!source && !atom) || !this.atomReferenceVisible(index)) return;
             const anchor = source
                 ? new THREE.Vector3(...source)
                 : atom.position.clone();
@@ -5697,7 +8447,7 @@ export class ASERenderer {
         let count = 0;
         indices.forEach(idx => {
             const atom = this.atomMeshByIndex.get(idx);
-            if (!atom || !this.atomLabelVisible(idx)) return;
+            if (!atom || !this.atomReferenceVisible(idx)) return;
             center.add(atom.position);
             count += 1;
         });
@@ -5808,7 +8558,12 @@ export class ASERenderer {
         catchLine.userData = { sharedMaterial: true, catchLine: true };
         group.add(catchLine);
 
-        const spring = new THREE.Mesh(new THREE.BufferGeometry(), this.constraintMaterials.hookean);
+        const spring = new THREE.Mesh(
+            new THREE.BufferGeometry(),
+            this.atomDisplayMode() === '2d'
+                ? this.constraintMaterials.hookeanFlat
+                : this.constraintMaterials.hookean
+        );
         spring.userData = { sharedMaterial: true, springLine: true };
         group.add(spring);
 
@@ -5895,7 +8650,8 @@ export class ASERenderer {
 
     hookeanState(length, threshold) {
         if (!Number.isFinite(threshold) || threshold <= 0) return 'active';
-        if (Math.abs(length - threshold) <= Math.max(0.035, threshold * 0.025)) return 'threshold';
+        const numericalTolerance = Math.max(1e-7, Math.abs(threshold) * 1e-7);
+        if (Math.abs(length - threshold) <= numericalTolerance) return 'threshold';
         return length < threshold ? 'inactive' : 'active';
     }
 
@@ -5980,7 +8736,11 @@ export class ASERenderer {
                 Math.max(72, coils * 18)
             ), 'springSignature', this.hookeanSpringWireRadius());
         }
-        springLine.material = state === 'inactive' ? this.constraintMaterials.hookeanInactive : this.constraintMaterials.hookean;
+        springLine.material = state === 'inactive'
+            ? this.constraintMaterials.hookeanInactive
+            : (this.atomDisplayMode() === '2d'
+                ? this.constraintMaterials.hookeanFlat
+                : this.constraintMaterials.hookean);
         springLine.userData.sharedMaterial = true;
 
         gapLine.visible = state === 'inactive' && thresholdY > right;
@@ -6004,7 +8764,7 @@ export class ASERenderer {
             if (spec.kind === 'plane') {
                 const item = spec.item;
                 const atom = this.atomMeshByIndex.get(item.index);
-                if (!atom || !this.atomLabelVisible(item.index)) {
+                if (!atom || !this.atomReferenceVisible(item.index)) {
                     group.visible = false;
                     return;
                 }
@@ -6027,7 +8787,11 @@ export class ASERenderer {
             }
 
             const atom = this.atomMeshByIndex.get(spec.i);
-            if (!atom || !this.atomLabelVisible(spec.i) || (spec.kind === 'two_atoms' && !this.atomLabelVisible(spec.j))) {
+            if (
+                !atom
+                || !this.atomReferenceVisible(spec.i)
+                || (spec.kind === 'two_atoms' && !this.atomReferenceVisible(spec.j))
+            ) {
                 group.visible = false;
                 return;
             }
@@ -6100,7 +8864,7 @@ export class ASERenderer {
             if (!child.userData.fixedPlaneAtomMarker) return;
             const idx = child.userData.atomIndex;
             const atom = this.atomMeshByIndex.get(idx);
-            if (!atom || !this.atomLabelVisible(idx)) {
+            if (!atom || !this.atomReferenceVisible(idx)) {
                 child.visible = false;
                 return;
             }
@@ -6124,11 +8888,11 @@ export class ASERenderer {
         this.clearGroup(this.replicaSelectionOutlines);
     }
 
-    setReplicaSelection(references = []) {
+    setReplicaSelection(references = [], { muted = false } = {}) {
         this.clearReplicaSelectionOutlines();
         const visible = [...references].filter(reference =>
             reference?.kind === 'replica' &&
-            this.atomLabelVisible(reference.index) &&
+            this.atomReferenceVisible(reference.index, reference.cellOffset) &&
             this.replicaSelectionPosition(reference)
         );
         if (!visible.length) {
@@ -6138,7 +8902,7 @@ export class ASERenderer {
         }
         const outline = new THREE.InstancedMesh(
             this.selectionOutlineGeometry,
-            this.selectionOutlineMaterial,
+            muted ? this.replicaSelectionMutedMaterial : this.selectionOutlineMaterial,
             visible.length
         );
         outline.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
@@ -6150,6 +8914,7 @@ export class ASERenderer {
                 ...reference,
                 cellOffset: [...reference.cellOffset]
             })),
+            muted: Boolean(muted),
             sharedGeometry: true,
             sharedMaterial: true
         };
@@ -6165,7 +8930,9 @@ export class ASERenderer {
     setSelection(selectedIndices) {
         this.clearSelectionOutlines();
         const selected = new Set(selectedIndices);
-        const visibleIndices = [...selected].filter(idx => this.atomMeshByIndex.has(idx) && this.atomLabelVisible(idx));
+        const visibleIndices = [...selected].filter(
+            idx => this.atomMeshByIndex.has(idx) && this.atomReferenceVisible(idx)
+        );
         if (visibleIndices.length >= 64) {
             const outline = new THREE.InstancedMesh(
                 this.selectionOutlineGeometry,
@@ -6191,7 +8958,7 @@ export class ASERenderer {
         }
         selected.forEach(idx => {
             const mesh = this.atomMeshByIndex.get(idx);
-            if (!mesh || !this.atomLabelVisible(idx)) return;
+            if (!mesh || !this.atomReferenceVisible(idx)) return;
             const radius = this.atomVisualRadius(idx);
             const outlineGeo = new THREE.SphereGeometry(radius * 1.18, 32, 18);
             const outlineMat = new THREE.MeshBasicMaterial({
@@ -6214,7 +8981,7 @@ export class ASERenderer {
 
     setSelectionInstanceMatrix(mesh, instanceId, index) {
         const atom = this.atomMeshByIndex.get(index);
-        const visible = atom && this.atomLabelVisible(index);
+        const visible = atom && this.atomReferenceVisible(index);
         const scale = visible ? this.atomVisualRadius(index) * 1.18 : 0;
         const matrix = mesh.instanceMatrix.array;
         const offset = instanceId * 16;
@@ -6238,8 +9005,9 @@ export class ASERenderer {
 
     setReplicaSelectionInstanceMatrix(mesh, instanceId, reference) {
         const position = this.replicaSelectionPosition(reference);
-        const visible = position && this.atomLabelVisible(reference.index);
-        const scale = visible ? this.atomVisualRadius(reference.index) * 1.18 : 0;
+        const visible = position && this.atomReferenceVisible(reference.index, reference.cellOffset);
+        const outlineScale = mesh.userData?.muted ? 1.11 : 1.18;
+        const scale = visible ? this.atomVisualRadius(reference.index) * outlineScale : 0;
         const matrix = mesh.instanceMatrix.array;
         const offset = instanceId * 16;
         matrix[offset] = scale;
@@ -6281,7 +9049,7 @@ export class ASERenderer {
             }
             const idx = outline.userData.outlineFor;
             const mesh = this.atomMeshByIndex.get(idx);
-            if (!mesh || !this.atomLabelVisible(idx)) {
+            if (!mesh || !this.atomReferenceVisible(idx)) {
                 outline.visible = false;
                 return;
             }
@@ -6361,6 +9129,8 @@ export class ASERenderer {
         this.controls.update();
         if (this.effectiveBondStyle() === 'flat') this.updateBondPositions();
         if (this.displacementStyle() === '2d') this.updateDisplacementVectorMatrices();
+        if (this.forceVectorStyle() === '2d') this.updateForceVectorMatrices();
+        this.updateFlatCellEdgeMatrices();
         this.syncSelectionOutlines();
         this.onFrame?.();
         this.updateViewLighting();
@@ -6381,5 +9151,52 @@ export class ASERenderer {
 
     animate() {
         this.requestRender();
+    }
+
+    dispose() {
+        if (this.renderRequestId !== null) {
+            cancelAnimationFrame(this.renderRequestId);
+            this.renderRequestId = null;
+        }
+        this.suspended = true;
+        this.controls?.dispose?.();
+
+        const geometries = new Set(this.geometryCache?.values?.() || []);
+        const materials = new Set(this.materialCache?.values?.() || []);
+        this.scene?.traverse?.(object => {
+            if (object.geometry) geometries.add(object.geometry);
+            const objectMaterials = Array.isArray(object.material)
+                ? object.material
+                : object.material ? [object.material] : [];
+            objectMaterials.forEach(material => materials.add(material));
+        });
+        geometries.forEach(geometry => geometry?.dispose?.());
+        materials.forEach(material => {
+            for (const value of Object.values(material || {})) {
+                if (value?.isTexture) value.dispose?.();
+            }
+            material?.dispose?.();
+        });
+        this.metalEnvironmentRenderTarget?.dispose?.();
+        if (
+            this.metalEnvironmentMap
+            && this.metalEnvironmentMap !== this.metalEnvironmentRenderTarget?.texture
+        ) {
+            this.metalEnvironmentMap.dispose?.();
+        }
+
+        this.geometryCache?.clear?.();
+        this.materialCache?.clear?.();
+        this.atomMeshByIndex?.clear?.();
+        this.atomInstanceRefs?.clear?.();
+        this.atomInstanceMeshes?.clear?.();
+        this.volumetricPlanes?.clear?.();
+        this.renderer?.renderLists?.dispose?.();
+        this.renderer?.dispose?.();
+        this.renderer?.forceContextLoss?.();
+        this.domElement?.remove?.();
+        this.onFrame = null;
+        this.onCameraChange = null;
+        this.onLightingChange = null;
     }
 }

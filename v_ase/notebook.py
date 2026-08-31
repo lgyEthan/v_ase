@@ -2,7 +2,20 @@
 
 from __future__ import annotations
 
-from .viewer import get_notebook_display_mode, set_notebook_display_mode
+def get_notebook_display_mode() -> str:
+    """Return the configured notebook display mode without eager ASE imports."""
+
+    from .viewer import get_notebook_display_mode as getter
+
+    return getter()
+
+
+def set_notebook_display_mode(mode: str) -> str:
+    """Set the notebook display mode without importing the viewer at startup."""
+
+    from .viewer import set_notebook_display_mode as setter
+
+    return setter(mode)
 
 
 def register_notebook_magic(ipython=None) -> bool:

@@ -43,6 +43,9 @@ Important options:
   inline handle.
 - `viz_only=True` uses the lightweight viewer and does not attach the fallback
   calculator.
+- `theme="auto"` and `theme="system"` follow the local browser/OS color
+  preference. `theme="light"` and `theme="dark"` request an explicit initial
+  interface theme unless that browser already has a user-selected preference.
 - `viz_only=False` enables atom editing, constraints editing, history,
   copy/paste, deletion, creation, and relaxation.
 - The browser's top-bar **View / Edit** switch can change this capability
@@ -125,18 +128,21 @@ v_ase gui FILE --no-browser
 The default is View mode. `--interactive` starts in Edit mode. The top-bar
 switch can change mode after startup without reopening the file.
 `HOST:/REMOTE/FILE` is an scp-style remote target. The local v_ase process
-starts the remote backend over SSH, selects both loopback endpoints, creates
-the forwarding connection, opens the browser, and tears everything down after
-the browser closes:
+selects both loopback endpoints, then starts the remote backend and forwarding
+listener on one SSH connection. This keeps both endpoints on the same login
+node when a cluster alias is load balanced. The launcher opens the browser and
+tears the connection down after the browser closes:
 
 ```bash
 v_ase gui physics:/data/trajectory.lammpstrj
 ```
 
-The file reader, ASE objects, session state, and scientific operations remain
-on the remote host. The original file is never copied to the local computer.
-Remote trajectories disable inline and whole-trajectory browser caches; frame
-changes request only the needed frame through the encrypted tunnel.
+The file reader, ASE objects, session state, trajectory cache, volumetric
+processing, and backend scientific operations remain on the remote host. The
+original file is never copied to the local computer. The browser performs UI
+interaction and WebGL rendering. Remote trajectories disable inline and
+whole-trajectory browser caches; frame changes request only the needed frame
+through the encrypted tunnel.
 
 `--no-browser` is still available for headless local sessions. `--stream-frames`
 applies the same per-frame transfer policy to a local trajectory. `--port`
@@ -158,6 +164,103 @@ through `command_url`, normally with `v_ase api`. The handshake explicitly
 reports `command_transport="http-json-bridge"`,
 `accepts_natural_language=false`, and `stdin_commands=false`, plus
 `events_url`, `event_protocol`, `event_delivery`, and `event_scope`.
+
+### ASE Bulk Builder
+
+The installed ASE compatibility catalog and nonmutating preview are available
+inside each live session:
+
+```text
+GET  /api/build/bulk/catalog/{session_id}
+POST /api/build/bulk/preview/{session_id}
+POST /api/build/bulk/apply/{session_id}
+```
+
+The catalog identifies working reference materials, prototypes, cell modes,
+and conditional arguments. Preview returns either the exact generated cell and
+atom count or a structured `missing_fields` list. Apply is Edit-only and
+replaces the active structure with one periodic frame. A nonempty document
+requires `replace_existing: true`; clients must obtain user confirmation first.
+
+The semantic equivalent is `build-bulk`:
+
+```json
+{
+  "name": "build-bulk",
+  "formula": "CuO",
+  "crystalStructure": "rocksalt",
+  "cellMode": "cubic",
+  "a": 4.27,
+  "confirmReplace": true
+}
+```
+
+Optional fields are `b`, `c`, `alpha`, `covera`, `u`, and an `N x 3`
+fractional `basis`. `c` and `covera` are mutually exclusive. Read
+`capabilities().bulkBuilder.catalogUrl`, preview the exact request, and do not
+guess reference lattice data.
+
+Edit-mode random insertion is available to external agents through the same
+live document and revision contract:
+
+```bash
+v_ase api "$COMMAND_URL" apply --params '{
+  "name": "scatter-atoms",
+  "parameters": {
+    "entries": [
+      {"element": "Li", "label": "Li_mobile", "count": 12},
+      {"element": "H", "label": "H_probe", "count": 8}
+    ],
+    "regionMode": "regions",
+    "regionMic": true,
+    "regions": [
+      {"id": "left", "role": "allow", "bounds": [1, 4, 0.5, 7.5, 0, 12]},
+      {"id": "right", "role": "allow", "bounds": [5, 8, 0.5, 7.5, 0, 12]},
+      {"id": "core", "role": "reject", "bounds": [3.5, 5.5, 3, 5, 2, 10]}
+    ],
+    "constrainToDomain": false,
+    "seed": 2021,
+    "freezeExisting": true,
+    "cutoffBasis": "covalent",
+    "cutoffScale": 1.0
+  }
+}'
+v_ase api "$COMMAND_URL" apply --params '{
+  "name": "relax-added-atoms",
+  "parameters": {
+    "strength": 2.5,
+    "fmax": 0.01,
+    "steps": 180,
+    "constrainToDomain": false
+  }
+}'
+v_ase api "$COMMAND_URL" apply --params '{
+  "name": "finish-add-atoms",
+  "parameters": {}
+}'
+```
+
+`stop-added-atoms` interrupts the optimizer but leaves the insertion workspace
+open. `cancel-add-atoms` removes every inserted atom and restores the exact
+pre-session structure. A multi-region request supplies stable region IDs,
+Allow/Reject roles, and Cartesian `xmin/xmax/ymin/ymax/zmin/zmax` bounds. The
+exact domain is the finite cell intersected with the Allow union, or the full
+cell when no Allow exists, minus the Reject union. `regionMic` maps wrapped
+images through the complete triclinic lattice. Without a finite cell, at least
+one Allow region is required. `constrainToDomain` defaults to false because
+regions define initial scattering; true keeps every staged atom inside the
+Allow union and outside every Reject region during repulsive placement. Rigid
+molecules use their ASE template origin for this efficient domain constraint.
+Legacy `allowEscape` is the inverse compatibility field.
+`update-add-atoms-region` accepts a complete region array or
+one stable ID without moving staged atoms. The GUI maps multi-selected region
+translation to `G` and rejects `R`. Molecule requests additionally support
+`quantityMode:"density"` plus `targetDensityGcm3`; Count values then define an
+integer composition ratio, which is reduced to its primitive ratio before a
+complete batch is chosen. State reports target/actual density from exact
+accessible volume. `update-add-atoms-region` can also change `regionMic`; the
+same value immediately controls wrapped previews and optional confinement.
+`schema` is authoritative for all parameter names and allowed ranges.
 
 ```bash
 v_ase api "$COMMAND_URL" describe --params '{"includePositions":false}'
@@ -199,11 +302,16 @@ Visualization mode does not attach it.
 
 ```python
 from v_ase.calculators import RepulsionCalculator
+from v_ase.io import set_atom_labels
 
+labels = [f"{symbol}_{index}" for index, symbol in enumerate(atoms.get_chemical_symbols())]
+set_atom_labels(atoms, labels)
 atoms.calc = RepulsionCalculator(
     device="cpu",
     cpu_threads=4,
-    cutoff_scale=0.70,
+    cutoff_mode="absolute",
+    cutoff_basis="covalent",
+    pair_cutoffs={"|".join(sorted((labels[0], labels[1]))): 2.00},
     k_repulsion=1.0,
 )
 energy = atoms.get_potential_energy()
@@ -212,8 +320,26 @@ forces = atoms.get_forces()
 
 Torch is optional. The calculator uses NumPy when torch is absent and can use
 torch CPU or CUDA when available. Browser DEVICE/CPU controls apply only to
-this built-in calculator. `cutoff_scale` multiplies its pair-distance
-thresholds; `k_repulsion` scales the repulsive force. Both are editable under
+this built-in calculator. Repulsion distances are independent from visual
+bonds. In the default `cutoff_mode="absolute"`, each `pair_cutoffs` value is
+the physical onset for that unordered label pair in angstrom; zero disables
+the pair. Omitting the table generates values from ASE covalent-radius sums,
+or van der Waals sums with `cutoff_basis="vdw"`. To scale all supplied
+reference distances together, use `cutoff_mode="scaled"` and set the
+dimensionless `cutoff_scale`. A single global onset is also accepted:
+
+```python
+atoms.calc = RepulsionCalculator(
+    cutoff_mode="absolute",
+    cutoff_distance=1.50,  # Angstrom
+    k_repulsion=1.0,
+)
+```
+
+For `r < r_cut`, both modes use
+`E_pair = 0.5 * k_repulsion * (r_cut - r)**2`; at and beyond `r_cut`, pair
+energy and force are exactly zero. `r_cut` is therefore an onset distance, not
+a hard minimum-separation constraint. All settings are editable under
 **Structure > Relaxation** and persist with supported calculator state.
 
 Compatibility imports remain available from `v_ase`, `v_ase.calculator`, and
@@ -246,6 +372,19 @@ Coordinates are never included. Loading reconciles label-specific values with
 the new structure, ignores absent labels, and creates defaults for new labels
 and pairs.
 
+### Personal Visual Defaults
+
+The GUI stores an optional per-OS-user startup style outside projects and
+structure files. It includes reusable appearance, bonds, lighting, viewport,
+display replication, visual translation, render quality, and image-export
+choices. It excludes atom coordinates, trajectory frames, cell contents,
+absolute camera placement, and per-atom overrides.
+
+Use **Export > Visual Settings > Set Current as Default** to save it. Restore
+the built-in values with **Restore App Defaults**; the confirmation dialog
+deletes the saved preference only after **Proceed**. Portable Visual Settings
+JSON remains a separate file-based interchange format.
+
 ### `.vase`
 
 Self-contained project archive containing:
@@ -270,8 +409,9 @@ One view-only browser document containing:
 It opens from `file://` without a server or network request and supports only
 camera navigation and trajectory playback. `embed_project` defaults to
 `false` for a smaller view-only handoff. Set it to `true` for a downloadable
-`.vase` and lossless reopening through `v_ase gui FILE.html`. The human
-**HTML Project** action enables project embedding by default.
+`.vase` and lossless reopening through `v_ase gui FILE.html`. In the human
+**Save Project** dialog, enabling **Include interactive rendered view** changes
+the output to HTML and always embeds the complete project.
 
 HTML, image, and video share the same Preview Area camera crop and aspect
 ratio. HTML dimensions are inherited from Preview Area and are not exposed as
@@ -343,6 +483,78 @@ Returned vectors retain physical values. The renderer anchors them at current
 visible atom positions, repeats them over display supercells, and applies visual
 translation equally to both endpoints.
 
+One-atom Measure detail is available lazily through:
+
+```text
+GET /api/analysis/atom-properties/{session_id}/{atom_index}?frame_index=N
+```
+
+The response contains standard ASE atom attributes, every stored per-atom
+`Atoms.arrays` entry, and every already stored per-atom calculator result for
+the requested frame. It does not evaluate the attached calculator. A selected
+display-supercell replica uses this base-index payload while the browser keeps
+the replica's displayed Cartesian and fractional position.
+
+Volumetric data is loaded through the ordinary file/path open or append
+pipeline. VASP scalar grids, Cube, and XSF are detected before ASE structure
+dispatch. Browser file/path endpoints accept `volumetric_precision` as
+`float32` or `float64`; the semantic `load-volumetric` operation accepts
+`precision` as FP32/FP64 aliases. Dataset descriptors report precision and
+backend memory bytes. The newest nonconstant grid is selected and displayed at
+an in-range default isovalue immediately. Surface color and opacity changes
+restyle the current browser mesh without requesting marching cubes again. The
+current document then exposes:
+
+`view("CHGCAR", volumetric_precision="fp64")` applies the same selection to
+Python path-based loading and records it as the next-import precision in the
+live GUI.
+
+```text
+POST /api/volumetric/difference/{session_id}
+POST /api/volumetric/isosurface/{session_id}
+POST /api/volumetric/delete/{session_id}
+```
+
+The difference endpoint accepts stable dataset IDs and finite coefficients and
+requires matching dimensions, cell, origin, PBC, endpoint convention, and
+units. The isosurface payload accepts optional `smearing_sigma` in grid voxels
+from `0` through `8`, plus `smoothing_iterations` from `0` through `30`.
+Smearing uses wrapped boundaries on periodic axes and reflected boundaries on
+nonperiodic axes. It filters a display copy without modifying the stored FP32
+or FP64 field. Mesh smoothing is applied after marching cubes and fixes
+cell-boundary vertices. The endpoint returns indexed vertices and faces with
+the applied refinement values in its binary header; the complete source grid
+remains backend-owned. Physical diagonal supercell application repeats every
+stored grid and records it in the same undo entry as atoms and trajectory
+frames.
+
+The semantic `show-volumetric` operation validates the same ranges instead of
+silently clamping values. Signed mode uses `+abs(level)` and `-abs(level)`,
+requires a nonzero level, and may retain only one sign if smearing moves the
+other sign outside the displayed scalar range. `describe()` exposes the
+resulting mesh counts, rendered levels, post-smearing range, and refinement
+settings under `analysis.volumetricSurface`; it does not transmit source grid
+arrays.
+
+RDF endpoints are:
+
+```text
+POST /api/analysis/rdf/{session_id}
+POST /api/analysis/rdf-csv/{session_id}
+```
+
+Payload fields are `cutoff`, `bins`, `pairMode`, and `activePairs`. `pairMode`
+accepts `active`, `selected`, `all`, or `none`; the browser resolves `selected`
+to label pairs from active bonds whose endpoints are both selected and sends
+those pairs through `activePairs`. Full 3D PBC produces bulk `g(r)`, while a
+finite no-PBC structure produces an unordered-pair probability density. The
+response includes the retained requested/effective cutoff, unique-MIC
+reference, actual periodic-image extent/span, warnings, total curve, and
+concentration-weighted partial curves. CSV uses the same calculation path.
+The Plotly drawer adds a `g(r) = 1` bulk-limit reference for periodic RDF; the
+periodic amorphous regression checks that the long-range curve remains flat
+around that reference.
+
 Agent discovery and semantic state are available through:
 
 ```text
@@ -383,24 +595,33 @@ after the output file is complete.
 The live HTTP bridge exposes `ready`, `capabilities`, `describe`, `apply`,
 `render`, and `export`; workspace scope also exposes `documents`, `activate`,
 and `newDocument`. The optional `window.v_aseAI` object mirrors these methods
-for page-main-world controllers. `describe()` reports the
-document collaboration revision. `apply()` accepts `expectedRevision` as an
+for page-main-world controllers. `capabilities()` advertises
+`expectedRevision` in its `apply` fields, and `describe()` reports the current
+document collaboration revision. `apply()` accepts that revision as an
 optimistic-concurrency guard and rejects stale commands before they can
 overwrite a newer human GUI edit. It covers frame and mode changes, quality,
 display and camera state, selection, constrained transforms, identity and
 constraint edits, wrapping, physical translation, atom creation/deletion,
-supercells, history, reset, relaxation, and displacement analysis. Visual
+batch atom scattering and its region, supercells, history, reset, structure
+relaxation, rigid periodic-plane translation, and displacement analysis. Visual
 translation and display supercells are ordinary `display` settings available
 in View and Edit. `rotate-selection` accepts `pivot: "active"`; the last
 explicit atom index is the fixed rotation pivot.
+It also covers commensurate search/materialization, optional `(hkl)` translation maps,
+volumetric loading, compatible-grid combinations, isosurface settings/removal,
+and RDF calculation. `describe().analysis` returns commensurate and registry
+mode state, volumetric dataset descriptors, and the current RDF summary without
+serializing large numerical fields into agent context.
 `export()` covers image, video, POSCAR,
 ASE Pickle, Blender, Rhino 3DM, OBJ, standalone HTML, `.vase`, and visual
-settings. Rendering and image export use the same capture path as the human
-Export workspace.
+settings, plus RDF CSV. Rendering and image export use the same capture path
+as the human Export workspace.
 
 `describe()` is the primary machine-readable output and includes document,
 mode, frame, atom identity, positions when requested, cell/PBC, constraints,
 properties, selection, measurement, display, camera, and image-export state.
+It also includes volumetric dataset metadata and RDF curve names, cutoff
+metadata, warnings, and frame.
 `apply()` returns the updated semantic state and revision. Human and agent
 mutations are classified separately, coalesced after committed UI changes,
 published to the document and workspace streams, and retained in bounded

@@ -96,6 +96,16 @@ def open_browser_url(url: str) -> bool:
         return False
 
 
+def announce_viewer_url(url: str) -> None:
+    """Print one terminal-clickable fallback before a blocking GUI launch."""
+    print(
+        "v_ase viewer URL (Ctrl+click or copy into a browser):\n"
+        f"{url}",
+        file=sys.stderr,
+        flush=True,
+    )
+
+
 def find_free_port() -> int:
     """Return an available local TCP port."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -328,7 +338,7 @@ class ASEEditor:
             finalize_workspace(self.workspace_id)
         if self.session_id in sessions:
             session = sessions.pop(self.session_id)
-            session.cleanup_temporary_files()
+            session.release_resources()
         release_local_server(self.port, expected_handle=self._server_handle)
 
     def export_poscar(self, filename="POSCAR"):
@@ -379,6 +389,8 @@ def view(
     close_on_disconnect: bool = True,
     open_browser: bool = True,
     stream_trajectory: bool = False,
+    volumetric_datasets: Optional[Sequence[Any]] = None,
+    volumetric_precision: str = "fp32",
 ) -> Union[Atoms, ASEEditor, None]:
     """
     Open the v_ase structure viewer/editor.
@@ -394,19 +406,60 @@ def view(
     block : bool
         If True, block execution until the browser document is closed or the
         session is finalized through the local API.
+    volumetric_precision : str
+        Scalar-grid precision used when ``atoms`` is a CHGCAR, LOCPOT, PARCHG,
+        Cube, or XSF path. Use ``"fp32"`` for lower memory or ``"fp64"`` to
+        preserve double-precision values.
+    theme : str
+        Interface theme: ``"system"``/``"auto"`` follows the local browser,
+        while ``"light"`` and ``"dark"`` select an explicit appearance.
     ...
     """
     notebook = resolve_notebook_display(notebook)
+    theme = str(theme or "system").strip().lower()
+    if theme == "auto":
+        theme = "system"
+    if theme not in {"system", "light", "dark"}:
+        raise ValueError("theme must be system, auto, light, or dark")
     launch_directory = os.path.abspath(os.getcwd())
     source_path = os.fspath(atoms) if isinstance(atoms, (str, os.PathLike)) else None
     if document_name is None:
         document_name = os.path.basename(source_path) if source_path else "Untitled"
 
-    if source_path and source_path.lower().endswith((".vase", ".html", ".htm")):
+    if source_path:
+        from .volumetric import (
+            normalize_volumetric_precision,
+            read_volumetric_file,
+            resolve_volumetric_format,
+            volumetric_structure,
+        )
+
+        volumetric_format = resolve_volumetric_format(source_path)
+    else:
+        volumetric_format = None
+
+    if source_path and volumetric_format:
+        normalized_precision = normalize_volumetric_precision(
+            volumetric_precision
+        )
+        loaded_volumetric = read_volumetric_file(
+            source_path,
+            volumetric_format,
+            precision=normalized_precision,
+        )
+        volumetric_datasets = loaded_volumetric
+        atoms = [volumetric_structure(loaded_volumetric)]
+        settings = dict(initial_design_settings or {})
+        display = dict(settings.get("display") or {})
+        display["volumetricPrecision"] = normalized_precision
+        settings["display"] = display
+        initial_design_settings = settings
+    elif source_path and source_path.lower().endswith((".vase", ".html", ".htm")):
         from .project import read_project_document
 
         project = read_project_document(atoms)
         atoms = project.frames
+        volumetric_datasets = project.volumetric_datasets
         initial_frame = project.current_frame
         if initial_design_settings is None:
             initial_design_settings = project.settings
@@ -442,6 +495,7 @@ def view(
         trajectory_frames=working_frames,
         trajectory_source=trajectory_source,
         current_frame=initial_frame,
+        volumetric_datasets=list(volumetric_datasets or []),
         config={
             "show_cell": show_cell,
             "show_axes": show_axes,
@@ -498,20 +552,21 @@ def view(
         return ASEEditor(session_id, port, server_handle=server_handle)
     else:
         if server_enabled:
+            # Browser launchers, especially Windows interop commands under
+            # WSL, can exit successfully without opening a visible tab. Keep
+            # the loopback URL available before waiting for browser close.
+            if block:
+                announce_viewer_url(url)
             if open_browser:
                 if not open_browser_url(url):
+                    if not block:
+                        announce_viewer_url(url)
                     print(
-                        "v_ase could not open a browser automatically.\n"
-                        f"Open this URL in your browser:\n{url}",
+                        "v_ase could not open a browser automatically; "
+                        "use the URL above.",
                         file=sys.stderr,
                         flush=True,
                     )
-            elif block:
-                print(
-                    f"Open this URL in your browser:\n{url}",
-                    file=sys.stderr,
-                    flush=True,
-                )
         elif not block:
             raise RuntimeError("Cannot open v_ase because this environment does not allow local sockets.")
         
@@ -544,7 +599,7 @@ def view(
                     finalize_workspace(workspace.workspace_id)
                 closed_session = sessions.pop(session_id, None)
                 if closed_session is not None:
-                    closed_session.cleanup_temporary_files()
+                    closed_session.release_resources()
                 release_local_server(port, expected_handle=server_handle)
         else:
             return ASEEditor(

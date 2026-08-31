@@ -13,17 +13,43 @@
 
 ## Shared-Document Model
 
-The external agent and researcher operate one live v_ase document:
+The external agent and researcher operate the same live document through three
+bidirectional links:
 
 ```text
-researcher request -> external agent -> semantic v_ase command
-                                      -> same live GUI
-researcher GUI edit -> CLI NDJSON event -> agent re-reads semantic state
+researcher <-> external agent   natural-language request and feedback
+external agent <-> v_ase CLI   structured operations, exact state, revisions
+researcher <-> v_ase GUI       live inspection and direct visual refinement
 ```
 
+This is a visible feedback cycle: the researcher watches Agent operations in
+the live GUI, can refine the same document directly, and the Agent receives
+that committed GUI edit through the CLI event stream as a new revision before
+continuing. A one-way
+request-to-render pipeline does not satisfy this collaboration contract.
+
+When explaining this cycle to a human, use only the three interface names on
+the corresponding links: `Natural language`, `CLI`, and `GUI`. Do not describe
+the human side as “normal GUI” or the Agent side as “CLI control”; those phrases
+hide who sends what. State the model directly: the human asks the external
+Agent in ordinary language, the Agent operates v_ase through exact CLI
+operations, and the human watches and refines that same document in the GUI.
+Show one concrete human request, the exact CLI operations
+derived from it, their live GUI result, and at least one direct human GUI edit
+that returns to the Agent as a newer revision.
+
+v_ase is the scientific application in this cycle, not the AI. It owns and
+validates the atomistic document, applies structured Agent commands and human
+GUI edits, renders the GUI, and emits machine-readable state and revisions.
 `human_url` is not a rendered copy or separate editor. It opens the same
 workspace controlled through the handshake's `command_url`. Human GUI edits
 are authoritative and must be reviewed before the agent continues.
+
+Do not validate this contract with page-only JavaScript. Send at least one
+selection plus physical or visual change from a separate `v_ase api` process,
+confirm the corresponding controls/readouts change in the same live GUI, make at
+least two separate GUI-originated edits, and then confirm both human events,
+`describe().collaboration.revision`, and semantic state agree.
 
 When live human collaboration is requested, automate the visible `human_url`
 page itself so the researcher observes and edits that browser view between
@@ -169,8 +195,8 @@ across tabs; each tab's `collaboration.revision` guards its own mutations.
 Researcher request:
 
 ```text
-Create a pyridinic N3 vacancy, place Li 2.15 A above it, preserve PBC,
-and prepare a clear rendered view.
+Starting from a pristine 6 x 6 graphene sheet, create a pyridinic N3
+vacancy, place Li 2.15 A above it, and prepare a clear rendered view.
 ```
 
 Agent sequence:

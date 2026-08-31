@@ -3,279 +3,525 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Human, AI agent, and v_ase collaboration</title>
+<title>Work with an AI Agent in v_ase</title>
 <style>
   * { box-sizing: border-box; }
   html, body {
-    width: 2400px;
-    height: 1200px;
+    width: 1800px;
+    height: 1080px;
     margin: 0;
     overflow: hidden;
-    background: #f5f8f7;
-    color: #172024;
+    background: #fff;
+    color: #142629;
     font-family: Inter, "SF Pro Display", "Segoe UI", Arial, sans-serif;
     letter-spacing: 0;
   }
-  body { padding: 68px 82px 62px; }
+  body { padding: 24px 40px 28px; }
+  header {
+    height: 78px;
+    border-bottom: 3px solid #dce5e3;
+  }
   .eyebrow {
-    color: #168b7b;
-    font-size: 23px;
-    font-weight: 800;
+    color: #087a6c;
+    font-size: 20px;
+    font-weight: 950;
     text-transform: uppercase;
   }
   h1 {
-    margin: 10px 0 8px;
-    font-size: 57px;
-    line-height: 1.08;
+    margin: 2px 0 0;
+    font-size: 39px;
+    line-height: 1;
   }
-  .subtitle {
-    margin: 0;
-    color: #55646a;
-    font-size: 27px;
-  }
-  .flow {
-    display: grid;
-    grid-template-columns: 440px 470px minmax(0, 1fr);
-    gap: 70px;
-    height: 630px;
-    margin-top: 46px;
-  }
-  .card {
+  main {
     position: relative;
-    min-width: 0;
-    overflow: visible;
-    border: 1px solid #c9d4d4;
-    border-radius: 8px;
-    background: #ffffff;
-    box-shadow: 0 14px 38px rgba(25, 43, 47, 0.08);
+    height: 950px;
   }
-  .card:not(:last-child)::after {
-    content: "";
+  .flows {
     position: absolute;
-    top: 50%;
-    right: -54px;
-    width: 36px;
-    height: 2px;
-    background: #82918f;
-  }
-  .card:not(:last-child)::before {
-    content: "";
-    position: absolute;
-    z-index: 2;
-    top: calc(50% - 7px);
-    right: -56px;
-    width: 12px;
-    height: 12px;
-    border-top: 2px solid #82918f;
-    border-right: 2px solid #82918f;
-    transform: rotate(45deg);
-  }
-  .actor {
-    display: grid;
-    grid-template-rows: auto auto minmax(0, 1fr);
-    padding: 34px;
+    inset: 0;
+    z-index: 4;
+    width: 100%;
+    height: 100%;
     overflow: visible;
+    pointer-events: none;
   }
-  .human { border-top: 6px solid #e3aa3d; }
-  .agent {
-    border-color: #172024;
-    border-top: 6px solid #4ed0bd;
-    background: #172024;
-    color: #eef5f4;
+  .flow-path {
+    fill: none;
+    stroke-width: 8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    opacity: .22;
+    transition: opacity .12s ease, stroke-width .12s ease;
   }
-  .step-label {
-    color: #69787c;
-    font-size: 19px;
-    font-weight: 800;
-    text-transform: uppercase;
+  .channel-natural { stroke: #c57606; }
+  .channel-cli { stroke: #007f71; }
+  .channel-gui { stroke: #294b52; }
+  body[data-flow="request"] #flow-natural-to-agent,
+  body[data-flow="reply"] #flow-natural-to-human,
+  body[data-flow="command"] #flow-cli-to-vase,
+  body[data-flow="revision"] #flow-cli-to-agent,
+  body[data-flow="live"] #flow-gui-to-human,
+  body[data-flow="refine"] #flow-gui-to-vase,
+  body[data-flow="complete"] .flow-path {
+    opacity: 1;
+    stroke-width: 12;
   }
-  .agent .step-label { color: #76dacc; }
-  h2 {
-    margin: 22px 0 0;
-    font-size: 34px;
-    line-height: 1.2;
-  }
-  .request {
-    align-self: center;
-    padding: 25px 25px;
-    border-left: 5px solid #e3aa3d;
-    background: #fff8e8;
-    color: #253035;
-    font-size: 25px;
-    line-height: 1.48;
-  }
-  .agent-steps {
-    align-self: center;
-    display: grid;
-    gap: 22px;
-  }
-  .agent-step {
-    display: grid;
-    grid-template-columns: 42px minmax(0, 1fr);
-    gap: 14px;
-    align-items: start;
-  }
-  .agent-step b {
+  .channel-label {
+    position: absolute;
+    z-index: 6;
     display: grid;
     place-items: center;
-    width: 38px;
-    height: 38px;
-    border: 1px solid #46c7b5;
-    border-radius: 50%;
-    color: #76e4d4;
-    font-size: 18px;
+    padding: 5px 13px;
+    background: #fff;
+    font-size: 37px;
+    font-weight: 950;
+    line-height: 1;
   }
-  .agent-step strong {
-    display: block;
-    font-size: 23px;
+  .label-natural {
+    left: 202px;
+    top: 423px;
+    width: 340px;
+    color: #945300;
   }
-  .agent-step span {
-    display: block;
-    margin-top: 4px;
-    color: #aebbbc;
-    font-size: 19px;
-    line-height: 1.4;
+  .label-gui {
+    left: 680px;
+    top: 128px;
+    width: 128px;
+    color: #263f44;
   }
-  .skill-chip {
-    display: inline-flex;
-    width: max-content;
-    margin-top: 14px;
-    padding: 7px 10px;
-    border: 1px solid #3e8f85;
-    border-radius: 4px;
-    color: #80dfd2;
-    font-family: "SFMono-Regular", Consolas, monospace;
-    font-size: 16px;
+  .label-cli {
+    left: 725px;
+    top: 704px;
+    width: 104px;
+    color: #006f62;
   }
-  .gui {
+  .node {
+    position: absolute;
+    z-index: 3;
+    min-width: 0;
     overflow: hidden;
-    background: #111719;
+    border: 3px solid #cad5d3;
+    border-top-width: 9px;
+    border-radius: 7px;
+    background: #fff;
+    transition: box-shadow .12s ease, transform .12s ease;
+  }
+  .node.active {
+    box-shadow: 0 10px 25px rgba(20, 40, 43, .13);
+    transform: translateY(-2px);
+  }
+  .human {
+    left: 0;
+    top: 24px;
+    width: 630px;
+    height: 320px;
+    padding: 18px 22px;
+    border-color: #c57606;
+    background: #fffaf1;
+  }
+  .agent {
+    left: 0;
+    bottom: 17px;
+    width: 700px;
+    height: 395px;
+    padding: 17px 22px;
+    border-color: #007f71;
+    background: #f2fbf9;
+  }
+  .vase {
+    right: 0;
+    top: 24px;
+    width: 860px;
+    height: 885px;
+    padding: 12px 15px 16px;
+    border-color: #294b52;
+  }
+  .identity, .agent-title, .vase-head {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+  }
+  .person-icon {
+    position: relative;
+    width: 57px;
+    height: 57px;
+    flex: 0 0 57px;
+  }
+  .person-icon::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 17px;
+    width: 23px;
+    height: 23px;
+    border-radius: 50%;
+    background: #ca7909;
+  }
+  .person-icon::after {
+    content: "";
+    position: absolute;
+    left: 3px;
+    bottom: 0;
+    width: 52px;
+    height: 30px;
+    border-radius: 26px 26px 5px 5px;
+    background: #ca7909;
+  }
+  .agent-mark {
+    display: grid;
+    place-items: center;
+    width: 59px;
+    height: 59px;
+    flex: 0 0 59px;
+    border: 5px solid #007f71;
+    border-radius: 12px;
+    color: #006c60;
+    font-family: "SFMono-Regular", Consolas, monospace;
+    font-size: 28px;
+    font-weight: 950;
+  }
+  .actor-kicker {
+    color: #52676a;
+    font-size: 19px;
+    font-weight: 950;
+    text-transform: uppercase;
+  }
+  h2 {
+    margin: 1px 0 0;
+    font-size: 45px;
+    line-height: 1;
+  }
+  .speech {
+    position: relative;
+    margin-top: 15px;
+    padding: 15px 18px 17px;
+    border: 4px solid #c57606;
+    border-radius: 7px;
+    background: #fff;
+    color: #1c3033;
+    font-size: 28px;
+    font-weight: 790;
+    line-height: 1.25;
+  }
+  .speech::after {
+    content: "";
+    position: absolute;
+    left: 48px;
+    bottom: -14px;
+    width: 23px;
+    height: 23px;
+    border-right: 4px solid #c57606;
+    border-bottom: 4px solid #c57606;
+    background: #fff;
+    transform: rotate(45deg);
+  }
+  .speech strong { color: #087669; }
+  .natural-reply {
+    display: none;
+    margin-top: 10px;
+    color: #7e4900;
+    font-size: 22px;
+    font-weight: 950;
+  }
+  body[data-flow="reply"] .natural-reply,
+  body[data-flow="complete"] .natural-reply { display: block; }
+  .translation-heading {
+    display: flex;
+    align-items: center;
+    gap: 13px;
+    margin-top: 14px;
+    color: #435a5d;
+    font-size: 21px;
+    font-weight: 950;
+  }
+  .translation-heading .to-cli {
+    color: #00776a;
+  }
+  .translation-heading .arrow {
+    color: #007f71;
+    font-size: 30px;
+  }
+  .translation {
+    display: grid;
+    row-gap: 7px;
+    margin-top: 8px;
+  }
+  .translation-row {
+    display: grid;
+    grid-template-columns: 208px 1fr;
+    align-items: center;
+    min-height: 48px;
+    border-left: 6px solid #8ebeb7;
+    background: rgba(255,255,255,.88);
+    opacity: .35;
+    transition: opacity .12s ease, border-color .12s ease;
+  }
+  .translation-row.revealed { opacity: .72; }
+  .translation-row.active {
+    border-color: #007f71;
+    opacity: 1;
+  }
+  body[data-flow="complete"] .translation-row,
+  body[data-flow="reply"] .translation-row,
+  body[data-flow="revision"] .translation-row { opacity: 1; }
+  .intent {
+    padding: 7px 10px;
+    color: #263b3e;
+    font-size: 23px;
+    font-weight: 900;
+  }
+  .cli-command {
+    padding: 8px 10px;
+    border-left: 2px solid #cde2de;
+    color: #07584f;
+    font-family: "SFMono-Regular", Consolas, monospace;
+    font-size: 23px;
+    font-weight: 850;
+    line-height: 1.08;
+  }
+  .agent-status {
+    margin-top: 10px;
+    padding-top: 9px;
+    border-top: 2px solid #c6ded9;
+    color: #385155;
+    font-size: 22px;
+    font-weight: 900;
+    line-height: 1.1;
+  }
+  .agent-reply { display: none; color: #006e62; }
+  body[data-reply="true"] .agent-reply { display: block; }
+  body[data-reply="true"] .operation { display: none; }
+  .vase-head {
+    height: 68px;
+  }
+  .vase-logo {
+    width: 205px;
+    height: 65px;
+    object-fit: contain;
+  }
+  .vase-head h2 { font-size: 42px; }
+  .gui {
+    position: relative;
+    margin-top: 7px;
+    height: 510px;
+    overflow: hidden;
+    border: 3px solid #24383b;
+    border-radius: 5px;
+    background: #fff;
+    box-shadow: 0 14px 30px rgba(23, 35, 38, .13);
   }
   .gui-bar {
     display: flex;
     align-items: center;
-    height: 52px;
-    gap: 10px;
-    padding: 0 17px;
-    border-bottom: 1px solid #394347;
-    color: #dce7e8;
-    font-size: 18px;
-    font-weight: 700;
+    height: 47px;
+    gap: 8px;
+    padding: 0 14px;
+    background: #12191b;
+    color: #edf2f2;
+    font-size: 22px;
+    font-weight: 850;
   }
-  .dot {
-    width: 11px;
-    height: 11px;
-    border-radius: 50%;
-    background: #e0645d;
-  }
-  .dot.amber { background: #dba83c; }
-  .dot.green { background: #45aa72; }
-  .gui-title { margin-left: 8px; }
-  .live {
-    margin-left: auto;
-    padding: 6px 10px;
-    border: 1px solid #437a73;
-    border-radius: 4px;
-    color: #78dacb;
-    font-size: 15px;
-    text-transform: uppercase;
-  }
+  .dot { width: 11px; height: 11px; border-radius: 50%; background: #e26861; }
+  .dot.amber { background: #dfa43c; }
+  .dot.green { background: #49b174; }
   .gui img {
     display: block;
     width: 100%;
-    height: 578px;
+    height: 463px;
     object-fit: cover;
     object-position: center;
+    background: #fff;
   }
-  .loop {
-    display: grid;
-    grid-template-columns: 1fr 78px 1fr 78px 1fr;
-    align-items: center;
-    gap: 18px;
-    min-height: 190px;
-    margin-top: 38px;
-    padding: 28px 34px;
-    border: 1px solid #a9c8c2;
-    border-radius: 8px;
-    background: #eaf4f2;
+  .result-badges {
+    position: absolute;
+    z-index: 2;
+    top: 60px;
+    right: 12px;
+    display: flex;
+    gap: 7px;
+    opacity: 0;
   }
-  .loop-step {
-    min-width: 0;
+  body[data-flow="complete"] .result-badges,
+  body[data-flow="reply"] .result-badges { opacity: 1; }
+  .result-badge {
+    padding: 8px 10px;
+    border: 2px solid rgba(16, 91, 83, .66);
+    border-radius: 4px;
+    background: rgba(255,255,255,.97);
+    color: #174841;
+    font-size: 20px;
+    font-weight: 950;
   }
-  .loop-step strong {
-    display: block;
-    color: #155f55;
-    font-size: 25px;
+  .element-legend {
+    position: absolute;
+    z-index: 2;
+    top: 60px;
+    left: 12px;
+    display: flex;
+    gap: 13px;
+    padding: 8px 11px;
+    border: 2px solid #b9c7c5;
+    border-radius: 4px;
+    background: rgba(255,255,255,.97);
+    color: #263b3e;
+    font-size: 20px;
+    font-weight: 950;
   }
-  .loop-step span {
-    display: block;
-    margin-top: 7px;
-    color: #526c68;
-    font-size: 19px;
-    line-height: 1.4;
+  .element-key { display: inline-flex; align-items: center; gap: 5px; }
+  .element-dot { width: 16px; height: 16px; border-radius: 50%; }
+  .element-c { background: #686d73; }
+  .element-n { background: #3157d5; }
+  .element-li { background: #8f4fd6; }
+  .gui-result {
+    margin-top: 13px;
+    padding: 12px 15px;
+    border-left: 7px solid #294b52;
+    background: #eff4f3;
+    color: #2a4347;
+    font-size: 24px;
+    font-weight: 900;
   }
-  .loop-arrow {
+  .human-edit {
     position: relative;
-    height: 2px;
-    background: #438c82;
+    display: none;
+    margin-top: 13px;
+    padding: 13px 15px 14px;
+    border: 3px solid #c57606;
+    border-radius: 5px;
+    background: #fffaf1;
+    color: #754300;
+    font-size: 22px;
+    font-weight: 950;
   }
-  .loop-arrow::after {
+  .edit-heading {
+    display: block;
+    margin-bottom: 8px;
+    font-size: 20px;
+    text-transform: uppercase;
+  }
+  .edit-controls {
+    display: grid;
+    grid-template-columns: auto 120px auto auto 120px auto;
+    align-items: center;
+    gap: 10px;
+  }
+  .edit-track {
+    position: relative;
+    display: block;
+    height: 7px;
+    background: #d8c7a7;
+  }
+  .edit-track::after {
     content: "";
     position: absolute;
-    top: -6px;
-    right: 0;
-    width: 12px;
-    height: 12px;
-    border-top: 2px solid #438c82;
-    border-right: 2px solid #438c82;
-    transform: rotate(45deg);
+    top: -5px;
+    left: var(--edit-stop, 64%);
+    width: 17px;
+    height: 17px;
+    border-radius: 50%;
+    background: #c57606;
+    box-shadow: 0 0 0 2px #fff;
   }
+  body[data-flow="refine"] .human-edit,
+  body[data-flow="revision"] .human-edit,
+  body[data-flow="reply"] .human-edit,
+  body[data-flow="complete"] .human-edit { display: block; }
 </style>
 </head>
-<body>
-  <div class="eyebrow">Human + external AI agent + v_ase</div>
-  <h1>Ask in natural language. Watch the same v_ase GUI update live.</h1>
-  <p class="subtitle">The Skill translates the request into verified structure operations; the researcher remains in control.</p>
+<body data-flow="request">
+  <header>
+    <div class="eyebrow">Work with an AI Agent</div>
+    <h1>You direct the work. The AI Agent operates v_ase. The GUI stays live.</h1>
+  </header>
+  <main>
+    <svg class="flows" viewBox="0 0 1720 950" aria-hidden="true">
+      <defs>
+        <marker id="arrow-gui" markerWidth="23" markerHeight="23" refX="10" refY="6" orient="auto" markerUnits="userSpaceOnUse" viewBox="0 0 12 12"><path d="M0,0.5 L11,6 L0,11.5 L2.7,6 Z" fill="#294b52"/></marker>
+        <marker id="arrow-natural" markerWidth="23" markerHeight="23" refX="10" refY="6" orient="auto" markerUnits="userSpaceOnUse" viewBox="0 0 12 12"><path d="M0,0.5 L11,6 L0,11.5 L2.7,6 Z" fill="#c57606"/></marker>
+        <marker id="arrow-cli" markerWidth="23" markerHeight="23" refX="10" refY="6" orient="auto" markerUnits="userSpaceOnUse" viewBox="0 0 12 12"><path d="M0,0.5 L11,6 L0,11.5 L2.7,6 Z" fill="#007f71"/></marker>
+      </defs>
+      <path id="flow-gui-to-vase" class="flow-path channel-gui" d="M648 105 C716 73 792 73 850 105" marker-end="url(#arrow-gui)"/>
+      <path id="flow-gui-to-human" class="flow-path channel-gui" d="M850 218 C792 250 716 250 648 218" marker-end="url(#arrow-gui)"/>
+      <path id="flow-natural-to-agent" class="flow-path channel-natural" d="M145 357 C105 400 105 486 145 529" marker-end="url(#arrow-natural)"/>
+      <path id="flow-natural-to-human" class="flow-path channel-natural" d="M570 529 C610 486 610 400 570 357" marker-end="url(#arrow-natural)"/>
+      <path id="flow-cli-to-vase" class="flow-path channel-cli" d="M714 660 C762 635 808 635 850 660" marker-end="url(#arrow-cli)"/>
+      <path id="flow-cli-to-agent" class="flow-path channel-cli" d="M850 821 C808 846 762 846 714 821" marker-end="url(#arrow-cli)"/>
+    </svg>
+    <div class="channel-label label-gui">GUI</div>
+    <div class="channel-label label-natural">Natural language</div>
+    <div class="channel-label label-cli">CLI</div>
 
-  <main class="flow">
-    <section class="card actor human">
-      <div class="step-label">1 / Researcher</div>
-      <h2>Describe the scientific result</h2>
-      <div class="request">
-        “Create a pyridinic N3 vacancy, add Li above the site, preserve PBC,
-        and prepare a clear rendered view.”
+    <section class="node human active" data-stage="human">
+      <div class="identity">
+        <span class="person-icon" aria-hidden="true"></span>
+        <div><div class="actor-kicker">Human</div><h2>You</h2></div>
       </div>
+      <div class="speech">“Make a pyridinic <strong>N<sub>3</sub> vacancy</strong>, place Li <strong>2.15 Å above it</strong>, and show it <strong>from +Z with +Y up</strong>.”</div>
+      <div class="natural-reply">AI: Done. Your later GUI refinements are synchronized.</div>
     </section>
 
-    <section class="card actor agent">
-      <div class="step-label">2 / External AI agent</div>
-      <div>
-        <h2>Uses the v_ase Skill</h2>
-        <div class="skill-chip">SKILL.md + v_ase CLI</div>
+    <section class="node agent" data-stage="agent">
+      <div class="agent-title">
+        <span class="agent-mark" aria-hidden="true">AI</span>
+        <div><div class="actor-kicker">Interprets the request</div><h2>AI Agent</h2></div>
       </div>
-      <div class="agent-steps">
-        <div class="agent-step"><b>1</b><div><strong>Inspect</strong><span>Read atoms, cell, constraints, camera, and live capabilities.</span></div></div>
-        <div class="agent-step"><b>2</b><div><strong>Edit</strong><span>Send structured, revision-safe commands to v_ase.</span></div></div>
-        <div class="agent-step"><b>3</b><div><strong>Verify</strong><span>Check semantic state and the final rendered output.</span></div></div>
+      <div class="translation-heading"><span>Natural-language intent</span><span class="arrow">→</span><span class="to-cli">CLI operations</span></div>
+      <div class="translation" aria-label="Natural-language intent translated into CLI operations">
+        <div class="translation-row" data-command="vacancy"><span class="intent">N<sub>3</sub> vacancy</span><span class="cli-command">delete 42 · 29,41,30 → N</span></div>
+        <div class="translation-row" data-command="lithium"><span class="intent">Li 2.15 Å above</span><span class="cli-command">add Li · z = center + 2.15 Å</span></div>
+        <div class="translation-row" data-command="camera"><span class="intent">+Z · +Y up</span><span class="cli-command">view +Z · screen up +Y</span></div>
       </div>
+      <div class="agent-status operation" id="operation">Reads the current structure through CLI</div>
+      <div class="agent-status agent-reply" id="agent-reply">GUI revision received · radius 0.64 · bond 0.20 Å</div>
     </section>
 
-    <section class="card gui">
-      <div class="gui-bar">
-        <span class="dot"></span><span class="dot amber"></span><span class="dot green"></span>
-        <span class="gui-title">v_ase GUI</span>
-        <span class="live">same live document</span>
+    <section class="node vase" data-stage="vase">
+      <div class="vase-head">
+        <img class="vase-logo" src="../assets/v_ase-logo.png" alt="v_ase">
+        <div><div class="actor-kicker">One shared structure</div><h2>Live v_ase GUI</h2></div>
       </div>
-      <img src="../assets/readme_ai_collaboration_live.png" alt="Live v_ase GUI showing the edited structure">
+      <div class="gui">
+        <div class="gui-bar"><span class="dot"></span><span class="dot amber"></span><span class="dot green"></span><span>v_ase GUI</span></div>
+        <div class="element-legend"><span class="element-key"><span class="element-dot element-c"></span>C</span><span class="element-key"><span class="element-dot element-n"></span>N</span><span class="element-key"><span class="element-dot element-li"></span>Li</span></div>
+        <div class="result-badges"><span class="result-badge">+Z VIEW</span><span class="result-badge">+Y UP</span><span class="result-badge">Li +2.15 Å</span></div>
+        <img id="gui-image" src="../assets/readme_ai_collaboration_live.png" alt="Live v_ase result">
+      </div>
+      <div class="gui-result">Inspect the result immediately. The GUI and CLI share the same document.</div>
+      <div class="human-edit" id="human-edit">
+        <span class="edit-heading">You refine the result directly in the GUI</span>
+        <span class="edit-controls"><b>Radius</b><i class="edit-track"></i><b>0.64</b><b>Bond</b><i class="edit-track" style="--edit-stop:55%"></i><b>0.20 Å</b></span>
+      </div>
     </section>
   </main>
-
-  <section class="loop">
-    <div class="loop-step"><strong>The researcher watches and refines</strong><span>Orbit the camera, adjust appearance, select atoms, or change the structure in the normal GUI.</span></div>
-    <div class="loop-arrow"></div>
-    <div class="loop-step"><strong>v_ase reports the committed change</strong><span>A compact revision event tells the agent what changed without screenshot OCR.</span></div>
-    <div class="loop-arrow"></div>
-    <div class="loop-step"><strong>The agent re-synchronizes</strong><span>It reads the latest state before continuing, so newer human work is not overwritten.</span></div>
-  </section>
+<script>
+  window.setCollaborationStage = async ({stage = 'human', flow = 'request', operation = '', image = '', showReply = false} = {}) => {
+    document.body.dataset.flow = flow;
+    document.body.dataset.reply = String(flow === 'reply' || showReply);
+    document.querySelectorAll('.node').forEach(element => {
+      element.classList.toggle('active', element.dataset.stage === stage);
+    });
+    const normalized = (operation || 'Reads the current structure through CLI')
+      .replace(/^CLI:\s*/i, '')
+      .replace(/^Applied:\s*/i, 'Applied: ');
+    let activeCommand = '';
+    if (/vacancy|neighbors|delete/i.test(normalized)) activeCommand = 'vacancy';
+    else if (/Li|requested site/i.test(normalized)) activeCommand = 'lithium';
+    else if (/camera|\+Z|\+Y/i.test(normalized)) activeCommand = 'camera';
+    const order = ['vacancy', 'lithium', 'camera'];
+    const activeIndex = order.indexOf(activeCommand);
+    document.querySelectorAll('.translation-row').forEach(row => {
+      const rowIndex = order.indexOf(row.dataset.command);
+      row.classList.toggle('active', row.dataset.command === activeCommand);
+      row.classList.toggle('revealed', activeIndex >= 0 && rowIndex <= activeIndex);
+    });
+    if (flow === 'reply') document.getElementById('agent-reply').textContent = normalized;
+    else document.getElementById('operation').textContent = normalized;
+    if (image) {
+      const guiImage = document.getElementById('gui-image');
+      guiImage.src = image;
+      await guiImage.decode();
+    }
+  };
+</script>
 </body>
 </html>

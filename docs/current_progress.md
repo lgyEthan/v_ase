@@ -15,7 +15,8 @@ cell-rotation details belong in
 - Editable mode: `--interactive` or `view(..., viz_only=False)`
 - Runtime mode switch: top-bar **View / Edit**
 - Full project format: `.vase`
-- Shareable view format: self-contained view-only HTML with embedded `.vase`
+- Shareable view format: self-contained view-only HTML with optional `.vase`
+  recovery
 - Reusable presentation preset: visual-settings JSON
 
 `view_edit()` remains a compatibility alias for interactive mode. New examples
@@ -26,6 +27,20 @@ and documentation use `view()`.
 ### Python Backend
 
 - `v_ase/io.py`: canonical file-format aliases and structure/trajectory input.
+- `v_ase/volumetric.py`: bounded VASP/Cube/XSF scalar-grid input,
+  combinations, repetition, and marching-cubes extraction. Its VASP header
+  reader capability-detects ASE's configuration helper at call time and falls
+  back to the ASE 3.23/3.24 public POSCAR reader; importing this module must
+  never make ordinary structure loading depend on a newer ASE-internal name.
+- `v_ase/analysis.py`: triclinic-safe total/partial RDF and CSV.
+- `v_ase/insertion_regions.py`: stable Allow/Reject regions, exact Boolean
+  box/cell volume, triclinic periodic images, membership, sampling, and
+  optional confinement projection.
+- `v_ase/add_atoms.py`: deterministic multi-species atom/molecule insertion,
+  exact-volume density resolution, triclinic/Cartesian sampling,
+  temporary-host pairwise repulsion, and exact Finish/Cancel reconstruction.
+- `v_ase/commensurate.py`: bounded 2D coincidence-cell search, scientific
+  notation, common-cell geometry, and one-primitive-cell boundary shells.
 - `v_ase/session.py`: document state, history, calculator-preserving copies,
   trajectory sources, and workspace lifetime.
 - `v_ase/server.py`: local FastAPI and WebSocket contract.
@@ -53,6 +68,18 @@ and documentation use `view()`.
 
 1. The caller's original `Atoms` object is never mutated.
 2. Structural edits use a working copy and preserve supported calculators.
+   Add Atoms additionally keeps an immutable pre-session baseline; temporary
+   host `FixAtoms` exists only on its detached optimization copy and never
+   mutates document constraints, arrays, labels, calculators, or host
+   coordinates. Multiple Cartesian Allow and Reject regions form one exact
+   Boolean insertion domain, default to post-scatter escape, translate singly
+   or as a multi-selection with `G`, wrap by triclinic lattice vectors under
+   MIC while retaining one intact source cuboid and deduplicated clipped
+   nonzero periodic fragments, and reject `R`. Optional confinement uses the
+   shortest triclinic MIC displacement to the same visible domain. Molecule
+   density uses that exact
+   analytic volume, reduces Count ratios to their primitive integer ratio, and
+   reports the nearest realizable integer composition.
 3. ASE is authoritative for constrained commits:
    `Atoms.set_positions(..., apply_constraint=True)`.
 4. Browser previews may be immediate, but committed coordinates return from the
@@ -72,6 +99,10 @@ and documentation use `view()`.
 11. Entering Edit materializes a lazy trajectory into complete ASE frames
     before edits are enabled. The current frame, coordinates, labels,
     constraints, and calculators remain synchronized.
+    Batch atom or molecule insertion is intentionally rejected while a source
+    contains multiple frames; the user must open the target frame in a separate
+    document so a single-frame topology edit cannot masquerade as a
+    trajectory-wide edit.
 12. Settings survive structure refreshes and trajectory changes. Ordinary file
     replacement reconciles the active visual state; `.vase` replacement
     restores it.
@@ -162,8 +193,9 @@ and documentation use `view()`.
     omitted. No public listener or administrator-assigned port is required.
 35. An scp-style `HOST:/path` input makes remote use a one-command workflow.
     The local launcher starts remote v_ase, allocates both private endpoints,
-    creates and monitors the SSH tunnel, opens the local browser, and cleans up
-    both SSH processes when the browser closes.
+    carries the backend and tunnel over one SSH connection, opens the local
+    browser, and cleans up that connection when the browser closes. This pins
+    load-balanced cluster aliases to one login node.
 36. Remote sessions force frame streaming for every trajectory size. Source
     files, ASE objects, and full trajectory caches stay on the server; the
     browser receives the current frame only.
@@ -189,12 +221,15 @@ and documentation use `view()`.
 41. Camera toolbar tilt and orbit use the camera world quaternion to derive
     screen right, up, and forward. Their meaning stays screen-relative after
     cell transforms, axis views, roll, and arbitrary camera motion.
-42. Repulsion configuration is calculator state, not display state. Its default
-    pair cutoff scale is `0.70`, strength is user-configurable, and both values
-    survive working-frame and trajectory calculator copies.
-43. Commensurate candidates are deterministic cell-boundary matches. The guide
-    is enabled by default, magnetic snapping is disabled by default, and neither
-    feature depends on the current bond list.
+42. Repulsion configuration is calculator state. Its default `0.70` multiplier
+    applies to the active label-pair Bonding cutoffs, including explicit zero
+    and disabled pairs, while strength remains independently configurable.
+    Both values and the pair table survive working-frame and trajectory
+    calculator copies.
+43. Commensurate candidates are deterministic cell-boundary matches. The
+    workspace and magnetic snapping are both disabled by default, and neither
+    feature depends on the current bond list. Enabling the workspace starts the
+    bounded search immediately and reports staged progress.
 44. `--cli` is a terminal-oriented API mode, not an embedded AI model. An
     agent invokes it itself, parses the first-line JSON handshake, and consumes
     later revisioned NDJSON events. Agents obtain semantic structure state over
@@ -205,6 +240,9 @@ and documentation use `view()`.
     a separate takeover copy. Page-main-world JavaScript access is optional.
     v_ase does not parse natural language or stdin commands; the external agent
     translates the user's request into structured semantic calls.
+    User documentation presents this as a cycle centered on v_ase: structured
+    commands and GUI edits enter v_ase, while the live GUI and exact
+    state/revision leave v_ase through separately labeled arrows.
     `v_ase api ... schema` exposes the live apply schema plus operation/export
     parameter maps without a browser round trip; `describe` reports whether a
     calculator is attached and identifies it.
@@ -284,6 +322,138 @@ and documentation use `view()`.
     categories/paths rather than coordinates. `describe()` reports the current
     document revision, and `apply(expectedRevision=...)` rejects stale agent
     commands before they can overwrite a newer human edit.
+59. Volumetric datasets are backend-owned, explicitly selected FP32 or FP64
+    grids with stable IDs, cell, origin, PBC, endpoint convention, quantity,
+    component, and units. VASP
+    CHGCAR/CHG, LOCPOT, PARCHG, and ELFCAR plus Cube and XSF are accepted only
+    after bounded shape, size, finiteness, and nondegenerate-cell validation.
+    The first/newest imported grid is shown immediately at a valid default
+    level; color and opacity edits update the existing browser mesh live.
+    Optional Gaussian field smearing uses wrap boundaries on periodic axes and
+    reflect boundaries elsewhere without mutating the stored grid. Independent
+    boundary-preserving mesh fairing reduces voxel stair-steps after marching
+    cubes. Both stages are explicit, bounded, persisted display settings and
+    can be disabled with zero. Semantic state reports the rendered levels,
+    mesh/triangle counts, post-smearing range, and partial signed-surface
+    status without transmitting the source grid. The Volumetric Data panel
+    separates isosurfaces, cell-clipped hkl planes, and field arithmetic.
+    View mode edits plane hkl and signed grid-origin distance without changing
+    ASE coordinates; Edit-mode G/R transforms synchronize the visible distance
+    and hkl controls live. Selected-plane previews and settled renders request
+    only the affected compact 2D rasters.
+60. Volumetric combinations require identical dimensions, cell, origin, PBC,
+    endpoint convention, and scalar units. Display repetition and visual
+    translation transform the extracted mesh with atoms. A physical diagonal
+    supercell repeats grid and atoms atomically; reset, undo, and redo restore
+    the corresponding atom/grid state together. A non-diagonal materialized
+    transform is rejected while a grid is loaded.
+61. Bulk RDF requires full 3D PBC. The unique-MIC radius remains the automatic
+    default, while explicit larger cutoffs enumerate every periodic image
+    inside the requested sphere instead of assuming a fixed `2 x 2 x 2`
+    repetition. Total and concentration-weighted visual-label partial curves
+    share one matscipy periodic neighbor search and reconstruct the total
+    through the standard concentration-weighted relation. The Plotly view includes a
+    `g(r) = 1` bulk-limit reference and the generated amorphous regression
+    reaches a statistically flat long-range plateau.
+    The common matscipy adapter is cross-checked against ASE over scalar,
+    per-atom-radius, and label-pair cutoffs for cell-free, finite, wire, slab,
+    full-rank partial-PBC, orthogonal, and triclinic cells. Finite axes retain
+    zero image shift even for coordinates outside their nominal cell extent.
+    Exported periodic bond vectors use ASE's exact triclinic `find_mic`.
+62. `describe().analysis` and live capability discovery are authoritative for
+    volumetric dataset IDs, RDF cutoffs/warnings, and partial curve names.
+    Agents never receive the complete scalar grid or infer analysis from
+    screenshots.
+63. Commensurate matching is opt-in and defaults off. It is restricted to two
+    in-plane periodic vectors and global-Z guest rotation. Enabling it searches
+    integer host/guest supercells up to the configured area ratio (default
+    `16`, explicit maximum `128`) and maximum-principal-strain cutoff. GUI
+    activation, selection, and guest loading preserve the current angle;
+    black/orange parent lattices remain primary, retain one candidate-independent
+    display extent while the mobile lattice rotates, and the green common cell
+    appears only when that angle resolves a bounded match. Explicit
+    semantic calculation without an angle still selects the smallest
+    admissible common cell.
+    Same-lattice twist uses a selected rotating layer; host/guest mode loads a
+    separate guest structure and can place residual in-plane strain on the
+    guest (default) or host. Cells-only preview is the default. Optional atoms
+    repeat both opaque parent lattices across the fixed preview window when
+    the preview budget permits. Host and guest bonds are inferred independently
+    and cross-component bonds are excluded. The proposal is independent of display replication and
+    manual Cell Transform, and it becomes ASE state only after the explicit
+    **Set Suggested Cell as Structure** action. Trajectories and active
+    volumetric fields remain preview-only. The server recomputes integer
+    matrices, affine maps, and constraint remapping before materialization.
+64. The commensurate Plotly drawer provides a 3D overview using angle, maximum
+    host/guest area ratio, and active-target maximum principal strain. It uses
+    discrete candidate points, a gridded angle-area floor, a moving current-angle
+    plane, and dotted equivalent-angle guides only for exact lattice symmetry,
+    plus a
+    paper projection using mean absolute strain versus actual common-cell atom
+    count. Both views share one accepted candidate set. A live angle plane and
+    nearest-candidate marker follow guest rotation. Its icon-only CSV export
+    retains both strain definitions, atom counts, integer matrices, and paper
+    metadata. The visual graphene/MoS2 fixture uses visibly different parent
+    lattice constants while the deterministic graphene/Cu(111) pair remains
+    the strict numerical validation under `examples/commensurate_host_guest`
+    and `docs/commensurate_validation.md`. Both parent grids share one fixed
+    in-plane origin; basis rotation never introduces visual lattice drift.
+    Rigid Translation constructs a primitive periodic lattice in any compatible
+    `(hkl)` plane. Its optional map scans a selected rigid component over one
+    complete plane cell with either a short-contact or enabled-pair bond-strain
+    geometry score. Live `G` motion is projected into the same plane, the cell
+    and component internal vectors remain fixed, and CSV export includes the
+    exact integer and Cartesian bases. These scores are geometry screens, not
+    energies. A separate calculator-driven mode optimizes exactly two rigid
+    plane coordinates, reports projected net selected force in eV/Angstrom,
+    owns a temporary timeline, commits as one undo step, and cancels to the
+    exact baseline. Cartesian mode instead optimizes one common x/y/z vector in
+    Angstrom, supports cell-free systems, and enforces an explicit bound on each
+    component while preserving the same host/cell/internal-geometry invariants.
+    Selection COM to Origin is visual-only and uses ASE masses without changing
+    structure coordinates.
+65. Workspace activation and browser resizing update the camera-signature
+    baseline but are not collaboration edits. A `describe()` revision is not
+    invalidated by iframe activation or framebuffer aspect changes; deliberate
+    human camera controls continue to publish revisioned camera events.
+66. Source, structure-relaxation, Add Atoms placement, and rigid-translation timelines
+    have explicit owners. Closing a mode removes only its temporary optimizer
+    timeline; commit/cancel behavior remains operation-specific.
+67. Temporary Add Atoms host fixation changes only the fixed-material shader;
+    sphere geometry and established per-atom radii remain exact. Asynchronous
+    pair-cutoff refreshes merge the current live table immediately before
+    rendering, so a delayed response cannot replace a newer user edit.
+68. README molecule validation uses a fully periodic `12 Å` layered cell with
+    two `6 Å` slits, two Allow regions, one Reject gate, an exact
+    `459.58594030630485 Å³` accessible domain, and 10 rigid H2O molecules at
+    `0.6509035344988875 g/cm³` for a `0.65 g/cm³` target.
+69. README per-atom validation uses 14 frames of one O probe above a 96-atom
+    Cu(111) slab. Every one of the 97 atoms receives a finite mapped color and
+    stored Cartesian force in every frame, the trajectory range remains fixed,
+    arrow direction follows the active force, and each frame has zero net
+    force. ASE EMT is evaluated independently at every Cu/O probe position;
+    both colors and arrows use that same stored per-frame calculator result.
+70. The visibly different graphene/MoS2 fixture is fixed by a backend
+    regression at `|19.10660535|` degrees: the graphene boundary is the
+    rectangular `(sqrt(7) x sqrt(21))` area-14 cell, the rectangular MoS2
+    conventional boundary is `2 x 2` with area ratio 4, and the guest maximum
+    principal strain is `0.023356639185`. Both parent grids stay on one shared
+    in-plane origin while candidate and atom visibility remain independent.
+71. Volumetric-plane transforms recompute their reciprocal-space normal and
+    valid offset range from the current `(hkl)` when `G` or `R` starts. A
+    pending settled-resolution slice response cannot reintroduce stale plane
+    geometry after an input edit.
+72. Per-atom colormap catalogs carry one cached 24-sample full-range preview
+    per installed Matplotlib map. Custom maps contain 2-64 positioned colors,
+    are sampled locally as continuous interpolation or discrete bands, and
+    persist through visual settings, projects, semantic commands, and HTML
+    export without adding work while atom colorscales are disabled.
+73. Appearance uses label defaults followed by atom-index radius-scale, color,
+    opacity, and material overrides. Optional atom-index bond endpoint records
+    copy only changed material/opacity fields. Pair appearance also owns an
+    independent diameter. Long dialogs scroll within viewport bounds, narrow
+    label tables keep one row with a frozen TYPE column, and Shift selection is
+    set inversion for click, box, and select-all paths.
 
 ## Canonical Names And Compatibility
 
@@ -295,9 +465,14 @@ Canonical display keys:
 - `pairwiseBondRanges`
 - `labelRadii`
 - `labelColors`
+- `labelOpacities`
 - `labelVisible`
 - `labelMaterials`
+- `atomRadiusScales`
+- `atomColors`
+- `atomOpacities`
 - `atomMaterials`
+- `atomBondStyles`
 - bond mode `pairwise`
 
 `pairwiseBondCutoffs` remains a maximum-distance compatibility mirror for
@@ -313,7 +488,7 @@ compatibility aliases for code written against v_ase 0.0.77 or earlier.
 
 POSCAR/CONTCAR species headers are also part of label identity. If one element
 appears in multiple species blocks, each occurrence receives an ordered visual
-label (`O1`, `O2`, ...), while the ASE atomic numbers and symbols remain
+label (`O_1`, `O_2`, ...), while the ASE atomic numbers and symbols remain
 unchanged.
 
 Canonical atom-identity route:
@@ -330,14 +505,24 @@ same implementation for compatibility.
 - ASE Pickle contains the current `Atoms`, labels, constraints, portable arrays,
   and valid `SinglePointCalculator` results. It excludes visual state and
   arbitrary executable calculators.
-- Visual Settings JSON contains presentation state but no coordinates.
+- Portable Visual Settings JSON contains presentation state but no coordinates.
+- Personal visual defaults persist reusable startup styling per OS user; they
+  exclude coordinates, trajectory data, cell contents, absolute camera
+  placement, and per-atom overrides. Restore requires explicit confirmation.
+- The interface theme defaults to System and follows the browser/OS light-dark
+  preference; explicit Light/Dark choices are browser-persistent and do not
+  change the viewport background.
 - `.vase` is a validated ZIP archive containing every trajectory frame, current
   frame, edits, cells/PBC, constraints, labels, safe arrays and metadata,
   cached standard results, supported built-in calculator configuration, and
-  visual settings. It does not reference the source file.
+  visual settings. Volumetric grids are compressed bounded NPZ members with
+  expected arrays and no executable pickle payload. The project does not
+  reference the source file.
 - Standalone HTML export embeds browser-ready scene data and all runtime assets.
-  Lightweight HTML omits `.vase` by default; **HTML Project** embeds the
-  validated archive by default. Both use the exact image/video Preview Area
+  Lightweight HTML omits `.vase` by default. The unified **Save Project**
+  dialog writes compact `.vase` unless **Include interactive rendered view** is
+  enabled, which changes the output to HTML and embeds the validated archive.
+  Both use the exact image/video Preview Area
   camera crop, include an optimized high-resolution Finder/Quick Look poster,
   open from `file://`, provide view navigation and trajectory playback only,
   and make no network request. The poster is the complete initial preview
@@ -389,6 +574,12 @@ same implementation for compatibility.
 - Hidden displacement analysis performs no backend calculation and allocates
   no arrow meshes. Color, thickness, scale, and 2D/3D restyling reuse the
   latest vectors without repeating the backend calculation.
+- Hidden volumetric surfaces allocate no browser geometry. The full bounded
+  FP32 or FP64 grid stays in Python; the browser receives only descriptors and
+  the requested indexed isosurface. Marching cubes and RDF run off the event
+  loop.
+- Total and selected partial RDF curves share one periodic neighbor-list pass.
+  The local Plotly drawer is created only when RDF is requested.
 - Inactive workspace tabs suspend rendering and playback.
 - Local servers use readiness polling and are stopped/joined by their owning
   editor or blocking session. Release is lease-bound so a delayed prior session
@@ -402,13 +593,18 @@ Current benchmark method and results are in [performance.md](performance.md).
 2. JavaScript syntax checks for every first-party module.
 3. Full `pytest` suite.
 4. Real Chromium browser workflows, including large trajectories, supercells,
-   bonds, constraints, preview/export parity, and multiple documents.
+   bonds, constraints, volumetric surfaces, RDF/CSV, same-lattice and
+   independent-host/guest common cells, rigid planar/Cartesian translation,
+   selection-COM visual alignment, preview/export parity,
+   and multiple documents.
 5. 15,000-atom browser benchmark with zero idle render frames.
 6. Blender runtime and 15,000-atom optimized scene benchmark when Blender is
    available.
 7. Rhino export tests in an environment containing `rhino3dm`.
 8. Wheel and sdist build, metadata check, clean-environment installation,
-   `v_ase --version`, and console entry-point execution.
+   `v_ase --version`, console entry-point execution, and an import plus VASP
+   scalar-grid read against the declared minimum/legacy ASE compatibility
+   range.
 9. Documentation and displayed/static version synchronization.
 10. Headless Linux installation and real browser rendering through the managed
     one-command SSH workflow, including per-frame trajectory transfer and CLI

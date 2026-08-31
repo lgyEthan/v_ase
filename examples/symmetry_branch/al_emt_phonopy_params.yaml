@@ -1,5 +1,5 @@
 phonopy:
-  version: "4.4.0"
+  version: "3.5.0"
   frequency_unit_conversion_factor: 15.633302
   symmetry_tolerance: 1.00000e-05
 

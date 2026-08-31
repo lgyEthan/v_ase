@@ -10,9 +10,29 @@ import numpy as np
 from ase import Atoms
 from ase.calculators.calculator import Calculator, all_changes
 from ase.data import atomic_numbers, covalent_radii, vdw_radii
-from ase.neighborlist import primitive_neighbor_list
+from ase.geometry import find_mic
+
+from .io import atom_labels
+from .neighbors import primitive_neighbour_list
 
 _EPS = 1e-12
+
+
+def _coincident_pair_vector(i: int, j: int) -> np.ndarray:
+    """Return a stable unit vector for an exactly coincident atom pair.
+
+    An overlap has no geometric gradient direction, but treating it as a zero
+    force leaves scratch-built structures permanently stuck.  This index-based
+    spherical sequence supplies a reproducible symmetry-breaking direction;
+    the equal and opposite pair forces still conserve total momentum.
+    """
+    seed = ((int(i) + 1) * 73856093) ^ ((int(j) + 1) * 19349663)
+    u = ((seed & 0xFFFF) + 0.5) / 65536.0
+    v = (((seed >> 16) & 0xFFFF) + 0.5) / 65536.0
+    z = 2.0 * u - 1.0
+    radial = float(np.sqrt(max(0.0, 1.0 - z * z)))
+    angle = 2.0 * np.pi * v
+    return np.asarray([radial * np.cos(angle), radial * np.sin(angle), z], dtype=float)
 
 
 @lru_cache(maxsize=1)
@@ -65,10 +85,51 @@ def _valid_cutoff_scale(value: Any | None) -> float:
     try:
         scale = float(value)
     except (TypeError, ValueError):
-        scale = 0.7
+        scale = 1.0
     if not np.isfinite(scale):
-        scale = 0.7
+        scale = 1.0
     return min(3.0, max(0.05, scale))
+
+
+def _valid_cutoff_mode(value: Any | None) -> str:
+    normalized = str(value or "").strip().lower()
+    if normalized == "absolute":
+        return "absolute"
+    # ``bonding`` was the public name before repulsion distances were
+    # separated from visual bond cutoffs. Read it as the equivalent scaled
+    # reference-distance mode so older projects remain reproducible.
+    return "scaled"
+
+
+def _valid_cutoff_basis(value: Any | None) -> str:
+    return "vdw" if str(value or "").strip().lower().startswith("vdw") else "covalent"
+
+
+def _valid_pair_cutoffs(value: Any | None) -> dict[str, float] | None:
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        return None
+    normalized: dict[str, float] = {}
+    for key, raw in value.items():
+        try:
+            cutoff = float(raw)
+        except (TypeError, ValueError):
+            continue
+        if not np.isfinite(cutoff):
+            continue
+        normalized[str(key)] = min(100.0, max(0.0, cutoff))
+    return normalized
+
+
+def _valid_cutoff_distance(value: Any | None) -> float:
+    try:
+        distance = float(value)
+    except (TypeError, ValueError):
+        distance = 2.0
+    if not np.isfinite(distance):
+        distance = 2.0
+    return min(100.0, max(0.01, distance))
 
 
 def _valid_repulsion_strength(value: Any | None) -> float:
@@ -88,6 +149,13 @@ def _copy_calc_config(source: "VAseRepulsionCalculator") -> dict[str, Any]:
         "set_region_as_prohibited": source.set_region_as_prohibited,
         "k_boundary": source.k_boundary,
         "k_repulsion": source.k_repulsion,
+        "cutoff_mode": source.cutoff_mode,
+        "cutoff_basis": source.cutoff_basis,
+        "cutoff_distance": (
+            source.cutoff_distance
+            if source._absolute_global_override
+            else None
+        ),
         "cutoff_scale": source.cutoff_scale,
         "max_force_norm": source.max_force_norm,
         "mic": source.mic,
@@ -111,10 +179,18 @@ def is_vase_repulsion_calculator(calc) -> bool:
 class VAseRepulsionCalculator(Calculator):
     """ASE calculator for soft pair repulsion and optional region penalties.
 
-    The default model follows the semantics of the reference Conditioner:
-    atoms closer than a covalent-radius threshold receive a harmonic repulsive
-    force. Torch is used when available, including CUDA if requested; otherwise
-    the same force expression is evaluated with NumPy.
+    Each label-pair entry is independent from bond visualization. In
+    ``absolute`` mode the entry itself is the repulsion onset distance in
+    Angstrom. In ``scaled`` mode it is a reference contact distance multiplied
+    by ``cutoff_scale``. ASE covalent-radius sums are used when no explicit pair
+    table is supplied; van der Waals sums can be requested with
+    ``cutoff_basis='vdw'``. Both modes use
+    ``0.5 * k_repulsion * (r_cut - r)**2`` below the threshold and exactly zero
+    pair energy and force at or beyond it. The onset is not a hard minimum
+    separation.
+
+    Torch is used when available, including CUDA if requested; otherwise the
+    same force expression is evaluated with NumPy.
     """
 
     implemented_properties = ["energy", "forces"]
@@ -126,7 +202,11 @@ class VAseRepulsionCalculator(Calculator):
         set_region_as_prohibited: bool = False,
         k_boundary: float = 1.0,
         k_repulsion: float = 1.0,
-        cutoff_scale: float = 0.7,
+        cutoff_mode: str = "absolute",
+        cutoff_basis: str = "covalent",
+        cutoff_distance: float | None = None,
+        cutoff_scale: float = 1.0,
+        pair_cutoffs: dict[str, float] | None = None,
         max_force_norm: float | None = 10.0,
         mic: bool = True,
         work_on_relax_atoms_too: bool = True,
@@ -136,13 +216,33 @@ class VAseRepulsionCalculator(Calculator):
         **kwargs,
     ):
         super().__init__(**kwargs)
-        self.min_bondinfo = min_bondinfo.lower() if isinstance(min_bondinfo, str) else min_bondinfo
+        normalized_pair_cutoffs = _valid_pair_cutoffs(pair_cutoffs)
+        self.cutoff_basis = _valid_cutoff_basis(cutoff_basis)
+        requested_minimums = (
+            normalized_pair_cutoffs
+            if normalized_pair_cutoffs is not None
+            else min_bondinfo.lower() if isinstance(min_bondinfo, str) else min_bondinfo
+        )
+        if (
+            normalized_pair_cutoffs is None
+            and isinstance(requested_minimums, str)
+            and requested_minimums.startswith("cov")
+            and self.cutoff_basis == "vdw"
+        ):
+            requested_minimums = "vdw"
+        self.min_bondinfo = requested_minimums
+        self._absolute_global_override = (
+            cutoff_distance is not None
+            and not isinstance(requested_minimums, dict)
+        )
         self.region = [None] * 6 if region is None else list(region)
         if len(self.region) != 6:
             raise ValueError("region must be a list of length 6")
         self.set_region_as_prohibited = bool(set_region_as_prohibited)
         self.k_boundary = float(k_boundary)
         self.k_repulsion = _valid_repulsion_strength(k_repulsion)
+        self.cutoff_mode = _valid_cutoff_mode(cutoff_mode)
+        self.cutoff_distance = _valid_cutoff_distance(cutoff_distance)
         self.cutoff_scale = _valid_cutoff_scale(cutoff_scale)
         self.max_force_norm = None if max_force_norm is None else float(max_force_norm)
         self.mic = bool(mic)
@@ -158,15 +258,31 @@ class VAseRepulsionCalculator(Calculator):
         *,
         device: str | None = None,
         cpu_threads: int | None = None,
+        cutoff_mode: str | None = None,
+        cutoff_basis: str | None = None,
+        cutoff_distance: float | None = None,
         cutoff_scale: float | None = None,
+        pair_cutoffs: dict[str, float] | None = None,
         k_repulsion: float | None = None,
     ):
         if device is not None:
             self.device_requested = _normalized_device(device)
         if cpu_threads is not None:
             self.cpu_threads = _valid_cpu_threads(cpu_threads)
+        if cutoff_mode is not None:
+            self.cutoff_mode = _valid_cutoff_mode(cutoff_mode)
+        if cutoff_basis is not None:
+            self.cutoff_basis = _valid_cutoff_basis(cutoff_basis)
+        if cutoff_distance is not None:
+            self.cutoff_distance = _valid_cutoff_distance(cutoff_distance)
         if cutoff_scale is not None:
             self.cutoff_scale = _valid_cutoff_scale(cutoff_scale)
+        normalized_pair_cutoffs = _valid_pair_cutoffs(pair_cutoffs)
+        if normalized_pair_cutoffs is not None:
+            self.min_bondinfo = normalized_pair_cutoffs
+            self._absolute_global_override = False
+        elif cutoff_distance is not None and not isinstance(self.min_bondinfo, dict):
+            self._absolute_global_override = True
         if k_repulsion is not None:
             self.k_repulsion = _valid_repulsion_strength(k_repulsion)
         self.reset()
@@ -183,7 +299,15 @@ class VAseRepulsionCalculator(Calculator):
             "torch_available": torch_available(),
             "cuda_available": cuda_available(),
             "min_bondinfo": self.min_bondinfo,
+            "cutoff_mode": self.cutoff_mode,
+            "cutoff_basis": self.cutoff_basis,
+            "cutoff_distance": self.cutoff_distance,
             "cutoff_scale": self.cutoff_scale,
+            "pair_cutoffs": (
+                dict(self.min_bondinfo)
+                if isinstance(self.min_bondinfo, dict)
+                else None
+            ),
             "k_repulsion": self.k_repulsion,
         }
 
@@ -205,70 +329,166 @@ class VAseRepulsionCalculator(Calculator):
             return values
         return self.min_bondinfo
 
-    def _threshold_for_pair(self, min_bondinfo, sym_i: str, sym_j: str) -> float | None:
+    def _threshold_for_pair(
+        self,
+        min_bondinfo,
+        label_i: str,
+        label_j: str,
+        sym_i: str,
+        sym_j: str,
+    ) -> float | None:
         if isinstance(min_bondinfo, dict):
-            key_ij = f"{sym_i}-{sym_j}"
-            key_ji = f"{sym_j}-{sym_i}"
-            value = min_bondinfo.get(key_ij, min_bondinfo.get(key_ji))
-            return None if value is None else float(value) * self.cutoff_scale
+            keys = (
+                f"{label_i}-{label_j}",
+                f"{label_j}-{label_i}",
+                f"{label_i}|{label_j}",
+                f"{label_j}|{label_i}",
+                f"{sym_i}-{sym_j}",
+                f"{sym_j}-{sym_i}",
+            )
+            value = next(
+                (min_bondinfo[key] for key in keys if key in min_bondinfo),
+                None,
+            )
+            if value is None:
+                return None
+            # Pair dictionaries use zero to disable a pair in either mode.
+            if float(value) <= 0:
+                return None
+            if self.cutoff_mode == "absolute":
+                return self.cutoff_distance if self._absolute_global_override else float(value)
+            return float(value) * self.cutoff_scale
+        if self.cutoff_mode == "absolute":
+            return self.cutoff_distance
         return float(min_bondinfo) * self.cutoff_scale
-
-    def _manual_pairs(self, atoms: Atoms, min_bondinfo):
-        positions = atoms.get_positions()
-        symbols = atoms.get_chemical_symbols()
-        pairs = []
-        for i in range(len(atoms) - 1):
-            for j in range(i + 1, len(atoms)):
-                threshold = self._threshold_for_pair(min_bondinfo, symbols[i], symbols[j])
-                if threshold is None or threshold <= 0:
-                    continue
-                vec = positions[j] - positions[i]
-                dist = float(np.linalg.norm(vec))
-                if _EPS < dist < threshold:
-                    pairs.append((i, j, vec, dist, threshold))
-        return pairs
 
     def _neighbor_pairs(self, atoms: Atoms, min_bondinfo):
         if len(atoms) < 2:
             return []
-        if isinstance(min_bondinfo, dict):
-            max_cutoff = max(float(value) for value in min_bondinfo.values()) if min_bondinfo else 0.0
-            max_cutoff *= self.cutoff_scale
-            cutoff = max_cutoff
-        else:
-            cutoff = float(min_bondinfo) * self.cutoff_scale
-            max_cutoff = cutoff
-        if max_cutoff <= 0:
-            return []
-        pbc = np.asarray(atoms.pbc, dtype=bool) if self.mic else np.asarray([False, False, False])
-        use_neighborlist = atoms.cell.rank > 0 or bool(np.any(pbc))
-        if not use_neighborlist:
-            return self._manual_pairs(atoms, min_bondinfo)
-        try:
-            is_, js, vecs, dists = primitive_neighbor_list(
-                "ijDd",
-                pbc=pbc,
-                cell=atoms.cell,
-                positions=atoms.get_positions(),
-                cutoff=cutoff,
-                numbers=atoms.get_atomic_numbers(),
-                self_interaction=False,
-                use_scaled_positions=False,
-            )
-        except Exception:
-            return self._manual_pairs(atoms, min_bondinfo)
 
-        symbols = atoms.get_chemical_symbols()
+        symbols = np.asarray(atoms.get_chemical_symbols(), dtype=str)
+        labels = np.asarray(atom_labels(atoms), dtype=str)
+        interaction_types = list(dict.fromkeys(zip(labels.tolist(), symbols.tolist())))
+        type_ids_by_key = {
+            key: index + 1
+            for index, key in enumerate(interaction_types)
+        }
+        type_ids = np.fromiter(
+            (type_ids_by_key[(label, symbol)] for label, symbol in zip(labels, symbols)),
+            dtype=np.int32,
+            count=len(atoms),
+        )
+        threshold_matrix = np.zeros(
+            (len(interaction_types) + 1, len(interaction_types) + 1),
+            dtype=float,
+        )
+        native_cutoffs: dict[tuple[int, int], float] = {}
+        for left_index, (left_label, left_symbol) in enumerate(interaction_types, start=1):
+            for right_index in range(left_index, len(interaction_types) + 1):
+                right_label, right_symbol = interaction_types[right_index - 1]
+                threshold = self._threshold_for_pair(
+                    min_bondinfo,
+                    left_label,
+                    right_label,
+                    left_symbol,
+                    right_symbol,
+                )
+                if threshold is None or not np.isfinite(threshold) or threshold <= 0:
+                    continue
+                clean_threshold = float(threshold)
+                native_cutoffs[(left_index, right_index)] = clean_threshold
+                threshold_matrix[left_index, right_index] = clean_threshold
+                threshold_matrix[right_index, left_index] = clean_threshold
+        if not native_cutoffs:
+            return []
+
+        pbc = np.asarray(atoms.pbc, dtype=bool) if self.mic else np.asarray([False, False, False])
+        is_, js, vecs, dists = primitive_neighbour_list(
+            "ijDd",
+            pbc=pbc,
+            cell=atoms.cell,
+            positions=atoms.get_positions(),
+            cutoff=native_cutoffs,
+            numbers=type_ids,
+            self_interaction=False,
+            use_scaled_positions=False,
+        )
+
+        is_ = np.asarray(is_, dtype=int)
+        js = np.asarray(js, dtype=int)
+        vecs = np.asarray(vecs, dtype=float)
+        dists = np.asarray(dists, dtype=float)
+        thresholds = threshold_matrix[type_ids[is_], type_ids[js]]
+        active = (is_ < js) & (thresholds > 0) & (dists < thresholds)
+        is_ = is_[active]
+        js = js[active]
+        vecs = vecs[active]
+        dists = dists[active]
+        thresholds = thresholds[active]
+
         pairs = []
-        for i, j, vec, dist in zip(is_, js, vecs, dists):
-            i = int(i)
-            j = int(j)
-            if i >= j or dist <= _EPS:
-                continue
-            threshold = self._threshold_for_pair(min_bondinfo, symbols[i], symbols[j])
-            if threshold is None or dist >= threshold:
-                continue
-            pairs.append((i, j, np.asarray(vec, dtype=float), float(dist), float(threshold)))
+        for i, j, vec, dist, threshold in zip(is_, js, vecs, dists, thresholds):
+            if dist <= _EPS:
+                vec = _coincident_pair_vector(int(i), int(j)) * _EPS
+                dist = _EPS
+            pairs.append((int(i), int(j), vec, float(dist), float(threshold)))
+        seen = set(zip(is_.tolist(), js.tolist()))
+
+        # Some neighbor-list backends omit exact overlaps.  Hash wrapped
+        # Cartesian positions first so only plausible coincidences require an
+        # MIC check; scanning every missing pair made long placement runs
+        # quadratic in Python even when no atoms overlapped.
+        positions = np.asarray(atoms.get_positions(), dtype=float)
+        if self.mic and np.any(pbc) and atoms.cell.rank == 3:
+            scaled = np.asarray(atoms.get_scaled_positions(wrap=False), dtype=float)
+            for axis, periodic in enumerate(pbc):
+                if periodic:
+                    scaled[:, axis] -= np.floor(scaled[:, axis])
+                    scaled[np.isclose(scaled[:, axis], 1.0, atol=1e-12), axis] = 0.0
+            hash_positions = scaled @ np.asarray(atoms.cell.array, dtype=float)
+        else:
+            hash_positions = positions
+        buckets: dict[tuple[float, float, float], list[int]] = {}
+        coincident_candidates: list[tuple[int, int, float, np.ndarray]] = []
+        for index, point in enumerate(hash_positions):
+            key = tuple(np.round(point, decimals=12))
+            for other in buckets.get(key, []):
+                i, j = (other, index) if other < index else (index, other)
+                if (i, j) in seen:
+                    continue
+                threshold = self._threshold_for_pair(
+                    min_bondinfo,
+                    labels[i],
+                    labels[j],
+                    symbols[i],
+                    symbols[j],
+                )
+                if threshold is None or threshold <= 0:
+                    continue
+                coincident_candidates.append(
+                    (i, j, float(threshold), positions[j] - positions[i])
+                )
+            buckets.setdefault(key, []).append(index)
+        if coincident_candidates:
+            candidate_vectors = np.asarray(
+                [candidate[3] for candidate in coincident_candidates],
+                dtype=float,
+            )
+            if self.mic and np.any(pbc) and atoms.cell.rank == 3:
+                candidate_vectors, candidate_distances = find_mic(
+                    candidate_vectors,
+                    atoms.cell,
+                    pbc=pbc,
+                )
+            else:
+                candidate_distances = np.linalg.norm(candidate_vectors, axis=1)
+            for (i, j, threshold, _), distance in zip(
+                coincident_candidates,
+                np.asarray(candidate_distances, dtype=float),
+            ):
+                if float(distance) <= _EPS:
+                    unit = _coincident_pair_vector(i, j)
+                    pairs.append((i, j, unit * _EPS, _EPS, threshold))
         return pairs
 
     def _boundary_energy_forces(self, atoms: Atoms):
@@ -321,15 +541,22 @@ class VAseRepulsionCalculator(Calculator):
     def _pair_energy_forces_numpy(self, atoms: Atoms, pairs):
         tags = atoms.get_tags()
         forces = np.zeros((len(atoms), 3), dtype=float)
-        energy = 0.0
-        for i, j, vec, dist, threshold in pairs:
-            delta = threshold - dist
-            energy += 0.5 * self.k_repulsion * delta**2
-            f_vec = (self.k_repulsion * delta / max(dist, _EPS)) * vec
-            if tags[i] == 3 or self.work_on_relax_atoms_too:
-                forces[i] -= f_vec
-            if tags[j] == 3 or self.work_on_relax_atoms_too:
-                forces[j] += f_vec
+        is_ = np.fromiter((pair[0] for pair in pairs), dtype=np.int64, count=len(pairs))
+        js = np.fromiter((pair[1] for pair in pairs), dtype=np.int64, count=len(pairs))
+        vecs = np.asarray([pair[2] for pair in pairs], dtype=float)
+        dists = np.fromiter((pair[3] for pair in pairs), dtype=float, count=len(pairs))
+        thresholds = np.fromiter((pair[4] for pair in pairs), dtype=float, count=len(pairs))
+        deltas = thresholds - dists
+        energy = 0.5 * self.k_repulsion * float(deltas @ deltas)
+        fvec = (
+            self.k_repulsion * deltas / np.maximum(dists, _EPS)
+        )[:, None] * vecs
+        apply_i = (tags[is_] == 3) | bool(self.work_on_relax_atoms_too)
+        apply_j = (tags[js] == 3) | bool(self.work_on_relax_atoms_too)
+        if np.any(apply_i):
+            np.add.at(forces, is_[apply_i], -fvec[apply_i])
+        if np.any(apply_j):
+            np.add.at(forces, js[apply_j], fvec[apply_j])
         return energy, forces
 
     def _pair_energy_forces_torch(self, atoms: Atoms, pairs, torch, device: str):
@@ -365,12 +592,14 @@ class VAseRepulsionCalculator(Calculator):
             return forces
         tags = atoms.get_tags()
         limited = np.array(forces, dtype=float, copy=True)
-        for i, force in enumerate(limited):
-            if tags[i] != 3 and not self.work_on_relax_atoms_too:
-                continue
-            norm = float(np.linalg.norm(force))
-            if norm > _EPS:
-                limited[i] = self.max_force_norm * np.tanh(norm / self.max_force_norm) * (force / norm)
+        active = np.ones(len(atoms), dtype=bool) if self.work_on_relax_atoms_too else tags == 3
+        norms = np.linalg.norm(limited, axis=1)
+        active &= norms > _EPS
+        if np.any(active):
+            scales = self.max_force_norm * np.tanh(
+                norms[active] / self.max_force_norm
+            ) / norms[active]
+            limited[active] *= scales[:, None]
         return limited
 
     def calculate(self, atoms=None, properties=("energy", "forces"), system_changes=all_changes):

@@ -95,18 +95,22 @@ state:
 - **Export ASE Pickle** writes the current ASE structure for Python use,
   including labels, cell/PBC, constraints, portable arrays, and valid
   `SinglePointCalculator` results. It does not include visualization settings.
-- **Save Settings** writes JSON containing bonds, appearance, camera, lighting,
+- **Export Preset** writes JSON containing bonds, appearance, camera, lighting,
   quality, overlays, display supercell, and visual translation, but no atomic
   coordinates.
-- **Save .vase** writes the complete structure or trajectory, current frame,
+- **Set Current as Default** stores reusable visual choices for new structures
+  and tabs under the current OS user. **Restore App Defaults** warns before
+  deleting that preference and leaves structure data untouched.
+- **Save Project** writes the complete structure or trajectory, current frame,
   edited coordinates, cell/PBC, constraints, labels, cached standard calculator
-  results, and visual setup. Reopen it with `v_ase gui FILE.vase`.
+  results, and visual setup. The default compact output is `.vase`; enable the
+  interactive rendered view to change the output to a restorable `.html`.
 - **Export HTML View** writes one offline view-only browser document with the
   exact Preview Area camera crop, scene, and trajectory controls. Grid
   defaults off; axes and unit cell default on. The default file is a smaller
   view-only handoff, with optional complete `.vase` embedding.
-- **Save .vase** writes the compact canonical project. **HTML Project** writes
-  a browser-ready project and enables complete `.vase` embedding by default.
+- The **Save Project** dialog clearly reports `.vase` or `.html` before writing;
+  HTML project output always includes complete `.vase` recovery.
 
 Start with `v_ase gui` to open an empty workspace, then use the top-bar **Open**
 command to launch the operating system file picker and load a structure,
@@ -137,5 +141,10 @@ the move is confirmed or canceled.
   Edit mode with the built-in v_ase calculator.
 - `CPU` is the default device. `CUDA` is enabled only when torch and CUDA are
   available in the Python environment.
-- Cutoff scale defaults to `0.70`; strength defaults to `1.0`.
+- Pair distances in Å are the default cutoff definition; strength defaults to
+  `1.0`. Each label pair has an independent on/off switch and repulsion onset,
+  initialized from covalent radii without reading the visible-bond table.
+- **Scaled reference radii** is the optional alternative. Its
+  contact-distance multiplier scales covalent or van der Waals reference
+  radii together; a disabled pair or `0 Å` distance remains inactive.
 - Torch is optional; NumPy fallback is used when torch is not installed.

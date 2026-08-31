@@ -15,9 +15,18 @@ from pathlib import Path
 
 import numpy as np
 from ase import Atoms
-from ase.build import bulk, fcc111, graphene, molecule, nanotube, surface
+from ase.build import (
+    bulk,
+    fcc111,
+    graphene,
+    graphene_nanoribbon,
+    molecule,
+    nanotube,
+    surface,
+)
 from ase.constraints import FixAtoms, FixedLine, FixedPlane, Hookean
-from ase.io import write
+from ase.calculators.singlepoint import SinglePointCalculator
+from ase.io import read, write
 from ase.optimize import FIRE
 from ase.spacegroup import crystal
 from ase.units import Bohr
@@ -28,6 +37,8 @@ if str(ROOT) not in sys.path:
 
 from v_ase.repulsion import RepulsionCalculator
 from v_ase.io import atom_labels, set_atom_labels
+from v_ase.add_atoms import resolve_molecule_density
+from v_ase.insertion_regions import build_insertion_domain
 
 
 DEFAULT_OUT_DIR = ROOT / "examples" / "readme_scene_assets"
@@ -39,6 +50,7 @@ PHOSPHORENE_COLOR_REFERENCE = "https://doi.org/10.1038/srep13927"
 CU2O_111_REFERENCE = "https://doi.org/10.1039/C8CP06023A"
 CU2O_CU_EPITAXY_REFERENCE = "https://doi.org/10.1016/0022-0248(78)90299-3"
 CU2O_CU_INTERFACE_REFERENCE = "https://doi.org/10.1021/acs.jpcc.0c04453"
+O_CU111_REFERENCE = "https://doi.org/10.1016/S0039-6028(01)01464-9"
 PHOSPHORENE_TWIST_DEGREES = 13.85
 PHOSPHORENE_SUBLAYER_COLORS = {
     "P_upper": "#6faf68",
@@ -166,8 +178,11 @@ def make_ferrocene_scene() -> tuple[Atoms, dict[str, list[int]]]:
 
 
 def make_graphene_hbn_commensurate_scene() -> tuple[Atoms, dict[str, list[int]]]:
-    graphene_layer = graphene(formula="C2", a=2.46, size=(6, 6, 1), vacuum=8.0)
-    hbn_layer = graphene(formula="BN", a=2.46, size=(6, 6, 1), vacuum=8.0)
+    # The commensurate search operates on primitive periodic cells.  Keeping
+    # the README fixture primitive makes every displayed repetition a result
+    # of the proposed integer common cell rather than a pre-repeated input.
+    graphene_layer = graphene(formula="C2", a=2.46, size=(1, 1, 1), vacuum=8.0)
+    hbn_layer = graphene(formula="BN", a=2.46, size=(1, 1, 1), vacuum=8.0)
     hbn_layer.positions[:, 2] += 3.35
     atoms = graphene_layer + hbn_layer
     atoms.set_cell(graphene_layer.cell)
@@ -242,6 +257,124 @@ def make_ai_pyridinic_graphene_scene() -> tuple[Atoms, Atoms, dict[str, object]]
         "li_position": li_position.tolist(),
         "adsorption_height_angstrom": adsorption_height,
     }
+
+
+def make_graphene_pi_volumetric_scene(
+    shape: tuple[int, int, int] = (104, 104, 104),
+) -> tuple[Atoms, np.ndarray]:
+    """Return a graphene flake and a signed, orbital-like pi scalar field.
+
+    The field is generated analytically from alternating carbon-centered pz
+    Gaussians. It is a deterministic visualization example rather than a DFT
+    wavefunction, and its multi-center variation makes moving plane slices
+    visually testable without redistributing electronic-structure data.
+    """
+
+    atoms = graphene(formula="C2", a=2.46, size=(4, 3, 1), vacuum=0.0)
+    # Decimal cell lengths survive the text precision of the portable Cube
+    # writer exactly enough to match the live structure geometry.
+    cell = np.diag([17.5, 11.5, 13.0])
+    center = 0.5 * np.diag(cell)
+    atoms.positions += center - np.mean(atoms.positions, axis=0)
+    atoms.set_cell(cell)
+    atoms.pbc = True
+    set_atom_labels(atoms, [
+        "C_pi_A" if index % 2 == 0 else "C_pi_B"
+        for index in range(len(atoms))
+    ])
+
+    axes = [np.arange(size, dtype=float) / size for size in shape]
+    fractional = np.stack(np.meshgrid(*axes, indexing="ij"), axis=-1)
+    values = np.zeros(shape, dtype=np.float32)
+    for atom_index, (position, symbol) in enumerate(zip(
+        atoms.get_scaled_positions(wrap=True),
+        atoms.get_chemical_symbols(),
+    )):
+        if symbol != "C":
+            continue
+        delta = fractional - position
+        delta -= np.rint(delta)
+        cartesian = np.einsum("...i,ij->...j", delta, cell)
+        radius_squared = np.einsum(
+            "...i,...i->...",
+            cartesian,
+            cartesian,
+        )
+        phase = 1.0 if atom_index % 2 == 0 else -1.0
+        values += phase * (
+            cartesian[..., 2]
+            * np.exp(-radius_squared / (2.0 * 0.68**2))
+        ).astype(np.float32)
+
+    atoms.info.update({
+        "readme_scene": "graphene_signed_pi_isosurface",
+        "volumetric_model": "alternating carbon-centered analytic pz Gaussian field",
+    })
+    return atoms, values
+
+
+def make_amorphous_cuzr_rdf_scene(
+    *,
+    seed: int = 20260731,
+    count: int = 900,
+    cell_length: float = 28.0,
+) -> Atoms:
+    """Return a deterministic periodic Cu-Zr hard-core amorphous model.
+
+    Random sequential insertion enforces species-dependent short-range
+    exclusion while leaving long-range correlations uniform. The resulting
+    RDF has a broad first-neighbor peak and approaches the bulk limit g(r)=1.
+    """
+
+    rng = np.random.default_rng(seed)
+    positions: list[np.ndarray] = []
+    symbols: list[str] = []
+    minimum_distance = {
+        ("Cu", "Cu"): 2.15,
+        ("Cu", "Zr"): 2.30,
+        ("Zr", "Cu"): 2.30,
+        ("Zr", "Zr"): 2.45,
+    }
+    maximum_trials = max(100_000, count * 5_000)
+    trials = 0
+    while len(positions) < count and trials < maximum_trials:
+        trials += 1
+        symbol = "Cu" if rng.random() < 0.64 else "Zr"
+        candidate = rng.random(3) * cell_length
+        if positions:
+            delta = np.asarray(positions) - candidate
+            delta -= cell_length * np.rint(delta / cell_length)
+            distances = np.linalg.norm(delta, axis=1)
+            cutoffs = np.asarray([
+                minimum_distance[(symbol, other)]
+                for other in symbols
+            ])
+            if np.any(distances < cutoffs):
+                continue
+        positions.append(candidate)
+        symbols.append(symbol)
+
+    if len(positions) != count:
+        raise RuntimeError(
+            f"Could not place {count} amorphous atoms after {maximum_trials} trials."
+        )
+
+    atoms = Atoms(
+        symbols,
+        positions=positions,
+        cell=[cell_length] * 3,
+        pbc=True,
+    )
+    set_atom_labels(
+        atoms,
+        ["Cu_glass" if symbol == "Cu" else "Zr_glass" for symbol in symbols],
+    )
+    atoms.info.update({
+        "readme_scene": "amorphous_cuzr_rdf_plateau",
+        "model": "deterministic periodic binary hard-core amorphous configuration",
+        "random_seed": seed,
+    })
+    return atoms
 
 
 def make_copper_oxide_bond_scene() -> tuple[Atoms, dict[str, list[int]]]:
@@ -424,6 +557,299 @@ def make_material_preset_scene() -> tuple[Atoms, dict[str, list[int]]]:
     set_atom_labels(atoms, labels)
     atoms.info["readme_scene"] = "material_preset_comparison"
     return atoms, groups
+
+
+def make_cu5o4_appearance_scene() -> tuple[Atoms, dict[str, list[int]]]:
+    """Return the supplied Cu surface-oxide model with stable layer groups."""
+
+    source = DEFAULT_OUT_DIR / "cu5o4_surface_appearance.vasp"
+    atoms = read(source)
+    chemical_symbols = atoms.get_chemical_symbols()
+    substrate = [
+        index
+        for index, (symbol, position) in enumerate(zip(chemical_symbols, atoms.positions))
+        if symbol == "Cu" and float(position[2]) < 7.0
+    ]
+    oxide_copper = [
+        index
+        for index, (symbol, position) in enumerate(zip(chemical_symbols, atoms.positions))
+        if symbol == "Cu" and float(position[2]) >= 7.0
+    ]
+    oxide_oxygen = [
+        index for index, symbol in enumerate(chemical_symbols) if symbol == "O"
+    ]
+    if len(substrate) != 32 or len(oxide_copper) != 5 or len(oxide_oxygen) != 4:
+        raise AssertionError("Unexpected Cu5O4 surface-layer partition.")
+    set_atom_labels(
+        atoms,
+        ["Cu" if symbol == "Cu" else "O_surface_oxide" for symbol in chemical_symbols],
+    )
+    atoms.info.update({
+        "readme_scene": "cu5o4_view_appearance",
+        "purpose": "View-mode index label split and nonstructural appearance editing",
+    })
+    return atoms, {
+        "substrate_copper": substrate,
+        "oxide_copper": oxide_copper,
+        "oxide_oxygen": oxide_oxygen,
+    }
+
+
+def make_random_addition_scene() -> tuple[Atoms, dict[str, object]]:
+    """Return a Cu(111) slab with a finite bulk-like O insertion volume."""
+
+    host = fcc111(
+        "Cu",
+        size=(7, 6, 5),
+        a=3.615,
+        vacuum=7.0,
+        orthogonal=True,
+    )
+    host.pbc = [True, True, False]
+    set_atom_labels(host, ["Cu_surface"] * len(host))
+    cell_lengths = host.cell.lengths()
+    z_layers = np.unique(np.round(host.positions[:, 2], decimals=6))
+    top_z = float(z_layers[-1])
+    allow_bounds = [
+        0.10 * cell_lengths[0],
+        0.90 * cell_lengths[0],
+        0.08 * cell_lengths[1],
+        0.92 * cell_lengths[1],
+        0.5 * (float(z_layers[0]) + float(z_layers[1])),
+        0.5 * (float(z_layers[-2]) + top_z),
+    ]
+    host.info.update({
+        "readme_scene": "cu111_bulk_like_oxygen_addition",
+        "purpose": "random O insertion through the interior Cu layers followed by pairwise repulsion",
+        "coverage_monolayer": 18 / 42,
+        "surface_reference": O_CU111_REFERENCE,
+    })
+    return host, {
+        "entries": [{"element": "O", "label": "O_subsurface", "count": 18}],
+        "seed": 2021,
+        "coverage_monolayer": 18 / 42,
+        "allow_region": {
+            "id": "bulk-like-insertion-zone",
+            "name": "Bulk-like insertion zone",
+            "role": "allow",
+            "bounds": allow_bounds,
+        },
+        "surface_reference": O_CU111_REFERENCE,
+    }
+
+
+def make_layered_water_channel_scene() -> tuple[Atoms, dict[str, object]]:
+    """Return periodic edge/basal-hydroxylated GO layers and solvent chambers."""
+
+    source = graphene_nanoribbon(7, 3, type="zigzag", sheet=False, vacuum=0.0)
+    carbon_x = np.asarray(source.positions[:, 0], dtype=float)
+    carbon_y = np.asarray(source.positions[:, 2], dtype=float)
+    ribbon_min_x = float(np.min(carbon_x))
+    ribbon_max_x = float(np.max(carbon_x))
+    chamber_padding = 7.0
+    shifted_x = carbon_x - ribbon_min_x + chamber_padding
+    length_y = float(source.cell.lengths()[2])
+    length_x = float(ribbon_max_x - ribbon_min_x + 2.0 * chamber_padding)
+    cell = np.diag([length_x, length_y, 12.0])
+    carbon_xy = np.column_stack((shifted_x, carbon_y))
+    edge_tolerance = 1e-7
+    left_edge = np.flatnonzero(np.isclose(carbon_x, ribbon_min_x, atol=edge_tolerance))
+    right_edge = np.flatnonzero(np.isclose(carbon_x, ribbon_max_x, atol=edge_tolerance))
+    edge_indices = np.concatenate((left_edge, right_edge))
+    edge_index_set = set(edge_indices.tolist())
+    left_edge_set = set(left_edge.tolist())
+    interior_indices = np.asarray(
+        [index for index in range(len(source)) if index not in edge_index_set],
+        dtype=int,
+    )
+
+    def graphene_oxide_layer(
+        z: float,
+        layer: str,
+        seed: int,
+    ) -> tuple[Atoms, list[str], dict[str, object]]:
+        carbon = Atoms(
+            "C" * len(source),
+            positions=np.column_stack((carbon_xy, np.full(len(source), z))),
+            cell=cell,
+            pbc=True,
+        )
+        rng = np.random.default_rng(seed)
+        basal_indices = np.sort(rng.choice(interior_indices, size=6, replace=False))
+        ligand_symbols: list[str] = []
+        ligand_positions: list[list[float]] = []
+
+        # Every finite-ribbon edge carbon is hydroxyl-passivated.  The O-H
+        # direction is tilted around the C-O bond, rather than drawn collinear.
+        for edge_order, index in enumerate(edge_indices):
+            carbon_position = carbon.positions[int(index)]
+            outward = -1.0 if int(index) in left_edge_set else 1.0
+            oxygen = carbon_position + np.array([1.36 * outward, 0.0, 0.0])
+            azimuth = 2.0 * math.pi * ((edge_order + 0.37 * seed) % 7) / 7.0
+            perpendicular = np.array([0.0, math.cos(azimuth), math.sin(azimuth)])
+            oh_direction = (
+                0.32 * np.array([outward, 0.0, 0.0])
+                + math.sqrt(1.0 - 0.32**2) * perpendicular
+            )
+            hydrogen = oxygen + 0.97 * oh_direction
+            ligand_symbols.extend(["O", "H"])
+            ligand_positions.extend([oxygen.tolist(), hydrogen.tolist()])
+
+        # Basal hydroxyls use deterministic random sites and azimuths, so they
+        # cover both faces without collapsing into a single crystallographic row.
+        for order, index in enumerate(basal_indices):
+            direction = 1.0 if rng.random() >= 0.5 else -1.0
+            carbon_position = carbon.positions[int(index)]
+            oxygen = carbon_position + np.array([0.0, 0.0, 1.42 * direction])
+            azimuth = float(rng.uniform(0.0, 2.0 * math.pi))
+            lateral = np.array([math.cos(azimuth), math.sin(azimuth), 0.0])
+            oh_direction = (
+                math.sqrt(1.0 - 0.32**2) * lateral
+                + 0.32 * np.array([0.0, 0.0, direction])
+            )
+            hydrogen = oxygen + 0.97 * oh_direction
+            ligand_symbols.extend(["O", "H"])
+            ligand_positions.extend([oxygen.tolist(), hydrogen.tolist()])
+        ligands = Atoms(ligand_symbols, positions=ligand_positions, cell=cell, pbc=True)
+        layer_atoms = carbon + ligands
+        labels = (
+            [f"C_GO_{layer}"] * len(carbon)
+            + [
+                value
+                for _ in range(len(edge_indices) + len(basal_indices))
+                for value in (f"O_GO_{layer}", f"H_GO_{layer}")
+            ]
+        )
+        return layer_atoms, labels, {
+            "edge_indices": edge_indices.tolist(),
+            "basal_indices": basal_indices.tolist(),
+            "basal_xy": carbon_xy[basal_indices].tolist(),
+            "hydroxyl_carbon_indices": np.concatenate(
+                (edge_indices, basal_indices)
+            ).tolist(),
+        }
+
+    lower, lower_labels, lower_ligands = graphene_oxide_layer(3.0, "lower", 1207)
+    upper, upper_labels, upper_ligands = graphene_oxide_layer(9.0, "upper", 2710)
+    channel = lower + upper
+    channel.cell = cell
+    channel.pbc = True
+    set_atom_labels(channel, lower_labels + upper_labels)
+    channel.wrap(eps=1e-10)
+    channel.info.update({
+        "readme_scene": "periodic_graphene_oxide_water",
+        "purpose": "exact solvent density outside ligand-wrapped reject regions",
+    })
+    reject_min_x = float(np.min(shifted_x) - 1.85)
+    reject_max_x = float(np.max(shifted_x) + 1.85)
+    regions = [
+        {
+            "id": "lower-go-exclusion",
+            "name": "Lower GO exclusion",
+            "role": "reject",
+            "bounds": [reject_min_x, reject_max_x, 0.0, length_y, 2.0, 4.0],
+        },
+        {
+            "id": "upper-go-exclusion",
+            "name": "Upper GO exclusion",
+            "role": "reject",
+            "bounds": [reject_min_x, reject_max_x, 0.0, length_y, 8.0, 10.0],
+        },
+    ]
+    domain = build_insertion_domain(
+        cell=channel.cell.array,
+        pbc=channel.pbc,
+        regions=regions,
+        pbc_aware=True,
+    )
+    target_density = 1.0
+    _, density = resolve_molecule_density(
+        [{"name": "H2O", "label": "water", "count": 1, "atom_count": 3}],
+        target_density_g_cm3=target_density,
+        accessible_volume_angstrom3=domain.volume,
+    )
+    return channel, {
+        "molecules": [{"name": "H2O", "label": "water", "count": 1}],
+        "target_density_g_cm3": target_density,
+        "expected_molecule_count": density["molecule_count"],
+        "actual_density_g_cm3": density["actual_g_cm3"],
+        "regions": regions,
+        "accessible_volume_angstrom3": domain.volume,
+        "interlayer_spacing_angstrom": 6.0,
+        "reject_region_thickness_angstrom": 2.0,
+        "left_chamber_width_angstrom": reject_min_x,
+        "right_chamber_width_angstrom": length_x - reject_max_x,
+        "edge_hydroxyls_per_layer": len(edge_indices),
+        "basal_hydroxyls_per_layer": len(lower_ligands["basal_indices"]),
+        "basal_hydroxyl_sites": {
+            "lower": lower_ligands["basal_xy"],
+            "upper": upper_ligands["basal_xy"],
+        },
+        "hydroxyl_carbon_indices": {
+            "lower": lower_ligands["hydroxyl_carbon_indices"],
+            "upper": upper_ligands["hydroxyl_carbon_indices"],
+        },
+        "seed": 1207,
+        "placement_mode": "random",
+        "coordinate_basis": "cartesian",
+        "random_orientation": True,
+        "rigid_molecules": True,
+    }
+
+
+def make_atom_colorscale_trajectory() -> list[Atoms]:
+    """Return a smooth screened-probe force field above a Cu(111) slab.
+
+    The fixed O marker represents an external probe. Its Gaussian-screened
+    field acts on every Cu atom, so the stored Cartesian response resolves the
+    first, second, and third lateral neighbour shells without one oversized
+    reaction-force arrow dominating the visual scale.
+    """
+
+    surface = fcc111("Cu", size=(8, 8, 3), vacuum=7.0, orthogonal=True)
+    surface_center = np.mean(surface.positions, axis=0)
+    top_z = float(np.max(surface.positions[:, 2]))
+    frames: list[Atoms] = []
+    phases = np.linspace(0.0, 2.0 * math.pi, 14, endpoint=False)
+    for frame_index, phase in enumerate(phases):
+        probe_position = surface_center + np.array([
+            2.35 * math.cos(phase),
+            1.85 * math.sin(phase),
+            top_z - surface_center[2] + 2.45 + 0.08 * math.sin(2.0 * phase),
+        ])
+        atoms = surface.copy()
+        atoms += Atoms("O", positions=[probe_position])
+        set_atom_labels(atoms, ["Cu_surface"] * len(surface) + ["O_probe"])
+
+        probe_index = len(atoms) - 1
+        delta = surface.positions - probe_position
+        distance = np.linalg.norm(delta, axis=1)
+        lateral_distance = np.linalg.norm(delta[:, :2], axis=1)
+        depth = top_z - surface.positions[:, 2]
+        magnitude = (
+            0.22
+            * np.exp(-np.square(lateral_distance / 5.2))
+            * np.exp(-depth / 5.0)
+        )
+        directions = delta / np.maximum(distance[:, None], 1e-12)
+        surface_forces = directions * magnitude[:, None]
+        forces = np.vstack([surface_forces, np.zeros((1, 3), dtype=float)])
+        energy = float(np.sum(0.22 * np.exp(-np.square(lateral_distance / 5.2))))
+        if np.count_nonzero(np.linalg.norm(surface_forces, axis=1) > 0.01) < 36:
+            raise AssertionError("README probe field must visibly resolve multiple neighbour shells.")
+        atoms.new_array("forces", forces.copy())
+        atoms.calc = SinglePointCalculator(
+            atoms,
+            energy=energy,
+            forces=forces,
+        )
+        atoms.info["readme_scene"] = "force_consistent_atom_colorscale"
+        atoms.info["force_model"] = "Gaussian-screened external probe field"
+        atoms.info["force_calculator"] = "analytic external field stored in SinglePointCalculator"
+        atoms.info["probe_index"] = probe_index
+        atoms.info["frame_index"] = frame_index
+        frames.append(atoms)
+    return frames
 
 
 def make_black_phosphorene_unit_cell() -> Atoms:
@@ -725,6 +1151,48 @@ def make_showcase_scene() -> tuple[Atoms, dict[str, int]]:
 
 
 def build_scene(name: str) -> tuple[Atoms, SceneInfo]:
+    if name == "add-atoms":
+        atoms, metadata = make_random_addition_scene()
+        entries = metadata["entries"]
+        info = SceneInfo(
+            name=name,
+            description=(
+                "Five-layer Cu(111) slab for random O insertion across its bulk-like interior."
+            ),
+            static_file="cu111_oxygen_add_atoms.traj",
+            selected_indices=(),
+            notes=(
+                (
+                    f"Scatter {entries[0]['count']} O_subsurface atoms with random seed 2021 "
+                    f"({metadata['coverage_monolayer']:.3f} per top-layer Cu atom)."
+                ),
+                "The finite Allow region spans the three interior Cu(111) layers.",
+                "All Cu coordinates remain unchanged while only inserted O follows pairwise repulsion.",
+                f"Surface context: {metadata['surface_reference']}",
+            ),
+        )
+        return atoms, info
+    if name == "add-molecules":
+        atoms, metadata = make_layered_water_channel_scene()
+        info = SceneInfo(
+            name=name,
+            description=(
+                "Periodic edge/basal-hydroxylated graphene oxide with left and right water chambers."
+            ),
+            static_file="layered_water_channel.traj",
+            selected_indices=(),
+            notes=(
+                (
+                    f"Target {metadata['target_density_g_cm3']:.2f} g/cm^3 in the exact "
+                    f"{metadata['accessible_volume_angstrom3']:.3f} A^3 solvent domain; "
+                    f"{metadata['expected_molecule_count']} H2O molecules are realizable."
+                ),
+                "Random orientation is Haar-uniform and rigid placement preserves each molecular geometry.",
+                "Two 2 A Reject regions cover only the GO planes in a 6 A periodic layered cell.",
+                "The expanded x cell leaves distinct left and right solvent chambers.",
+            ),
+        )
+        return atoms, info
     if name == "fixedline":
         atoms, idx = make_cnt_fixedline_scene()
         info = SceneInfo(
@@ -873,6 +1341,8 @@ def build_scene(name: str) -> tuple[Atoms, SceneInfo]:
 
 
 SCENE_NAMES = (
+    "add-atoms",
+    "add-molecules",
     "phosphorene",
     "commensurate",
     "ai-edit",
@@ -887,6 +1357,7 @@ SCENE_NAMES = (
     "showcase",
 )
 STALE_MOTION_FILES = (
+    "amorphous_ga_h_add_atoms.traj",
     "fixedline_motion.traj",
     "fixedplane_motion.traj",
     "hookean_motion.traj",

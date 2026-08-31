@@ -1,98 +1,854 @@
 # Changelog
 
-## 0.0.120a7+symmetry
+## 0.2.34a1+symmetry
 
-- Rebuilt the phonon-band GIF as two complete physical workflows: select L,
-  generate and animate its band-3 eigenmode, then select X and generate and
-  animate the distinct band-3 eigenmode.
-- Added separate blue L-mode and orange X-mode displacement vectors while
-  retaining Al-Al nearest-neighbor context throughout both oscillations.
-- Extended the real-browser regression to create both 24-frame trajectories,
-  verify motion within each cycle, and prove their first-frame eigenmode
-  patterns differ.
-- Kept this release on the GitHub `symmetry` branch only. It is not published
-  to PyPI and does not modify GitHub `main`.
+- Synchronized the experimental symmetry branch with the complete v_ase
+  `0.2.34` main application without modifying or publishing to `main` or PyPI.
+- Reintegrated crystal-symmetry analysis, HPKOT reciprocal paths, standard-cell
+  transforms, finite-displacement generation, phonopy project loading,
+  interactive phonon bands, and commensurate mode trajectories into the new
+  Analysis workspace.
+- Added Phonopy 2.x/3.x compatibility for q-point, band-structure, and
+  modulation result retrieval while preserving symmetry/phonon Undo state.
+- Added a signed **Phonon equilibrium** displacement reference so mode arrows
+  run from unperturbed sites to the current harmonic positions.
+- Isolated the experimental browser implementation in `symmetry-ui.js` and
+  `symmetry-ui.css` to reduce conflicts with future main updates.
 
-## 0.0.120a6+symmetry
+## 0.2.34
 
-- Made phonon-band interaction visually explicit with independent hover and
-  locked-selection markers, selected-branch emphasis, reciprocal-wavevector
-  axis labeling, and structured q-point, mode, frequency, and mode-cell state.
-- Added an actual L-to-X browser-click regression so selection at distinct
-  horizontal positions must update the exact q-point and mode controls.
-- Added thin 3.05 A Al-Al nearest-neighbor connections to the fcc-Al mode
-  example and regenerated its GIF to show graph interaction before the
-  physical eigenmode animation.
-- Documented that the horizontal coordinate is cumulative distance along a
-  reciprocal-space q path, while the eigenvector at `(q, nu)` determines atom
-  motion. Harmonic mode playback does not recalculate the dispersion.
-- Kept this release on the GitHub `symmetry` branch only. It is not published
-  to PyPI and does not modify GitHub `main`.
+- Made long dialogs genuinely scrollable while keeping their actions visible,
+  centered the first scratch insertion region, and replaced wrapped Appearance
+  rows with a single horizontal table whose TYPE column remains fixed.
+- Added persistent atom-index color, relative-radius, opacity, and material
+  overrides with field-scoped Apply behavior across compatible trajectories.
+  Connected bond material/opacity can follow those selected indices and is on
+  by default.
+- Added independent label-pair bond thickness alongside pair style, material,
+  color, and opacity, including project, HTML, Blender, OBJ, and 3DM export.
+- Fixed typed label opacity commits and made Shift-click, Shift-box, and
+  Shift+Ctrl+A consistently invert selection instead of only adding atoms.
 
-## 0.0.120a5+symmetry
+## 0.2.33
 
-- Added automatic SeeK-path HPKOT phonon-band calculation after loading a
-  matching Phonopy project with force constants.
-- Added an interactive SVG dispersion plot whose sampled branches select the
-  exact Phonopy-basis q-point, sorted mode, Gamma NAC direction, and a small
-  commensurate diagonal mode-cell suggestion.
-- Kept the selected band plot and exact mode state visible after generating an
-  oscillating trajectory, including through the external-agent operation.
-- Replaced the static Al mode-peak CIF documentation with a reproducible
-  1920 x 1080, 24-frame GIF captured from the real browser workflow at fcc-Al
-  X, `q=(0.5, 0, 0.5)`, band 3, 7.9914 THz for the bundled ASE EMT fixture.
-- Added backend, browser-click, reciprocal-basis, commensurability, README
-  media, and agent-discovery regressions. This branch remains excluded from
-  PyPI and from GitHub `main`.
+- Added full-range visual previews for every installed Matplotlib colormap in
+  the per-atom colorscale picker without per-option image or LUT requests.
+- Added persistent custom colormaps with 2-64 positioned colors, continuous
+  interpolation or discrete bands, live editing preview, reversal, and exact
+  playback/project/standalone-HTML export support.
+- Extended the semantic `set-atom-colorscale` operation, live schema, agent
+  capabilities, canonical Skill, and validation scenarios with the same
+  custom-map contract.
 
-## 0.0.120a4+symmetry
+## 0.2.32
 
-- Added reproducible symmetry-branch README examples for diamond-Si analysis,
-  primitive-to-conventional standardization, NaCl finite-displacement inputs,
-  and an ASE-EMT/Phonopy fcc-Al X-point eigenmode.
-- Added the exact CIF, EXTXYZ, completed phonopy YAML, validation manifest, and
-  a dedicated generator that opens the same files in v_ase and captures four
-  actual Analysis-panel screenshots.
-- Fixed non-selected phonon-mode rows inheriting the browser's white button
-  background, then visually verified readable mode frequencies and physical
-  displacement vectors in the final capture.
-- Kept all assets, tests, documentation, and package metadata isolated to the
-  `symmetry` branch. This version is not published to PyPI.
+- Unified complete project saving under one **Save Project** action. The dialog
+  defaults to the smallest editable `.vase`, while **Include interactive
+  rendered view** visibly changes the extension, filename, controls, and final
+  action to a self-contained `.html` with full project recovery.
+- Kept the share-oriented **HTML View** export distinct: it remains lightweight
+  by default, while project HTML always contains its complete validated `.vase`
+  archive and exact Render Area composition.
+- Preserved the inclusive finite pair-distribution cutoff under compiled
+  matscipy searches, so all mathematically boundary-equal pairs contribute to
+  the final bin and a full-distance distribution integrates exactly to one.
+- Made Add Atoms/Molecules relaxation return a stable start acknowledgement
+  even when a very short optimization finishes before the HTTP response; the
+  final state continues to arrive through the normal event and describe paths.
+- Made semantic `describe()` drain pending human, agent, and system events
+  before returning `collaboration.revision`, so an immediately following
+  guarded mutation cannot conflict with a revision that was already visible
+  in the described state.
+- Prevented large-trajectory atom-color prefetch from racing a requested
+  full-trajectory vmin/vmax scan, eliminating redundant scalar I/O while
+  retaining next-frame prefetch during ordinary playback.
 
-## 0.0.120a3+symmetry
+## 0.2.31
 
-- Changed the experimental version convention to
-  `MAIN_BASEaSYMMETRY_ITERATION+symmetry` so the originating main viewer
-  release is visible directly in every package, UI, and documentation version.
-- Recorded `0.0.120` as the forked viewer state and retained an independent
-  symmetry-only alpha sequence. No main-branch merge or PyPI release is part
-  of this version change.
+- Restored reliable Python 3.10-3.12 installation after the compiled matscipy
+  migration by resolving the NumPy 1.x/matscipy 1.1.x ABI family there, while
+  Python 3.13+ retains NumPy 2.x/matscipy 1.2+. Lightweight CLI commands now
+  avoid eager ASE/SciPy imports and startup reports a direct binary-stack repair
+  instead of misidentifying a valid POSCAR.
+- Added mass-weighted **Selection COM to Origin** scene alignment without
+  changing ASE coordinates, cell vectors, constraints, labels, or calculator
+  state.
+- Added calculator-driven 3D rigid translation over one shared Cartesian
+  x/y/z vector with explicit per-axis Angstrom bounds. Analytic-force,
+  finite-difference, nonperiodic, invariant-geometry, timeline, and browser/API
+  regressions cover the new mode while preserving the existing `(hkl)` plane
+  workflow.
 
-## 0.1.0a2+symmetry
+## 0.2.30
 
-- Kept phonon-mode trajectories continuous when atoms oscillate across a
-  periodic boundary by resolving every frame around its unmodulated reference.
-- Tightened supercell-matrix and q-point commensurability validation, including
-  non-diagonal integer matrices and invalid fractional matrix entries.
-- Added physical amplitude, periodic-boundary continuity, and non-diagonal
-  commensurability regressions, then reverified the complete browser workflow.
-- Kept this prerelease isolated to the `symmetry` branch with branch-local
-  documentation assets and no PyPI publication.
+- Made the matscipy adapter exactly preserve ASE neighbor semantics for
+  full-rank partial-PBC cells whose atoms lie outside a finite cell direction.
+  Periodic lattice vectors remain unchanged, nonperiodic image shifts remain
+  zero, and scalar, per-atom-radius, and label-pair cutoffs now share the same
+  validated behavior.
+- Replaced fractional-coordinate rounding in exported periodic bonds with
+  ASE's exact `find_mic`, so strongly skewed triclinic cells select the true
+  shortest image rather than a merely component-wrapped image.
+- Added deterministic ASE-oracle matrices and physical regressions covering
+  cell-free, finite, wire, slab, partial-PBC, orthogonal, and triclinic cells;
+  cutoff-edge exclusion; RDF normalization and long-range images; repulsion
+  energy/force equivalence; finite-difference gradients; momentum, torque, and
+  lattice-translation invariance; and exported bond geometry.
 
-## 0.1.0a1+symmetry
+## 0.2.29
 
-- Added optional spglib-based space-group, point-group, Wyckoff-position,
-  equivalent-site, tolerance-stability, and standard-cell workflows.
-- Added optional SeeK-path HPKOT reciprocal-space paths with explicit
-  crystallographic identity-basis controls.
-- Added optional Phonopy finite-displacement generation, completed-project
-  loading, q-point mode inspection, polarization projection, commensurability
-  checks, and frozen/animated mode structures.
-- Added strict phonopy-project validation with rigid Cartesian alignment,
-  scientific-state invalidation after physical edits, and undo restoration.
-- Added Analysis controls, structured agent operations, synchronized user and
-  agent documentation, literature-backed numerical regressions, and browser
-  end-to-end verification for the experimental branch.
+- Replaced runtime ASE neighbor-list searches with one validated matscipy
+  backend across periodic RDF, finite pair distributions, built-in repulsion,
+  and exported bond topology. Cell-free, partial-PBC, full triclinic, and
+  long-cutoff periodic-image semantics remain covered by independent numerical
+  regressions.
+- Passed label-pair repulsion cutoffs directly to matscipy's compiled search
+  instead of generating every pair inside the largest cutoff in Python, and
+  vectorized force accumulation. Local production-path benchmarks measured
+  about 7-8x faster RDF calculations and 2.7-4.7x faster repulsion evaluations
+  over the tested 100-50,000 and 500-30,000 atom ranges respectively, with
+  unchanged RDF arrays and numerical force agreement.
+- Added matscipy 1.2 as a required dependency and aligned the runtime floors
+  with its supported ASE and NumPy versions.
+
+## 0.2.28
+
+- Unified CLI and browser-upload format detection behind one canonical input
+  resolver. **Open File** now auto-detects numbered or calculation-specific
+  VASP names such as `XDATCAR_2` exactly as `v_ase gui XDATCAR_2` does.
+- Applied the same original-filename hint to Replace, Add to trajectory, and
+  Open in new tab, while retaining an explicitly selected Reader as the
+  highest-priority override.
+
+## 0.2.27
+
+- Separated repulsive contact distances from visual bond connectivity. The
+  default is now an absolute-Angstrom label-pair table seeded from covalent
+  radii, with optional van der Waals defaults, per-pair enable/disable, and a
+  scaled reference-distance mode for one shared contact multiplier.
+- Added global and label-pair bond material, opacity, split/custom color, and
+  cylinder/flat appearance controls. A selected pair can remain flat 2D while
+  the rest of the scene uses 3D bonds, and the same style can be applied to all
+  pairs at once.
+- Made explicit Dark theme switch both interface and atom viewport to dark,
+  while the default System theme keeps OS-responsive chrome with the white
+  scientific viewport. Added delayed descriptions to compact top-bar icons.
+- Fixed the top-bar renderer and adjacent grid controls so both respond to
+  pointer activation and expose their current state correctly.
+- Added optional Allow/Reject-domain enforcement during Add Atoms relaxation.
+  Staged atoms remain inside the Allow union and outside Reject regions; rigid
+  molecules use their native ASE template origin for efficient confinement.
+- Added relaxation-trajectory clearing with displayed/final-frame retention
+  while the active mode remains open, including live semantic-agent control.
+- Reworked Undo/Redo around complete user actions. Placement batches and
+  confirmed transforms are individually reversible during Add Atoms, while
+  Cancel still restores the exact pre-session baseline.
+- Released indexed trajectory sources, workers, browser listeners, WebGL
+  resources, caches, and timers when documents close or are replaced to bound
+  long-session CPU and memory use.
+
+## 0.2.26
+
+- Rebuilt the product-wide interface around one role-based typography system,
+  consistent 36 px controls, restrained neutral surfaces, and a focused teal
+  action color in both light and dark themes.
+- Refined **+ Add atoms**, **Build with ASE**, the Inspector, dialogs, document
+  tabs, and standalone HTML views into one compact scientific-tool language.
+  Labels, field values, descriptions, actions, and numerical readouts now keep
+  a stable hierarchy instead of mixing unrelated font sizes.
+- Added browser regression coverage for readable minimum text sizes, aligned
+  builder controls, visible primary actions, and narrow-window overflow.
+
+## 0.2.25
+
+- Added per-label atom opacity (`0..1`) beside color, radius, and material in
+  **Structure > Appearance**. Opacity remains consistent across ordinary and
+  instanced atoms, displayed supercells, commensurate previews, flat 2D,
+  visual history, reusable settings, `.vase`/HTML projects, and Blender, OBJ,
+  and 3DM exports.
+
+## 0.2.24
+
+- Moved **Build with ASE** into the **+ Add atoms** workspace so single-atom
+  insertion, staged batches, molecules, and ASE crystal building share one
+  discoverable tool surface.
+- Unified staged-content optimization with **Structure > Relaxation**. Add
+  sessions now use the same calculator, device, cutoff, strength, `fmax`,
+  steps, Start, and Stop controls as ordinary structure relaxation.
+- Allowed repeated atom and molecule placements in one Add session, including
+  after placement relaxation and region edits. Every batch accumulates against
+  one immutable pre-session host and one undo entry until Finish or Cancel.
+- In Edit mode, selecting any displayed supercell replica now keeps the primary
+  unit-cell atom fully highlighted and marks all equivalent replicas with a
+  distinct muted selection indicator.
+
+## 0.2.23
+
+- Added byte-offset, on-demand View-mode readers for VASP XDATCAR and native
+  ASE trajectories. Remote sessions now transfer only the active frame while
+  retaining a compatibility fallback for uncommon headers and older formats.
+- Replaced generic file-load failures with concise reader diagnostics for
+  unknown formats, missing files, permissions, directories, invalid text, and
+  incomplete data.
+- Added a complete flat 2D viewport mode for atoms, bonds, vectors, cell and
+  insertion-region edges, including adaptive outlines and an X mark on
+  FixAtoms, with lighting and 3D materials disabled automatically.
+- Rebuilt export framing as a persistent Render Area with an independent
+  camera, gray outside mask, exact pointer projection, viewport-follow mode,
+  and an Edit-mode eye object movable with `G`.
+- Made copy/paste preserve exact coordinates, labels, all per-atom arrays,
+  compatible constraints, per-atom calculator results, and visual materials.
+- Centered displayed supercells across View/Edit switches. View replicas now
+  accept appearance edits and exact-instance hiding; Edit replicas remain
+  opaque and map click or box selection back to unique base atoms.
+- Kept lighting, Render Area transforms, appearance edits, and analysis
+  refreshes responsive during trajectory playback; corrected screen-relative
+  toolbar tilt directions and added overflow-safe compact toolbar behavior.
+- Added project-embedded HTML support to Import Preset and synchronized the
+  live Agent schema with Render Area control and View-mode visual deletion.
+
+## 0.2.22
+
+- Kept active radial and finite pair-distribution plots open and synchronized
+  with live coordinate transforms, committed structure changes, and dedicated
+  relaxation movie frames, including bounded per-source trajectory caching.
+- Replaced the ambiguous covalent-radius scale UI with an active
+  label-pair-bond-cutoff multiplier. Disabled and `0 Å` bonding pairs remain
+  non-repulsive when set explicitly; automatically hidden same-class visual
+  bonds use a covalent contact fallback so scratch overlaps still relax. The
+  absolute-Angstrom onset remains available.
+- Extended the live AI calculator schema and regression suite for the same
+  label-aware pair table and relaxation-analysis behavior.
+- Highlighted project-embedded HTML as a portable save file with a macOS
+  Finder/Quick Look poster and an offline interactive browser view.
+
+## 0.2.21
+
+- Expanded the one-atom **Measure** readout with the displayed Cartesian and
+  fractional position, standard ASE atom attributes, every stored per-atom
+  `Atoms.arrays` value, and stored per-atom calculator results.
+- Kept inspection lazy and frame-specific for trajectories, preserved replica
+  display positions while resolving properties from their base atoms, and
+  avoided evaluating attached calculators.
+- Made the detailed Inspector readout use the full panel width with bounded
+  scrolling while keeping the viewport Measure HUD compact.
+
+## 0.2.20
+
+- Added synchronized **Section** menus to Analysis and Export, matching the
+  existing Structure navigation, and normalized the Selected Atoms Apply
+  control typography.
+- Kept RDF and finite pair-distribution graphs synchronized during trajectory
+  playback through eager per-frame preparation for ordinary trajectories and
+  a bounded rolling cache for larger frame/bin/curve products.
+- Added a physical **Absolute distance / Å** onset to the built-in repulsion
+  calculator beside the existing dimensionless covalent-radius scale. Pair
+  energy and force are exactly zero at and beyond either selected onset.
+- Serialized calculator setting updates without rebuilding atom geometry, so
+  late responses cannot clear active analysis, selection, or viewport state.
+
+## 0.2.19
+
+- Added transient `--remote-python /absolute/path/to/python` selection and
+  persistent `v_ase remote configure/show/remove` host mappings for HPC and
+  virtual-environment launches without sourcing remote shell profiles. The
+  exact environment participates in existing CLI capability negotiation while
+  the source file remains remote.
+- Kept the full Add Atoms panel inside the browser viewport after dragging,
+  including tall Batch layouts, pointer cancellation, window blur, and resize.
+- Synchronized active trajectory analysis with the displayed frame: RDF and
+  finite pair distributions recalculate after scrubbing settles, per-atom
+  colors/forces/displacements update immediately, and explicitly frame-bound
+  scalar fields switch or hide instead of leaving a stale isosurface.
+
+## 0.2.18
+
+- Moved the collapsed **+ Add atoms** launcher to the upper-left viewport,
+  directly below the app header, so it no longer overlaps bottom-left
+  notifications. Closing the draggable panel now restores that stable anchor.
+
+## 0.2.17
+
+- Fixed `HOST:/path` launches on load-balanced HPC aliases by starting the
+  remote backend and local port forward on one SSH connection. The launcher
+  now verifies a real forwarded HTTP response before opening the browser, so a
+  TCP listener that cannot reach the backend no longer appears ready.
+- Documented the remote/local processing boundary: source I/O, ASE parsing,
+  trajectory caching, volumetric processing, and backend calculations stay on
+  the remote host, while the local browser performs UI interaction and WebGL
+  rendering without downloading the original source file.
+
+## 0.2.16
+
+- Added an Edit-mode **Build with ASE** workflow backed by the installed
+  `ase.build.bulk` implementation. A cached compatibility catalog filters
+  reference materials, prototypes, and primitive/orthorhombic/cubic cell
+  shapes; custom compounds receive exact missing-parameter guidance before
+  generation. Structure replacement is confirmed, undoable, and available to
+  external agents through the validated `build-bulk` operation.
+- Always print the complete local or SSH-tunneled viewer URL before waiting,
+  so WSL/headless users can Ctrl+click or paste it even when a browser launcher
+  returns a false success without opening a tab.
+- Standardized repeated POSCAR/CONTCAR species-block labels as `O_1`, `O_2`,
+  and so on. The mapping follows the original block/index order while ASE
+  elements, coordinates, cells, PBC, and constraints remain unchanged.
+- Added a selected-active-bond-pairs RDF mode that tracks the current atom
+  selection without changing full-structure normalization, and restored
+  reliable save and close controls in the analysis graph drawer.
+
+## 0.2.15
+
+- Made Add Atoms infer the Type control from element-symbol Labels in both
+  Single and Batch workflows while preserving explicit manual Type overrides.
+- Expanded the Cu(111) insertion example to a five-layer bulk-like domain with
+  18 staged oxygen atoms and regenerated the optimizer-backed README media.
+- Rebuilt the rigid-water example with edge- and basal-hydroxylated graphene
+  oxide, `6 Å` periodic layering, two `2 Å` GO-only Reject regions, separate
+  left/right solvent chambers, and 64 H2O molecules at `0.994 g/cm³`.
+- Re-recorded View-mode appearance editing from the actual viewport box
+  selection through label, material, color, and radius controls, including
+  InstancedMesh-safe visual-invariance checks.
+- Preserved completed short relaxation trajectories when the terminal
+  WebSocket event arrives before the start response, in both GUI and agent
+  command paths.
+
+## 0.2.14
+
+- Added one-login remote CLI capability negotiation for `HOST:/path` launches.
+  Current servers retain on-demand frame streaming, while older installations
+  automatically omit unsupported `--no-browser` and `--stream-frames` options
+  instead of failing in `argparse`.
+- Preserved the blocking browser-close lifecycle on the oldest compatible
+  remote CLI by exposing its loopback URL through `BROWSER=/bin/echo`. Explicit
+  requests that cannot be preserved, such as FP64 volumetric precision, now
+  stop with a targeted remote-upgrade instruction.
+
+## 0.2.13
+
+- Changed Add Atoms and Add Molecules placement to attach one
+  `AdditionRepulsionCalculator` to the complete staged structure and run ASE
+  FIRE without pairwise coordinate corrections. Every optimizer step is kept
+  in the mode trajectory, and exact-overlap MIC candidates are vectorized in
+  one calculator call.
+- Added CPU thread and CUDA selection directly to the floating Add panel so
+  placement resources remain accessible when the main inspector is closed.
+  The panel reports the effective backend and safely falls back to CPU when
+  CUDA is unavailable.
+- Enabled View-mode visual relabeling and per-atom materials without changing
+  ASE elements or coordinates. Stable trajectories propagate labels by atom
+  index; incompatible trajectories show a modal and modify only the current
+  frame. Complete project and embedded-HTML saves preserve these identities.
+- Centered odd Edit-mode display supercells around the primary cell, added a
+  stronger editable-cell halo, and rendered noneditable replicas at 16%
+  opacity. View-mode replicas remain fully opaque and selectable.
+- Regenerated all README media, including subsurface O placement, exact-density
+  rigid water placement, trajectory-wide force colors, and Cu5O4 View-mode
+  appearance editing.
+
+## 0.2.12
+
+- Made a filename-free `v_ase gui` launch an empty Edit document. A full
+  Cartesian `3 x 3` cell and PBC axes can now be defined before any atoms
+  exist, while every Open File request offers an explicit View/Edit choice.
+- Completed scratch relaxation for finite structures without a unit cell,
+  including deterministic separation of exact overlaps, reliable stop and
+  restart, and an exit choice that safely keeps the latest coordinates or
+  restores the exact pre-relaxation document even while a worker is active.
+- Added Regular grid placement beside volume-uniform Random and physically
+  space-filling Homogeneous placement. Exact user grid spacing is never
+  silently changed, triclinic periodic duplicates are removed, and placement
+  diagnostics cover both nearest-neighbor uniformity and residual voids.
+- Added Blender-style physical `S` transforms for selected atom coordinates
+  and insertion regions, with global Cartesian X/Y/Z locks. Atom radii, bond
+  thickness, materials, and the cell remain unchanged when atom spacing is
+  scaled.
+- Reworked Add Atoms region overlays as depth-lit 3D guides whose fills do not
+  intercept picking. Nested Allow/Reject regions remain selectable from their
+  edges, and the batch panel keeps its primary actions visible while the body
+  scrolls independently.
+- Added a finite-system Pair-distribution function for structures with all PBC
+  axes disabled. It reports an unordered-pair probability density instead of
+  claiming bulk `g(r)` normalization; fully periodic RDF behavior and strict
+  partial-PBC rejection remain unchanged.
+- Added a verified scratch-to-amorphous README animation and synchronized the
+  canonical Agent Skill, live operation schema, scientific regressions, and
+  generated Add Atoms media.
+
+## 0.2.11
+
+- Anchored commensurate host and guest parent lattices to one stable in-plane
+  origin. Rotating a guest no longer translates its unit-cell grid, candidate
+  validity changes only the green common-cell guide, and atom/bond visibility
+  remains independent of candidate appearance.
+- Added a visibly different graphene/MoS2 commensurate demonstration while
+  retaining graphene/Cu(111) as the strict numerical strain regression. The
+  graphene/MoS2 match is validated as a rectangular graphene
+  `(sqrt(7) x sqrt(21)) R+/-19.11 deg` area-14 cell against a MoS2 `2 x 2`
+  area-4 cell instead of an incompatible equal-edge shorthand.
+- Rebuilt the periodic rigid-water example around two 6 Angstrom slits in a
+  fully periodic 12 Angstrom channel, two Allow regions, one Reject gate, an
+  exact 459.586 Angstrom^3 domain, and 10 randomly oriented rigid waters.
+- Preserved atom geometry and every user radius while temporary Add Atoms host
+  fixation changes only the fixed-material treatment.
+- Prevented delayed pair-cutoff refresh responses from overwriting newer table
+  edits made during Add Atoms setup.
+- Made volumetric-plane `G`/`R` transforms resolve their normal and offset
+  range from the current `(hkl)` immediately, so a pending high-resolution
+  slice request cannot restore stale transform geometry.
+- Rebuilt the per-atom data example around one moving O probe above 96 Cu(111)
+  atoms. ASE EMT is evaluated at every frame; every atom receives a finite
+  stored force and mapped color, one trajectory-wide range is retained, and
+  matching red arrows use the same Cartesian force array.
+- Reworked the human/Agent/v_ase documentation around three legible
+  bidirectional Natural language, CLI, and GUI channels, including the final
+  Agent completion and human GUI revision feedback.
+
+## 0.2.10
+
+- Rebuilt commensurate preview semantics around fixed black host and orange
+  mobile-guest parent lattices. Their display extent no longer changes with
+  the nearest integer candidate; a green common-cell guide appears only after
+  the current angle resolves a bounded strain/area match.
+- Kept same-lattice guest grids aligned with their atom layer by applying the
+  selected-layer rotation pivot to both atoms and lattice origins, while
+  preserving exact candidate cells for materialization.
+- Reframed the same-lattice and independent host/guest examples to show the
+  cells-only start, live mobile-lattice rotation, conditional common cell,
+  fixed parent-grid dimensions, optional atoms/bonds, and complete 3D search
+  graph without clipping.
+- Rebuilt the human/Agent/v_ase collaboration figure as three explicit
+  bidirectional links: natural-language feedback, CLI state/revisions, and
+  live GUI inspection/refinement.
+
+## 0.2.9
+
+- Rebuilt periodic insertion-region overlays around one intact Cartesian
+  source cuboid plus cell-clipped nonzero lattice images. Shared wrapped edges
+  are deduplicated, including in triclinic cells, so a boundary-crossing box
+  remains readable without changing exact backend membership or volume.
+- Replaced the Add Atoms guide with a Cu(111)/O surface-placement workflow and
+  rebuilt Add Molecules around a clean orthorhombic 6 Angstrom layered channel
+  with random rigid-water placement, exact multi-region density, and visible
+  source/wrapped region semantics.
+- Rebuilt the per-atom trajectory example so all 160 atoms use one locked
+  force-magnitude scale and frame-matched harmonic forces and arrows; slowed
+  the animation to half its previous playback rate.
+- Enlarged and repositioned the structures above the Planar Translation and
+  Optimize Translation plots, synchronized the README and canonical Agent
+  Skill, and added browser/scientific regressions for the new examples.
+
+## 0.2.8
+
+- Extended the persistent Add Atoms workspace with reproducible Random and
+  Homogeneous placement. Homogeneous centers can maximize Cartesian distance
+  in angstrom or normalized fractional spacing with exact triclinic periodic
+  distances; random placement remains uniform in physical volume.
+- Added molecule insertion for the complete installed ASE G2 catalog, optional
+  unbiased three-dimensional orientation, native ASE-origin anchoring, and a
+  default rigid-body repulsion path that preserves every internal distance
+  while optimizing molecular translation and rotation.
+- Added stable multi-selection of Cartesian Allow and Reject regions. Their
+  exact insertion domain is the finite cell intersected with the Allow union,
+  or the complete cell when no Allow exists, minus the Reject union; overlapping
+  regions and triclinic periodic images are handled without voxel volume
+  estimates. Selected regions translate together with `G` and reject `R`.
+- Added molecule density placement in g/cm3. Count fields become composition
+  ratios reduced to their primitive integer form, exact accessible volume
+  determines the nearest complete batch, and the UI and semantic API report
+  target and realizable density before commit.
+- Made confined periodic placement use the shortest triclinic minimum-image
+  displacement, kept active-session region MIC state synchronized between the
+  GUI and backend, and reject fractional, string, or boolean entity counts.
+- Kept inserted content selected for direct `G`/`R` refinement, rejected
+  partial edits that would distort a staged rigid molecule, and retained exact
+  baseline coordinates, arrays, calculators, labels, and constraints on
+  finish or cancel.
+- Added periodic amorphous-Ga/H allowed and prohibited region examples plus a
+  layered rigid-water example, synchronized the live semantic schema and
+  canonical Agent Skill, and expanded scientific, browser, and external-CLI
+  regressions for the new workflows.
+
+## 0.2.7
+
+- Rebuilt the external-Agent collaboration figure and animation as an explicit
+  bidirectional cycle: natural-language request, structured CLI command, live
+  GUI result, human refinement, revision event, and Agent re-synchronization.
+- Strengthened the generated collaboration example to record command and
+  result states separately and verify two distinct GUI-originated events.
+- Removed per-update candidate-array allocation and sorting from live
+  commensurate angle selection while preserving the established scientific
+  ranking and bounded-area behavior.
+- Eliminated a duplicate analysis pass from full README media generation while
+  retaining the explicit `--only analysis` capture target.
+- Synchronized the README, canonical Agent Skill, collaboration/evaluation
+  contract, regression checks, and generated GitHub media.
+
+## 0.2.6
+
+- Reworked the commensurate workspace so GUI activation, layer selection, and
+  guest loading preserve the current angle; black host and orange guest
+  lattices remain primary, while a thinner teal common cell appears only at a
+  resolved bounded match.
+- Rebuilt the commensurate host/guest animation around live guest rotation and
+  the moving three-dimensional angle plane.
+- Replaced the Add Atoms documentation scene with a recognizable vacancy-rich
+  NaCl lattice and separate Allowed and Prohibited placement animations.
+- Enlarged the trajectory colorscale demonstration, slowed the isovalue sweep,
+  restored the legible axial FixedLine CNT view, and added a complete
+  natural-language-to-Agent-to-live-GUI collaboration animation.
+- Synchronized the README, canonical Agent Skill, evaluation contract,
+  generated scene assets, and browser regressions with the updated behavior.
+
+## 0.2.5
+
+- Made stored-force arrows frame-aware so trajectory playback refreshes both
+  atom colors and Cartesian vectors from the active frame without evaluating
+  an attached calculator.
+- Replaced the random-insertion demonstration with a dense bonded triclinic
+  silicon framework, making vacancy and interstitial placement under MIC
+  repulsion directly visible.
+- Rebuilt the volumetric section example around a high-resolution signed
+  multi-center field on a `(1 0 0)` plane with a fixed color range and an
+  oblique three-dimensional view.
+- Reworked commensurate analysis into a readable three-axis landscape with
+  floor and back grids, axis ticks, candidate points, and a live angle plane.
+- Generalized rigid translation from an XY-only operation to any compatible
+  periodic Miller plane, using exact integer lattice bases, one shared
+  translation for selected atoms, an optional sampled map, and a map-free
+  optimizer-trial timeline.
+- Synchronized the GUI, semantic API, Agent Skill, scientific regressions,
+  README guidance, and generated media for the updated workflows.
+
+## 0.2.4
+
+- Reorganized the user guide around an immediate product overview, concise
+  selling-point highlights, installation, task-oriented details, and final
+  troubleshooting, while keeping the full external-Agent workflow linked from
+  its prominent overview.
+- Reframed the FixedLine documentation scene so the complete nanotube channel
+  and moving constrained ion remain cleanly inside every animation frame.
+- Removed historical license-transition wording from public guidance and kept
+  the current `AGPL-3.0-or-later` terms stated consistently.
+
+## 0.2.3
+
+- Extended Add Atoms Cartesian regions with allowed and prohibited roles,
+  default post-scatter escape, optional confinement, live `G` translation,
+  and an operation-specific optimizer timeline that closes with the mode.
+- Expanded same-lattice and host/guest commensurate previews around the full
+  common cell with independent opaque atoms and bonds, distinct parent
+  lattices, exact-symmetry guides, and a cleaner interactive Plotly
+  angle-area-strain landscape with a live current-angle plane.
+- Added calculator-driven rigid XY registry relaxation that changes only two
+  common in-plane translation coordinates, reports projected interface force,
+  records a temporary timeline, commits as one undo step, and cancels exactly.
+- Strengthened trajectory-wide property coloring and force-vector examples,
+  widened the documented isosurface scan, rebuilt oblique fixed-range planar
+  field media, and verified annotation-free Hookean threshold rendering across
+  trajectory frames.
+- Synchronized the user guide, canonical Agent Skill and references, semantic
+  schema, generated README media, scientific regressions, and release assets.
+
+## 0.2.2
+
+- Expanded commensurate host and guest primitive lattices beyond every
+  proposed common-cell boundary, added visible grid dimensions and notation,
+  and rebuilt the angle-area-strain overview as a perspective 3D coordinate
+  plot with candidate stems and floor projections.
+- Added exact stored-force vector rendering with 2D/3D styles, scale,
+  thickness, color, displayed-supercell repetition, and no implicit calculator
+  evaluation.
+- Corrected all-label pairwise RDF enumeration when label discovery order is
+  not lexical, preserving mixed partial curves and total reconstruction.
+- Added exact Hookean `rt` viewport labels and strengthened physical tests for
+  inactive/engaged force behavior and the 3D helical spring.
+- Rebuilt deterministic README media for commensurate cells, XY registry,
+  isovalue motion, fixed-range volumetric planes, pairwise RDF, and
+  trajectory-wide colorscales with force vectors; reorganized the user guide
+  and canonical Agent Skill by workflow. Periodic registry maps now preserve a
+  square one-cell plotting domain in wide analysis drawers.
+
+## 0.2.1
+
+- Added a persistent Edit-mode Add Atoms workspace for single-atom placement
+  and deterministic random batches with multiple ASE elements, independent
+  labels, counts, seeds, and visible insertion regions.
+- Added volume-uniform fractional sampling for arbitrary triclinic unit cells
+  and Cartesian-box sampling restricted to one half-open primary periodic cell.
+- Added isolated pairwise repulsive placement with editable element-pair
+  minimum distances, MIC, temporary host FixAtoms, progress events, and exact
+  host coordinate, constraint, label, calculator, and per-atom array recovery.
+- Added complete GUI, live external-agent CLI/API, Skill, scientific,
+  performance, cancellation, trajectory-safety, and browser regressions for
+  random insertion and placement.
+
+## 0.1.18
+
+- Made live AI capability names derive from the server schema so every
+  advertised operation and export stays synchronized with its parameter map.
+- Added exact schema/capability/browser-dispatch/Skill parity regressions and
+  verified external `v_ase api` edits against the same live GUI controls,
+  semantic state, and collaboration revision.
+- Regenerated the AI collaboration and volumetric analysis media through the
+  public CLI bridge, and updated README and canonical Agent Skill guidance for
+  end-to-end external-agent verification.
+
+## 0.1.17
+
+- Reorganized volumetric analysis into dedicated Isosurface, Planes, and
+  Combine workspaces, with accessible keyboard tabs and clearer separation of
+  threshold, section, and field-arithmetic controls.
+- Made cell-clipped hkl planes fully configurable in View mode through signed
+  grid-origin distance and reciprocal-normal controls without changing ASE
+  atom coordinates.
+- Synchronized Edit-mode plane `G/R` transforms with the visible distance
+  input, slider, hkl fields, and plane list while retaining reduced-resolution
+  previews and full-resolution settled rendering.
+- Reduced high-resolution plane-sampling memory by caching each grid cell
+  inverse and generating one compact fractional-coordinate buffer directly;
+  live edits now request only the selected plane rasters.
+- Extended browser regressions, performance guidance, the canonical Agent
+  Skill, and regenerated volumetric README media for the updated workflow.
+
+## 0.1.16
+
+- Added cached raw and absolute-value scalar histograms integrated with the
+  isovalue slider so threshold density remains visible without remeshing.
+- Added multiple cell-clipped hkl scalar-field planes with periodic triclinic
+  interpolation, displayed-supercell support, Matplotlib colormaps, manual or
+  fitted ranges, opacity, and atomic multi-selection editing.
+- Added Edit-mode plane manipulation: `G` moves selected planes along their
+  normals and `R` rotates their reciprocal-space normals with low-resolution
+  live previews and full-resolution settled rendering.
+- Extended the semantic Agent API, `.vase` persistence, README, canonical
+  Skill, and backend/browser regressions for volumetric distributions and
+  planar sections; benchmarked real 280 x 140 x 384 LOCPOT/PARCHG grids.
+
+## 0.1.15
+
+- Optimized large VASP scalar grids with cached statistics, bounded
+  isosurface meshes, aligned binary transfer, FP32-preserving combinations,
+  and lower-memory mesh smoothing while keeping FP64 available on demand.
+- Recognized suffixed CHG/CHGCAR/PARCHG/LOCPOT/ELFCAR filenames and verified
+  real 280 x 140 x 384 PARCHG and LOCPOT grids through backend parsing,
+  isosurface generation, cache reuse, and browser rendering.
+- Exposed arbitrary numeric LAMMPS atom columns to trajectory colorscales,
+  added a bounded all-frame scalar cache, removed duplicate prefetch during a
+  trajectory range fit, and reduced 15,000-atom cached recoloring to a direct
+  instanced-buffer update.
+- Added synchronized volumetric and trajectory-colorscale animations, user
+  guidance, Agent Skill workflows, benchmarks, and backend/browser
+  regressions.
+
+## 0.1.14
+
+- Added explicit current-frame, full-trajectory, and manual per-atom
+  colorscale ranges with editable `vmin` and `vmax`; one resolved range now
+  remains fixed through playback and every supported export.
+- Added a bounded gamma contrast control that remaps the sampled colormap in
+  the browser without reloading scalar values or Matplotlib lookup tables.
+- Added a streaming full-trajectory extrema endpoint, current-frame-first
+  loading, a bounded 64-frame cache, and one-frame idle look-ahead so large
+  trajectories avoid a second complete frame-by-atom value allocation.
+- Extended the live semantic API, standalone HTML export, canonical Agent
+  Skill, user guide, and browser/backend regressions for trajectory-consistent
+  coloring.
+
+## 0.1.13
+
+- Added lazy per-atom colorscales for Cartesian coordinates, stored force
+  magnitude, numeric ASE arrays, and existing calculator or MLIP results,
+  including scalar, component, and norm views where applicable.
+- Added every colormap registered by Matplotlib, reversible automatic or
+  manual ranges, a viewport legend, and all-atoms or selected-atoms-only
+  scope while preserving uncolored atom appearance.
+- Kept the disabled path free of scalar extraction, Matplotlib imports, LUT
+  requests, and per-frame color work; disabling immediately restores the
+  established label, element, material, and per-atom appearance.
+- Preserved active colorscales in image, video, standalone HTML, Blender,
+  OBJ, and 3DM output, and exposed catalog-driven control through the live
+  semantic Agent API.
+
+## 0.1.12
+
+- Added a System/Light/Dark interface theme. System is the default, follows
+  the browser or operating-system color preference live, and stays separate
+  from the scientific viewport background.
+- Added OS-user personal visualization defaults for reusable appearance,
+  bonds, lighting, viewport, display replication, visual translation, render
+  quality, and image-export choices, with explicit warning and confirmation
+  before restoring the built-in defaults.
+- Kept portable visual presets independent from automatic personal defaults,
+  synchronized preference state across workspace tabs, and exposed the theme
+  and default workflows through the semantic Agent API with a mandatory
+  confirmation guard for deletion.
+
+## 0.1.10
+
+- Corrected the canonical agent trajectory validation workflow to use the
+  real 42-frame C60 relaxation fixture instead of an ambiguous single-frame
+  scene, with a regression that verifies the documented frame count.
+
+- Rebuilt the commensurate workspace as a cells-first host/guest workflow:
+  host-only startup, selected same-lattice guest or separately loaded guest,
+  editable 3 Angstrom gap, tiled primitive vectors, optional boundary atoms
+  and bonds, and preserved camera state.
+- Replaced the opaque angle-area-strain chart with a layered 3D landscape
+  whose horizontal rotation axis, area-depth layers, vertical strain axis,
+  current-angle plane, and CSV action remain readable in the live workspace.
+- Made the initial proposal the smallest admissible common cell regardless of
+  a larger search ceiling, while explicit angle input continues to track the
+  nearest admissible candidate; added graphene/Cu(111) browser and numerical
+  regressions through area ratio 64.
+- Rebuilt the external-Agent README figure around a readable Human → Agent
+  Skill/CLI → v_ase → same-GUI refinement cycle with a source structure,
+  explicit camera request, recognizable compatible-client marks, and a
+  verified camera-aligned rendered result.
+- Synchronized the user guide, canonical Agent Skill, scientific validation
+  notes, examples, browser workflows, and generated README media.
+
+## 0.1.9
+
+- Added separate graphene-host and Cu(111)-guest validation inputs with exact
+  matrices, angle, strain, and atom-count references for manual and automated
+  commensurate-cell testing.
+- Split the commensurate analysis graph into a conservative 3D
+  angle-area-principal-strain overview and a Stradi-style mean-strain versus
+  atom-count projection without changing the accepted candidate set.
+- Added paper-value, full TBG integer-series, equivalent-basis,
+  vectorized-versus-SVD, and accelerated-versus-complete-search regressions.
+- Reworked the bounded host/guest search with descriptor-tree screening and
+  batched closed-form 2D kinematics; the default area bound now completes in
+  milliseconds while the exhaustive interactive limit is explicit at `128`.
+- Synchronized the user guide, scientific validation notes, semantic Agent
+  Skill, analysis CSV fields, and browser workflow with both strain metrics
+  and actual host/guest atom counts.
+
+## 0.1.8
+
+- Added a bounded host/guest commensurate workspace for same-lattice twists
+  and independently loaded 2D lattices, with separate integer supercell
+  matrices, selectable strain target, crystallographic notation, and a
+  default maximum primitive-cell area ratio of `16`.
+- Added live host, guest, and suggested common-cell guides, a cells-first
+  preview with optional atoms and boundary-crossing bonds, global-Z rotation
+  enforcement, staged progress, and explicit materialization of a validated
+  common structure.
+- Added an interactive Plotly angle-area-strain landscape with live rotation
+  marker and citation-bearing CSV output based on an independent bounded
+  implementation of the CellMatch and Stradi matching formulations.
+- Added a periodic XY registry scan for selected atoms, with short-contact or
+  active-bond strain metrics, live move marker, XY-constrained translation,
+  staged progress, and CSV export.
+- Added a shared icon-based CSV action to every analysis graph, including RDF,
+  and extended the semantic Agent API, project persistence, documentation,
+  and end-to-end tests for all new workflows.
+- Rebuilt the external-Agent diagram with recognizable Agent and v_ase brand
+  marks, a clearer pristine-graphene vacancy request, directional data flow,
+  and explicit same-document human refinement.
+
+## 0.1.7
+
+- Added bounded commensurate common-cell proposals after exact periodic 2D
+  layer rotations. The smallest candidate inside the boundary-strain and area
+  limits is shown as an opaque core plus a one-primitive-cell inspection shell
+  with boundary-crossing bonds.
+- Added crystallographic supercell notation, integer source/reference
+  matrices, area and strain metrics, a default maximum area ratio of `16`, and
+  explicit materialization of a validated proposal as the ASE unit cell.
+- Kept commensurate proposals distinct from ordinary display replication and
+  manual integer cell transforms, and exposed the complete workflow through
+  the semantic API and canonical Agent Skill.
+- Added numerical, backend, GUI, semantic-agent, camera-framing, constraint,
+  and generated-media regressions for the proposal and materialization paths.
+- Prevented workspace activation and browser resize events from creating
+  phantom camera revisions between an Agent's `describe()` and guarded edit.
+
+## 0.1.6
+
+- Restored startup compatibility with ASE 3.23 and 3.24 by removing the
+  unconditional import of a newer internal VASP configuration helper.
+- Kept CHGCAR, CHG, LOCPOT, PARCHG, and ELFCAR grid parsing aligned at the
+  first scalar-grid record across both legacy and current ASE reader layouts.
+- Added an ASE 3.24 compatibility regression and verified that ordinary XYZ
+  files can start a live v_ase GUI session without importing-version failures.
+
+## 0.1.5
+
+- Added PBC-aware Gaussian field smearing for display-only volumetric data,
+  with wrapped periodic axes, reflected nonperiodic boundaries, preserved
+  FP32/FP64 source arrays, and bounded persisted controls.
+- Added independent boundary-preserving isosurface mesh fairing to reduce
+  voxel stair-steps without opening periodic or clipped cell seams.
+- Extended the GUI, semantic API, generated README example, canonical Agent
+  Skill, and numerical/browser regressions for both refinement stages.
+- Added strict semantic parameter validation and an inspectable generated-mesh
+  summary, and stopped volumetric imports from emitting false trajectory
+  collaboration events.
+
+## 0.1.4
+
+- Made newly opened or added volumetric datasets immediately visible at an
+  in-range default isovalue, while retaining exact user control over signed
+  mode, mesh detail, colors, and live isosurface opacity.
+- Added a dotted `g(r) = 1` bulk-limit reference to the RDF plot and replaced
+  the crystalline README analysis example with separate benzene pi-field
+  isosurface and periodic amorphous Cu-Zr RDF scenes.
+- Added browser and numerical regressions for automatic isosurface creation,
+  live opacity material updates, and a statistically flat amorphous
+  long-range RDF plateau.
+
+## 0.1.3
+
+- Rebuilt the external-AI-agent figure as a compact cycle centered on v_ase:
+  natural-language requests enter the external Agent, structured commands and
+  GUI edits enter v_ase, and live GUI output plus exact state and revisions
+  leave v_ase through explicitly labeled directional arrows.
+- Removed the detached feedback-loop panel and synchronized the user guide,
+  canonical Agent Skill, technical documentation, and generated README media
+  with the clearer shared-document model.
+- Clarified that viewport and exported-image backgrounds are independent
+  settings and documented the clean CLI-session shutdown order found by a
+  fresh zero-context Agent evaluation.
+- Prevented late video-encoding events from writing the same `100%` progress
+  value repeatedly after export completion.
+
+## 0.1.2
+
+- Reworked the external-AI-agent documentation into a visual, four-stage
+  human-to-Agent-to-structured-control-to-live-GUI workflow with an explicit
+  same-document feedback loop.
+- Made explicit RDF cutoffs independent of the unique minimum-image radius and
+  fixed display-supercell size by enumerating every periodic image required by
+  ASE's triclinic neighbor search; RDF results now report the actual image
+  extent and span used.
+- Added selectable FP32 and FP64 volumetric imports across the CLI, GUI,
+  semantic API, combinations, and `.vase` project round trips, including
+  reported storage precision and memory.
+- Synchronized the canonical Agent Skill, user and technical documentation,
+  generated README media, scientific regressions, and browser end-to-end
+  validation with the new contracts.
+
+## 0.1.1
+
+- Added bounded volumetric-data loading for VASP CHGCAR/CHG, LOCPOT, PARCHG,
+  and ELFCAR plus Gaussian Cube and XSF grids, including Quantum ESPRESSO
+  Cube/XSF output.
+- Added single and signed isosurfaces, compatible-grid linear combinations for
+  charge-density differences, display supercell/translation integration, and
+  physical supercell repetition with atomic Reset/Undo/Redo.
+- Added total and visual-label partial radial distribution functions with
+  triclinic unique-MIC cutoff protection, active/all/none pair modes, a
+  resizable Plotly analysis drawer, and CSV export.
+- Preserved complete custom atom labels during renaming and pair analysis,
+  including labels longer than an earlier array's fixed-width dtype.
+- Added volumetric arrays to self-contained `.vase` projects using validated
+  bounded NPZ members without executable pickle payloads.
+- Extended the vendor-neutral semantic API, live discovery schema, canonical
+  Skill, user documentation, browser tests, scientific tests, and release
+  validation for volumetric and RDF workflows.
+- Updated the package version, scientific-discovery keywords, dependencies,
+  and synchronized README media for the first analysis-focused 0.1 release.
 
 ## 0.0.120
 
@@ -105,6 +861,9 @@
 - Added `%v_ase inline`, `%v_ase browser`, and `%v_ase auto` for switching
   Jupyter display behavior without restarting the kernel, plus equivalent
   per-call `notebook=` string overrides.
+- Agent capability discovery now exposes the `expectedRevision` concurrency
+  guard, and the canonical Skill distinguishes lightweight HTML handoff from
+  project-embedded HTML recovery.
 - Reworked the README's external-agent introduction into a direct
   researcher-to-agent-to-live-GUI workflow and regenerated its synchronized
   collaboration figure.

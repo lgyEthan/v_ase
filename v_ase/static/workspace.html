@@ -3,10 +3,58 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="v-ase-version" content="0.0.120a7+symmetry">
+    <meta name="v-ase-version" content="0.2.34a1+symmetry">
     <title>v_ase</title>
+    <script>
+        (() => {
+            const key = 'v_ase_ui_theme';
+            const media = window.matchMedia('(prefers-color-scheme: dark)');
+            const normalize = value => ['light', 'dark'].includes(String(value || '').toLowerCase())
+                ? String(value).toLowerCase()
+                : 'system';
+            const cookieValue = () => {
+                const match = document.cookie.match(new RegExp(`(?:^|;\\s*)${key}=([^;]+)`));
+                return match ? decodeURIComponent(match[1]) : '';
+            };
+            let localValue = '';
+            try { localValue = window.localStorage.getItem(key) || ''; } catch {}
+            const persistedValue = cookieValue() || localValue;
+            let hasPersisted = Boolean(persistedValue);
+            let preference = normalize(persistedValue);
+            const apply = (value, { persist = true, announce = true } = {}) => {
+                preference = normalize(value);
+                const resolved = preference === 'system' ? (media.matches ? 'dark' : 'light') : preference;
+                document.documentElement.dataset.uiTheme = resolved;
+                document.documentElement.dataset.themePreference = preference;
+                document.documentElement.style.colorScheme = resolved;
+                if (persist) {
+                    hasPersisted = true;
+                    document.cookie = `${key}=${encodeURIComponent(preference)}; Path=/; Max-Age=31536000; SameSite=Lax`;
+                    try { window.localStorage.setItem(key, preference); } catch {}
+                }
+                if (announce) {
+                    window.dispatchEvent(new CustomEvent('v_ase-theme-change', {
+                        detail: { preference, resolved }
+                    }));
+                }
+                return { preference, resolved };
+            };
+            window.v_aseTheme = {
+                apply,
+                info: () => ({
+                    preference,
+                    resolved: document.documentElement.dataset.uiTheme,
+                    persisted: hasPersisted
+                })
+            };
+            apply(preference, { persist: false, announce: false });
+            media.addEventListener?.('change', () => {
+                if (preference === 'system') apply('system', { persist: false });
+            });
+        })();
+    </script>
     <link rel="icon" type="image/png" href="/static/v_ase-logo.png">
-    <link rel="stylesheet" href="/static/workspace.css?v=0.0.120a7%2Bsymmetry">
+    <link rel="stylesheet" href="/static/workspace.css?v=0.2.34a1%2Bsymmetry">
 </head>
 <body>
     <header id="document-bar" class="document-bar">
@@ -24,6 +72,6 @@
         <strong>Workspace unavailable</strong>
         <span id="workspace-error-message"></span>
     </section>
-    <script type="module" src="/static/workspace.js?v=0.0.120a7%2Bsymmetry"></script>
+    <script type="module" src="/static/workspace.js?v=0.2.34a1%2Bsymmetry"></script>
 </body>
 </html>

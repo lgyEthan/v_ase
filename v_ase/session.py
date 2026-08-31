@@ -20,7 +20,10 @@ class SessionHistoryState:
     trajectory_frames: Optional[List[Atoms]] = None
     original_atoms: Optional[Atoms] = None
     original_frames: Optional[List[Atoms]] = None
+    volumetric_datasets: Optional[List[Any]] = None
     phonon_model: Any = None
+    includes_atom_addition: bool = False
+    atom_addition: Any = None
 
 
 @dataclass
@@ -34,6 +37,23 @@ class EditorSession:
     trajectory_source: Any = None
     phonon_model: Any = field(default=None, repr=False)
     current_frame: int = 0
+    # Scalar grids are immutable by convention. History stores references only
+    # for operations that replace them, avoiding copies of large arrays.
+    volumetric_datasets: List[Any] = field(default_factory=list)
+    original_volumetric_datasets: List[Any] = field(default_factory=list)
+    # Optional second structure used only by the commensurate host/guest
+    # workspace until a validated common cell is materialized.
+    commensurate_guest_atoms: Optional[Atoms] = None
+    commensurate_guest_name: Optional[str] = None
+    commensurate_search_cache: Optional[Dict[str, Any]] = field(
+        default=None,
+        repr=False,
+    )
+    # Active random insertion workflow.  The concrete dataclass lives in
+    # v_ase.add_atoms to keep the session core independent of optimizer code.
+    atom_addition: Any = field(default=None, repr=False)
+    # Active rigid periodic-plane translation workflow. Stored as Any for the same reason.
+    registry_relaxation: Any = field(default=None, repr=False)
     
     # History
     history: List[SessionHistoryState] = field(default_factory=list)
@@ -47,6 +67,14 @@ class EditorSession:
     relax_restart_requested: bool = False
     relax_run_id: int = 0
     relax_params: Dict[str, Any] = field(default_factory=dict)
+    # A general relaxation is an explicit mode.  Keep one complete baseline so
+    # leaving the mode can either commit the current geometry as one undoable
+    # change or restore the exact pre-relaxation document.
+    relaxation_baseline: Optional[SessionHistoryState] = field(
+        default=None,
+        repr=False,
+    )
+    relaxation_mode_active: bool = False
     
     # Communication
     websockets: List[Any] = field(default_factory=list)
@@ -66,6 +94,10 @@ class EditorSession:
         repr=False,
     )
     _trajectory_layout_compatible: Optional[bool] = field(
+        default=None,
+        repr=False,
+    )
+    _trajectory_identity_compatible: Optional[bool] = field(
         default=None,
         repr=False,
     )
@@ -95,6 +127,8 @@ class EditorSession:
         if self.trajectory_source is None:
             for frame in self.trajectory_frames:
                 self._ensure_session_calculator(frame)
+        if not self.original_volumetric_datasets:
+            self.original_volumetric_datasets = list(self.volumetric_datasets)
         self.refresh_trajectory_identity()
 
     def publish_collaboration_event(
@@ -171,7 +205,14 @@ class EditorSession:
         *,
         include_trajectory: bool = False,
         include_original: bool = False,
+        include_volumetric: bool = False,
+        include_atom_addition: bool = True,
     ) -> SessionHistoryState:
+        addition_snapshot = None
+        if include_atom_addition:
+            from .add_atoms import snapshot_atom_addition_session
+
+            addition_snapshot = snapshot_atom_addition_session(self.atom_addition)
         return SessionHistoryState(
             working_atoms=self._copy_atoms(self.working_atoms),
             current_frame=int(self.current_frame),
@@ -190,10 +231,41 @@ class EditorSession:
                 if include_original
                 else None
             ),
+            volumetric_datasets=(
+                list(self.volumetric_datasets)
+                if include_volumetric
+                else None
+            ),
             phonon_model=self.phonon_model,
+            includes_atom_addition=include_atom_addition,
+            atom_addition=addition_snapshot,
         )
 
     def _restore_history_state(self, state: SessionHistoryState) -> None:
+        # Invalidate every worker before restoring geometry. Their callbacks
+        # check these run ids and cannot overwrite the restored document.
+        self.stop_relax = True
+        self.relax_restart_requested = False
+        self.relax_run_id += 1
+        self.is_relaxing = False
+        self.relaxation_mode_active = False
+        self.relaxation_baseline = None
+        self.relax_params.clear()
+        active_addition = self.atom_addition
+        if active_addition is not None:
+            lock = getattr(active_addition, "lock", None)
+            if lock is not None:
+                with lock:
+                    active_addition.stop_requested = True
+                    active_addition.run_id += 1
+                    active_addition.is_relaxing = False
+        if self.registry_relaxation is not None:
+            self.registry_relaxation.stop_requested = True
+            self.registry_relaxation.run_id += 1
+        if state.includes_atom_addition:
+            from .add_atoms import snapshot_atom_addition_session
+
+            self.atom_addition = snapshot_atom_addition_session(state.atom_addition)
         if state.trajectory_frames is not None:
             self.trajectory_frames = [
                 self._copy_atoms(frame)
@@ -207,26 +279,59 @@ class EditorSession:
                 self._copy_atoms(frame)
                 for frame in state.original_frames
             ]
+        if state.volumetric_datasets is not None:
+            self.volumetric_datasets = list(state.volumetric_datasets)
         self.phonon_model = state.phonon_model
         frame_count = max(1, len(self.trajectory_frames))
         self.current_frame = max(0, min(int(state.current_frame), frame_count - 1))
         self.working_atoms = self._copy_atoms(state.working_atoms)
+        if state.trajectory_frames is None and self.trajectory_frames:
+            self.trajectory_frames[self.current_frame] = self._copy_atoms(
+                self.working_atoms
+            )
         self.invalidate_trajectory_layout()
         self.refresh_trajectory_identity()
+        self.stop_relax = False
 
     def push_history(
         self,
         *,
         include_trajectory: bool = False,
         include_original: bool = False,
+        include_volumetric: bool = False,
+        include_atom_addition: bool = True,
     ):
         """Save the mutation's complete affected scope for Undo."""
         self.history.append(self._history_state(
             include_trajectory=include_trajectory,
             include_original=include_original,
+            include_volumetric=include_volumetric,
+            include_atom_addition=include_atom_addition,
         ))
         if len(self.history) > 50:
-            self.history.pop(0)
+            # An Add Atoms session owns one baseline entry that Cancel must be
+            # able to restore even after many placement/region actions. Keep
+            # that entry pinned while evicting the oldest intermediate state.
+            addition = self.atom_addition
+            protected_index = getattr(addition, "history_index", None)
+            remove_index = 0
+            if (
+                isinstance(protected_index, int)
+                and 0 <= protected_index < len(self.history)
+                and protected_index == 0
+            ):
+                remove_index = 1
+            self.history.pop(remove_index)
+            if (
+                isinstance(protected_index, int)
+                and remove_index < protected_index
+            ):
+                addition.history_index -= 1
+                for state in self.history:
+                    snapshot = state.atom_addition
+                    snapshot_index = getattr(snapshot, "history_index", None)
+                    if isinstance(snapshot_index, int) and snapshot_index > 0:
+                        snapshot.history_index -= 1
         self.redo_stack.clear()
 
     def undo(self) -> Optional[Atoms]:
@@ -237,6 +342,8 @@ class EditorSession:
         self.redo_stack.append(self._history_state(
             include_trajectory=state.trajectory_frames is not None,
             include_original=state.original_frames is not None,
+            include_volumetric=state.volumetric_datasets is not None,
+            include_atom_addition=state.includes_atom_addition,
         ))
         self._restore_history_state(state)
         return self.working_atoms
@@ -249,6 +356,8 @@ class EditorSession:
         self.history.append(self._history_state(
             include_trajectory=state.trajectory_frames is not None,
             include_original=state.original_frames is not None,
+            include_volumetric=state.volumetric_datasets is not None,
+            include_atom_addition=state.includes_atom_addition,
         ))
         self._restore_history_state(state)
         return self.working_atoms
@@ -270,6 +379,7 @@ class EditorSession:
 
     def invalidate_trajectory_layout(self) -> None:
         self._trajectory_layout_compatible = None
+        self._trajectory_identity_compatible = None
 
     def refresh_trajectory_identity(self) -> Dict[str, Any]:
         """Cache ordered labels and their ASE elements for the whole trajectory."""
@@ -336,6 +446,7 @@ class EditorSession:
         """Restore every trajectory frame to the originally loaded coordinates/cell."""
         if self.trajectory_source is not None:
             self.set_frame(self.current_frame)
+            self.volumetric_datasets = list(self.original_volumetric_datasets)
             return
         if self.original_frames:
             self.trajectory_frames = [self._copy_atoms(frame) for frame in self.original_frames]
@@ -343,6 +454,7 @@ class EditorSession:
             self.trajectory_frames = [self._copy_atoms(self.original_atoms)]
         self.current_frame = min(self.current_frame, len(self.trajectory_frames) - 1)
         self.working_atoms = self._copy_atoms(self.trajectory_frames[self.current_frame])
+        self.volumetric_datasets = list(self.original_volumetric_datasets)
         self.invalidate_trajectory_layout()
 
     def cleanup_temporary_files(self):
@@ -352,6 +464,68 @@ class EditorSession:
             except OSError:
                 pass
         self.temporary_files.clear()
+
+    def release_trajectory_source(self) -> None:
+        source = self.trajectory_source
+        self.trajectory_source = None
+        close = getattr(source, "close", None)
+        if callable(close):
+            try:
+                close()
+            except Exception:
+                pass
+
+    def stop_background_operations(self) -> None:
+        """Invalidate all workers without waiting on daemon-thread teardown."""
+        self.stop_relax = True
+        self.relax_restart_requested = False
+        self.relax_run_id += 1
+        self.is_relaxing = False
+        self.relaxation_mode_active = False
+        addition = self.atom_addition
+        if addition is not None:
+            lock = getattr(addition, "lock", None)
+            if lock is None:
+                addition.stop_requested = True
+                addition.run_id += 1
+                addition.is_relaxing = False
+            else:
+                with lock:
+                    addition.stop_requested = True
+                    addition.run_id += 1
+                    addition.is_relaxing = False
+        registry = self.registry_relaxation
+        if registry is not None:
+            lock = getattr(registry, "lock", None)
+            if lock is None:
+                registry.stop_requested = True
+                registry.run_id += 1
+                registry.is_relaxing = False
+            else:
+                with lock:
+                    registry.stop_requested = True
+                    registry.run_id += 1
+                    registry.is_relaxing = False
+
+    def release_resources(self) -> None:
+        """Release process resources and large references owned by a closed tab."""
+        self.stop_background_operations()
+        self.release_trajectory_source()
+        self.cleanup_temporary_files()
+        self.websockets.clear()
+        self.history.clear()
+        self.redo_stack.clear()
+        self.trajectory_frames.clear()
+        self.original_frames.clear()
+        self.volumetric_datasets.clear()
+        self.original_volumetric_datasets.clear()
+        self.commensurate_guest_atoms = None
+        self.commensurate_search_cache = None
+        self.atom_addition = None
+        self.registry_relaxation = None
+        self.relaxation_baseline = None
+        self.relax_params.clear()
+        self.collaboration_events.clear()
 
 sessions: Dict[str, EditorSession] = {}
 
@@ -524,12 +698,10 @@ def remove_workspace_session(workspace: EditorWorkspace, session_id: str) -> Non
         session = sessions.get(session_id)
         if session is None:
             return
-        session.stop_relax = True
-        session.relax_restart_requested = False
-        session.relax_run_id += 1
+        session.stop_background_operations()
         if session_id != workspace.host_session_id:
             sessions.pop(session_id, None)
-            session.cleanup_temporary_files()
+            session.release_resources()
 
 
 def finalize_workspace(workspace_id: str) -> None:
@@ -543,9 +715,7 @@ def finalize_workspace(workspace_id: str) -> None:
             return
         workspace.closed = True
         host = workspace.host_session
-        host.stop_relax = True
-        host.relax_restart_requested = False
-        host.relax_run_id += 1
+        host.stop_background_operations()
         host.result_atoms = copy_atoms_with_calc(
             host.working_atoms,
             attach_default=not bool((host.config or {}).get("viz_only", False)),
@@ -554,13 +724,12 @@ def finalize_workspace(workspace_id: str) -> None:
             session = sessions.get(session_id)
             if session is None:
                 continue
-            session.stop_relax = True
-            session.relax_restart_requested = False
-            session.relax_run_id += 1
+            session.stop_background_operations()
             if session_id != workspace.host_session_id:
                 sessions.pop(session_id, None)
-                session.cleanup_temporary_files()
+                session.release_resources()
         workspace.session_ids.clear()
+        host.release_resources()
         host.done_event.set()
     with _workspaces_lock:
         workspaces.pop(workspace_id, None)
@@ -586,6 +755,7 @@ def replace_session_frames(
     trajectory_source=None,
     current_frame: int = 0,
     initial_design_settings: Optional[Dict[str, Any]] = None,
+    volumetric_datasets: Optional[List[Any]] = None,
 ) -> None:
     """Replace the loaded document while preserving the session's UI mode."""
     if not frames or not all(isinstance(frame, Atoms) for frame in frames):
@@ -594,15 +764,33 @@ def replace_session_frames(
     attach_default = not bool((session.config or {}).get("viz_only", False))
     original_frames = [copy_atoms_with_calc(frame, attach_default=attach_default) for frame in frames]
     working_frames = [copy_atoms_with_calc(frame, attach_default=attach_default) for frame in frames]
-    frame_index = max(0, min(int(current_frame), len(working_frames) - 1))
+    available_frames = (
+        int(trajectory_source.frame_count)
+        if trajectory_source is not None
+        else len(working_frames)
+    )
+    frame_index = max(0, min(int(current_frame), available_frames - 1))
 
+    session.release_trajectory_source()
     session.original_frames = original_frames
     session.trajectory_frames = working_frames
     session.trajectory_source = trajectory_source
     session.phonon_model = None
+    session.volumetric_datasets = list(volumetric_datasets or [])
+    session.original_volumetric_datasets = list(volumetric_datasets or [])
+    session.commensurate_guest_atoms = None
+    session.commensurate_guest_name = None
+    session.commensurate_search_cache = None
+    session.atom_addition = None
+    session.registry_relaxation = None
     session.current_frame = frame_index
     session.original_atoms = copy_atoms_with_calc(original_frames[0], attach_default=attach_default)
-    session.working_atoms = copy_atoms_with_calc(working_frames[frame_index], attach_default=attach_default)
+    source_atoms = (
+        trajectory_source.read_atoms(frame_index)
+        if trajectory_source is not None and frame_index >= len(working_frames)
+        else working_frames[frame_index]
+    )
+    session.working_atoms = copy_atoms_with_calc(source_atoms, attach_default=attach_default)
     session.result_atoms = None
     session.history.clear()
     session.redo_stack.clear()
@@ -611,6 +799,8 @@ def replace_session_frames(
     session.relax_restart_requested = False
     session.relax_run_id += 1
     session.relax_params.clear()
+    session.relaxation_baseline = None
+    session.relaxation_mode_active = False
     session.invalidate_trajectory_layout()
     session.config["initial_design_settings"] = initial_design_settings
     session.refresh_trajectory_identity()
@@ -670,9 +860,9 @@ def append_session_frames(session: EditorSession, frames: List[Atoms]) -> int:
         copy_atoms_with_calc(frame, attach_default=attach_default)
         for frame in frames
     ]
+    session.release_trajectory_source()
     session.original_frames = existing_original + appended_original
     session.trajectory_frames = existing_working + appended_working
-    session.trajectory_source = None
     session.phonon_model = None
     session.current_frame = current_frame
     session.original_atoms = copy_atoms_with_calc(
@@ -684,6 +874,8 @@ def append_session_frames(session: EditorSession, frames: List[Atoms]) -> int:
         attach_default=attach_default,
     )
     session.result_atoms = None
+    session.atom_addition = None
+    session.registry_relaxation = None
     session.history.clear()
     session.redo_stack.clear()
     session.stop_relax = False
@@ -691,6 +883,8 @@ def append_session_frames(session: EditorSession, frames: List[Atoms]) -> int:
     session.relax_restart_requested = False
     session.relax_run_id += 1
     session.relax_params.clear()
+    session.relaxation_baseline = None
+    session.relaxation_mode_active = False
     session.invalidate_trajectory_layout()
     session.config["empty_workspace"] = False
     session.refresh_trajectory_identity()

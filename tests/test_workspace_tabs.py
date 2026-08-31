@@ -111,6 +111,38 @@ def test_workspace_finalize_releases_children_and_unblocks_host():
     sessions.pop(host.session_id, None)
 
 
+def test_workspace_finalize_releases_streaming_and_large_session_resources():
+    class ClosingTrajectory:
+        def __init__(self):
+            self.closed = False
+
+        def close(self):
+            self.closed = True
+
+    host, workspace = _workspace_host()
+    source = ClosingTrajectory()
+    host.trajectory_source = source
+    host.history.append(host._history_state(include_trajectory=True))
+    host.redo_stack.append(host._history_state())
+    host.volumetric_datasets.append(object())
+    host.original_volumetric_datasets.append(object())
+
+    finalize_workspace(workspace.workspace_id)
+
+    assert source.closed is True
+    assert host.done_event.is_set()
+    assert host.result_atoms is not None
+    assert len(host.result_atoms) == 3
+    assert host.trajectory_source is None
+    assert host.trajectory_frames == []
+    assert host.original_frames == []
+    assert host.history == []
+    assert host.redo_stack == []
+    assert host.volumetric_datasets == []
+    assert host.original_volumetric_datasets == []
+    sessions.pop(host.session_id, None)
+
+
 def test_workspace_browser_close_ignores_its_stale_socket():
     host, workspace = _workspace_host()
     stale_socket = object()

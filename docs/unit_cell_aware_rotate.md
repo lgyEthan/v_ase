@@ -12,11 +12,12 @@ active atom, the global origin, the unit-cell center, or an explicit vector
 through the semantic API. An active atom remains unchanged because its
 coordinate is the rotation pivot.
 
-The commensurate guide connects these operations. During an axis-locked `R`, it
-searches integer combinations of the current 2D periodic cell boundaries,
-shows low-strain angular matches in the viewport, and can magnetically snap the
-coordinate rotation to a candidate. It does not reject arbitrary angles and it
-does not infer strain from bonds.
+The opt-in commensurate workspace connects these operations. It searches
+integer combinations of two in-plane periodic boundaries immediately, shows
+low-strain angular matches, and can magnetically snap a selected layer or an
+separately loaded guest structure to a candidate. It does not infer strain from
+bonds. To keep the periodic construction unambiguous, commensurate rotation is
+restricted to global Z and the matched lattice vectors must lie in XY.
 
 ## Screen-Space Rotation Direction
 
@@ -35,47 +36,81 @@ motion in free `R` and in an equivalent axis-locked top view.
 
 ## Integer Cell-Boundary Match
 
-Let `A` contain the two current periodic cell vectors after projection onto the
-plane perpendicular to the locked rotation axis. ASE uses row-vector cells, so
-`A` is a 2 x 2 row matrix. Two integer matrices define candidate supercell
-boundaries:
+Let `A_h` and `A_g` contain the two host and guest periodic cell vectors after
+projection into the shared XY frame. ASE uses row-vector cells, so each is a
+2 x 2 row matrix. Integer matrices define candidate supercell boundaries:
 
 ```text
-S = M A
-T = N A
+H = M_h A_h
+G = M_g A_g
 ```
 
-This follows the CellMatch principle of searching combinations of unit-cell
-vectors and ranking common cells by the strain needed to fit one boundary to
-the other. v_ase removes the best rigid rotation first by solving the 2D
-orthogonal Procrustes problem:
+For same-lattice twist, `A_h = A_g` and the selected atoms are the guest layer.
+For different host/guest lattices, the two bases and primitive areas may
+differ. This follows the CellMatch principle of searching combinations of
+unit-cell vectors and ranking common cells by the strain needed to fit one
+boundary to the other. v_ase removes the best rigid rotation first by solving
+the 2D orthogonal Procrustes problem:
 
 ```text
-Q* = argmin(Q in SO(2)) ||S Q - T||_F
+Q* = argmin(Q in SO(2)) ||G Q - H||_F
+```
+
+For an entered rotation `Q(theta)`, the guest and host boundaries are
+
+```text
+G_rot = M_g A_g Q(theta)
+H_ref = M_h A_h
 ```
 
 The remaining boundary deformation is
 
 ```text
-F = (S Q*)^-1 T
+D_g = G_rot^-1 H_ref
 ```
 
 and the displayed mismatch is the largest absolute principal stretch:
 
 ```text
-epsilon_boundary = max_i |sigma_i(F) - 1|
+epsilon_guest = max_i |sigma_i(D_g) - 1|
 ```
 
-where `sigma_i` are the singular values of `F`. This metric measures the strain
-required at the newly matched periodic boundary. It is independent of the
-current bond list, bond cutoff, and atom count. The `Boundary strain / %`
-control filters candidates by `epsilon_boundary`.
+where `sigma_i` are the singular values. This is the default guest-strain
+construction. If the user explicitly chooses host strain, the common boundary
+is the rigidly rotated guest boundary and v_ase instead evaluates
+`D_h = H_ref^-1 G_rot`, with
+
+```text
+epsilon_host = max_i |sigma_i(D_h) - 1|
+```
+
+The active residual is independent of the current bond list, bond cutoff, and
+atom count. The `Boundary strain / %` control filters candidates by the
+selected target's principal stretch.
+
+For comparison with the interface-search plot of Stradi et al., v_ase also
+reports the small-strain tensor and its mean absolute component value:
+
+```text
+epsilon = (D + D^T) / 2 - I
+epsilon_mean = (|epsilon_11| + |epsilon_22| + |epsilon_12|) / 3
+```
+
+This second value is used only by **Paper strain projection**. It does not
+replace the maximum-principal-strain cutoff above.
+
+Every retained candidate already satisfies that cutoff. Within one angular
+match, v_ase ranks by the larger host/guest area ratio first, the sum of both
+areas second, and residual strain third. The proposed cell is therefore the
+smallest admissible physical common cell rather than a larger zero-strain
+alternative.
 
 For general oblique cells, v_ase performs a bounded search over 2D Hermite
-normal-form integer supercells, Gauss-reduces their boundaries, and compares
-cells with equal area. For hexagonal and square cells it also uses analytic
-commensurate families, which reaches useful small angles without enumerating
-millions of generic supercells.
+normal-form integer supercells and Gauss-reduces their boundaries. Independent
+host/guest lattices may use different primitive-cell area multipliers. For
+same-lattice hexagonal and square cells it also uses analytic commensurate
+families, which reaches useful small angles without enumerating millions of
+generic supercells.
 
 ## Hexagonal Series And TBG Reference
 
@@ -104,15 +139,23 @@ interlayer tunneling, relaxation, Fermi velocity, and the chosen Hamiltonian.
 
 ## Viewport Guide And Magnetic Snap
 
-`Commensurate guide` is enabled by default. Start `R`, then lock `X`, `Y`, or
-`Z`.
+`Commensurate atoms` is disabled by default. Enabling it starts the bounded
+search and opens the angle/area/strain graph. Commensurate rotation is always
+global Z; normal free rotation remains available when the workspace is off.
 
-- Thin teal rays leave the active pivot in candidate directions.
-- A fixed `CELL MATCHES` strip lists candidate angles without camera-dependent
-  label collisions.
+- With no selected or loaded guest, only the host cell is shown. Selecting a
+  layer adds a separate same-lattice guest; loading a guest file replaces it.
+- Black host and orange guest primitive grids are tiled through the proposed
+  integer supercells. Two arrowheads at each origin identify the primitive
+  vectors; the suggested common-cell boundary is teal.
+- The Plotly graph places rotation angle, area ratio, and residual strain on
+  separate axes; a live angle plane and nearest-candidate marker track motion.
+- The graph selector switches to **Paper strain projection**, which plots mean
+  absolute strain against the actual host-plus-guest atom count and colors
+  points by rotation angle.
 - The current magnetic match is amber and its ray is prefixed with `SNAP`.
-- The Structure panel reports the active candidate's boundary strain and area
-  multiplier `N`.
+- The Structure panel reports both integer matrices, crystallographic notation,
+  active-target strain, and separate host/guest area multipliers.
 - The unchanged `0 deg` identity is included, so enabling snap never rotates a
   structure before the pointer or numeric angle actually moves away from zero.
 - `Magnetic angle snap` independently enables or disables attraction.
@@ -121,18 +164,94 @@ interlayer tunneling, relaxation, Fermi velocity, and the chosen Hamiltonian.
 - `Snap range / deg` controls the angular capture distance.
 - `Max lattice index` controls the analytic search depth; the default `32`
   includes the `1.050121 deg` hexagonal candidate.
+- `Max area ratio` bounds both host and guest integer cells. Its default is
+  `16` and its explicit interactive maximum is `128`; no candidate above the
+  requested limit is proposed or expanded.
+- Cells-only preview is the default. Optional atom preview adds opaque core
+  atoms, one primitive-cell halo, and bonds that cross the proposed boundary.
+- Same-lattice preview requires selected rotating atoms. A separately loaded
+  guest replaces that selection. Its angle moves the full guest structure and
+  cell, while the interlayer-gap control enforces guest minimum z minus host
+  maximum z (3 Å by default).
 
 Turning magnetic snap off leaves every angle continuously editable while
 keeping the scientific guide visible. Unlike the removed bond-strain guard, no
 rotation is colored invalid or blocked at commit.
 
-The analytic hexagonal candidates are identical for graphene and an ideal
-hexagonal h-BN primitive cell because the angle family depends on lattice
-geometry, not chemical species. Browser and Python regression tests verify the
-`21.786789`, `13.173551`, and `1.050121` degree candidates for both lattices
-with zero boundary strain.
+The analytic same-lattice hexagonal candidates are identical for graphene and
+an ideal hexagonal h-BN primitive cell because the angle family depends on
+lattice geometry, not chemical species. Python regression tests verify every
+`(m,m+1)` point through `(31,32)`, including `21.786789`, `13.173551`, and
+`1.050121` degrees, with zero boundary strain. A second basis-invariance test
+rewrites an oblique lattice with a determinant-one integer transform and
+requires the same zero-strain result.
+For bounded host/guest search, another regression compares the accelerated
+descriptor/tree path with complete enumeration through area ratio 5 and
+requires identical canonical angle, area, and strain candidates.
 
-## Constructing The Periodic Supercell
+The separate graphene/Cu(111) files and machine-readable expected values are
+in [`examples/commensurate_host_guest`](../examples/commensurate_host_guest/README.md).
+The complete equations, validation scope, and measured search bounds are in
+[`commensurate_validation.md`](commensurate_validation.md).
+
+## Proposed Common Cell And Boundary Shell
+
+When the workspace finds an admissible candidate, v_ase constructs a separate
+common-cell proposal immediately. It is not the ordinary `Replicate cell`
+display setting and does not wait for the final rotation commit.
+
+Let `P_h` and `P_g` be the 3 x 3 row-vector matrices obtained by embedding the
+two integer matrices into their respective periodic axes. In the default guest-
+strain construction, the host uses `P_h H_h`; the guest uses `P_g H_g`, receives
+the rigid Z rotation and residual in-plane deformation `D_g`. Both therefore
+share
+
+```text
+H_common = P_h H_h
+```
+
+The proposed-cell core atoms are opaque. For inspection only, v_ase also
+enumerates one primitive-cell layer outside every 2D boundary. That muted shell
+is not part of `H_common`; it exists so bonds crossing the proposed periodic
+boundary are visible instead of ending at the cell line. Bond inference uses
+the same active element/label cutoffs as the base structure and includes only
+pairs with at least one endpoint in the opaque core.
+
+The proposal panel reports both integer matrices, area ratios, boundary strain,
+cell lengths/angle, and symmetry-reduced crystallographic notation such as
+`(√7 × √7) R19.11°`. The renderer preserves the current camera throughout
+preview, dismissal, and materialization; it never reframes the structure merely
+because the commensurate workspace changed state.
+
+**Set Suggested Cell as Structure** materializes the validated common cell as
+an ASE `Atoms` object. Fixed atom and supported directional constraints are
+replicated. Cross-layer Hookean constraints and point/plane Hookean anchors are
+rejected rather than guessed. Materialization is currently restricted to one
+structure without volumetric grids: a trajectory requires a declared
+frame-to-frame layer mapping, and a volumetric field requires a declared
+layer-specific affine transform. The preview remains available when those
+conditions prevent materialization. The graph's save icon exports angle,
+matrices, area, strain, and the cited search references as CSV.
+
+## Planar Translation After Cell Matching
+
+Commensurability closes the periodic boundary but does not choose the best
+relative in-plane origin. v_ase therefore keeps rigid translation separate.
+For a selected movable component it constructs two primitive lattice vectors
+inside a requested periodic `(hkl)` plane. An optional map samples one complete
+plane-lattice period and displays either a covalent-radii-scaled short-contact
+score or the normalized RMS mismatch of enabled interfacial label-pair
+distances. Lower values mean less geometric penalty; neither score is a
+stacking energy.
+
+While rigid translation is active, `G` is projected into the chosen plane and
+its marker follows the unwrapped two-coordinate translation. The cell, host,
+and selected internal vectors stay fixed. The map and CSV retain `(hkl)`, exact
+integer and Cartesian bases, plane coordinates, Cartesian shifts, selected
+indices, grid dimensions, and metric definition. An energy-based optimum still
+requires an appropriate electronic-structure or force-field calculator.
+
+## General Integer Cell Transform
 
 The exact reproducible cell operation remains
 
@@ -150,14 +269,16 @@ P = [[m, n, 0],
 ```
 
 v_ase prevents a `Cell Transform` matrix from mixing or repeating a
-non-periodic axis. The angle guide helps choose a commensurate orientation; a
-publication input should still construct and verify the intended common
-supercell for both physical layers.
+non-periodic axis. This manual operation applies one matrix to the entire
+structure; the commensurate proposal instead uses a validated pair `(M, N)`
+for two components and only becomes the editable structure after the explicit
+materialize action.
 
 ## References
 
 - P. Lazic, ["CellMatch: Combining two unit cells into a common supercell with minimal strain"](https://doi.org/10.1016/j.cpc.2015.08.038), Computer Physics Communications 197, 324-334 (2015).
 - D. S. Koda et al., ["Coincidence Lattices of 2D Crystals: Heterostructure Predictions and Applications"](https://doi.org/10.1021/acs.jpcc.6b01496), Journal of Physical Chemistry C 120, 10895-10908 (2016).
+- D. Stradi et al., ["Method for determining optimal supercell representation of interfaces"](https://doi.org/10.1088/1361-648X/aa66f3), Journal of Physics: Condensed Matter 29, 185901 (2017).
 - J. M. B. Lopes dos Santos, N. M. R. Peres, and A. H. Castro Neto, ["Continuum model of the twisted graphene bilayer"](https://doi.org/10.1103/PhysRevB.86.155449), Physical Review B 86, 155449 (2012).
 - R. Bistritzer and A. H. MacDonald, ["Moiré bands in twisted double-layer graphene"](https://doi.org/10.1073/pnas.1108174108), PNAS 108, 12233-12237 (2011).
 - J. S. Dai, ["An historical review of the theoretical development of rigid body displacements from Rodrigues parameters to the finite twist"](https://doi.org/10.1016/j.mechmachtheory.2005.04.004), Mechanism and Machine Theory 41, 41-52 (2006).

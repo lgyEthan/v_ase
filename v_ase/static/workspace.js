@@ -229,12 +229,23 @@ class VAseWorkspace {
         }
     }
 
-    async uploadFileToSession(sessionId, file, inputFormat = '', index = ':') {
+    async uploadFileToSession(
+        sessionId,
+        file,
+        inputFormat = '',
+        index = ':',
+        volumetricPrecision = 'float32',
+        runtimeMode = null
+    ) {
         const params = new URLSearchParams({
             filename: file?.name || 'structure',
             index: index || ':',
+            volumetric_precision: volumetricPrecision || 'float32',
         });
         if (inputFormat) params.set('input_format', inputFormat);
+        if (runtimeMode === 'view' || runtimeMode === 'edit') {
+            params.set('runtime_mode', runtimeMode);
+        }
         return await this.request(
             `/api/file/load/${encodeURIComponent(sessionId)}?${params.toString()}`,
             {
@@ -245,7 +256,14 @@ class VAseWorkspace {
         );
     }
 
-    async loadPathToSession(sessionId, path, inputFormat = '', index = ':') {
+    async loadPathToSession(
+        sessionId,
+        path,
+        inputFormat = '',
+        index = ':',
+        volumetricPrecision = 'float32',
+        runtimeMode = null
+    ) {
         return await this.request(
             `/api/file/load-path/${encodeURIComponent(sessionId)}`,
             {
@@ -255,6 +273,10 @@ class VAseWorkspace {
                     path,
                     input_format: inputFormat || '',
                     index: index || ':',
+                    volumetric_precision: volumetricPrecision || 'float32',
+                    runtime_mode: runtimeMode === 'view' || runtimeMode === 'edit'
+                        ? runtimeMode
+                        : null,
                 }),
             }
         );
@@ -283,18 +305,23 @@ class VAseWorkspace {
                     body: JSON.stringify({source_session_id: sourceEntry.sessionId}),
                 }
             );
+            const requestedMode = message.runtimeMode === 'edit' ? 'edit' : 'view';
             const data = hasServerPath
                 ? await this.loadPathToSession(
                     documentState.session_id,
                     message.serverPath,
                     message.inputFormat || '',
-                    message.index || ':'
+                    message.index || ':',
+                    message.volumetricPrecision || 'float32',
+                    requestedMode
                 )
                 : await this.uploadFileToSession(
                     documentState.session_id,
                     message.file,
                     message.inputFormat || '',
-                    message.index || ':'
+                    message.index || ':',
+                    message.volumetricPrecision || 'float32',
+                    requestedMode
                 );
             documentState.title = data.loaded_file?.filename || message.fileName || message.file?.name || 'Untitled';
             documentState.empty = false;
@@ -360,12 +387,41 @@ class VAseWorkspace {
         });
     }
 
+    applyWorkspaceTheme(preference, { persist = true } = {}) {
+        const result = window.v_aseTheme?.apply?.(preference, { persist })
+            || { preference };
+        this.tabs.forEach(entry => {
+            entry.pane.contentWindow?.postMessage({
+                type: 'v_ase:workspace-theme',
+                preference: result.preference
+            }, window.location.origin);
+        });
+    }
+
+    broadcastVisualDefaults(message) {
+        this.tabs.forEach(entry => {
+            entry.pane.contentWindow?.postMessage({
+                type: 'v_ase:workspace-visual-defaults',
+                configured: message.configured === true,
+                settings: message.settings || null
+            }, window.location.origin);
+        });
+    }
+
     handleDocumentMessage(event) {
         if (event.origin !== window.location.origin) return;
         const message = event.data || {};
         if (!message.type?.startsWith('v_ase:document-')) return;
         const entry = this.tabs.get(message.sessionId);
         if (!entry || entry.pane.contentWindow !== event.source) return;
+        if (message.type === 'v_ase:document-theme') {
+            this.applyWorkspaceTheme(message.preference, { persist: message.persist !== false });
+            return;
+        }
+        if (message.type === 'v_ase:document-visual-defaults') {
+            this.broadcastVisualDefaults(message);
+            return;
+        }
         if (message.type === 'v_ase:document-open-new') {
             this.openDocumentFromFile(entry, message);
             return;

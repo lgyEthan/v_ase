@@ -19,7 +19,12 @@ from fastapi import HTTPException
 
 import v_ase.relax as relax_module
 from v_ase.export import export_pickle_response, export_poscar_response
-from v_ase.relax import start_relaxation, stop_relaxation
+from v_ase.relax import (
+    clear_relaxation_trajectory,
+    exit_relaxation,
+    start_relaxation,
+    stop_relaxation,
+)
 from v_ase import DefaultRepulsionCalculator as RootDefaultRepulsionCalculator
 from v_ase import RepulsionCalculator as RootRepulsionCalculator
 from v_ase.calculator import RepulsionCalculator as SingularRepulsionCalculator
@@ -54,6 +59,7 @@ from v_ase.server import (
     save_project,
     schedule_session_autoclose,
     set_frame,
+    set_unit_cell,
     undo,
     update_atom_identity,
     update_calculator,
@@ -583,7 +589,10 @@ def test_default_repulsion_calculator_device_settings_are_configurable():
     data = asyncio.run(update_calculator(session.session_id, {
         "device": "cpu",
         "cpu_threads": 2,
+        "cutoff_mode": "absolute",
+        "cutoff_distance": 1.35,
         "cutoff_scale": 0.7,
+        "pair_cutoffs": {"H|H": 1.1},
         "k_repulsion": 3.5,
     }))
 
@@ -591,20 +600,107 @@ def test_default_repulsion_calculator_device_settings_are_configurable():
     assert details["is_default_repulsion"] is True
     assert details["requested_device"] == "cpu"
     assert details["cpu_threads"] == 2
+    assert details["cutoff_mode"] == "absolute"
+    assert details["cutoff_distance"] == pytest.approx(1.35)
     assert details["cutoff_scale"] == pytest.approx(0.7)
+    assert details["pair_cutoffs"] == {"H|H": pytest.approx(1.1)}
     assert details["k_repulsion"] == pytest.approx(3.5)
     assert 1 in details["cpu_thread_options"]
+    calculator_frames = [
+        session.working_atoms,
+        *session.trajectory_frames,
+        *session.original_frames,
+    ]
+    assert calculator_frames
+    for frame in calculator_frames:
+        if not is_vase_repulsion_calculator(frame.calc):
+            continue
+        assert frame.calc.status()["pair_cutoffs"] == {
+            "H|H": pytest.approx(1.1)
+        }
 
 
-def test_default_repulsion_cutoff_scale_controls_the_physical_threshold():
+def test_scaled_repulsion_multiplier_controls_the_physical_threshold():
     # H-H covalent-radius sum is 0.62 A in ASE. At 0.50 A, the default
     # 0.70 scale is inactive while the legacy 1.0 scale is repulsive.
     atoms = Atoms("HH", positions=[[0, 0, 0], [0.50, 0, 0]])
-    atoms.calc = RepulsionCalculator(cutoff_scale=0.7, k_repulsion=2.0)
+    atoms.calc = RepulsionCalculator(
+        cutoff_mode="scaled",
+        cutoff_scale=0.7,
+        k_repulsion=2.0,
+    )
     assert atoms.get_potential_energy() == pytest.approx(0.0, abs=1e-12)
 
-    atoms.calc = RepulsionCalculator(cutoff_scale=1.0, k_repulsion=2.0)
+    atoms.calc = RepulsionCalculator(
+        cutoff_mode="scaled",
+        cutoff_scale=1.0,
+        k_repulsion=2.0,
+    )
     assert atoms.get_potential_energy() > 0
+
+
+def test_default_repulsion_uses_active_label_pair_bond_cutoffs():
+    atoms = Atoms("HH", positions=[[0, 0, 0], [1.20, 0, 0]])
+    set_atom_labels(atoms, ["H_left", "H_right"])
+    atoms.calc = RepulsionCalculator(
+        pair_cutoffs={"H_left|H_right": 1.50},
+        cutoff_mode="bonding",
+        cutoff_scale=1.0,
+        k_repulsion=2.0,
+    )
+
+    assert atoms.get_potential_energy() == pytest.approx(0.09)
+    assert np.linalg.norm(atoms.get_forces()[0]) > 0
+    assert atoms.calc.status()["pair_cutoffs"] == {"H_left|H_right": 1.5}
+
+    atoms.calc.configure(
+        pair_cutoffs={"H_left|H_right": 0.0},
+        cutoff_scale=3.0,
+    )
+    assert atoms.get_potential_energy() == pytest.approx(0.0, abs=1e-12)
+    np.testing.assert_allclose(atoms.get_forces(), 0.0, atol=1e-12)
+
+
+def test_default_repulsion_absolute_cutoff_is_a_physical_distance():
+    atoms = Atoms("HH", positions=[[0, 0, 0], [1.20, 0, 0]])
+    atoms.calc = RepulsionCalculator(
+        cutoff_mode="absolute",
+        cutoff_distance=1.0,
+        k_repulsion=2.0,
+    )
+    assert atoms.get_potential_energy() == pytest.approx(0.0, abs=1e-12)
+    np.testing.assert_allclose(atoms.get_forces(), 0.0, atol=1e-12)
+
+    atoms.calc = RepulsionCalculator(
+        cutoff_mode="absolute",
+        cutoff_distance=1.2,
+        k_repulsion=2.0,
+    )
+    assert atoms.get_potential_energy() == pytest.approx(0.0, abs=1e-12)
+    np.testing.assert_allclose(atoms.get_forces(), 0.0, atol=1e-12)
+
+    atoms.calc = RepulsionCalculator(
+        cutoff_mode="absolute",
+        cutoff_distance=1.5,
+        k_repulsion=2.0,
+    )
+    assert atoms.get_potential_energy() == pytest.approx(0.09)
+    assert np.linalg.norm(atoms.get_forces()[0]) > 0
+    assert atoms.calc.status()["cutoff_mode"] == "absolute"
+    assert atoms.calc.status()["cutoff_distance"] == pytest.approx(1.5)
+
+
+def test_absolute_cutoff_does_not_reactivate_a_disabled_pair():
+    atoms = Atoms("HH", positions=[[0, 0, 0], [0.25, 0, 0]])
+    atoms.calc = RepulsionCalculator(
+        min_bondinfo={"H-H": 0.0},
+        cutoff_mode="absolute",
+        cutoff_distance=2.0,
+        k_repulsion=2.0,
+    )
+
+    assert atoms.get_potential_energy() == pytest.approx(0.0, abs=1e-12)
+    np.testing.assert_allclose(atoms.get_forces(), 0.0, atol=1e-12)
 
 
 def test_ai_semantic_state_and_schema_are_machine_readable():
@@ -647,6 +743,182 @@ def test_relaxation_starts_with_default_repulsion_calculator(monkeypatch):
     assert finished[-1]["status"] == "converged"
     assert len(finished[-1]["positions"]) == len(atoms)
     asyncio.run(stop_relaxation(session))
+
+
+def test_repulsion_separates_exactly_coincident_atoms_without_a_cell():
+    atoms = Atoms("HH", positions=np.zeros((2, 3)))
+    atoms.calc = RepulsionCalculator(cutoff_scale=1.0, k_repulsion=2.0)
+
+    forces = atoms.get_forces()
+
+    assert np.linalg.norm(forces[0]) > 0.1
+    np.testing.assert_allclose(forces[0], -forces[1], atol=1e-12)
+
+
+def test_repulsion_defaults_to_absolute_covalent_contact_distances():
+    atoms = Atoms("HH", positions=[[0.0, 0.0, 0.0], [0.5, 0.0, 0.0]])
+    atoms.calc = RepulsionCalculator(cutoff_scale=0.05, k_repulsion=2.0)
+
+    forces = atoms.get_forces()
+
+    assert atoms.calc.cutoff_mode == "absolute"
+    assert atoms.calc.cutoff_basis == "covalent"
+    assert np.linalg.norm(forces[0]) > 0.01
+    np.testing.assert_allclose(forces[0], -forces[1], atol=1e-12)
+
+
+def test_repulsion_absolute_label_pair_distances_override_global_compatibility_cutoff():
+    atoms = Atoms("HH", positions=[[0.0, 0.0, 0.0], [1.2, 0.0, 0.0]])
+    set_atom_labels(atoms, ["H_water", "H_water"])
+    atoms.calc = RepulsionCalculator(
+        min_bondinfo={"H_water-H_water": 1.0},
+        cutoff_mode="absolute",
+        cutoff_distance=8.0,
+        k_repulsion=2.0,
+    )
+
+    np.testing.assert_allclose(atoms.get_forces(), np.zeros((2, 3)), atol=1e-12)
+
+    atoms.positions[1, 0] = 0.8
+    atoms.calc.reset()
+    forces = atoms.get_forces()
+    assert np.linalg.norm(forces[0]) > 0.01
+    np.testing.assert_allclose(forces[0], -forces[1], atol=1e-12)
+
+
+def test_repulsion_zero_label_pair_distance_disables_pair():
+    atoms = Atoms("HH", positions=[[0.0, 0.0, 0.0], [0.1, 0.0, 0.0]])
+    set_atom_labels(atoms, ["H_water", "H_water"])
+    atoms.calc = RepulsionCalculator(
+        min_bondinfo={"H_water-H_water": 0.0},
+        cutoff_mode="absolute",
+        k_repulsion=10.0,
+    )
+
+    np.testing.assert_allclose(atoms.get_forces(), np.zeros((2, 3)), atol=1e-12)
+
+
+def test_repulsion_vdw_basis_uses_vdw_contact_distances():
+    covalent = Atoms("HH", positions=[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]])
+    covalent.calc = RepulsionCalculator(cutoff_basis="covalent", k_repulsion=2.0)
+    vdw = covalent.copy()
+    vdw.calc = RepulsionCalculator(cutoff_basis="vdw", k_repulsion=2.0)
+
+    np.testing.assert_allclose(covalent.get_forces(), np.zeros((2, 3)), atol=1e-12)
+    assert np.linalg.norm(vdw.get_forces()[0]) > 0.01
+
+
+def test_repulsion_separates_periodically_equivalent_coincident_atoms():
+    atoms = Atoms(
+        "HH",
+        positions=[[0.0, 0.0, 0.0], [5.0, 0.0, 0.0]],
+        cell=[5.0, 5.0, 5.0],
+        pbc=True,
+    )
+    atoms.calc = RepulsionCalculator(
+        min_bondinfo={"H-H": 1.0},
+        cutoff_scale=1.0,
+        k_repulsion=2.0,
+        mic=True,
+    )
+
+    forces = atoms.get_forces()
+
+    assert np.linalg.norm(forces[0]) > 0.1
+    np.testing.assert_allclose(forces[0], -forces[1], atol=1e-12)
+
+
+def test_default_relaxation_moves_coincident_scratch_atoms_without_a_cell():
+    atoms = Atoms("HH", positions=np.zeros((2, 3)), pbc=False)
+    session = EditorSession(
+        "scratch-relax-no-cell",
+        atoms.copy(),
+        atoms.copy(),
+        config={"viz_only": False, "empty_workspace": False},
+    )
+
+    response = asyncio.run(start_relaxation(
+        session,
+        {"steps": 50, "fmax": 0.01},
+        None,
+    ))
+    assert response["status"] == "started"
+    deadline = time.monotonic() + 5.0
+    while session.is_relaxing and time.monotonic() < deadline:
+        time.sleep(0.01)
+
+    assert session.is_relaxing is False
+    separation = np.linalg.norm(
+        session.working_atoms.positions[0] - session.working_atoms.positions[1]
+    )
+    assert separation > 0.1
+    assert np.linalg.det(session.working_atoms.cell.array) == pytest.approx(0.0)
+    assert session.working_atoms.pbc.tolist() == [False, False, False]
+
+
+def test_relaxation_mode_can_restore_or_keep_while_worker_is_active(monkeypatch):
+    atoms = Atoms("HH", positions=[[0, 0, 0], [0.25, 0, 0]])
+    session = make_session(atoms)
+    monkeypatch.setattr(relax_module, "_launch_relax_thread", lambda *_args: None)
+
+    asyncio.run(start_relaxation(session, {"steps": 20}, None))
+    session.working_atoms.positions += [1.0, 0.0, 0.0]
+    session.sync_current_frame()
+    restored = asyncio.run(exit_relaxation(session, keep=False))
+    assert restored == {"status": "exited", "kept": False}
+    np.testing.assert_allclose(session.working_atoms.positions, atoms.positions)
+    assert session.relaxation_mode_active is False
+    assert session.is_relaxing is False
+
+    asyncio.run(start_relaxation(session, {"steps": 20}, None))
+    kept_positions = session.working_atoms.positions + [0.5, 0.0, 0.0]
+    session.working_atoms.set_positions(kept_positions)
+    session.sync_current_frame()
+    kept = asyncio.run(exit_relaxation(session, keep=True))
+    assert kept == {"status": "exited", "kept": True}
+    np.testing.assert_allclose(session.working_atoms.positions, kept_positions)
+    assert session.undo() is not None
+    np.testing.assert_allclose(session.working_atoms.positions, atoms.positions)
+
+
+def test_clear_relaxation_trajectory_keeps_mode_active_and_selected_frame():
+    atoms = Atoms("HH", positions=[[0.0, 0.0, 0.0], [0.8, 0.0, 0.0]])
+    session = make_session(atoms)
+    session.relaxation_mode_active = True
+    session.is_relaxing = True
+    initial_run_id = session.relax_run_id
+    retained = np.asarray([[0.2, 0.1, 0.0], [1.1, 0.1, 0.0]])
+
+    result = clear_relaxation_trajectory(session, {
+        "kind": "relaxation",
+        "positions": retained.tolist(),
+        "use_latest": False,
+    })
+
+    assert result == {
+        "status": "cleared",
+        "kind": "relaxation",
+        "retained": "displayed",
+    }
+    assert session.relaxation_mode_active is True
+    assert session.is_relaxing is False
+    assert session.relax_run_id == initial_run_id + 1
+    np.testing.assert_allclose(session.working_atoms.positions, retained)
+
+
+def test_empty_edit_session_accepts_explicit_triclinic_cell():
+    session = make_session(Atoms())
+    cell = [[4.0, 0.0, 0.0], [1.2, 5.0, 0.0], [0.4, 0.7, 6.0]]
+
+    data = asyncio.run(set_unit_cell(session.session_id, {
+        "cell": cell,
+        "pbc": [True, True, False],
+    }))
+
+    np.testing.assert_allclose(data["cell"], cell)
+    assert data["pbc"] == [True, True, False]
+    assert data["positions"] == []
+    assert data["metadata"]["config"]["empty_workspace"] is False
 
 
 def test_atoms_endpoint_includes_view_config():
@@ -1164,6 +1436,15 @@ def test_visual_settings_save_and_load_json_roundtrip_and_legacy_pickle():
             "bondCustomColor": "#18a7d8",
             "atomRadiusScale": 1.4,
             "labelRadii": {"O": 0.72},
+            "labelOpacities": {"O": 0.35, "H": 1.4, "invalid": "opaque"},
+            "atomRadiusScales": {"0": 1.4, "bad": 2.0},
+            "atomColors": {"0": "#12AB34", "1": "invalid"},
+            "atomOpacities": {"0": 0.2, "1": 1.7},
+            "atomBondStyles": {
+                "0": {"material": "metal", "opacity": 0.2},
+                "1": {"material": "invalid", "color": "#445566"},
+            },
+            "selectedAppearanceAffectsBonds": False,
             "supercell": [2, 1, 1],
             "translation": [0.25, -0.5, 0.75],
             "translationMode": "fractional",
@@ -1185,6 +1466,18 @@ def test_visual_settings_save_and_load_json_roundtrip_and_legacy_pickle():
     assert payload["settings"]["display"]["translationMode"] == "fractional"
     assert payload["settings"]["display"]["pairwiseLabelColumnWidth"] == 318
     assert payload["settings"]["display"]["pairwiseBondRanges"]["H-O"]["min"] == 0.0
+    assert payload["settings"]["display"]["labelOpacities"] == {
+        "O": 0.35,
+        "H": 1.0,
+    }
+    assert payload["settings"]["display"]["atomRadiusScales"] == {"0": 1.4}
+    assert payload["settings"]["display"]["atomColors"] == {"0": "#12ab34"}
+    assert payload["settings"]["display"]["atomOpacities"] == {"0": 0.2, "1": 1.0}
+    assert payload["settings"]["display"]["atomBondStyles"] == {
+        "0": {"material": "metal", "opacity": 0.2},
+        "1": {"color": "#445566"},
+    }
+    assert payload["settings"]["display"]["selectedAppearanceAffectsBonds"] is False
 
     loaded = asyncio.run(load_visual_settings(session.session_id, BytesRequest(response.body)))
     assert loaded["settings"]["display"]["atomRadiusScale"] == 1.4
@@ -1293,7 +1586,12 @@ def test_vase_project_roundtrip_restores_trajectory_edits_constraints_and_settin
                 "H_a": "standard",
                 "H_b": "standard",
             },
+            "labelOpacities": {"O_surface": 0.42},
+            "atomRadiusScales": {"2": 1.35},
+            "atomColors": {"2": "#33aa77"},
+            "atomOpacities": {"2": 0.55},
             "atomMaterials": {"2": "rubber"},
+            "atomBondStyles": {"2": {"material": "metal", "opacity": 0.55}},
         },
     }
 
@@ -1321,7 +1619,14 @@ def test_vase_project_roundtrip_restores_trajectory_edits_constraints_and_settin
     assert loaded["project"]["settings"]["display"]["translation"] == [0.4, -0.25, 0.75]
     assert loaded["project"]["settings"]["display"]["translationMode"] == "cartesian"
     assert loaded["project"]["settings"]["display"]["labelMaterials"]["O_surface"] == "metal"
+    assert loaded["project"]["settings"]["display"]["labelOpacities"]["O_surface"] == pytest.approx(0.42)
+    assert loaded["project"]["settings"]["display"]["atomRadiusScales"] == {"2": 1.35}
+    assert loaded["project"]["settings"]["display"]["atomColors"] == {"2": "#33aa77"}
+    assert loaded["project"]["settings"]["display"]["atomOpacities"] == {"2": 0.55}
     assert loaded["project"]["settings"]["display"]["atomMaterials"] == {"2": "rubber"}
+    assert loaded["project"]["settings"]["display"]["atomBondStyles"] == {
+        "2": {"material": "metal", "opacity": 0.55}
+    }
     asyncio.run(response.background())
 
 
@@ -1356,6 +1661,8 @@ def test_vase_project_restores_builtin_repulsion_calculator_configuration():
     atoms.calc = RepulsionCalculator(
         min_bondinfo=1.1,
         k_repulsion=2.75,
+        cutoff_mode="absolute",
+        cutoff_distance=1.25,
         cutoff_scale=0.65,
         max_force_norm=4.5,
         mic=False,
@@ -1385,6 +1692,8 @@ def test_vase_project_restores_builtin_repulsion_calculator_configuration():
     assert restored.min_bondinfo == pytest.approx(1.1)
     assert restored.k_repulsion == pytest.approx(2.75)
     assert restored.cutoff_scale == pytest.approx(0.65)
+    assert restored.cutoff_mode == "absolute"
+    assert restored.cutoff_distance == pytest.approx(1.25)
     assert restored.max_force_norm == pytest.approx(4.5)
     assert restored.mic is False
     assert restored.cpu_threads == 2

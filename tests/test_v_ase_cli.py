@@ -1,27 +1,47 @@
-import shlex
 import json
+import os
+import shlex
+import subprocess
+import sys
 import tomllib
 from pathlib import Path
 
+import numpy as np
+from ase import Atoms
 from ase.build import molecule
-from ase.io import write
+from ase.io import read, write
 import pytest
 
 import v_ase.remote as remote
-from v_ase.cli import build_parser, normalize_argv, run_api_command, run_gui
+from v_ase.cli import (
+    _scientific_stack_error,
+    build_parser,
+    normalize_argv,
+    run_api_command,
+    run_gui,
+)
 from v_ase.export import export_html_response
-from v_ase.io import read_structure_frames, resolve_input_format
+from v_ase.io import infer_input_format, read_structure_frames, resolve_input_format
 from v_ase.io import atom_labels
 from v_ase.serialization import atoms_to_json
 from v_ase.session import EditorSession
 from v_ase.remote import (
     RemoteTarget,
     build_remote_gui_command,
+    build_remote_gui_launcher,
     localize_remote_url,
     parse_remote_target,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+@pytest.fixture(autouse=True)
+def isolate_remote_runtime_configuration(tmp_path, monkeypatch):
+    monkeypatch.setenv(
+        "V_ASE_REMOTE_CONFIG",
+        str(tmp_path / "isolated-remote-runtimes.json"),
+    )
 
 
 def test_v_ase_gui_parser_accepts_ase_gui_style_file_argument():
@@ -31,6 +51,46 @@ def test_v_ase_gui_parser_accepts_ase_gui_style_file_argument():
     assert args.command == "gui"
     assert args.file == "XXXX.vasp"
     assert args.index == ":"
+
+
+def test_binary_stack_error_explains_that_the_structure_was_not_parsed():
+    message = _scientific_stack_error(
+        ValueError(
+            "numpy.dtype size changed, may indicate binary incompatibility. "
+            "Expected 96 from C header, got 88 from PyObject"
+        )
+    )
+
+    assert "binary-incompatible" in message
+    assert "structure file has not been read yet" in message
+    assert "python -m pip install --upgrade --force-reinstall v_ase-gui" in message
+    assert "Expected 96" in message
+
+
+def test_cli_import_and_version_do_not_eagerly_import_ase_or_scipy():
+    code = (
+        "import sys; import v_ase.cli; "
+        "assert 'ase' not in sys.modules; "
+        "assert 'scipy' not in sys.modules"
+    )
+    imported = subprocess.run(
+        [sys.executable, "-c", code],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert imported.returncode == 0, imported.stderr
+
+    version = subprocess.run(
+        [sys.executable, "-m", "v_ase.cli", "--version"],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert version.returncode == 0, version.stderr
+    assert version.stdout.startswith("v_ase ")
 
 
 def test_v_ase_gui_parser_accepts_an_empty_workspace():
@@ -44,6 +104,8 @@ def test_v_ase_gui_parser_accepts_an_empty_workspace():
     assert args.port is None
     assert args.show_bonds is True
     assert args.cli_mode is False
+    assert args.volumetric_precision == "fp32"
+    assert args.remote_python is None
 
 
 def test_v_ase_gui_parser_accepts_headless_server_mode():
@@ -195,6 +257,272 @@ def test_remote_gui_command_preserves_user_options_and_quotes_the_path():
     ]
 
 
+def _run_fake_remote_launcher(tmp_path, args, help_text, remote_port=None):
+    executable = (
+        Path(args.remote_python)
+        if getattr(args, "remote_python", None)
+        else tmp_path / "v_ase"
+    )
+    executable.parent.mkdir(parents=True, exist_ok=True)
+    arguments_file = tmp_path / "arguments.txt"
+    browser_file = tmp_path / "browser.txt"
+    executable.write_text(
+        "#!/bin/sh\n"
+        "if [ \"$1\" = -m ] && [ \"$2\" = v_ase.cli ]; then\n"
+        "  shift 2\n"
+        "fi\n"
+        "if [ \"$1\" = gui ] && [ \"$2\" = --help ]; then\n"
+        "  printf '%s\\n' \"$VASE_FAKE_HELP\"\n"
+        "  exit 0\n"
+        "fi\n"
+        "printf '%s\\n' \"$@\" > \"$VASE_ARGS_FILE\"\n"
+        "printf '%s\\n' \"$BROWSER\" > \"$VASE_BROWSER_FILE\"\n"
+        "printf '%s\\n' "
+        "'Viewer URL: http://127.0.0.1:55363/workspace?session_id=remote'\n",
+        encoding="utf-8",
+    )
+    executable.chmod(0o755)
+    target = parse_remote_target(args.file)
+    assert target is not None
+    environment = os.environ.copy()
+    environment.update({
+        "PATH": f"{tmp_path}:{environment['PATH']}",
+        "VASE_FAKE_HELP": help_text,
+        "VASE_ARGS_FILE": str(arguments_file),
+        "VASE_BROWSER_FILE": str(browser_file),
+    })
+    completed = subprocess.run(
+        [
+            "/bin/sh",
+            "-c",
+            build_remote_gui_launcher(args, target, remote_port),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=environment,
+    )
+    arguments = (
+        arguments_file.read_text(encoding="utf-8").splitlines()
+        if arguments_file.exists()
+        else []
+    )
+    browser = (
+        browser_file.read_text(encoding="utf-8").strip()
+        if browser_file.exists()
+        else ""
+    )
+    return completed, arguments, browser
+
+
+def test_remote_python_transient_override_runs_exact_environment(tmp_path):
+    python = tmp_path / "miniconda3" / "envs" / "vase" / "bin" / "python"
+    args = build_parser().parse_args([
+        "gui",
+        "physics:/data/POSCAR",
+        "--remote-python",
+        str(python),
+    ])
+
+    command = shlex.split(build_remote_gui_command(
+        args,
+        RemoteTarget("physics", "/data/POSCAR"),
+    ))
+    assert command[:4] == [str(python), "-m", "v_ase.cli", "gui"]
+
+    completed, arguments, _browser = _run_fake_remote_launcher(
+        tmp_path,
+        args,
+        "--no-browser --stream-frames --hide-bonds --volumetric-precision",
+    )
+    assert completed.returncode == 0
+    assert arguments[:4] == ["gui", "--index", ":", "--no-browser"]
+    assert arguments[-2:] == ["--", "/data/POSCAR"]
+
+
+def test_remote_runtime_configuration_roundtrips_and_transient_path_wins(
+    tmp_path,
+    monkeypatch,
+    capsys,
+):
+    config = tmp_path / "remote-runtimes.json"
+    monkeypatch.setenv("V_ASE_REMOTE_CONFIG", str(config))
+    parser = build_parser()
+    configured_python = "/home/user/miniconda3/envs/vase/bin/python"
+
+    configure = parser.parse_args([
+        "remote",
+        "configure",
+        "physics",
+        "--python",
+        configured_python,
+    ])
+    assert configure.func(configure) == 0
+    if os.name != "nt":
+        assert config.stat().st_mode & 0o777 == 0o600
+    assert remote.load_remote_runtime_config() == {"physics": configured_python}
+    capsys.readouterr()
+
+    saved_args = parser.parse_args(["gui", "physics:/data/POSCAR"])
+    saved_command = shlex.split(build_remote_gui_command(
+        saved_args,
+        RemoteTarget("physics", "/data/POSCAR"),
+    ))
+    assert saved_command[:3] == [configured_python, "-m", "v_ase.cli"]
+
+    transient_python = "/opt/conda/envs/new-vase/bin/python"
+    transient_args = parser.parse_args([
+        "gui",
+        "physics:/data/POSCAR",
+        "--remote-python",
+        transient_python,
+    ])
+    transient_command = shlex.split(build_remote_gui_command(
+        transient_args,
+        RemoteTarget("physics", "/data/POSCAR"),
+    ))
+    assert transient_command[:3] == [transient_python, "-m", "v_ase.cli"]
+
+    show = parser.parse_args(["remote", "show", "physics"])
+    assert show.func(show) == 0
+    assert capsys.readouterr().out.strip() == f"physics\t{configured_python}"
+
+    remove = parser.parse_args(["remote", "remove", "physics"])
+    assert remove.func(remove) == 0
+    assert remote.load_remote_runtime_config() == {}
+
+
+def test_remote_runtime_configuration_requires_absolute_python_path(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setenv("V_ASE_REMOTE_CONFIG", str(tmp_path / "remote.json"))
+    args = build_parser().parse_args([
+        "remote",
+        "configure",
+        "physics",
+        "--python",
+        "envs/vase/bin/python",
+    ])
+    with pytest.raises(SystemExit, match="absolute remote Python path"):
+        args.func(args)
+
+
+def test_remote_launcher_uses_streaming_options_for_current_cli(tmp_path):
+    args = build_parser().parse_args([
+        "gui",
+        "physics:/data/final structure.extxyz",
+        "--hide-bonds",
+    ])
+    completed, arguments, browser = _run_fake_remote_launcher(
+        tmp_path,
+        args,
+        "--no-browser --stream-frames --hide-bonds --volumetric-precision",
+    )
+
+    assert completed.returncode == 0
+    assert arguments == [
+        "gui",
+        "--index",
+        ":",
+        "--no-browser",
+        "--stream-frames",
+        "--hide-bonds",
+        "--",
+        "/data/final structure.extxyz",
+    ]
+    assert browser == ""
+    assert "compatibility mode" not in completed.stderr
+
+
+def test_remote_launcher_falls_back_when_streaming_is_unavailable(tmp_path):
+    args = build_parser().parse_args([
+        "gui",
+        "physics:/data/POSCAR",
+        "--show-bonds",
+        "--interactive",
+    ])
+    completed, arguments, browser = _run_fake_remote_launcher(
+        tmp_path,
+        args,
+        "--no-browser --no-block --show-bonds --interactive",
+    )
+
+    assert completed.returncode == 0
+    assert arguments == [
+        "gui",
+        "--index",
+        ":",
+        "--no-browser",
+        "--show-bonds",
+        "--interactive",
+        "--",
+        "/data/POSCAR",
+    ]
+    assert browser == ""
+    assert "compatibility mode without on-demand frame streaming" in completed.stderr
+
+
+def test_remote_launcher_supports_cli_without_no_browser(tmp_path):
+    args = build_parser().parse_args([
+        "gui",
+        "legacy:/data/POSCAR",
+        "--show-bonds",
+    ])
+    completed, arguments, browser = _run_fake_remote_launcher(
+        tmp_path,
+        args,
+        "--no-block --show-bonds --interactive",
+    )
+
+    assert completed.returncode == 0
+    assert arguments == [
+        "gui",
+        "--index",
+        ":",
+        "--show-bonds",
+        "--",
+        "/data/POSCAR",
+    ]
+    assert browser == "/bin/echo"
+    assert "unrecognized arguments" not in completed.stderr
+    assert "compatibility mode without on-demand frame streaming" in completed.stderr
+
+
+def test_remote_launcher_requires_upgrade_for_unsupported_fp64(tmp_path):
+    args = build_parser().parse_args([
+        "gui",
+        "legacy:/data/CHGCAR",
+        "--volumetric-precision",
+        "fp64",
+    ])
+    completed, arguments, _browser = _run_fake_remote_launcher(
+        tmp_path,
+        args,
+        "--no-block --show-bonds --interactive",
+    )
+
+    assert completed.returncode == 64
+    assert arguments == []
+    assert "does not support --volumetric-precision" in completed.stderr
+    assert "pip install --upgrade v_ase-gui" in completed.stderr
+
+
+def test_remote_launcher_requires_port_support_for_one_connection_tunnel(tmp_path):
+    args = build_parser().parse_args(["gui", "legacy:/data/POSCAR"])
+    completed, arguments, _browser = _run_fake_remote_launcher(
+        tmp_path,
+        args,
+        "--no-browser --stream-frames --hide-bonds",
+        remote_port=55363,
+    )
+
+    assert completed.returncode == 64
+    assert arguments == []
+    assert "does not support the managed SSH tunnel port" in completed.stderr
+    assert "pip install --upgrade v_ase-gui" in completed.stderr
+
+
 def test_remote_url_is_rewritten_to_the_automatically_selected_local_endpoint():
     remote_url = (
         "http://127.0.0.1:55363/workspace"
@@ -296,10 +624,13 @@ def test_run_gui_delegates_remote_targets_before_local_file_validation(monkeypat
     assert captured["target"] == RemoteTarget("physics", "/data/POSCAR")
 
 
-def test_remote_launch_uses_explicit_port_only_for_the_local_endpoint(monkeypatch):
+def test_remote_launch_uses_one_ssh_connection_for_server_and_tunnel(
+    monkeypatch,
+    capsys,
+):
     parser = build_parser()
     args = parser.parse_args(
-        ["gui", "physics:/data/POSCAR", "--port", "49152", "--no-browser"]
+        ["gui", "physics:/data/POSCAR", "--port", "49152"]
     )
     target = RemoteTarget("physics", "/data/POSCAR")
     captured = {}
@@ -322,14 +653,15 @@ def test_remote_launch_uses_explicit_port_only_for_the_local_endpoint(monkeypatc
             return self.return_code
 
     remote_process = FakeProcess(0)
-    tunnel_process = FakeProcess(None)
 
     monkeypatch.setattr(remote.shutil, "which", lambda name: "/usr/bin/ssh")
-    monkeypatch.setattr(
-        remote.subprocess,
-        "Popen",
-        lambda *popen_args, **popen_kwargs: remote_process,
-    )
+
+    def fake_popen(command, **_kwargs):
+        captured["command"] = command
+        return remote_process
+
+    monkeypatch.setattr(remote.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(remote, "find_free_port", lambda: 55363)
     monkeypatch.setattr(
         remote,
         "_read_remote_url",
@@ -338,24 +670,34 @@ def test_remote_launch_uses_explicit_port_only_for_the_local_endpoint(monkeypatc
         ),
     )
 
-    def fake_start_tunnel(
-        ssh_executable,
-        remote_target,
-        remote_port,
-        requested_local_port=None,
-    ):
-        captured["remote_port"] = remote_port
-        captured["requested_local_port"] = requested_local_port
-        return tunnel_process, requested_local_port
-
-    monkeypatch.setattr(remote, "_start_tunnel", fake_start_tunnel)
+    monkeypatch.setattr(
+        remote,
+        "_wait_for_forwarded_http",
+        lambda process, url: captured.update({"wait_process": process, "url": url}),
+    )
+    monkeypatch.setattr(remote, "open_browser_url", lambda _url: True)
 
     assert remote.launch_remote_gui(args, target) == 0
-    assert captured == {
-        "remote_port": 55363,
-        "requested_local_port": 49152,
-    }
-    assert tunnel_process.terminated is True
+    assert captured["command"][:7] == [
+        "/usr/bin/ssh",
+        "-T",
+        "-o",
+        "ExitOnForwardFailure=yes",
+        "-L",
+        "127.0.0.1:49152:127.0.0.1:55363",
+        "physics",
+    ]
+    remote_argv = shlex.split(captured["command"][7])
+    assert "--port" in remote_argv
+    assert remote_argv[remote_argv.index("--port") + 1] == "55363"
+    assert captured["wait_process"] is remote_process
+    assert captured["url"] == (
+        "http://127.0.0.1:49152/workspace?session_id=remote"
+    )
+    stderr = capsys.readouterr().err
+    assert "Ctrl+click or copy into a browser" in stderr
+    assert "http://127.0.0.1:49152/workspace?session_id=remote" in stderr
+    assert "If no tab appeared" in stderr
 
 
 def test_v_ase_gui_without_file_launches_an_empty_visualization_session(monkeypatch):
@@ -373,7 +715,7 @@ def test_v_ase_gui_without_file_launches_an_empty_visualization_session(monkeypa
     assert run_gui(args) == 0
     assert len(captured["frames"]) == 1
     assert len(captured["frames"][0]) == 0
-    assert captured["kwargs"]["viz_only"] is True
+    assert captured["kwargs"]["viz_only"] is False
     assert captured["kwargs"]["open_browser"] is True
 
 
@@ -392,7 +734,90 @@ def test_format_aliases_resolve_to_ase_format_names():
     assert resolve_input_format("data") == "lammps-data"
     assert resolve_input_format("vase") == "vase-project"
     assert resolve_input_format("html") == "vase-html-project"
+    assert resolve_input_format("CHGCAR") == "vasp-density"
+    assert resolve_input_format("LOCPOT") == "vasp-potential"
+    assert resolve_input_format("PARCHG") == "vasp-partial-density"
+    assert resolve_input_format("cube") == "cube"
+    assert resolve_input_format("xsf") == "xsf"
     assert resolve_input_format("espresso-in") == "espresso-in"
+
+
+@pytest.mark.parametrize(
+    "filename",
+    ["XDATCAR", "XDATCAR_1", "XDATCAR-2", "xdatcar.production"],
+)
+def test_vasp_trajectory_filename_variants_use_one_canonical_detector(filename):
+    assert infer_input_format(filename) == "vasp-xdatcar"
+
+
+def test_explicit_reader_overrides_filename_detection():
+    assert infer_input_format("XDATCAR_2", "xyz") == "xyz"
+
+
+def test_v_ase_gui_opens_volumetric_input_with_grid_attached(tmp_path, monkeypatch):
+    atoms = Atoms(
+        "NaCl",
+        positions=[[1.0, 1.0, 1.0], [3.0, 3.0, 3.0]],
+        cell=[5.0, 5.0, 5.0],
+        pbc=True,
+    )
+    values = np.linspace(-0.5, 0.8, 8 * 9 * 10).reshape(8, 9, 10)
+    cube_path = tmp_path / "density.cube"
+    write(cube_path, atoms, data=values, format="cube")
+    captured = {}
+
+    def fake_view(frames, **kwargs):
+        captured["frames"] = frames
+        captured["kwargs"] = kwargs
+        return frames[0]
+
+    monkeypatch.setattr("v_ase.cli.view", fake_view)
+
+    args = build_parser().parse_args([
+        "gui",
+        str(cube_path),
+        "--volumetric-precision",
+        "fp64",
+    ])
+    assert run_gui(args) == 0
+    assert len(captured["frames"]) == 1
+    assert captured["frames"][0].get_chemical_symbols() == ["Na", "Cl"]
+    datasets = captured["kwargs"]["volumetric_datasets"]
+    assert len(datasets) == 1
+    assert datasets[0].values.shape == values.shape
+    assert datasets[0].values.dtype == np.float64
+    assert captured["kwargs"]["initial_design_settings"]["display"][
+        "volumetricPrecision"
+    ] == "float64"
+    display = captured["kwargs"]["initial_design_settings"]["display"]
+    assert display["showVolumetric"] is True
+    assert display["volumetricDatasetId"] == datasets[0].dataset_id
+    assert display["volumetricLevel"] > 0
+    assert display["volumetricSurfaceMode"] == "signed"
+
+
+def test_v_ase_gui_keeps_constant_volumetric_input_hidden(tmp_path, monkeypatch):
+    atoms = molecule("H2")
+    atoms.set_cell([6.0, 6.0, 6.0])
+    atoms.center()
+    atoms.pbc = True
+    values = np.full((8, 8, 8), 0.25, dtype=np.float32)
+    cube_path = tmp_path / "constant.cube"
+    write(cube_path, atoms, data=values, format="cube")
+    captured = {}
+
+    def fake_view(frames, **kwargs):
+        captured["kwargs"] = kwargs
+        return frames[0]
+
+    monkeypatch.setattr("v_ase.cli.view", fake_view)
+    args = build_parser().parse_args(["gui", str(cube_path)])
+
+    assert run_gui(args) == 0
+    display = captured["kwargs"]["initial_design_settings"]["display"]
+    assert display["showVolumetric"] is False
+    assert display["volumetricLevel"] is None
+    assert display["volumetricSurfaceMode"] == "single"
 
 
 def test_v_ase_gui_reopens_project_embedded_html(tmp_path, monkeypatch):
@@ -545,9 +970,9 @@ Direct
     frames = read_structure_frames(path, "-1", None)
 
     assert frames[0].get_chemical_symbols() == ["O", "Cu", "Cu", "O", "O", "O"]
-    assert atom_labels(frames[0]) == ["O1", "Cu", "Cu", "O2", "O2", "O2"]
+    assert atom_labels(frames[0]) == ["O_1", "Cu", "Cu", "O_2", "O_2", "O_2"]
     payload = atoms_to_json(frames[0])
-    assert payload["labels"] == ["O1", "Cu", "Cu", "O2", "O2", "O2"]
+    assert payload["labels"] == ["O_1", "Cu", "Cu", "O_2", "O_2", "O_2"]
     assert payload["chemical_symbols"] == ["O", "Cu", "Cu", "O", "O", "O"]
 
 
@@ -575,7 +1000,59 @@ Direct
     frames = read_structure_frames(path, "-1", "CONTCAR")
 
     assert frames[0].get_chemical_symbols() == ["O", "Cu", "O", "O", "Cu", "O"]
-    assert atom_labels(frames[0]) == ["O1", "Cu1", "O2", "O2", "Cu2", "O3"]
+    assert atom_labels(frames[0]) == [
+        "O_1",
+        "Cu_1",
+        "O_2",
+        "O_2",
+        "Cu_2",
+        "O_3",
+    ]
+
+
+def test_core_hole_poscar_blocks_preserve_the_exact_ase_structure(tmp_path):
+    path = tmp_path / "core-hole.vasp"
+    coordinates = []
+    for index in range(176):
+        x = (index % 20) / 20.0
+        y = ((index // 20) % 10) / 10.0
+        z = (index // 200) / 2.0
+        flags = "F F F" if index == 175 else "T T T"
+        coordinates.append(f"{x:.8f} {y:.8f} {z:.8f} {flags}")
+    path.write_text(
+        "\n".join(
+            [
+                "Cu160 O16 | O 1s core-hole target O00",
+                "1.0",
+                "13.518496 0.0 0.0",
+                "-1.930464 13.37995 0.0",
+                "0.0 0.0 24.0",
+                "Cu O O",
+                "160 15 1",
+                "Selective dynamics",
+                "Direct",
+                *coordinates,
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    ase_atoms = read(path, format="vasp")
+    [vase_atoms] = read_structure_frames(path, "-1", "POSCAR")
+
+    assert vase_atoms.get_chemical_symbols() == ase_atoms.get_chemical_symbols()
+    assert atom_labels(vase_atoms) == [
+        *(["Cu"] * 160),
+        *(["O_1"] * 15),
+        "O_2",
+    ]
+    np.testing.assert_allclose(vase_atoms.positions, ase_atoms.positions)
+    np.testing.assert_allclose(vase_atoms.cell.array, ase_atoms.cell.array)
+    np.testing.assert_array_equal(vase_atoms.pbc, ase_atoms.pbc)
+    assert [constraint.todict() for constraint in vase_atoms.constraints] == [
+        constraint.todict() for constraint in ase_atoms.constraints
+    ]
 
 
 def test_read_structure_frames_supports_multi_frame_files(tmp_path):

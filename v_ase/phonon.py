@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass, field
 from fractions import Fraction
 from pathlib import Path
@@ -11,6 +12,8 @@ import numpy as np
 from ase import Atoms
 
 from .io import atom_labels, set_atom_labels
+
+PHONON_EQUILIBRIUM_ARRAY = "v_ase_phonon_equilibrium"
 
 
 class PhononDependencyError(RuntimeError):
@@ -164,6 +167,16 @@ def phonopy_to_ase(
         elif unit_indices is not None and len(unit_indices) == len(atoms):
             set_atom_labels(atoms, [str(labels[index]) for index in unit_indices])
     return atoms
+
+
+def phonon_structure_signature(atoms: Atoms) -> str:
+    """Return an exact in-memory signature for a generated phonon frame."""
+    digest = hashlib.sha256()
+    digest.update("\0".join(atoms.get_chemical_symbols()).encode("ascii"))
+    digest.update(np.asarray(atoms.cell.array, dtype="<f8").tobytes())
+    digest.update(np.asarray(atoms.pbc, dtype=np.uint8).tobytes())
+    digest.update(np.asarray(atoms.positions, dtype="<f8").tobytes())
+    return digest.hexdigest()
 
 
 @dataclass
@@ -353,6 +366,12 @@ def generate_finite_displacements(
     if not displaced:
         raise ValueError("phonopy generated no finite-displacement structures.")
     mapping = _supercell_unit_indices(model.phonon)
+    reference_frame = phonopy_to_ase(
+        model.phonon.supercell,
+        labels=model.unit_labels,
+        unit_indices=mapping,
+    )
+    equilibrium_positions = np.asarray(reference_frame.positions, dtype=float)
     frames = [
         phonopy_to_ase(
             structure,
@@ -362,6 +381,7 @@ def generate_finite_displacements(
         for structure in displaced
     ]
     for index, frame in enumerate(frames):
+        frame.set_array(PHONON_EQUILIBRIUM_ARRAY, equilibrium_positions.copy())
         frame.info["v_ase_phonon_displacement"] = {
             "index": index,
             "count": len(frames),
@@ -371,6 +391,7 @@ def generate_finite_displacements(
             ).tolist(),
             "forces_required": True,
         }
+        frame.info["v_ase_phonon_structure_signature"] = phonon_structure_signature(frame)
     return model, frames, {
         **model.summary(),
         "displacement_count": len(frames),
@@ -533,11 +554,16 @@ def phonon_band_structure(
         with_eigenvectors=False,
         is_band_connection=False,
     )
+    band_frequencies = (
+        band_structure.frequencies
+        if band_structure is not None
+        else model.phonon.get_band_structure_dict()["frequencies"]
+    )
 
     segments = []
     all_frequencies = []
     for segment_index, ((start, stop), frequencies) in enumerate(
-        zip(explicit_segments, band_structure.frequencies, strict=True)
+        zip(explicit_segments, band_frequencies, strict=True)
     ):
         segment_qpoints = qpoints_model[start:stop]
         segment_frequencies = np.asarray(frequencies, dtype=float)
@@ -615,8 +641,16 @@ def phonon_modes_at_q(
         with_eigenvectors=True,
         nac_q_direction=nac_direction,
     )
-    frequencies = np.asarray(result.frequencies[0], dtype=float)
-    eigenvectors = np.asarray(result.eigenvectors[0], dtype=complex)
+    qpoint_data = (
+        {
+            "frequencies": result.frequencies,
+            "eigenvectors": result.eigenvectors,
+        }
+        if result is not None
+        else model.phonon.get_qpoints_dict()
+    )
+    frequencies = np.asarray(qpoint_data["frequencies"][0], dtype=float)
+    eigenvectors = np.asarray(qpoint_data["eigenvectors"][0], dtype=complex)
     primitive = model.phonon.primitive
     reciprocal = 2 * np.pi * np.linalg.inv(np.asarray(primitive.cell, dtype=float)).T
     q_cart = q @ reciprocal
@@ -722,18 +756,38 @@ def generate_mode_trajectory(
             phonon_modes=[[q.tolist(), band_index, float(amplitude), float(phase)]],
             nac_q_direction=nac_direction,
         )
-        structure = modulation.modulated_supercells[0]
+        if modulation is None:
+            structure = model.phonon.get_modulated_supercells()[0]
+            reference_supercell = model.phonon.get_modulations_and_supercell()[1]
+        else:
+            structure = modulation.modulated_supercells[0]
+            reference_supercell = modulation.supercell
         reference_scaled_positions = np.asarray(
-            modulation.supercell.scaled_positions,
+            reference_supercell.scaled_positions,
             dtype=float,
         )
         frame = phonopy_to_ase(
             structure,
             labels=model.unit_labels,
-            unit_indices=_supercell_unit_indices(modulation),
+            unit_indices=_supercell_unit_indices(
+                model.phonon if modulation is None else modulation
+            ),
             cartesian_transform=model.cartesian_transform,
             cartesian_shift=model.cartesian_shift,
             reference_scaled_positions=reference_scaled_positions,
+        )
+        reference_frame = phonopy_to_ase(
+            reference_supercell,
+            labels=model.unit_labels,
+            unit_indices=_supercell_unit_indices(
+                model.phonon if modulation is None else modulation
+            ),
+            cartesian_transform=model.cartesian_transform,
+            cartesian_shift=model.cartesian_shift,
+        )
+        frame.set_array(
+            PHONON_EQUILIBRIUM_ARRAY,
+            np.asarray(reference_frame.positions, dtype=float),
         )
         frame.info["v_ase_phonon_mode"] = {
             "qpoint": q.tolist(),
@@ -744,6 +798,7 @@ def generate_mode_trajectory(
             "dimension": matrix.tolist(),
             "coordinates_unwrapped": True,
         }
+        frame.info["v_ase_phonon_structure_signature"] = phonon_structure_signature(frame)
         output.append(frame)
     return output, {
         "status": "ok",
@@ -764,6 +819,7 @@ def generate_mode_trajectory(
 __all__ = [
     "PhononDependencyError",
     "PhononModel",
+    "PHONON_EQUILIBRIUM_ARRAY",
     "ase_to_phonopy",
     "create_phonon_model",
     "generate_finite_displacements",
@@ -771,6 +827,7 @@ __all__ = [
     "load_phonon_model",
     "phonon_band_structure",
     "phonon_modes_at_q",
+    "phonon_structure_signature",
     "phonopy_to_ase",
     "qpoint_commensurability",
     "validate_phonon_model_for_atoms",

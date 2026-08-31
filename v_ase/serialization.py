@@ -121,6 +121,7 @@ def atoms_to_json(atoms):
         "atom_types": display_symbols,
         "chemical_symbols": chemical_symbols,
         "atomic_numbers": atomic_numbers.tolist(),
+        "masses": atoms.get_masses().astype(float).tolist(),
         "positions": atoms.get_positions().tolist(),
         "cell": atoms.get_cell().tolist(),
         "pbc": atoms.get_pbc().tolist(),

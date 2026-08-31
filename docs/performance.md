@@ -24,6 +24,43 @@ color updates the cached GPU batches without repeating the ASE/MIC calculation.
 Backend mapping runs off the event loop and shows a delayed busy state only
 when it is not effectively instantaneous.
 
+Volumetric analysis is also opt-in. Scalar grids remain bounded FP32 or FP64
+arrays in the backend under `V_ASE_MAX_VOLUMETRIC_POINTS`; FP64 intentionally
+uses twice the grid memory. The browser receives only descriptors and the
+currently requested indexed float32 mesh, never the complete grid. Marching
+cubes and RDF run through worker threads instead of blocking the FastAPI event
+loop. Surface `stepSize` 2 or 4 reduces preview geometry explicitly; final
+scientific extraction retains step 1. Optional field smearing retains only
+the latest filtered grid per dataset and is reused by both signs of a signed
+surface. Mesh fairing uses sparse vertex adjacency and does no work at zero
+passes. Hidden surfaces allocate no Three.js mesh.
+
+Planar sections cache the cell inverse once per dataset and build one compact
+`3 x height x width` fractional-coordinate buffer directly, avoiding full
+Cartesian point and meshgrid copies. Identical requests reuse the cached
+raster. Live `G/R` previews request only selected planes at reduced resolution;
+settling restores only those planes at their configured resolution. Displayed
+supercells resample the periodic 2D section rather than repeating the full 3D
+grid.
+
+RDF uses one matscipy periodic neighbor-list pass at the requested cutoff.
+The search enumerates every contributing periodic shift, so a long cutoff is
+not truncated to a prebuilt supercell. Total and selected partial histograms
+share that pass. The adapter preserves the physical periodic lattice vectors
+and expands only finite search directions for partial-PBC data, preventing a
+finite axis from being wrapped without returning to a Python all-pairs scan.
+Plotly is loaded from the local Python installation and the
+drawer is created only when analysis is requested. After the first trajectory RDF
+request, ordinary trajectories precompute every frame with two concurrent
+backend workers. Large frame/bin/curve products use a bounded circular cache
+covering up to eight frames behind and 32 ahead of the displayed frame; the
+window contracts further when many bins or partial curves would exceed its
+value budget, and entries outside the new window are evicted. Playback
+swaps cached results without purging Plotly; on a miss, the previous graph
+stays visible until the requested frame finishes. Structure, label, pair-mode,
+cutoff, or bin changes invalidate the cache. CSV reuses the same calculation
+function rather than scraping or resampling the plotted curve.
+
 Video interpolation is also opt-in. `1x` follows the existing one-render-per-
 source-frame path. Higher multipliers retain only two flattened endpoint frames
 at a time, generate one temporary subframe buffer, and reuse the existing atom,
@@ -109,6 +146,42 @@ material group.
 Bond controls use a dedicated animation-frame-coalesced update path. Editing a
 pair range or bond material does not reparse the Appearance table, supercell
 inputs, transform controls, or export settings.
+
+## Add Atoms Benchmark
+
+Random insertion generates coordinates in one vectorized NumPy allocation.
+Triclinic unit-cell mode maps a uniform fractional array through the complete
+cell matrix. Multi-region mode partitions Cartesian space only at region faces,
+marks Allow/Reject membership vectorially, and evaluates only triclinic-cell
+boundary partitions as convex-polyhedron intersections. The resulting volume
+is exact rather than voxelized. Sampling uses batched vectorized membership;
+its cost scales with requested count and accessible-volume fraction. Periodic
+region images are generated only for nonzero lattice translations that
+intersect the primary cell. The renderer keeps one intact source cuboid per
+region, batches all deduplicated wrapped edges for that region into one
+instanced draw, and creates no periodic geometry while region MIC is off.
+Pairwise placement uses ASE's periodic
+neighbor list rather than an all-pairs distance matrix, and only tag-3 mobile
+atoms receive forces when the host-fixing option is enabled.
+
+Reference result on the project development Mac with Python 3.13:
+
+| Check | Result |
+| --- | ---: |
+| 100,000 triclinic unit-cell samples | 0.0026 s |
+| 100,000 Cartesian-box samples, 79.6% accepted | 0.0271 s |
+| 15,000 host + 100 mobile MIC force evaluation | 0.989 s |
+| Nonzero host force entries while fixed | 0 |
+
+The scientific regressions separately verify deterministic seeds, fractional
+voxel occupancy, Cartesian-box containment, MIC across a periodic boundary,
+multi-Allow-minus-multi-Reject analytic volumes against an independent
+half-space/ConvexHull reference, lattice-translation invariance for triclinic
+wrapped regions, exact molecule density conversion, and exact host restoration
+during both normal completion and cancellation, including cancellation while
+an optimizer commit is in flight. Additional regressions cover primitive-ratio
+reduction, strict integer counts, active-session MIC synchronization, and the
+shortest periodic confinement force at orthogonal and triclinic boundaries.
 
 ## Browser Benchmark
 
@@ -215,6 +288,12 @@ Performance-sensitive static contracts are locked by
 - frame-persistent selection and displacement-vector instancing;
 - visual translation after supercell instancing without coordinate copies;
 - supercell-repeated displacement vectors with shared physical values;
+- signed isosurface construction, display repetition, translation, and
+  physical grid repetition/reset/undo, including PBC-aware field smearing and
+  boundary-preserving mesh smoothing;
+- RDF calculation at multiple cutoffs, including image spans beyond a fixed
+  `2 x 2 x 2` repetition, partial-curve normalization,
+  Plotly drawer rendering, and CSV parity;
 - frame-specific cell/PBC handling for wrap, translation, and supercells;
 - output preview/capture parity;
 - inactive multi-document suspension.

@@ -18,6 +18,7 @@ from v_ase.server import (
     get_atoms,
     reset,
     session_atoms_to_json,
+    trajectory_identity_compatible,
     trajectory_position_array,
     undo,
     update_calculator,
@@ -52,6 +53,35 @@ def test_static_version_strings_match_package_version():
     assert f'main.js?v={url_version}' in index_html
     assert f'<span class="version">{version}</span>' in index_html
     assert "0.0.28" not in index_html
+
+
+def test_theme_and_personal_default_controls_are_wired_end_to_end():
+    index_html = (ROOT / "v_ase/static/index.html").read_text(encoding="utf-8")
+    workspace_html = (ROOT / "v_ase/static/workspace.html").read_text(encoding="utf-8")
+    main_js = (ROOT / "v_ase/static/main.js").read_text(encoding="utf-8")
+    workspace_js = (ROOT / "v_ase/static/workspace.js").read_text(encoding="utf-8")
+    style_css = (ROOT / "v_ase/static/style.css").read_text(encoding="utf-8")
+    api_js = (ROOT / "v_ase/static/api.js").read_text(encoding="utf-8")
+
+    assert 'id="ui-theme"' in index_html
+    assert '<option value="system" selected>System</option>' in index_html
+    assert 'id="btn-set-visual-default"' in index_html
+    assert 'id="btn-restore-visual-default"' in index_html
+    assert 'id="visual-default-status"' in index_html
+    assert "prefers-color-scheme: dark" in index_html
+    assert "prefers-color-scheme: dark" in workspace_html
+    assert 'html[data-ui-theme="light"]' in style_css
+    assert "setupThemeControls()" in main_js
+    assert "loadUserVisualDefaults()" in main_js
+    assert "includeCamera: false" in main_js
+    assert "Saved personal visualization defaults will be deleted." in main_js
+    assert "v_ase:document-theme" in main_js
+    assert "v_ase:workspace-theme" in workspace_js
+    assert "fetchUserVisualDefaults" in api_js
+    assert "/api/preferences/visual-defaults/{session_id}" in api_js
+    assert "'preferences', 'collaboration'" in main_js
+    assert "'set-interface-theme', 'set-personal-visual-default'" in main_js
+    assert "restore-app-visual-defaults permanently deletes" in main_js
 
 
 def test_ui_button_api_endpoints_respond_without_network_server():
@@ -204,6 +234,33 @@ def test_trajectory_position_cache_is_only_sent_for_same_topology_frames():
     assert "trajectory_positions" not in data
 
 
+def test_trajectory_view_identity_scope_requires_stable_count_and_element_sequence():
+    first = molecule("H2O")
+    second = molecule("H2O")
+    set_atom_labels(second, ["O_next", "H_next", "H_next"])
+    session = EditorSession(
+        "trajectory-view-identity",
+        first.copy(),
+        first.copy(),
+        original_frames=[first.copy(), second.copy()],
+        trajectory_frames=[first.copy(), second.copy()],
+        config={"viz_only": True},
+    )
+
+    assert trajectory_identity_compatible(session) is True
+    assert session_atoms_to_json(session)["metadata"]["trajectory_identity_compatible"] is True
+
+    reordered = Atoms("HHO", positions=second.positions.copy())
+    session.trajectory_frames[1] = reordered
+    session.invalidate_trajectory_layout()
+    assert trajectory_identity_compatible(session) is False
+    assert session_atoms_to_json(session)["metadata"]["trajectory_identity_compatible"] is False
+
+    session.trajectory_frames[1] = Atoms("HO", positions=second.positions[:2].copy())
+    session.invalidate_trajectory_layout()
+    assert trajectory_identity_compatible(session) is False
+
+
 def test_large_trajectory_uses_binary_position_cache_metadata(monkeypatch):
     monkeypatch.setattr(server_module, "MAX_INLINE_TRAJECTORY_CACHE_VALUES", 9)
     first = molecule("H2O")
@@ -306,7 +363,11 @@ def test_image_export_has_exact_preview_and_option_modal_controls():
     assert "this.scene.background = null" in renderer_js
     assert "options.includeGrid !== false" in renderer_js
     assert "exportCameraSetup" in renderer_js
-    assert "const camera = this.camera.clone()" in renderer_js
+    assert "cameraFromSettings(settings, aspect = 1)" in renderer_js
+    assert "const configured = this.cameraFromSettings(options.camera, outputAspect)" in renderer_js
+    assert "interactionProjectionContext(clientX, clientY)" in renderer_js
+    assert 'id="render-area-follow-view"' in index_html
+    assert 'id="render-area-eye"' in index_html
     assert "camera.aspect = outputAspect" in renderer_js
     assert "const halfWidth = halfHeight * outputAspect" in renderer_js
     assert "offsetX = Math.floor" not in renderer_js
@@ -393,7 +454,8 @@ def test_selection_marquee_transform_increment_and_view_axis_shortcuts_are_wired
     assert "const canonicalUp = axis === 'Z'" in main_js
     assert "const canonicalUpAligned = basis.up.dot(canonicalUp) > poseTolerance;" in main_js
     assert "positiveDirectionAligned && canonicalUpAligned ? -1 : 1" in main_js
-    assert "Lock transform axis in G/R mode" in index_html
+    assert "Lock the global Cartesian axis in G/R/S mode" in index_html
+    assert "this.isPhysicalKey(e, 'KeyS', ['s'])" in main_js
 
 
 def test_frontend_renders_constraint_guides_and_blender_export_button():
@@ -402,6 +464,7 @@ def test_frontend_renders_constraint_guides_and_blender_export_button():
     api_js = (ROOT / "v_ase/static/api.js").read_text()
     index_html = (ROOT / "v_ase/static/index.html").read_text()
     selection_js = (ROOT / "v_ase/static/selection.js").read_text()
+    style_css = (ROOT / "v_ase/static/style.css").read_text()
 
     assert "constrainedMoveDelta" in main_js
     assert "fixed_line" in main_js
@@ -518,7 +581,12 @@ def test_frontend_renders_constraint_guides_and_blender_export_button():
     assert 'id="html-include-axes"' in main_js
     assert 'id="html-include-cell"' in main_js
     assert "embedProject === true" in main_js
-    assert "btn-save-project-html" in index_html
+    assert "btn-save-project-html" not in index_html
+    assert "project-include-interactive-viewer" in main_js
+    assert "Include interactive rendered view" in main_js
+    assert "output format changes to HTML" in main_js
+    assert "Interactive HTML project" in main_js
+    assert "Output format: HTML" in main_js
     assert 'data-inspector-group="export"' in index_html
     assert "renderer.supercellBridgeBondRecords" in main_js
     assert "selected-measure" in index_html
@@ -526,6 +594,13 @@ def test_frontend_renders_constraint_guides_and_blender_export_button():
     assert 'id="selection-measure-readout"' in index_html
     assert 'id="selection-measure-value"' in index_html
     assert "getSelectionMeasureSummary" in main_js
+    assert "fetchAtomProperties" in api_js
+    assert "/api/analysis/atom-properties/" in api_js
+    assert "ensureSingleSelectionProperties" in main_js
+    assert "singleSelectionPropertyLines" in main_js
+    assert "single-atom-properties" in style_css
+    assert "single-atom-measure-grid" in main_js
+    assert ".single-atom-measure-grid .selection-measure-panel-label" in style_css
     assert "measure=${measure}" not in main_js
     assert "selectionAngle" in main_js
     assert "selectionTorsion" in main_js
@@ -588,18 +663,36 @@ def test_frontend_has_radius_controls_loading_overlay_and_modern_panel_styles():
     assert "indeterminate" in main_js
     assert "renameAtomLabel" in main_js
     assert "renameAtomLabelForVisualization" in main_js
+    assert "applySelectedLabelForVisualization" in main_js
+    assert "trajectory_identity_compatible" in main_js
+    assert "Label changed on this frame only" in main_js
+    assert "viewIdentityOverridesSnapshot" in main_js
+    assert "restoreViewIdentityOverrides" in main_js
+    assert "includeIdentityOverrides: true" in main_js
     assert "nameInput.disabled = this.state.vizOnly" not in main_js
+    assert '<div id="selected-appearance" class="selected-appearance">' in index_html
     assert "canViewportSelectAtoms()" in main_js
     assert "this.canViewportSelectAtoms() && this.transform.mode === 'IDLE'" in main_js
-    assert "this.renderer.renameAtomLabel(oldSymbol, label, indices, this.state.display, baseSymbol)" in main_js
+    assert "this.renderer.renameAtomLabel(oldSymbol, label, indices, this.state.display, null)" in main_js
+    assert "this.renderer.renameAtomLabel(null, label, indices, this.state.display, null)" in main_js
     assert "applySelectedLabelEdit" in main_js
     assert "setupRuntimeModeControls" in main_js
     assert "viewModeIdentityPlan" in main_js
     assert "labelMaterials" in main_js
+    assert "labelOpacities" in main_js
     assert "atomMaterials" in main_js
+    assert "atomRadiusScales" in main_js
+    assert "atomColors" in main_js
+    assert "atomOpacities" in main_js
+    assert "atomBondStyles" in main_js
     assert 'data-runtime-mode="view"' in index_html
     assert 'id="selected-atom-material"' in index_html
+    assert 'id="selected-atom-color"' in index_html
+    assert 'id="selected-atom-opacity"' in index_html
+    assert 'id="selected-atom-radius-scale"' in index_html
+    assert 'id="selected-atom-update-bonds"' in index_html
     assert "appearance-material-select" in main_js
+    assert "label-opacity-input" in main_js
     assert "selectLabel(symbol)" in main_js
     assert "toggleLabelSelection" in main_js
     assert "labelVisible" in renderer_js
@@ -624,6 +717,11 @@ def test_frontend_has_radius_controls_loading_overlay_and_modern_panel_styles():
     assert "fixedAtomDisplayEnabled()" in renderer_js
     assert "return this.displayOptions.showOverlays !== false" in renderer_js
     assert "fixedAtomSegments(segmentCount)" in renderer_js
+    fixed_segments = renderer_js.index("\n    fixedAtomSegments(segmentCount) {")
+    assert "return segmentCount;" in renderer_js[fixed_segments:fixed_segments + 500]
+    assert "const baseSelectionVisible = visible && !this.commensurateSupercellPreview" in renderer_js
+    assert "canvas.width = 760" in renderer_js
+    assert "let fontSize = 42" in renderer_js
     assert "flatShading: isFixed" in renderer_js
     assert "v-ase-fixed-micro-etched-faceted-v3" in renderer_js
     assert "const supercellChanged" in renderer_js
@@ -644,6 +742,10 @@ def test_frontend_has_radius_controls_loading_overlay_and_modern_panel_styles():
     assert "setupCreateAtomWidget" in main_js
     assert "createAtomFromWidget" in main_js
     assert "makeCreateAtomWidgetDraggable" in main_js
+    assert "top: calc(var(--header-height) + 16px)" in style_css
+    assert "bottom: auto" in style_css
+    assert "widget.style.removeProperty('top')" in main_js
+    assert "widget.style.removeProperty('bottom')" in main_js
     assert "this.api.addAtom(symbol, position, baseSymbol)" in main_js
     assert "async addAtom(symbol, position, baseSymbol = null)" in (ROOT / "v_ase/static/api.js").read_text()
     assert ".create-atom-widget" in style_css
@@ -676,7 +778,9 @@ def test_frontend_has_radius_controls_loading_overlay_and_modern_panel_styles():
     assert ".label-check:indeterminate" in style_css
     assert ".appearance-row" in style_css
     assert "--inspector-width" in style_css
-    assert "body.inspector-wide #inspector .appearance-row" in style_css
+    assert "min-width: 820px" in style_css
+    assert "#inspector .appearance-row > :first-child" in style_css
+    assert "position: sticky" in style_css
     assert 'body[data-viz-only="true"] [data-edit-only]' in style_css
     assert ".busy-spinner" in style_css
     assert ".orientation-widget" in style_css
@@ -738,8 +842,8 @@ def test_camera_view_background_and_2d_display_controls_are_wired():
     assert "'roll-cw': { axis: basis.forward, sign: -1 }" in main_js
     assert "left: { axis: basis.up, sign: 1 }" in main_js
     assert "right: { axis: basis.up, sign: -1 }" in main_js
-    assert "up: { axis: basis.right, sign: -1 }" in main_js
-    assert "down: { axis: basis.right, sign: 1 }" in main_js
+    assert "up: { axis: basis.right, sign: 1 }" in main_js
+    assert "down: { axis: basis.right, sign: -1 }" in main_js
     assert 'id="view-arrow-orbit-shape"' in index_html
     assert 'id="view-arrow-orbit-highlight"' in index_html
     assert 'id="view-arrow-orbit-seam"' in index_html
@@ -780,6 +884,13 @@ def test_camera_view_background_and_2d_display_controls_are_wired():
     assert ".view-arrow-btn" in style_css
 
 
+def test_native_file_picker_suppresses_the_trailing_enter_activation():
+    main_js = (ROOT / "v_ase/static/main.js").read_text()
+
+    assert "performance.now() < this.filePickerSuppressUntil" in main_js
+    assert "this.filePickerSuppressUntil = performance.now() + 750" in main_js
+
+
 def test_new_scientific_defaults_and_ai_control_contract_are_wired():
     index_html = (ROOT / "v_ase/static/index.html").read_text()
     main_js = (ROOT / "v_ase/static/main.js").read_text()
@@ -801,12 +912,21 @@ def test_new_scientific_defaults_and_ai_control_contract_are_wired():
     ])
 
     assert 'id="chk-bonds" checked' in index_html
-    assert 'id="chk-commensurate-guide" checked' in index_html
+    assert 'id="chk-commensurate-guide">' in index_html
+    assert 'id="chk-commensurate-guide" checked' not in index_html
+    assert 'id="commensurate-max-area" value="16"' in index_html
+    assert 'id="commensurate-max-area" value="16" min="1" max="128"' in index_html
+    assert 'id="commensurate-supercell-proposal"' in index_html
     assert 'id="chk-commensurate-snap">' in index_html
-    assert 'id="calc-cutoff-scale" value="0.70"' in index_html
+    assert 'id="calc-cutoff-scale" value="1.00"' in index_html
+    assert 'id="calc-cutoff-mode"' in index_html
+    assert 'id="calc-cutoff-distance" value="2.00"' in index_html
     assert 'id="calc-strength" value="1.0"' in index_html
     assert "showBonds: true" in main_js
-    assert "commensurateGuide: true" in main_js
+    assert "commensurateGuide: false" in main_js
+    assert "commensurateMaxAreaRatio: 16" in main_js
+    assert "prepareCommensurateSupercellProposal" in main_js
+    assert "applyCommensurateSupercellProposal" in main_js
     assert "commensurateSnap: false" in main_js
     assert "camera.getWorldQuaternion" in main_js
     assert "kindSelect.dataset.draftKind" in main_js
@@ -826,11 +946,15 @@ def test_new_scientific_defaults_and_ai_control_contract_are_wired():
         "set-constraints",
         "move-selection",
         "rotate-selection",
+        "rotate-to-commensurate",
+        "apply-commensurate-cell",
+        "dismiss-commensurate-cell",
         "undo",
         "redo",
         "reset-coordinates",
         "start-relaxation",
         "stop-relaxation",
+        "clear-relaxation-trajectory",
         "refresh-displacements",
     ):
         assert f"'{operation}'" in main_js
@@ -854,7 +978,15 @@ def test_new_scientific_defaults_and_ai_control_contract_are_wired():
         main_js.index("if (name === 'make-supercell')"):
         main_js.index("if (name === 'add-atom')")
     ]
-    assert "this.state.display.supercell = [1, 1, 1]" in matrix_operation
+    assert "this.finalizeMaterializedSupercellDisplay()" in matrix_operation
+    finalize_start = main_js.index("finalizeMaterializedSupercellDisplay() {")
+    finalize_end = main_js.index(
+        "normalizedTranslationVector(",
+        finalize_start,
+    )
+    finalize_helper = main_js[finalize_start:finalize_end]
+    assert "this.state.display.supercell = [1, 1, 1]" in finalize_helper
+    assert "this.resetVisualHistoryBaseline()" in finalize_helper
 
 
 def test_open_file_uses_the_native_system_picker_immediately():
@@ -867,7 +999,13 @@ def test_open_file_uses_the_native_system_picker_immediately():
     assert "showLaunchDirectoryBrowser" not in main_js
     assert "browseStructureFiles(directory" not in api_js
     assert "loadStructurePath(path" not in api_js
-    assert "appendStructurePath(path" not in api_js
+    # Agent-only path loading remains restricted to the terminal launch
+    # directory; the human Open workflow must still invoke the native picker.
+    assert "appendStructurePath(" in api_js
+    assert "appendStructurePath" not in main_js[
+        main_js.index("chooseStructureFile()"):
+        main_js.index("chooseSystemStructureFile", main_js.index("chooseStructureFile()") + 1)
+    ]
     assert ".launch-file-list" not in style_css
 
 
@@ -880,8 +1018,9 @@ def test_api_browser_close_and_python_view_autoclose_contract_are_wired():
     assert "close_on_disconnect: bool = True" in viewer_py
     assert '"auto_close_on_disconnect": bool(close_on_disconnect and not notebook)' in viewer_py
     assert "this.ws = ws" in main_js
-    assert "window.addEventListener('pagehide', closeSocket" in main_js
-    assert "window.addEventListener('beforeunload', closeSocket" in main_js
+    assert "window.addEventListener('pagehide', this.handlePageTeardown" in main_js
+    assert "this.closeSocket?.();" in main_js
+    assert "window.addEventListener('beforeunload', this.handlePageTeardown" in main_js
     assert "this.ws.close(1000, 'page closing')" in main_js
     assert "schedule_session_autoclose(session_id)" in server_py
     assert "finalize_session_from_browser_close(session_id)" in server_py
@@ -933,6 +1072,8 @@ def test_frontend_reset_video_and_visual_settings_controls_are_wired():
     assert "loadVisualSettings" in api_js
     assert "v_ase_visual_settings.json" in main_js
     assert "btn-save-project" in index_html
+    assert index_html.count('id="btn-save-project"') == 1
+    assert ">Save Project</button>" in index_html
     assert "btn-load-project" in index_html
     assert "project-file" in index_html
     assert "projectFilename()" in main_js
@@ -989,7 +1130,10 @@ def test_trajectory_controls_update_live_and_space_toggles_playback():
     assert "currentPlaybackFps" in main_js
     assert "currentPlaybackSkip" in main_js
     assert "currentPlaybackStep" in main_js
-    assert "this.stepFrame(this.currentPlaybackStep(), this.state.trajectoryPlaybackSource || source)" in main_js
+    assert "playbackTask = this.stepFrame(" in main_js
+    assert "this.currentPlaybackStep()," in main_js
+    assert "this.state.trajectoryPlaybackSource || source" in main_js
+    assert "this.state.trajectoryPlaybackTask = playbackTask" in main_js
     assert "setTimeout(tick, 1000 / this.currentPlaybackFps())" in main_js
     assert "e.code === 'Space'" in main_js
     assert "e.key === 'ArrowLeft' || e.key === 'ArrowRight'" in main_js
@@ -1131,10 +1275,25 @@ def test_blender_export_includes_bonds_unit_cell_smooth_atoms_and_camera_project
             "bondStyle": "flat",
             "bondThickness": 0.24,
             "bondColorMode": "split",
+            "pairwiseBondStyles": {
+                "H-H": {
+                    "style": "flat",
+                    "material": "metal",
+                    "thickness": 0.18,
+                    "colorMode": "split",
+                    "color": "#c8ccd0",
+                    "opacity": 0.75,
+                }
+            },
             "translation": [1.0, -0.5, 0.25],
             "translationMode": "cartesian",
             "labelMaterials": {"H": "metal"},
+            "labelOpacities": {"H": 0.4},
+            "atomRadiusScales": {"1": 1.25},
+            "atomColors": {"1": "#33aa77"},
+            "atomOpacities": {"1": 0.65},
             "atomMaterials": {"1": "rubber"},
+            "atomBondStyles": {"1": {"material": "rubber", "opacity": 0.65}},
         },
         "bond_pairs": [[0, 1]],
         "camera": {
@@ -1162,7 +1321,10 @@ def test_blender_export_includes_bonds_unit_cell_smooth_atoms_and_camera_project
     assert 'BOND_COLOR_MODE = DISPLAY.get("bondColorMode", "split")' in script
     assert "BOND_THICKNESS" in script
     assert "add_flat_between" in script
-    assert 'if BOND_COLOR_MODE == "split"' in script
+    assert "def get_bond_appearance(i, j, endpoint=None):" in script
+    assert "def bond_pieces(i, j, start, end):" in script
+    assert 'DISPLAY_PAIR_BOND_STYLES = DISPLAY.get("pairwiseBondStyles", {})' in script
+    assert 'DISPLAY_ATOM_BOND_STYLES = DISPLAY.get("atomBondStyles", {})' in script
     assert "add_unit_cell(CELL)" in script
     assert "ATOM_MESHES" in script
     assert "bpy.data.objects.new" in script
@@ -1189,11 +1351,21 @@ def test_blender_export_includes_bonds_unit_cell_smooth_atoms_and_camera_project
     assert 'bsdf.inputs.get("Base Color")' in script
     assert 'base_color.default_value = rgba' in script
     assert 'DISPLAY_LABEL_MATERIALS = DISPLAY.get("labelMaterials", {})' in script
+    assert 'DISPLAY_LABEL_OPACITIES = DISPLAY.get("labelOpacities", {})' in script
+    assert 'DISPLAY_ATOM_RADIUS_SCALES = DISPLAY.get("atomRadiusScales", {})' in script
+    assert 'DISPLAY_ATOM_COLORS = DISPLAY.get("atomColors", {})' in script
+    assert 'DISPLAY_ATOM_OPACITIES = DISPLAY.get("atomOpacities", {})' in script
     assert 'DISPLAY_ATOM_MATERIALS = DISPLAY.get("atomMaterials", {})' in script
     assert '"rubber": {"roughness": 0.88' in script
     assert 'metallic.default_value = surface["metalness"]' in script
     assert "'labelMaterials': {'H': 'metal'}" in script
+    assert "'labelOpacities': {'H': 0.4}" in script
+    assert "'atomRadiusScales': {'1': 1.25}" in script
+    assert "'atomColors': {'1': '#33aa77'}" in script
+    assert "'atomOpacities': {'1': 0.65}" in script
     assert "'atomMaterials': {'1': 'rubber'}" in script
+    assert "'thickness': 0.18" in script
+    assert "'atomBondStyles': {'1': {'material': 'rubber', 'opacity': 0.65}}" in script
     assert exported_data["visual_translation"] == pytest.approx([1.0, -0.5, 0.25])
     np.testing.assert_allclose(
         exported_data["positions"],
@@ -1400,7 +1572,10 @@ def test_control_panel_uses_collapsible_default_hierarchy():
     assert 'data-panel="selection" data-panel-group="inspect"' in index_html
     assert 'data-panel="view" data-panel-group="view"' in index_html
     assert 'data-panel="cell-replication" data-panel-group="structure"' in index_html
-    assert 'data-panel="transform" data-panel-group="structure" data-edit-only' in index_html
+    assert 'data-panel="transform" data-panel-group="structure">' in index_html
+    assert '<option value="transform">Transform &amp; Cell Match</option>' in index_html
+    assert '<div class="prop-row" data-edit-only>' in index_html
+    assert 'id="chk-commensurate-guide"' in index_html
     assert 'data-panel="appearance" data-panel-group="structure"' in index_html
     assert 'data-panel="bonding" data-panel-group="structure"' in index_html
     assert 'data-panel="export" data-panel-group="export"' in index_html
@@ -1481,6 +1656,9 @@ def test_studio_sun_and_periodic_bond_controls_are_opt_in_and_exportable():
     assert "THREE.PCFSoftShadowMap" in renderer_js
     assert "this.renderer.shadowMap.enabled = false" in renderer_js
     assert "replicaSelectionOutlines" in renderer_js
+    assert "replicaSelectionMutedMaterial" in renderer_js
+    assert "equivalentReplicaSelectionReferences" in renderer_js
+    assert "{ muted: true }" in main_js
     assert "supercellAtomReference" in renderer_js
     assert "selectionCount()" in main_js
     assert '<span>Tab / Esc</span><label>Open the control panel while it is collapsed</label>' in index_html
@@ -1512,9 +1690,17 @@ def test_application_chrome_uses_one_role_based_palette():
     for token in required_tokens:
         assert token in style_css
 
-    # Color literals belong to the palette declaration only. Components consume
-    # semantic roles so new panels cannot drift into one-off grey families.
+    # Color literals belong to the dark and light palette declarations only.
+    # Components consume semantic roles so new panels cannot drift into one-off
+    # grey families.
     component_css = style_css.split("\n}\n", 1)[1]
+    component_css = re.sub(
+        r'html\[data-ui-theme="light"\]\s*\{.*?\}\s*',
+        "",
+        component_css,
+        count=1,
+        flags=re.DOTALL,
+    )
     assert re.search(r"#[0-9A-Fa-f]{3,8}(?![0-9A-Za-z_-])", component_css) is None
     assert "rgba(" not in component_css
     assert ".repulsion-settings" in style_css
@@ -1585,7 +1771,8 @@ def test_rotate_pivot_and_commensurate_cell_matching_are_wired():
     assert "H' = P H" in docs
     assert "ase.build.make_supercell" in docs
     assert "Q* = argmin" in docs
-    assert "epsilon_boundary" in docs
+    assert "epsilon_guest" in docs
+    assert "epsilon_host" in docs
     assert "10.1016/j.cpc.2015.08.038" in docs
     assert "10.1021/acs.jpcc.6b01496" in docs
     assert "10.1073/pnas.1108174108" in docs
@@ -1641,29 +1828,31 @@ def test_transform_panel_can_apply_an_exact_selection_rotation():
     assert "await this.commitTransform()" in main_js
 
 
-def test_structure_updates_invalidate_stale_symmetry_and_phonon_results():
-    source = (ROOT / "v_ase/static/main.js").read_text(encoding="utf-8")
-    assert "invalidateScientificResults()" in source
-    set_atoms = source[source.index("    setAtomsData("):]
-    set_atoms = set_atoms[:set_atoms.index("\n    hasLoadedAtoms()")]
-    assert "this.invalidateScientificResults();" in set_atoms
-    for state_field in (
-        "this.state.symmetryResult = null",
-        "this.state.symmetryPath = null",
-        "this.state.phononModes = null",
-    ):
-        assert state_field in source
+def test_live_commensurate_candidate_selection_avoids_array_sorting():
+    main_js = (ROOT / "v_ase" / "static" / "main.js").read_text()
+    angle_selector = main_js.split(
+        "commensurateCandidateAtAngle(angleDeg = 0)", 1
+    )[1].split("commensurateSmallestCandidate()", 1)[0]
+    smallest_selector = main_js.split(
+        "commensurateSmallestCandidate()", 1
+    )[1].split("useCommensurateSuggestedAngle", 1)[0]
+
+    assert ".sort(" not in angle_selector
+    assert ".sort(" not in smallest_selector
+    assert "for (const candidate of this.state.commensurateCandidates || [])" in angle_selector
+    assert "for (const candidate of this.state.commensurateCandidates || [])" in smallest_selector
 
 
-def test_ai_describe_compacts_scientific_arrays_but_keeps_result_summaries():
-    source = (ROOT / "v_ase/static/main.js").read_text(encoding="utf-8")
+def test_add_atoms_uses_the_shared_relaxation_controls_only():
+    main_js = (ROOT / "v_ase" / "static" / "main.js").read_text(encoding="utf-8")
+    index_html = (ROOT / "v_ase" / "static" / "index.html").read_text(encoding="utf-8")
 
-    assert "symmetry: this.aiSymmetrySummary(this.state.symmetryResult)" in source
-    assert "symmetryPath: this.aiSymmetryPathSummary(this.state.symmetryPath)" in source
-    assert "phononModes: this.aiPhononModesSummary(this.state.phononModes)" in source
-    assert "eigenvector_real" not in source[
-        source.index("    aiPhononModesSummary("):
-        source.index("\n    setAIAxisView(", source.index("    aiPhononModesSummary("))
-    ]
-    assert "orbit_count" in source
-    assert "reciprocal_primitive_lattice" in source
+    assert 'id="btn-add-atoms-open-relaxation"' in index_html
+    assert 'id="btn-relax"' in index_html
+    assert 'id="calc-device"' in index_html
+    assert 'id="add-atoms-device"' not in index_html
+    assert 'id="add-atoms-pair-table"' not in index_html
+    assert "this.calculatorPayloadWithOverrides(calculatorOverrides)" in main_js
+    assert "document.getElementById('relax-fmax')?.value" in main_js
+    assert "document.getElementById('relax-steps')?.value" in main_js
+    assert "refreshAddAtomsPairCutoffs" not in main_js

@@ -4,16 +4,24 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "v_ase-gui"
-version = "0.0.120a7+symmetry"
-description = "A local 3D viewer and editor for atomic structures and trajectories."
+version = "0.2.34a1+symmetry"
+description = "A local 3D viewer, editor, and analysis workspace for atomistic structures, trajectories, and DFT fields."
 readme = "README.md"
-license = "MIT"
+license = "AGPL-3.0-or-later"
 license-files = ["LICENSE"]
 requires-python = ">=3.10"
 authors = [
   { name = "v_ase contributors" }
 ]
-keywords = ["ase", "atoms", "materials-science", "visualization", "editor", "threejs"]
+keywords = [
+  "ase",
+  "atomistic-simulation",
+  "materials-science",
+  "molecular-visualization",
+  "trajectory-analysis",
+  "density-functional-theory",
+  "scientific-visualization",
+]
 classifiers = [
   "Development Status :: 4 - Beta",
   "Intended Audience :: Science/Research",
@@ -26,10 +34,17 @@ classifiers = [
   "Topic :: Scientific/Engineering :: Physics",
 ]
 dependencies = [
-  "ase>=3.23",
+  "ase>=3.26",
+  "matscipy>=1.1.1,<1.2.0; python_version < '3.13'",
+  "matscipy>=1.2.0; python_version >= '3.13'",
   "fastapi>=0.110",
   "uvicorn[standard]>=0.29",
-  "numpy>=1.24",
+  "numpy>=1.24,<2.0; python_version < '3.13'",
+  "numpy>=2.0; python_version >= '3.13'",
+  "scipy>=1.10",
+  "scikit-image>=0.23",
+  "plotly>=5.24",
+  "matplotlib>=3.7",
   "imageio-ffmpeg>=0.5",
   "Pillow>=10",
   "requests>=2.31",

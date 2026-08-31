@@ -519,16 +519,15 @@ def _unique_html_particle_ids(atoms):
 def _html_frame_displacement(frames, current_index, display):
     if len(frames) <= 1:
         return None
-    reference_mode = (
-        "frame"
-        if str(display.get("displacementReferenceMode", "previous")).lower() == "frame"
-        else "previous"
-    )
+    requested_mode = str(
+        display.get("displacementReferenceMode", "previous")
+    ).lower()
+    reference_mode = requested_mode if requested_mode in {"frame", "phonon"} else "previous"
     if reference_mode == "previous":
         if current_index <= 0:
             return None
         reference_index = current_index - 1
-    else:
+    elif reference_mode == "frame":
         reference_index = max(
             0,
             min(
@@ -536,35 +535,49 @@ def _html_frame_displacement(frames, current_index, display):
                 int(display.get("displacementReferenceFrame", 0) or 0),
             ),
         )
+    else:
+        reference_index = None
 
     current = frames[current_index]
-    reference = frames[reference_index]
-    current_id_name, current_ids = _unique_html_particle_ids(current)
-    reference_id_name, reference_ids = _unique_html_particle_ids(reference)
-    mapping = "index"
-    if (
-        current_ids is not None
-        and reference_ids is not None
-        and current_id_name == reference_id_name
-    ):
-        mapping = f"particle-id:{current_id_name}"
-        lookup = {particle_id: index for index, particle_id in enumerate(reference_ids)}
-        current_indices = [
-            index
-            for index, particle_id in enumerate(current_ids)
-            if particle_id in lookup
-        ]
-        reference_indices = [lookup[current_ids[index]] for index in current_indices]
-    elif len(current) == len(reference):
+    if reference_mode == "phonon":
+        equilibrium = current.arrays.get("v_ase_phonon_equilibrium")
+        if equilibrium is None:
+            return None
         current_indices = list(range(len(current)))
-        reference_indices = list(range(len(reference)))
+        reference_indices = list(current_indices)
+        current_positions = np.asarray(current.positions, dtype=float)
+        reference_positions = np.asarray(equilibrium, dtype=float)
+        if reference_positions.shape != current_positions.shape:
+            return None
+        mapping = "index"
     else:
-        return None
-    if not current_indices:
-        return None
+        reference = frames[reference_index]
+        current_id_name, current_ids = _unique_html_particle_ids(current)
+        reference_id_name, reference_ids = _unique_html_particle_ids(reference)
+        mapping = "index"
+        if (
+            current_ids is not None
+            and reference_ids is not None
+            and current_id_name == reference_id_name
+        ):
+            mapping = f"particle-id:{current_id_name}"
+            lookup = {particle_id: index for index, particle_id in enumerate(reference_ids)}
+            current_indices = [
+                index
+                for index, particle_id in enumerate(current_ids)
+                if particle_id in lookup
+            ]
+            reference_indices = [lookup[current_ids[index]] for index in current_indices]
+        elif len(current) == len(reference):
+            current_indices = list(range(len(current)))
+            reference_indices = list(range(len(reference)))
+        else:
+            return None
+        if not current_indices:
+            return None
 
-    current_positions = np.asarray(current.positions, dtype=float)[current_indices]
-    reference_positions = np.asarray(reference.positions, dtype=float)[reference_indices]
+        current_positions = np.asarray(current.positions, dtype=float)[current_indices]
+        reference_positions = np.asarray(reference.positions, dtype=float)[reference_indices]
     vectors = current_positions - reference_positions
     mic_requested = display.get("displacementMic", True) is not False
     mic_applied = False
@@ -589,7 +602,9 @@ def _html_frame_displacement(frames, current_index, display):
         "mic_applied": mic_applied,
         "indices": [int(index) for index in current_indices],
         "reference_indices": [int(index) for index in reference_indices],
-        "starts": current_positions.tolist(),
+        "starts": (
+            reference_positions if reference_mode == "phonon" else current_positions
+        ).tolist(),
         "vectors": vectors.tolist(),
         "magnitudes": magnitudes.tolist(),
     }
@@ -684,6 +699,165 @@ def _safe_export_stem(value: Any, fallback: str = "v_ase_view") -> str:
     return source or fallback
 
 
+def _html_atom_color_scale_frames(
+    frame_objects,
+    settings: Dict[str, Any],
+    selection: list[int],
+    current_frame: int = 0,
+) -> list[dict[str, Any] | None]:
+    """Freeze an active browser colorscale into standalone frame metadata.
+
+    The optional Matplotlib import and scalar extraction are deliberately kept
+    behind the enabled flag. Ordinary HTML exports therefore retain the same
+    cost and dependency path as before atom colorscales were introduced.
+    """
+    display = settings.get("display") if isinstance(settings.get("display"), dict) else {}
+    if display.get("atomColorScaleEnabled") is not True:
+        return [None] * len(frame_objects)
+
+    from .atom_scalars import atom_scalar_catalog, atom_scalar_values
+    from .colormaps import colormap_lut, custom_colormap_lut
+
+    field_id = str(display.get("atomColorScaleField") or "position:z")
+    map_name = str(display.get("atomColorScaleMap") or "viridis")
+    reverse = display.get("atomColorScaleReverse") is True
+    scope = "selected" if display.get("atomColorScaleScope") == "selected" else "all"
+    range_mode = str(display.get("atomColorScaleRangeMode") or "").strip().lower()
+    if range_mode not in {"current", "trajectory", "manual"}:
+        range_mode = "manual" if display.get("atomColorScaleAutoRange") is False else "current"
+    gamma = float(display.get("atomColorScaleGamma", 1.0))
+    if not math.isfinite(gamma) or gamma < 0.1 or gamma > 5.0:
+        gamma = 1.0
+    selected = set(selection)
+    custom_map = None
+    if map_name == "custom":
+        custom_palette = custom_colormap_lut(
+            display.get("atomColorScaleCustomMap"),
+            samples=256,
+            reverse=reverse,
+        )
+        palette = custom_palette["colors"]
+        custom_map = {
+            "mode": custom_palette["mode"],
+            "stops": custom_palette["stops"],
+        }
+    else:
+        palette = colormap_lut(map_name, samples=256, reverse=reverse)["colors"]
+    payloads: list[dict[str, Any] | None] = []
+    descriptor: dict[str, Any] = {"id": field_id, "label": field_id, "unit": ""}
+
+    def extract(atoms):
+        nonlocal descriptor
+        try:
+            values = np.asarray(atom_scalar_values(atoms, field_id), dtype=np.float64)
+        except ValueError:
+            return None
+        finite_mask = np.isfinite(values)
+        if scope == "selected":
+            finite_mask &= np.fromiter(
+                (index in selected for index in range(len(atoms))),
+                dtype=bool,
+                count=len(atoms),
+            )
+        if descriptor["label"] == field_id:
+            descriptor = next(
+                (item for item in atom_scalar_catalog(atoms) if item["id"] == field_id),
+                descriptor,
+            )
+        return values, finite_mask
+
+    try:
+        minimum = float(display.get("atomColorScaleMin"))
+        maximum = float(display.get("atomColorScaleMax"))
+    except (TypeError, ValueError):
+        minimum = math.nan
+        maximum = math.nan
+    if not math.isfinite(minimum) or not math.isfinite(maximum) or maximum <= minimum:
+        if range_mode == "manual":
+            raise ValueError("Manual color scale requires finite vmin and vmax with vmax greater than vmin.")
+        indices = (
+            range(len(frame_objects))
+            if range_mode == "trajectory"
+            else [max(0, min(len(frame_objects) - 1, int(current_frame)))]
+        )
+        minimum = math.inf
+        maximum = -math.inf
+        finite_count = 0
+        for index in indices:
+            frame = extract(frame_objects[index])
+            if frame is None:
+                continue
+            values, finite_mask = frame
+            finite = values[finite_mask]
+            if not finite.size:
+                continue
+            finite_count += int(finite.size)
+            minimum = min(minimum, float(np.min(finite)))
+            maximum = max(maximum, float(np.max(finite)))
+        if not finite_count:
+            return [None] * len(frame_objects)
+        if minimum == maximum:
+            padding = max(1e-12, abs(minimum) * 1e-6)
+            minimum -= padding
+            maximum += padding
+
+    for atoms in frame_objects:
+        frame = extract(atoms)
+        if frame is None:
+            payloads.append(None)
+            continue
+        values, finite_mask = frame
+        normalized = np.where(
+            np.isfinite(values),
+            np.clip((values - minimum) / (maximum - minimum), 0.0, 1.0),
+            0.0,
+        )
+        if gamma != 1.0:
+            normalized = normalized ** gamma
+        palette_indices = np.rint(normalized * (len(palette) - 1)).astype(np.int64)
+        colors = [
+            palette[int(palette_indices[index])] if finite_mask[index] else None
+            for index in range(len(atoms))
+        ]
+        payloads.append({
+            "field_id": field_id,
+            "label": descriptor.get("label", field_id),
+            "unit": descriptor.get("unit", ""),
+            "map": map_name,
+            "custom_map": custom_map,
+            "reverse": reverse,
+            "gamma": gamma,
+            "scope": scope,
+            "range_mode": range_mode,
+            "minimum": minimum,
+            "maximum": maximum,
+            "colors": colors,
+        })
+    return payloads
+
+
+def _html_view_identity_labels(
+    frame_objects,
+    settings: Dict[str, Any],
+) -> list[list[str] | None]:
+    """Return structure-specific View labels without changing ASE elements."""
+    source = settings.get("viewIdentityOverrides")
+    if not isinstance(source, dict):
+        return [None] * len(frame_objects)
+    if source.get("scope") == "trajectory" and isinstance(source.get("labels"), list):
+        labels = [str(value) for value in source["labels"]]
+        return [labels if len(labels) == len(atoms) else None for atoms in frame_objects]
+    frames = source.get("frames")
+    if source.get("scope") != "frames" or not isinstance(frames, dict):
+        return [None] * len(frame_objects)
+    result: list[list[str] | None] = []
+    for index, atoms in enumerate(frame_objects):
+        values = frames.get(str(index))
+        labels = [str(value) for value in values] if isinstance(values, list) else None
+        result.append(labels if labels is not None and len(labels) == len(atoms) else None)
+    return result
+
+
 def export_html_response(session, payload: Dict[str, Any]):
     """Build one offline, view-only HTML document with optional project recovery."""
     from .project import (
@@ -722,7 +896,6 @@ def export_html_response(session, payload: Dict[str, Any]):
             except OSError:
                 pass
 
-    frames = [atoms_to_json(frame) for frame in frame_objects]
     selection = []
     for value in payload.get("selection") or []:
         try:
@@ -731,6 +904,22 @@ def export_html_response(session, payload: Dict[str, Any]):
             continue
         if 0 <= index < len(frame_objects[current_frame]):
             selection.append(index)
+    selection = sorted(set(selection))
+    frames = [atoms_to_json(frame) for frame in frame_objects]
+    identity_labels = _html_view_identity_labels(frame_objects, settings)
+    for frame, labels in zip(frames, identity_labels):
+        if labels is not None:
+            frame["symbols"] = labels
+            frame["atom_types"] = labels
+    color_scale_frames = _html_atom_color_scale_frames(
+        frame_objects,
+        settings,
+        selection,
+        current_frame=int(session.current_frame),
+    )
+    for frame, color_scale in zip(frames, color_scale_frames):
+        if color_scale is not None:
+            frame.setdefault("metadata", {})["atom_color_scale"] = color_scale
     export_profile = _html_export_profile(payload.get("export_profile"), settings)
     poster_data_url = _validated_html_poster(payload.get("poster_data_url"))
     scene = {
@@ -748,7 +937,7 @@ def export_html_response(session, payload: Dict[str, Any]):
         "settings": settings,
         "exportProfile": export_profile,
         "hasPoster": bool(poster_data_url),
-        "selection": sorted(set(selection)),
+        "selection": selection,
         "frames": frames,
         "displacements": _html_view_displacements(frame_objects, settings),
     }
@@ -824,19 +1013,17 @@ def _trajectory_frames_json(session):
 
 def _minimum_image_delta(delta, cell, pbc):
     delta = np.asarray(delta, dtype=float)
-    if not any(pbc or []) or not cell:
+    clean_pbc = np.asarray(pbc if pbc is not None else [], dtype=bool).reshape(-1)
+    matrix = np.asarray(cell if cell is not None else [], dtype=float)
+    if clean_pbc.size != 3 or not np.any(clean_pbc) or matrix.size == 0:
         return delta
-    matrix = np.asarray(cell, dtype=float)
-    if matrix.shape != (3, 3) or abs(np.linalg.det(matrix)) < 1e-10:
+    if matrix.shape != (3, 3):
         return delta
     try:
-        fractional = np.linalg.solve(matrix.T, delta)
-    except np.linalg.LinAlgError:
+        vectors, _ = find_mic(delta.reshape(1, 3), matrix, pbc=clean_pbc)
+    except (ValueError, np.linalg.LinAlgError):
         return delta
-    for axis, periodic in enumerate(pbc):
-        if periodic:
-            fractional[axis] -= np.round(fractional[axis])
-    return matrix.T @ fractional
+    return np.asarray(vectors[0], dtype=float)
 
 
 def _normalized_bond_mode(display: Dict[str, Any]) -> str:
@@ -1002,29 +1189,27 @@ def _display_bonds(data: Dict[str, Any], display: Dict[str, Any], explicit_pairs
 
         candidate_pairs = []
         if search_radius > 0 and len(symbols) > 1:
-            if include_periodic_images and any(pbc):
-                from ase import Atoms
-                from ase.neighborlist import neighbor_list
+            from ase import Atoms
 
-                probe = Atoms(
-                    numbers=np.ones(len(symbols), dtype=int),
-                    positions=positions,
-                    cell=cell,
-                    pbc=pbc,
-                )
-                first, second = neighbor_list("ij", probe, search_radius, self_interaction=False)
-                candidate_pairs = sorted({
-                    (min(int(i), int(j)), max(int(i), int(j)))
-                    for i, j in zip(first, second)
-                    if int(i) != int(j)
-                })
-            else:
-                from scipy.spatial import cKDTree
+            from .neighbors import neighbour_list
 
-                candidate_pairs = cKDTree(positions).query_pairs(
-                    search_radius,
-                    output_type="ndarray",
-                )
+            probe = Atoms(
+                numbers=np.ones(len(symbols), dtype=int),
+                positions=positions,
+                cell=cell,
+                pbc=pbc if include_periodic_images else False,
+            )
+            first, second = neighbour_list(
+                "ij",
+                probe,
+                search_radius,
+                self_interaction=False,
+            )
+            candidate_pairs = sorted({
+                (min(int(i), int(j)), max(int(i), int(j)))
+                for i, j in zip(first, second)
+                if int(i) != int(j)
+            })
         for i, j in candidate_pairs:
             i, j = int(i), int(j)
             delta = bond_delta(i, j)
@@ -1190,14 +1375,45 @@ def _cad_scene_data(session, payload: Dict[str, Any]):
     visible_map = display.get("labelVisible") or display.get("elementVisible") or {}
     color_map = display.get("labelColors") or display.get("elementColors") or {}
     radius_map = display.get("labelRadii") or display.get("elementRadii") or {}
+    opacity_map = display.get("labelOpacities") or {}
     label_materials = display.get("labelMaterials") or {}
+    atom_radius_scales = display.get("atomRadiusScales") or {}
+    atom_colors = display.get("atomColors") or {}
+    atom_opacities = display.get("atomOpacities") or {}
     atom_materials = display.get("atomMaterials") or {}
+    scale_colors = (
+        display.get("atomColorScaleColors")
+        if display.get("atomColorScaleEnabled") is True
+        and isinstance(display.get("atomColorScaleColors"), list)
+        else []
+    )
     try:
         radius_scale = float(display.get("atomRadiusScale", 0.6))
     except (TypeError, ValueError):
         radius_scale = 0.6
     if not np.isfinite(radius_scale) or radius_scale <= 0:
         radius_scale = 0.6
+
+    def atom_color(index, label):
+        fallback = base_colors[index] if index < len(base_colors) else "#c8ccd0"
+        established = _valid_hex_color(color_map.get(label), _valid_hex_color(fallback))
+        if index < len(scale_colors):
+            return _valid_hex_color(scale_colors[index], established)
+        override = atom_colors.get(str(index), atom_colors.get(index))
+        if override is not None:
+            return _valid_hex_color(override, established)
+        return established
+
+    def atom_opacity(index, label):
+        try:
+            value = float(atom_opacities.get(
+                str(index), atom_opacities.get(index, opacity_map.get(label, 1.0))
+            ))
+        except (TypeError, ValueError):
+            value = 1.0
+        if not np.isfinite(value):
+            value = 1.0
+        return max(0.0, min(1.0, value))
 
     atom_specs = []
     visible_indices = set()
@@ -1206,13 +1422,16 @@ def _cad_scene_data(session, payload: Dict[str, Any]):
         if visible_map.get(label, True) is False:
             continue
         visible_indices.add(index)
-        fallback_color = base_colors[index] if index < len(base_colors) else "#c8ccd0"
-        color = _valid_hex_color(color_map.get(label), _valid_hex_color(fallback_color))
+        color = atom_color(index, label)
         try:
             source_radius = float(radius_map.get(label, base_radii[index]))
         except (IndexError, TypeError, ValueError):
             source_radius = 0.5
         radius = source_radius * radius_scale
+        try:
+            radius *= float(atom_radius_scales.get(str(index), atom_radius_scales.get(index, 1.0)))
+        except (TypeError, ValueError):
+            pass
         if not np.isfinite(radius) or radius <= 0:
             radius = 0.5 * radius_scale
         material_preset = _atom_material_preset(
@@ -1227,12 +1446,15 @@ def _cad_scene_data(session, payload: Dict[str, Any]):
                 "position": shifted.tolist(),
                 "radius": float(radius),
                 "color": color,
+                "opacity": atom_opacity(index, label),
                 "material": material_preset,
                 "cell_offset": list(offset),
             })
 
     color_mode = display.get("bondColorMode", "split")
     custom_bond_color = _valid_hex_color(display.get("bondCustomColor"), "#c8ccd0")
+    pair_bond_styles = display.get("pairwiseBondStyles") or {}
+    atom_bond_styles = display.get("atomBondStyles") or {}
     try:
         bond_diameter = float(display.get("bondThickness", 0.25))
     except (TypeError, ValueError):
@@ -1240,11 +1462,48 @@ def _cad_scene_data(session, payload: Dict[str, Any]):
     bond_diameter = max(0.02, min(0.6, bond_diameter))
     bond_radius = bond_diameter * 0.5
     bond_style = "flat" if display.get("bondStyle") == "flat" else "cylinder"
+    bond_material = _atom_material_preset(display.get("bondMaterial"))
+    try:
+        bond_opacity = max(0.0, min(1.0, float(display.get("bondOpacity", 1.0))))
+    except (TypeError, ValueError):
+        bond_opacity = 1.0
 
-    def atom_color(index):
+    def bond_atom_color(index):
         label = labels[index] if index < len(labels) else symbols[index]
-        fallback = base_colors[index] if index < len(base_colors) else "#c8ccd0"
-        return _valid_hex_color(color_map.get(label), _valid_hex_color(fallback))
+        return atom_color(index, label)
+
+    def bond_appearance(i, j, endpoint=None):
+        left = labels[i] if i < len(labels) else symbols[i]
+        right = labels[j] if j < len(labels) else symbols[j]
+        pair_key = "-".join(sorted((str(left), str(right))))
+        pair = pair_bond_styles.get(pair_key)
+        pair = pair if isinstance(pair, dict) else {}
+        endpoint_style = atom_bond_styles.get(str(endpoint), atom_bond_styles.get(endpoint, {})) \
+            if endpoint is not None else {}
+        endpoint_style = endpoint_style if isinstance(endpoint_style, dict) else {}
+        try:
+            diameter = max(0.02, min(0.6, float(pair.get("thickness", bond_diameter))))
+        except (TypeError, ValueError):
+            diameter = bond_diameter
+        try:
+            opacity = max(0.0, min(1.0, float(endpoint_style.get(
+                "opacity", pair.get("opacity", bond_opacity)
+            ))))
+        except (TypeError, ValueError):
+            opacity = bond_opacity
+        requested_color = endpoint_style.get("color", pair.get("color", custom_bond_color))
+        return {
+            "style": "flat" if pair.get("style", bond_style) == "flat" else "cylinder",
+            "material": _atom_material_preset(endpoint_style.get(
+                "material", pair.get("material", bond_material)
+            )),
+            "diameter": diameter,
+            "radius": diameter * 0.5,
+            "color_mode": "custom" if pair.get("colorMode", color_mode) == "custom" else "split",
+            "custom_color": _valid_hex_color(requested_color, custom_bond_color),
+            "opacity": opacity,
+            "endpoint_override": bool(endpoint_style),
+        }
 
     bond_specs = []
 
@@ -1253,25 +1512,44 @@ def _cad_scene_data(session, payload: Dict[str, Any]):
         end = np.asarray(end, dtype=float)
         if float(np.linalg.norm(end - start)) < 1e-9:
             return
-        if color_mode == "custom":
-            segments = ((0.0, 1.0, custom_bond_color, "full"),)
+        base_appearance = bond_appearance(i, j)
+        left_appearance = bond_appearance(i, j, i)
+        right_appearance = bond_appearance(i, j, j)
+        if (
+            base_appearance["color_mode"] == "custom"
+            and not left_appearance["endpoint_override"]
+            and not right_appearance["endpoint_override"]
+        ):
+            segments = ((0.0, 1.0, base_appearance["custom_color"], "full", base_appearance),)
         else:
             segments = (
-                (0.0, 0.5, atom_color(i), "a"),
-                (0.5, 1.0, atom_color(j), "b"),
+                (
+                    0.0, 0.5,
+                    left_appearance["custom_color"]
+                    if base_appearance["color_mode"] == "custom" else bond_atom_color(i),
+                    "a", left_appearance,
+                ),
+                (
+                    0.5, 1.0,
+                    right_appearance["custom_color"]
+                    if base_appearance["color_mode"] == "custom" else bond_atom_color(j),
+                    "b", right_appearance,
+                ),
             )
         delta = end - start
         logical_name = f"bond_{i}_{j}_{suffix}"
-        for t0, t1, color, half in segments:
+        for t0, t1, color, half, appearance in segments:
             bond_specs.append({
                 "i": int(i),
                 "j": int(j),
                 "start": (start + delta * t0).tolist(),
                 "end": (start + delta * t1).tolist(),
-                "radius": bond_radius,
-                "diameter": bond_diameter,
-                "style": bond_style,
+                "radius": appearance["radius"],
+                "diameter": appearance["diameter"],
+                "style": appearance["style"],
                 "color": color,
+                "material": appearance["material"],
+                "opacity": appearance["opacity"],
                 "name": f"{logical_name}_{half}",
                 "logical_name": logical_name,
                 "segment": half,
@@ -1506,15 +1784,21 @@ def export_3dm_response(session, payload: Dict[str, Any]):
 
     material_indices = {}
 
-    def material_index(color, preset="standard"):
+    def material_index(color, preset="standard", opacity=1.0):
         color = _valid_hex_color(color)
         preset = _atom_material_preset(preset)
-        key = (color, preset)
+        try:
+            opacity = max(0.0, min(1.0, float(opacity)))
+        except (TypeError, ValueError):
+            opacity = 1.0
+        key = (color, preset, round(opacity, 6))
         if key in material_indices:
             return material_indices[key]
         material = rhino3dm.Material()
-        material.Name = f"v_ase_{preset}_{color[1:]}"
+        material.Name = f"v_ase_{preset}_{color[1:]}_a{round(opacity * 10000):04d}"
         material.DiffuseColor = (*_hex_rgb(color), 255)
+        if hasattr(material, "Transparency"):
+            material.Transparency = 1.0 - opacity
         if preset == "metal":
             material.Shine = 246.0
             material.Reflectivity = 0.92
@@ -1540,14 +1824,17 @@ def export_3dm_response(session, payload: Dict[str, Any]):
         )
     bond_definition_ids = {}
 
-    def bond_definition(style, colors):
-        key = (style, tuple(colors))
+    def bond_definition(style, segment_materials):
+        key = (style, tuple(segment_materials))
         if key in bond_definition_ids:
             return bond_definition_ids[key]
-        fractions = [(0.0, 1.0)] if len(colors) == 1 else [(0.0, 0.5), (0.5, 1.0)]
+        fractions = [(0.0, 1.0)] if len(segment_materials) == 1 else [(0.0, 0.5), (0.5, 1.0)]
         geometry = []
         attributes = []
-        for index, ((start_fraction, end_fraction), color) in enumerate(zip(fractions, colors)):
+        for index, ((start_fraction, end_fraction), specification) in enumerate(
+            zip(fractions, segment_materials)
+        ):
+            color, preset, opacity = specification
             if style == "flat":
                 primitive = rhino3dm.Mesh()
                 for point in (
@@ -1571,11 +1858,11 @@ def export_3dm_response(session, payload: Dict[str, Any]):
                 rhino3dm,
                 f"bond_segment_{index}",
                 layer_indices["Bonds"],
-                material_index(color),
+                material_index(color, preset, opacity),
                 color,
             ))
         definition_name = _safe_name(
-            f"v_ase_bond_{style}_{'_'.join(color.lstrip('#') for color in colors)}"
+            f"v_ase_bond_{style}_{'_'.join(color.lstrip('#') for color, _, _ in segment_materials)}"
         )
         definition_index = model.InstanceDefinitions.Add(
             definition_name,
@@ -1598,7 +1885,7 @@ def export_3dm_response(session, payload: Dict[str, Any]):
             rhino3dm,
             f"atom_{atom['index']}_{atom['label']}_cell_{offset}",
             layer_indices["Atoms"],
-            material_index(atom["color"], atom["material"]),
+            material_index(atom["color"], atom["material"], atom["opacity"]),
             atom["color"],
             {
                 "v_ase.kind": "atom",
@@ -1606,6 +1893,7 @@ def export_3dm_response(session, payload: Dict[str, Any]):
                 "v_ase.label": atom["label"],
                 "v_ase.element": atom["symbol"],
                 "v_ase.material": atom["material"],
+                "v_ase.opacity": atom["opacity"],
                 "v_ase.cell_offset": offset,
                 "v_ase.units": "angstrom",
             },
@@ -1634,17 +1922,24 @@ def export_3dm_response(session, payload: Dict[str, Any]):
             continue
         axis, side, normal, length = basis
         colors = tuple(segment["color"] for segment in segments)
+        segment_materials = tuple((
+            segment["color"],
+            _atom_material_preset(segment.get("material")),
+            round(float(segment.get("opacity", 1.0)), 6),
+        ) for segment in segments)
         attributes = _cad_object_attributes(
             rhino3dm,
             logical_name,
             layer_indices["Bonds"],
-            material_index(colors[0]),
+            material_index(*segment_materials[0]),
             colors[0],
             {
                 "v_ase.kind": "bond",
                 "v_ase.atom_i": bond["i"],
                 "v_ase.atom_j": bond["j"],
                 "v_ase.style": bond["style"],
+                "v_ase.materials": ",".join(specification[1] for specification in segment_materials),
+                "v_ase.opacities": ",".join(str(specification[2]) for specification in segment_materials),
                 "v_ase.colors": ",".join(colors),
                 "v_ase.units": "angstrom",
             },
@@ -1657,7 +1952,9 @@ def export_3dm_response(session, payload: Dict[str, Any]):
             axis * length,
             start,
         )
-        reference = rhino3dm.InstanceReference(bond_definition(bond["style"], colors), transform)
+        reference = rhino3dm.InstanceReference(
+            bond_definition(bond["style"], segment_materials), transform
+        )
         model.Objects.AddInstanceObject(reference, attributes)
 
     cell_color = scene["cell_color"]
@@ -1876,16 +2173,27 @@ def export_obj_response(session, payload: Dict[str, Any]):
     scene = _cad_scene_data(session, payload)
     display = payload.get("display") or {}
     material_specs = {
-        (atom["color"], _atom_material_preset(atom.get("material")))
+        (
+            atom["color"],
+            _atom_material_preset(atom.get("material")),
+            round(float(atom.get("opacity", 1.0)), 6),
+        )
         for atom in scene["atoms"]
     }
-    material_specs.update((bond["color"], "standard") for bond in scene["bonds"])
+    material_specs.update((
+        bond["color"],
+        _atom_material_preset(bond.get("material")),
+        round(float(bond.get("opacity", 1.0)), 6),
+    ) for bond in scene["bonds"])
     if scene["cell_edges"]:
         cell_preset = "metal" if scene["cell_material"] == "metal" else "standard"
-        material_specs.add((scene["cell_color"], cell_preset))
+        material_specs.add((scene["cell_color"], cell_preset, 1.0))
     material_specs = sorted(material_specs)
     materials = {
-        spec: f"v_ase_{spec[1]}_{spec[0][1:]}"
+        spec: (
+            f"v_ase_{spec[1]}_{spec[0][1:]}"
+            + ("" if spec[2] >= 0.999999 else f"_a{round(spec[2] * 10000):04d}")
+        )
         for spec in material_specs
     }
     segments, stacks = _obj_sphere_resolution(scene, display)
@@ -1896,7 +2204,7 @@ def export_obj_response(session, payload: Dict[str, Any]):
     metadata_path = os.path.join(workdir, "v_ase_scene.json")
     with open(mtl_path, "w", encoding="ascii", newline="\n") as handle:
         handle.write("# v_ase material library\n")
-        for color, preset in material_specs:
+        for color, preset, opacity in material_specs:
             red, green, blue = (channel / 255.0 for channel in _hex_rgb(color))
             if preset == "metal":
                 specular, shine, illumination = 0.98, 246.0, 3
@@ -1905,11 +2213,11 @@ def export_obj_response(session, payload: Dict[str, Any]):
             else:
                 specular, shine, illumination = 0.52, 144.0, 2
             handle.write(
-                f"newmtl {materials[(color, preset)]}\n"
+                f"newmtl {materials[(color, preset, opacity)]}\n"
                 f"Ka {red * 0.18:.6f} {green * 0.18:.6f} {blue * 0.18:.6f}\n"
                 f"Kd {red:.6f} {green:.6f} {blue:.6f}\n"
                 f"Ks {specular:.6f} {specular:.6f} {specular:.6f}\n"
-                f"Ns {shine:.6f}\nillum {illumination}\n\n"
+                f"Ns {shine:.6f}\nd {opacity:.6f}\nillum {illumination}\n\n"
             )
 
     with open(obj_path, "w", encoding="ascii", newline="\n") as handle:
@@ -1927,20 +2235,29 @@ def export_obj_response(session, payload: Dict[str, Any]):
                 f"atom_{atom['index']}_{atom['label']}_cell_{offset}",
                 atom["position"],
                 atom["radius"],
-                materials[(atom["color"], atom["material"])],
+                materials[(
+                    atom["color"],
+                    atom["material"],
+                    round(float(atom.get("opacity", 1.0)), 6),
+                )],
                 segments,
                 stacks,
             )
         for bond in scene["bonds"]:
+            bond_material_key = (
+                bond["color"],
+                _atom_material_preset(bond.get("material")),
+                round(float(bond.get("opacity", 1.0)), 6),
+            )
             if bond["style"] == "flat":
                 writer.ribbon(
                     bond["name"], bond["start"], bond["end"], bond["radius"],
-                    materials[(bond["color"], "standard")]
+                    materials[bond_material_key]
                 )
             else:
                 writer.cylinder(
                     bond["name"], bond["start"], bond["end"], bond["radius"],
-                    materials[(bond["color"], "standard")]
+                    materials[bond_material_key]
                 )
         for index, edge in enumerate(scene["cell_edges"]):
             cell_preset = "metal" if scene["cell_material"] == "metal" else "standard"
@@ -1949,7 +2266,7 @@ def export_obj_response(session, payload: Dict[str, Any]):
                 edge["start"],
                 edge["end"],
                 float(scene["cell_thickness"]) * 0.5,
-                materials[(scene["cell_color"], cell_preset)],
+                materials[(scene["cell_color"], cell_preset, 1.0)],
             )
 
     with open(metadata_path, "w", encoding="utf-8", newline="\n") as handle:
@@ -2007,6 +2324,9 @@ LIGHTING = DATA.get("lighting", {{}})
 BOND_STYLE = DISPLAY.get("bondStyle", "cylinder")
 BOND_COLOR_MODE = DISPLAY.get("bondColorMode", "split")
 BOND_CUSTOM_COLOR = DISPLAY.get("bondCustomColor", "#c8ccd0")
+BOND_MATERIAL = DISPLAY.get("bondMaterial", "standard")
+DISPLAY_PAIR_BOND_STYLES = DISPLAY.get("pairwiseBondStyles", {{}})
+DISPLAY_ATOM_BOND_STYLES = DISPLAY.get("atomBondStyles", {{}})
 BLENDER_OBJECT_MODE = DISPLAY.get("blenderExportMode", "instanced")
 CELL_COLOR = DISPLAY.get("cellColor", "#d6bd67")
 CELL_MATERIAL = DISPLAY.get("cellMaterial", "unlit")
@@ -2014,6 +2334,10 @@ try:
     BOND_THICKNESS = max(0.02, min(0.6, float(DISPLAY.get("bondThickness", 0.25))))
 except (TypeError, ValueError):
     BOND_THICKNESS = 0.25
+try:
+    BOND_OPACITY = max(0.0, min(1.0, float(DISPLAY.get("bondOpacity", 1.0))))
+except (TypeError, ValueError):
+    BOND_OPACITY = 1.0
 try:
     CELL_THICKNESS = max(0.01, min(0.30, float(DISPLAY.get("cellThickness", 0.04))))
 except (TypeError, ValueError):
@@ -2025,13 +2349,20 @@ ATOM_RADII = VISUAL.get("radii", VISUAL.get("covalent_radii", []))
 ATOM_LABELS = DATA.get("symbols", [])
 DISPLAY_LABEL_COLORS = DISPLAY.get("labelColors", DISPLAY.get("elementColors", {{}}))
 DISPLAY_LABEL_RADII = DISPLAY.get("labelRadii", DISPLAY.get("elementRadii", {{}}))
+DISPLAY_LABEL_OPACITIES = DISPLAY.get("labelOpacities", {{}})
 DISPLAY_LABEL_VISIBLE = DISPLAY.get("labelVisible", DISPLAY.get("elementVisible", {{}}))
 DISPLAY_LABEL_MATERIALS = DISPLAY.get("labelMaterials", {{}})
+DISPLAY_ATOM_RADIUS_SCALES = DISPLAY.get("atomRadiusScales", {{}})
+DISPLAY_ATOM_COLORS = DISPLAY.get("atomColors", {{}})
+DISPLAY_ATOM_OPACITIES = DISPLAY.get("atomOpacities", {{}})
 DISPLAY_ATOM_MATERIALS = DISPLAY.get("atomMaterials", {{}})
+DISPLAY_ATOM_COLOR_SCALE_COLORS = DISPLAY.get("atomColorScaleColors", []) \
+    if DISPLAY.get("atomColorScaleEnabled") else []
 MATERIAL_PRESETS = {{
     "standard": {{"roughness": 0.28, "metalness": 0.0, "specular": 1.0, "clearcoat": 0.04, "clearcoat_roughness": 0.22}},
     "metal": {{"roughness": 0.11, "metalness": 0.96, "specular": 1.0, "clearcoat": 0.03, "clearcoat_roughness": 0.08}},
     "rubber": {{"roughness": 0.88, "metalness": 0.0, "specular": 0.16, "clearcoat": 0.0, "clearcoat_roughness": 0.8}},
+    "unlit": {{"roughness": 1.0, "metalness": 0.0, "specular": 0.0, "clearcoat": 0.0, "clearcoat_roughness": 1.0}},
 }}
 try:
     ATOM_RADIUS_SCALE = max(0.01, float(DISPLAY.get("atomRadiusScale", 0.6)))
@@ -2061,6 +2392,13 @@ def hex_to_rgba(value):
     return FALLBACK_COLOR
 
 def get_atom_color(index):
+    if 0 <= index < len(DISPLAY_ATOM_COLOR_SCALE_COLORS):
+        color = DISPLAY_ATOM_COLOR_SCALE_COLORS[index]
+        if color:
+            return hex_to_rgba(color)
+    atom_color = DISPLAY_ATOM_COLORS.get(str(index), DISPLAY_ATOM_COLORS.get(index))
+    if atom_color:
+        return hex_to_rgba(atom_color)
     if 0 <= index < len(ATOM_LABELS):
         display_color = DISPLAY_LABEL_COLORS.get(ATOM_LABELS[index])
         if display_color:
@@ -2070,21 +2408,41 @@ def get_atom_color(index):
     return FALLBACK_COLOR
 
 def get_atom_radius(index, fallback=FALLBACK_RADIUS):
+    try:
+        atom_scale = max(0.01, float(DISPLAY_ATOM_RADIUS_SCALES.get(
+            str(index), DISPLAY_ATOM_RADIUS_SCALES.get(index, 1.0)
+        )))
+    except (TypeError, ValueError):
+        atom_scale = 1.0
     if 0 <= index < len(ATOM_LABELS):
         try:
             display_radius = float(DISPLAY_LABEL_RADII.get(ATOM_LABELS[index], 0.0))
             if display_radius > 0:
-                return display_radius * ATOM_RADIUS_SCALE
+                return display_radius * ATOM_RADIUS_SCALE * atom_scale
         except (TypeError, ValueError):
             pass
     if 0 <= index < len(ATOM_RADII):
         try:
             radius = float(ATOM_RADII[index])
             if radius > 0:
-                return radius * ATOM_RADIUS_SCALE
+                return radius * ATOM_RADIUS_SCALE * atom_scale
         except (TypeError, ValueError):
             pass
-    return fallback * ATOM_RADIUS_SCALE
+    return fallback * ATOM_RADIUS_SCALE * atom_scale
+
+def get_atom_opacity(index):
+    try:
+        override = DISPLAY_ATOM_OPACITIES.get(str(index), DISPLAY_ATOM_OPACITIES.get(index))
+        if override is not None:
+            return clamp01(override)
+    except (TypeError, ValueError):
+        pass
+    if 0 <= index < len(ATOM_LABELS):
+        try:
+            return clamp01(DISPLAY_LABEL_OPACITIES.get(ATOM_LABELS[index], 1.0))
+        except (TypeError, ValueError):
+            pass
+    return 1.0
 
 def get_atom_material_preset(index):
     value = DISPLAY_ATOM_MATERIALS.get(str(index), DISPLAY_ATOM_MATERIALS.get(index))
@@ -2158,26 +2516,87 @@ MAT_CELL = material(
     "metal" if CELL_MATERIAL == "metal" else "standard",
 )
 
-def get_bond_mat(index):
-    color = get_atom_color(index)
-    key = f"{{color[0]:.4f}}_{{color[1]:.4f}}_{{color[2]:.4f}}"
+def get_bond_mat(color, preset="standard", opacity=1.0):
+    color = hex_to_rgba(color) if isinstance(color, str) else color
+    preset = preset if preset in MATERIAL_PRESETS else "standard"
+    opacity = clamp01(opacity)
+    key = f"{{preset}}_{{color[0]:.4f}}_{{color[1]:.4f}}_{{color[2]:.4f}}_a{{opacity:.4f}}"
     if key not in BOND_MATS:
-        BOND_MATS[key] = material(f"v_ase atom-colored bond {{key}}", color, 1.0)
+        BOND_MATS[key] = material(f"v_ase bond {{key}}", color, opacity, preset)
     return BOND_MATS[key]
+
+def get_bond_appearance(i, j, endpoint=None):
+    left = ATOM_LABELS[i] if 0 <= i < len(ATOM_LABELS) else str(i)
+    right = ATOM_LABELS[j] if 0 <= j < len(ATOM_LABELS) else str(j)
+    pair = DISPLAY_PAIR_BOND_STYLES.get("-".join(sorted((left, right))), {{}})
+    pair = pair if isinstance(pair, dict) else {{}}
+    endpoint_style = DISPLAY_ATOM_BOND_STYLES.get(
+        str(endpoint), DISPLAY_ATOM_BOND_STYLES.get(endpoint, {{}})
+    ) if endpoint is not None else {{}}
+    endpoint_style = endpoint_style if isinstance(endpoint_style, dict) else {{}}
+    try:
+        thickness = max(0.02, min(0.6, float(pair.get("thickness", BOND_THICKNESS))))
+    except (TypeError, ValueError):
+        thickness = BOND_THICKNESS
+    try:
+        opacity = clamp01(endpoint_style.get("opacity", pair.get("opacity", BOND_OPACITY)))
+    except (TypeError, ValueError):
+        opacity = BOND_OPACITY
+    preset = endpoint_style.get("material", pair.get("material", BOND_MATERIAL))
+    preset = preset if preset in MATERIAL_PRESETS else "standard"
+    color_mode = "custom" if pair.get("colorMode", BOND_COLOR_MODE) == "custom" else "split"
+    color = endpoint_style.get("color", pair.get("color", BOND_CUSTOM_COLOR))
+    return {{
+        "style": "flat" if pair.get("style", BOND_STYLE) == "flat" else "cylinder",
+        "thickness": thickness,
+        "material": preset,
+        "opacity": opacity,
+        "color_mode": color_mode,
+        "custom_color": color,
+        "endpoint_override": bool(endpoint_style),
+    }}
+
+def bond_pieces(i, j, start, end):
+    base = get_bond_appearance(i, j)
+    left = get_bond_appearance(i, j, i)
+    right = get_bond_appearance(i, j, j)
+    if base["color_mode"] == "custom" and not left["endpoint_override"] and not right["endpoint_override"]:
+        return [(start, end, get_bond_mat(base["custom_color"], base["material"], base["opacity"]), base)]
+    midpoint = (start + end) * 0.5
+    pieces = []
+    for endpoint, appearance, piece_start, piece_end in (
+        (i, left, start, midpoint),
+        (j, right, midpoint, end),
+    ):
+        color = appearance["custom_color"] if base["color_mode"] == "custom" else get_atom_color(endpoint)
+        pieces.append((
+            piece_start,
+            piece_end,
+            get_bond_mat(color, appearance["material"], appearance["opacity"]),
+            appearance,
+        ))
+    return pieces
 
 def get_atom_mat(index, symbol):
     color = get_atom_color(index)
     preset = get_atom_material_preset(index)
-    key = f"{{symbol}}_{{preset}}_{{color[0]:.4f}}_{{color[1]:.4f}}_{{color[2]:.4f}}"
+    opacity = get_atom_opacity(index)
+    key = f"{{symbol}}_{{preset}}_{{color[0]:.4f}}_{{color[1]:.4f}}_{{color[2]:.4f}}_a{{opacity:.4f}}"
     if key not in ATOM_MATS:
-        ATOM_MATS[key] = material(f"atom {{symbol}} {{preset}}", color, 1.0, preset)
+        ATOM_MATS[key] = material(
+            f"atom {{symbol}} {{preset}} alpha {{opacity:.4f}}",
+            color,
+            opacity,
+            preset,
+        )
     return ATOM_MATS[key]
 
 def get_atom_mesh(index, symbol):
     color = get_atom_color(index)
     radius = get_atom_radius(index)
     preset = get_atom_material_preset(index)
-    material_key = f"{{symbol}}_{{preset}}_{{color[0]:.4f}}_{{color[1]:.4f}}_{{color[2]:.4f}}"
+    opacity = get_atom_opacity(index)
+    material_key = f"{{symbol}}_{{preset}}_{{color[0]:.4f}}_{{color[1]:.4f}}_{{color[2]:.4f}}_a{{opacity:.4f}}"
     mesh_key = f"r{{radius:.4f}}_{{material_key}}"
     if mesh_key not in ATOM_MESHES:
         bpy.ops.mesh.primitive_uv_sphere_add(segments=32, ring_count=16, radius=radius, location=(0, 0, 0))
@@ -2466,10 +2885,10 @@ def add_flat_between(name, start, end, width, mat):
     obj.data.materials.append(mat)
     return obj
 
-def add_bond_piece(name, start, end, mat):
-    if BOND_STYLE == "flat":
-        return add_flat_between(name, start, end, BOND_THICKNESS, mat)
-    return add_cylinder_between(name, start, end, BOND_THICKNESS * 0.5, mat)
+def add_bond_piece(name, start, end, mat, appearance):
+    if appearance["style"] == "flat":
+        return add_flat_between(name, start, end, appearance["thickness"], mat)
+    return add_cylinder_between(name, start, end, appearance["thickness"] * 0.5, mat)
 
 def add_curve_segments(name, segments, radius, mat):
     if not segments:
@@ -2528,20 +2947,20 @@ def add_bond_groups(bonds):
     for bond_index, bond in enumerate(bonds):
         i = int(bond.get("i", 0)); j = int(bond.get("j", 0))
         start = Vector(bond.get("start")); end = Vector(bond.get("end"))
-        pieces = []
-        if BOND_COLOR_MODE == "split":
-            midpoint = (start + end) * 0.5
-            pieces = [(start, midpoint, get_bond_mat(i)), (midpoint, end, get_bond_mat(j))]
-        else:
-            pieces = [(start, end, MAT_BOND)]
-        for piece_start, piece_end, mat in pieces:
-            grouped.setdefault(mat.name, {{"material": mat, "segments": []}})["segments"].append((piece_start, piece_end))
+        for piece_start, piece_end, mat, appearance in bond_pieces(i, j, start, end):
+            key = (mat.name, appearance["style"], round(appearance["thickness"], 6))
+            grouped.setdefault(key, {{
+                "material": mat,
+                "segments": [],
+                "style": appearance["style"],
+                "thickness": appearance["thickness"],
+            }})["segments"].append((piece_start, piece_end))
     for group_index, item in enumerate(grouped.values()):
         name = f"bond_group_{{group_index:03d}}"
-        if BOND_STYLE == "flat":
-            add_flat_segments(name, item["segments"], BOND_THICKNESS, item["material"])
+        if item["style"] == "flat":
+            add_flat_segments(name, item["segments"], item["thickness"], item["material"])
         else:
-            add_curve_segments(name, item["segments"], BOND_THICKNESS * 0.5, item["material"])
+            add_curve_segments(name, item["segments"], item["thickness"] * 0.5, item["material"])
 
 def add_unit_cell(cell):
     if not isinstance(cell, (list, tuple)) or len(cell) != 3:
@@ -2734,12 +3153,10 @@ if BLENDER_OBJECT_MODE == "objects":
         i = int(bond.get("i", 0)); j = int(bond.get("j", 0))
         start = Vector(bond.get("start")); end = Vector(bond.get("end"))
         name = f"bond_{{i}}_{{j}}_{{bond_index:04d}}"
-        if BOND_COLOR_MODE == "split":
-            midpoint = (start + end) * 0.5
-            add_bond_piece(name + "_start", start, midpoint, get_bond_mat(i))
-            add_bond_piece(name + "_end", midpoint, end, get_bond_mat(j))
-        else:
-            add_bond_piece(name, start, end, MAT_BOND)
+        pieces = bond_pieces(i, j, start, end)
+        for piece_index, (piece_start, piece_end, mat, appearance) in enumerate(pieces):
+            suffix = "" if len(pieces) == 1 else ("_start" if piece_index == 0 else "_end")
+            add_bond_piece(name + suffix, piece_start, piece_end, mat, appearance)
 else:
     add_bond_groups(BONDS)
 

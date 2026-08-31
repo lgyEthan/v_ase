@@ -7,6 +7,9 @@ from ase import Atoms
 from v_ase.io import ATOM_LABEL_ARRAY, read_fast_lammps_dump
 from v_ase.server import (
     get_frame_positions,
+    load_structure_file,
+    per_atom_scalar_range,
+    per_atom_scalar_values,
     session_atoms_to_json,
     trajectory_layout_compatible,
     trajectory_position_array,
@@ -42,6 +45,68 @@ ITEM: ATOMS id type mol x y z q
 """,
         encoding="utf-8",
     )
+
+
+class StreamRequest:
+    def __init__(self, data):
+        self.data = data
+        self.headers = {"content-length": str(len(data))}
+
+    async def stream(self):
+        yield self.data
+
+
+def test_open_mode_selects_lammps_reader_before_parsing(tmp_path):
+    dump_path = tmp_path / "tiny-open-mode.lammpstrj"
+    write_dump(dump_path)
+    empty = Atoms()
+
+    view_session = EditorSession(
+        session_id="fast-lammps-open-view",
+        original_atoms=empty.copy(),
+        working_atoms=empty.copy(),
+        config={"viz_only": False, "empty_workspace": True},
+    )
+    sessions[view_session.session_id] = view_session
+    try:
+        view_data = asyncio.run(load_structure_file(
+            view_session.session_id,
+            StreamRequest(dump_path.read_bytes()),
+            filename=dump_path.name,
+            index=":",
+            runtime_mode="view",
+        ))
+        assert view_session.config["viz_only"] is True
+        assert view_session.trajectory_source is not None
+        assert view_data["metadata"]["frame_count"] == 2
+        assert view_data["metadata"]["config"]["viz_only"] is True
+    finally:
+        view_session.cleanup_temporary_files()
+        sessions.pop(view_session.session_id, None)
+
+    edit_session = EditorSession(
+        session_id="fast-lammps-open-edit",
+        original_atoms=empty.copy(),
+        working_atoms=empty.copy(),
+        config={"viz_only": True, "empty_workspace": True},
+    )
+    sessions[edit_session.session_id] = edit_session
+    try:
+        edit_data = asyncio.run(load_structure_file(
+            edit_session.session_id,
+            StreamRequest(dump_path.read_bytes()),
+            filename=dump_path.name,
+            index=":",
+            runtime_mode="edit",
+        ))
+        assert edit_session.config["viz_only"] is False
+        assert edit_session.trajectory_source is None
+        assert len(edit_session.trajectory_frames) == 2
+        assert all(frame.calc is not None for frame in edit_session.trajectory_frames)
+        assert edit_data["metadata"]["config"]["viz_only"] is False
+    finally:
+        edit_session.cleanup_temporary_files()
+        sessions.pop(edit_session.session_id, None)
 
 
 def test_fast_lammps_dump_preserves_labels_and_virtual_frame_endpoint(tmp_path):
@@ -188,6 +253,97 @@ def test_fast_lammps_dump_empty_file_has_clear_error(tmp_path):
 
     with np.testing.assert_raises_regex(ValueError, "No frames found"):
         read_fast_lammps_dump(dump_path, ":")
+
+
+def test_fast_lammps_updates_frame_scalars_for_trajectory_colorscales(tmp_path):
+    dump_path = tmp_path / "dynamic-scalars.lammpstrj"
+    dump_path.write_text(
+        """ITEM: TIMESTEP
+0
+ITEM: NUMBER OF ATOMS
+2
+ITEM: BOX BOUNDS pp pp pp
+0 5
+0 5
+0 5
+ITEM: ATOMS id type x y z q fx fy fz c_uncertainty
+1 1 0 0 0 -0.2 1 0 0 0.1
+2 8 1 0 0 0.2 0 1 0 0.2
+ITEM: TIMESTEP
+1
+ITEM: NUMBER OF ATOMS
+2
+ITEM: BOX BOUNDS pp pp pp
+0 5
+0 5
+0 5
+ITEM: ATOMS id type x y z q fx fy fz c_uncertainty
+1 1 0.1 0 0 -0.8 2 0 0 1.1
+2 8 1.1 0 0 0.8 0 3 0 1.2
+""",
+        encoding="utf-8",
+    )
+
+    result = read_fast_lammps_dump(dump_path, ":")
+    frame = result.trajectory.read_atoms(1)
+
+    np.testing.assert_allclose(frame.get_initial_charges(), [-0.8, 0.8])
+    np.testing.assert_allclose(frame.arrays["forces"], [[2, 0, 0], [0, 3, 0]])
+    np.testing.assert_allclose(frame.arrays["c_uncertainty"], [1.1, 1.2])
+    np.testing.assert_array_equal(frame.arrays["lammps_type"], [1, 8])
+
+    np.testing.assert_allclose(
+        result.trajectory.read_scalar_values(1, "force:norm"),
+        [2.0, 3.0],
+    )
+    np.testing.assert_allclose(
+        result.trajectory.read_scalar_values(
+            1,
+            "array::c_uncertainty::scalar",
+        ),
+        [1.1, 1.2],
+    )
+
+    session = EditorSession(
+        session_id="fast-lammps-scalar-range",
+        original_atoms=result.atoms.copy(),
+        working_atoms=result.atoms.copy(),
+        original_frames=[result.atoms.copy()],
+        trajectory_frames=[result.atoms.copy()],
+        trajectory_source=result.trajectory,
+        config={"viz_only": True},
+    )
+    sessions[session.session_id] = session
+    original_read_atoms = result.trajectory.read_atoms
+    result.trajectory.read_atoms = lambda _index: (_ for _ in ()).throw(
+        AssertionError("fast scalar scans must not materialize ASE Atoms")
+    )
+    try:
+        scalar_range = asyncio.run(per_atom_scalar_range(
+            session.session_id,
+            {
+                "field_id": "array::c_uncertainty::scalar",
+                "frame_index": 0,
+                "all_frames": True,
+            },
+        ))
+        assert np.isclose(scalar_range["minimum"], 0.1)
+        assert np.isclose(scalar_range["maximum"], 1.2)
+        response = asyncio.run(per_atom_scalar_values(
+            session.session_id,
+            {
+                "field_id": "array::c_uncertainty::scalar",
+                "frame_index": 0,
+                "all_frames": True,
+            },
+        ))
+        np.testing.assert_allclose(
+            np.frombuffer(response.body, dtype=np.float32).reshape(2, 2),
+            [[0.1, 0.2], [1.1, 1.2]],
+        )
+    finally:
+        result.trajectory.read_atoms = original_read_atoms
+        sessions.pop(session.session_id, None)
 
 
 def test_trajectory_layout_cache_is_invalidated_explicitly():

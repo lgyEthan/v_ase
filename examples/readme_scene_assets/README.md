@@ -1,5 +1,39 @@
 # v_ase README Scene Assets
 
+## add-atoms
+
+Five-layer Cu(111) slab for random O insertion across its bulk-like interior.
+
+- Static: `cu111_oxygen_add_atoms.traj`
+- Suggested selected indices: ``
+- Scatter 18 O_subsurface atoms with random seed 2021 (0.429 per top-layer Cu atom).
+- The finite Allow region spans the three interior Cu(111) layers.
+- All Cu coordinates remain unchanged while only inserted O follows pairwise repulsion.
+- Surface context: https://doi.org/10.1016/S0039-6028(01)01464-9
+
+Open command:
+
+```bash
+v_ase gui examples/readme_scene_assets/cu111_oxygen_add_atoms.traj --show-bonds
+```
+
+## add-molecules
+
+Periodic edge/basal-hydroxylated graphene oxide with left and right water chambers.
+
+- Static: `layered_water_channel.traj`
+- Suggested selected indices: ``
+- Target 1.00 g/cm^3 in the exact 1926.683 A^3 solvent domain; 64 H2O molecules are realizable.
+- Random orientation is Haar-uniform and rigid placement preserves each molecular geometry.
+- Two 2 A Reject regions cover only the GO planes in a 6 A periodic layered cell.
+- The expanded x cell leaves distinct left and right solvent chambers.
+
+Open command:
+
+```bash
+v_ase gui examples/readme_scene_assets/layered_water_channel.traj --show-bonds
+```
+
 ## phosphorene
 
 Short, wide 5 x 6 armchair black-phosphorene ribbon twisted to the paper-reported 13.85 degree model in 9 ridge edits.
@@ -23,7 +57,7 @@ v_ase gui examples/readme_scene_assets/phosphorene_twisted_nanoribbon_13p85deg.c
 Graphene/hBN stack for the periodic commensurate rotation guide.
 
 - Static: `graphene_hbn_commensurate.traj`
-- Suggested selected indices: `72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 123, 124, 125, 126, 127, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142, 143`
+- Suggested selected indices: `2, 3`
 - Select the hBN layer, press R then Z, and rotate toward a displayed cell match.
 
 Open command:

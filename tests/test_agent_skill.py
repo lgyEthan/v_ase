@@ -7,9 +7,11 @@ import re
 import tomllib
 from pathlib import Path
 
+from ase.io import read
+
 from v_ase import __version__
 from v_ase.ai import ai_skill_path
-from v_ase.server import ai_control_schema, ai_skill
+from v_ase.server import ai_control_schema, ai_schema_payload, ai_skill
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -43,9 +45,13 @@ def _documented_skill_text() -> str:
     ])
 
 
-def _capability_values(source: str, key: str) -> set[str]:
-    match = re.search(rf"{key}:\s*\[(?P<body>.*?)\]", source, re.DOTALL)
-    assert match, f"Could not locate aiCapabilities().{key}"
+def _javascript_array_values(source: str, variable: str) -> set[str]:
+    match = re.search(
+        rf"const\s+{re.escape(variable)}\s*=\s*\[(?P<body>.*?)\]",
+        source,
+        re.DOTALL,
+    )
+    assert match, f"Could not locate JavaScript array {variable}"
     return set(re.findall(r"'([^']+)'", match.group("body")))
 
 
@@ -82,13 +88,123 @@ def test_skill_uses_one_level_progressive_references():
 def test_skill_covers_every_live_operation_and_export():
     main_js = (ROOT / "v_ase/static/main.js").read_text(encoding="utf-8")
     documented = _documented_skill_text()
+    schema = ai_schema_payload()
+    operations = set(schema["operation_parameters"])
+    exports = set(schema["export_parameters"])
+    operation_dispatch = main_js.split(
+        "async aiApplyOperation(operation)", 1
+    )[1].split("async aiApply(command", 1)[0]
+    export_dispatch = main_js.split(
+        "async aiExport(request", 1
+    )[1].split("async aiApplyCollaboratively", 1)[0]
+    operation_handlers = set(re.findall(r"name === '([^']+)'", operation_dispatch))
+    export_handlers = set(re.findall(r"if \(format === '([^']+)'\)", export_dispatch))
+    export_handlers.update(
+        re.findall(r"else if \(format === '([^']+)'\)", export_dispatch)
+    )
 
-    operations = _capability_values(main_js, "operations")
-    exports = _capability_values(main_js, "exports")
     assert operations
     assert exports
+    assert operations == operation_handlers
+    assert exports == export_handlers
+    assert operations == _javascript_array_values(main_js, "fallbackOperations")
+    assert exports == _javascript_array_values(main_js, "fallbackExports")
+    assert "Object.keys(operationParameters)" in main_js
+    assert "Object.keys(exportParameters)" in main_js
     for value in sorted(operations | exports):
         assert f"`{value}`" in documented, value
+
+
+def test_ase_bulk_builder_schema_skill_and_capabilities_are_synchronized():
+    schema = ai_schema_payload()
+    operation = schema["operation_parameters"]["build-bulk"]
+    documented = _documented_skill_text()
+    main_js = (ROOT / "v_ase/static/main.js").read_text(encoding="utf-8")
+
+    assert operation["required"] == ["formula"]
+    assert {
+        "crystalStructure", "cellMode", "a", "b", "c", "alpha",
+        "covera", "u", "basis", "confirmReplace",
+    } <= set(operation["optional"])
+    assert "capabilities().bulkBuilder.catalogUrl" in documented
+    assert "previewUrl" in documented
+    assert "confirmReplace:true" in documented
+    assert "bulkBuilder:" in main_js
+    assert "/api/build/bulk/catalog/" in main_js
+    assert "/api/build/bulk/preview/" in main_js
+
+
+def test_single_atom_property_inspection_is_documented_and_discoverable():
+    documented = _documented_skill_text()
+    main_js = (ROOT / "v_ase/static/main.js").read_text(encoding="utf-8")
+    api_js = (ROOT / "v_ase/static/api.js").read_text(encoding="utf-8")
+    server = (ROOT / "v_ase/server.py").read_text(encoding="utf-8")
+
+    assert "capabilities().atomProperties.baseUrl" in documented
+    assert "current frame" in documented
+    assert "without\ncalling the calculator" in documented
+    assert "atomProperties:" in main_js
+    assert "pathTemplate: '/{atomIndex}?frame_index={frameIndex}'" in main_js
+    assert "fetchAtomProperties" in api_js
+    assert '@app.get("/api/analysis/atom-properties/{session_id}/{atom_index}")' in server
+
+
+def test_skill_distinguishes_gui_label_inference_from_agent_element_identity():
+    documented = _documented_skill_text()
+
+    assert "entering a valid chemical symbol as an atom Label" in documented
+    assert "matching Type (`O` selects oxygen" in documented
+    assert "must still provide both `element` and `label` explicitly" in documented
+    assert "`Cu O O` with counts" in documented
+    assert "`O_1`, and `O_2`" in documented
+    assert "different POTCARs, magnetic groups, or a core-hole target" in documented
+
+
+def test_readme_agent_media_uses_the_external_cli_bridge():
+    capture = (ROOT / "scripts/capture_readme_screenshots.py").read_text(
+        encoding="utf-8"
+    )
+    ai_edit = capture.split("def capture_ai_edit_media", 1)[1].split(
+        "def capture_ai_collaboration_figure", 1
+    )[0]
+    collaboration = capture.split(
+        "def capture_ai_collaboration_figure", 1
+    )[1].split("def capture_relaxation_media", 1)[0]
+    volumetric = capture.split("def capture_volumetric_media", 1)[1].split(
+        "def capture_atom_colorscale_media", 1
+    )[0]
+
+    assert "run_external_ai_apply" in ai_edit
+    assert "run_external_ai_apply" in collaboration
+    assert "run_external_ai_apply" in volumetric
+    assert "update-volumetric-planes" in volumetric
+    assert "window.v_aseAI.apply" not in ai_edit
+    assert "window.v_aseAI.apply" not in collaboration
+    assert "window.v_aseAI.apply" not in volumetric
+    assert "operation_label" in collaboration
+    for required in (
+        '"name": "delete-selection"',
+        '"name": "set-identity"',
+        '"name": "add-atom"',
+        '"camera": {"axis": "+Z", "fit": "structure"}',
+        "delete vacancy-site C",
+        "set its 3 neighbors to N",
+        "add Li at the exact requested site",
+        "set camera +Z · screen up +Y",
+    ):
+        assert required in collaboration
+    assert '"flow": flow' in collaboration
+    assert 'if len(human_events) < 2' in collaboration
+    assert 'child.locator("#app-viewport").screenshot' in collaboration
+
+
+def test_add_session_collaboration_messages_cover_atoms_and_molecules():
+    main_js = (ROOT / "v_ase/static/main.js").read_text(encoding="utf-8")
+
+    assert "Atom or molecule insertion was staged." in main_js
+    assert "Repulsive placement started." in main_js
+    assert "Staged insertion content was committed." in main_js
+    assert "Random atoms were staged." not in main_js
 
 
 def test_skill_version_install_and_environment_contract_are_current():
@@ -100,6 +216,7 @@ def test_skill_version_install_and_environment_contract_are_current():
     assert 'python -m pip install -e ".[symmetry,phonon]"' in cli_text
     for required in (
         "v_ase gui STRUCTURE --cli",
+        "v_ase gui STRUCTURE --interactive --cli",
         "persistent process",
         "do **not** wait",
         "from v_ase.visualize import view",
@@ -107,25 +224,49 @@ def test_skill_version_install_and_environment_contract_are_current():
         "HOST:/",
         "--stream-frames",
         "rhino3dm",
+        "scikit-image",
+        "Plotly",
+        "CHGCAR",
+        "qe-cube",
+        "always prints the complete",
     ):
         assert required in skill_text + cli_text
 
 
-def test_symmetry_branch_has_an_independent_nonpublished_alpha_contract():
-    config = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
-    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+def test_skill_and_live_schema_document_label_and_index_appearance_layers():
+    documented = _documented_skill_text()
+    live_schema = asyncio.run(ai_control_schema())["control_schema"]
+    display_description = live_schema["properties"]["display"]["description"]
+
+    assert "`labelOpacities`" in documented
+    assert "`atomRadiusScales`" in documented
+    assert "`atomColors`" in documented
+    assert "`atomOpacities`" in documented
+    assert "`atomBondStyles`" in documented
+    assert "`selectedAppearanceAffectsBonds`" in documented
+    assert "`thickness`" in documented
+    assert "0..1" in documented
+    assert "labelOpacities" in display_description
+    assert "atomRadiusScales" in display_description
+    assert "atomBondStyles" in display_description
+
+
+def test_skill_distinguishes_temporary_add_atoms_overlay_from_ase_constraints():
     documented = _documented_skill_text()
 
-    assert config["project"]["version"] == __version__
-    assert re.fullmatch(r"0\.0\.120a\d+\+symmetry", __version__)
-    assert "MAIN_BASEaSYMMETRY_ITERATION+symmetry" in readme
-    assert "forked from the v_ase `0.0.120`" in readme
-    assert "not published to PyPI" in readme
-    assert "not a PyPI release" in documented
-    assert "twine upload" not in readme + documented
+    for required in (
+        "semantic constraint summary",
+        "describe().constraints.fixed_indices",
+        "ASE constraints remain unchanged",
+        "session.working_atoms.constraints",
+        "does not change atom radii",
+        "fixed-material surface",
+    ):
+        assert required in documented, required
 
 
 def test_skill_explains_vendor_neutral_agent_handoff():
+    documented = " ".join(_documented_skill_text().split())
     setup = (REFERENCES / "agent-setup.md").read_text(encoding="utf-8")
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     compatibility = (ROOT / "v_ase" / "skills_v_ase.md").read_text(encoding="utf-8")
@@ -133,6 +274,7 @@ def test_skill_explains_vendor_neutral_agent_handoff():
     for required in (
         "Codex",
         "Claude Code",
+        "GitHub Copilot",
         "ChatGPT desktop agents",
         "Gemini-based agents",
         "SKILL.md",
@@ -155,13 +297,16 @@ def test_skill_explains_vendor_neutral_agent_handoff():
         "standalone `html` export",
     ):
         assert required in setup + readme + compatibility
+    readable_readme = " ".join(readme.split())
     assert "CAD-ready" not in readme
     assert "--for-ai" not in setup + readme + compatibility
-    assert "does not accept natural language itself" in readme
-    assert "external agent launches" in readme.lower()
-    assert "structured CLI" in readme
-    assert "same live v_ase GUI" in readme
+    assert "You describe the scientific result to an external AI Agent" in readable_readme
+    assert "the Agent uses the Skill and structured CLI/API" in readable_readme
+    assert "the result appears in the same live GUI" in readable_readme
+    assert "A manual GUI edit becomes the next document revision" in readable_readme
     assert "There is no natural-language endpoint and no command loop on stdin." in setup
+    assert "`viewportBackground` controls the interactive GUI only" in documented
+    assert "terminate the persistent CLI process while the human GUI is still open" in documented
     assert "can reduce token use" in readme
 
 
@@ -189,6 +334,9 @@ def test_skill_documents_bidirectional_same_document_collaboration():
             collaboration + readme + evaluation
         ).lower(), required
 
+    assert "pristine 6 x 6 graphene" in collaboration
+    assert "preserve PBC" not in collaboration
+
 
 def test_skill_documents_offline_html_handoff_contract():
     documented = _documented_skill_text()
@@ -203,8 +351,22 @@ def test_skill_documents_offline_html_handoff_contract():
         "v_ase gui FILE.html",
     ):
         assert required in documented
+    workflows = (REFERENCES / "workflows-and-examples.md").read_text(encoding="utf-8")
+    assert 'embedProject: false' in workflows
+    assert "`hasEmbeddedProject` is false" in workflows
+    assert 'embedProject: true' in workflows
+    assert "a nonzero `.vase` download" in workflows
     assert "Export HTML View" in readme
     assert "without v_ase, Python, a server, or a CDN" in readme
+
+
+def test_skill_defines_auto_notebook_mode_and_revision_discovery():
+    skill = SKILL.read_text(encoding="utf-8")
+    environments = (REFERENCES / "cli-and-environments.md").read_text(encoding="utf-8")
+    assert "%v_ase auto" in skill
+    assert "restores automatic active-kernel" in (skill + environments)
+    source = (ROOT / "v_ase" / "static" / "main.js").read_text(encoding="utf-8")
+    assert "'expectedRevision', 'frame'" in source
 
 
 def test_skill_trigger_evaluation_has_positive_and_negative_boundaries():
@@ -218,10 +380,31 @@ def test_skill_trigger_evaluation_has_positive_and_negative_boundaries():
         "Periodic structure",
         "Constraints rendering",
         "Trajectory",
+        "Volumetric and RDF analysis",
         "Exports",
         "Live collaboration and documents",
     ):
         assert required in evaluation
+
+    for regression in (
+        "byte-offset index pass",
+        "Could not guess file type",
+        "complete scene to 2D",
+        "persistent Render Area",
+        "deduplicated base index",
+        "exactly identical coordinates",
+        "horizontal scroll track",
+    ):
+        assert regression in evaluation
+
+
+def test_skill_trajectory_workflow_names_a_real_multiframe_fixture():
+    relative = Path("examples/readme_scene_assets/crowded_c60_relaxation.traj")
+    documented = _documented_skill_text()
+
+    assert relative.as_posix() in documented
+    frames = read(ROOT / relative, index=":")
+    assert len(frames) == 42
 
 
 def test_skill_has_explicit_safety_and_verify_loops():
@@ -271,10 +454,296 @@ def test_agent_endpoints_serve_the_canonical_skill_and_schema():
     assert schema["command_endpoint"]["document"].endswith("/{session_id}")
     assert "schema" in schema["command_endpoint"]["methods"]
     assert "vector" in schema["operation_parameters"]["move-selection"]["required"]
+    assert schema["operation_parameters"]["set-unit-cell"]["required"] == ["cell"]
+    assert schema["operation_parameters"]["scale-selection"]["required"] == [
+        "factor",
+        "selection-or-indices",
+    ]
     assert schema["operation_parameters"]["set-constraints"]["notes"].startswith(
         "kind is fixed_line or fixed_plane"
     )
+    scatter_atoms = schema["operation_parameters"]["scatter-atoms"]
+    assert {"regions", "regionMic", "constrainToDomain"}.issubset(
+        scatter_atoms["optional"]
+    )
+    assert "Allow union" in scatter_atoms["notes"]
+    assert "appends" in scatter_atoms["notes"]
+    assert "immutable host" in scatter_atoms["notes"]
+    scatter_molecules = schema["operation_parameters"]["scatter-molecules"]
+    assert {"quantityMode", "targetDensityGcm3"}.issubset(
+        scatter_molecules["optional"]
+    )
+    update_regions = schema["operation_parameters"]["update-add-atoms-region"]
+    assert {
+        "regions", "regionId", "regionName", "regionMic", "constrainToDomain"
+    }.issubset(
+        update_regions["optional"]
+    )
+    scale_regions = schema["operation_parameters"]["scale-add-atoms-regions"]
+    assert scale_regions["required"] == [
+        "regionIds",
+        "factor",
+        "active-add-atoms-session",
+    ]
+    assert schema["operation_parameters"]["exit-relaxation-mode"]["optional"] == [
+        "keep"
+    ]
+    assert schema["operation_parameters"]["clear-relaxation-trajectory"][
+        "optional"
+    ] == ["retain"]
+    assert schema["operation_parameters"]["start-relaxation"]["required"] == [
+        "attached-calculator-or-active-add-atoms-session"
+    ]
+    assert "same calculator" in (
+        schema["operation_parameters"]["start-relaxation"]["notes"]
+    )
+    documented = _documented_skill_text()
+    assert "**+ Add atoms > Build with ASE**" in documented
+    assert "placement_count" in documented
+    assert "later `scatter-atoms` or `scatter-molecules` calls append" in documented
+    assert "Use the common `start-relaxation` operation" in documented
+    assert schema["operation_parameters"]["delete-selection"]["mode"] == "view-or-edit"
+    render_area = schema["control_schema"]["properties"]["renderArea"]
+    assert render_area["additionalProperties"] is False
+    assert {"enabled", "followViewport", "fromCurrentView", "camera"}.issubset(
+        render_area["properties"]
+    )
     assert "embedProject" in schema["export_parameters"]["html"]["optional"]
+    assert schema["operation_parameters"]["load-volumetric"]["required"] == ["path"]
+    assert "precision" in schema["operation_parameters"]["load-volumetric"]["optional"]
+    assert schema["operation_parameters"]["show-volumetric"]["required"] == [
+        "datasetId",
+        "level",
+    ]
+    assert {
+        "smearingSigma",
+        "smoothingIterations",
+    }.issubset(schema["operation_parameters"]["show-volumetric"]["optional"])
+    operation_object = schema["control_schema"]["properties"]["operation"]["oneOf"][1]
+
+    def operation_schema(name: str) -> dict:
+        return next(
+            item["then"]
+            for item in operation_object["allOf"]
+            if item["if"]["properties"]["name"].get("const") == name
+        )
+
+    scatter_atoms_schema = operation_schema("scatter-atoms")
+    atoms_regions = scatter_atoms_schema["properties"]["regions"]
+    assert atoms_regions["maxItems"] == 32
+    assert atoms_regions["items"]["required"] == ["id", "role", "bounds"]
+    assert atoms_regions["items"]["properties"]["role"]["enum"] == [
+        "allow",
+        "reject",
+    ]
+    assert atoms_regions["items"]["properties"]["bounds"]["minItems"] == 6
+    assert atoms_regions["items"]["properties"]["bounds"]["maxItems"] == 6
+    scatter_molecules_schema = operation_schema("scatter-molecules")
+    assert scatter_molecules_schema["properties"]["quantityMode"]["enum"] == [
+        "count",
+        "density",
+    ]
+    assert scatter_molecules_schema["properties"]["targetDensityGcm3"] == {
+        "type": "number",
+        "exclusiveMinimum": 0,
+        "maximum": 100,
+    }
+    update_regions_schema = operation_schema("update-add-atoms-region")
+    assert update_regions_schema["properties"]["regions"]["maxItems"] == 32
+    assert update_regions_schema["properties"]["regions"]["items"]["properties"][
+        "role"
+    ]["enum"] == ["allow", "reject"]
+    assert update_regions_schema["properties"]["regionMic"] == {"type": "boolean"}
+    assert update_regions_schema["properties"]["constrainToDomain"] == {
+        "type": "boolean"
+    }
+    relax_added_schema = next(
+        item["then"]
+        for item in operation_object["allOf"]
+        if (
+            item["if"]["properties"]["name"].get("const")
+            == "relax-added-atoms"
+        )
+    )
+    assert relax_added_schema["properties"]["allowEscape"] == {"type": "boolean"}
+    assert relax_added_schema["properties"]["constrainToDomain"] == {
+        "type": "boolean"
+    }
+    assert relax_added_schema["properties"]["device"]["enum"] == ["cpu", "cuda"]
+    assert relax_added_schema["properties"]["cpuThreads"] == {
+        "type": "integer",
+        "minimum": 1,
+    }
+    clear_relaxation_schema = operation_schema("clear-relaxation-trajectory")
+    assert clear_relaxation_schema["properties"]["retain"]["enum"] == [
+        "displayed",
+        "final",
+    ]
+    show_schema = next(
+        item["then"]
+        for item in operation_object["allOf"]
+        if (
+            item["if"]["properties"]["name"].get("const")
+            == "show-volumetric"
+        )
+    )
+    show_properties = show_schema["properties"]
+    assert show_schema["required"] == ["datasetId", "level"]
+    assert show_properties["surfaceMode"]["enum"] == ["single", "signed"]
+    assert show_properties["stepSize"]["enum"] == [1, 2, 4]
+    assert show_properties["smearingSigma"] == {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 8,
+    }
+    assert show_properties["smoothingIterations"] == {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 30,
+    }
+    assert show_properties["opacity"] == {
+        "type": "number",
+        "minimum": 0.05,
+        "maximum": 1,
+    }
+    assert show_properties["positiveColor"]["pattern"] == "^#[0-9A-Fa-f]{6}$"
+    assert schema["operation_parameters"]["add-volumetric-plane"]["required"] == [
+        "datasetId",
+        "hkl",
+    ]
+    assert {
+        "offsetAngstrom",
+        "resolution",
+        "colormap",
+        "autoRange",
+        "vmin",
+        "vmax",
+        "opacity",
+    }.issubset(schema["operation_parameters"]["add-volumetric-plane"]["optional"])
+    assert schema["operation_parameters"]["update-volumetric-planes"]["required"] == [
+        "planeIds"
+    ]
+    assert schema["operation_parameters"]["remove-volumetric-planes"]["required"] == [
+        "planeIds"
+    ]
+    assert schema["operation_parameters"]["combine-volumetric"]["required"] == [
+        "datasetIds",
+        "coefficients",
+    ]
+    assert "precision" in schema["operation_parameters"]["combine-volumetric"]["optional"]
+    assert {
+        "cutoff",
+        "bins",
+        "pairMode",
+        "activePairs",
+    }.issubset(schema["operation_parameters"]["calculate-rdf"]["optional"])
+    assert "selected" in schema["operation_parameters"]["calculate-rdf"]["notes"]
+    assert schema["operation_parameters"]["rotate-to-commensurate"]["required"] == [
+        "angleDeg",
+        "selection-or-indices",
+    ]
+    assert {
+        "maxAreaRatio",
+        "strainTolerance",
+        "maxAngleDifferenceDeg",
+        "showAtoms",
+    }.issubset(
+        schema["operation_parameters"]["rotate-to-commensurate"]["optional"]
+    )
+    assert schema["operation_parameters"]["apply-commensurate-cell"]["mode"] == "edit"
+    assert schema["operation_parameters"]["load-commensurate-guest"]["required"] == [
+        "path"
+    ]
+    assert {
+        "strainTarget",
+        "strainTolerance",
+        "maxAreaRatio",
+        "angleDeg",
+        "gap",
+        "showAtoms",
+    }.issubset(
+        schema["operation_parameters"]["load-commensurate-guest"]["optional"]
+    )
+    assert {
+        "mode",
+        "strainTarget",
+        "strainTolerance",
+        "maxAreaRatio",
+        "angleDeg",
+        "gap",
+        "showAtoms",
+        "snap",
+    }.issubset(
+        schema["operation_parameters"]["calculate-commensurate"]["optional"]
+    )
+    assert schema["operation_parameters"]["calculate-registry-map"]["required"] == [
+        "selection-or-indices"
+    ]
+    assert schema["operation_parameters"]["calculate-registry-map"]["optional"] == [
+        "indices",
+        "metric",
+        "gridX",
+        "gridY",
+        "pairCutoffs",
+        "hkl",
+    ]
+    assert schema["operation_parameters"]["start-registry-relaxation"]["optional"] == [
+        "indices",
+        "hkl",
+        "space",
+        "maxDisplacement",
+    ]
+    assert schema["operation_parameters"]["set-registry-translation"]["required"] == [
+        "active-registry-relaxation",
+        "coordinates",
+    ]
+    assert schema["operation_parameters"]["set-interface-theme"] == {
+        "mode": "view-or-edit",
+        "required": ["theme"],
+        "optional": [],
+        "notes": schema["operation_parameters"]["set-interface-theme"]["notes"],
+    }
+    assert schema["operation_parameters"]["set-personal-visual-default"]["mode"] == (
+        "view-or-edit"
+    )
+    assert schema["operation_parameters"]["restore-app-visual-defaults"]["required"] == [
+        "confirm"
+    ]
+    operation_names = operation_object["properties"]["name"]["enum"]
+    assert {
+        "set-interface-theme",
+        "set-personal-visual-default",
+        "restore-app-visual-defaults",
+        "center-selection-at-origin",
+        "add-volumetric-plane",
+        "update-volumetric-planes",
+        "remove-volumetric-planes",
+    }.issubset(operation_names)
+    restore_schema = next(
+        item["then"]
+        for item in operation_object["allOf"]
+        if (
+            item["if"]["properties"]["name"].get("const")
+            == "restore-app-visual-defaults"
+        )
+    )
+    assert restore_schema["required"] == ["confirm"]
+    assert restore_schema["properties"]["confirm"] == {"const": True}
+    assert schema["export_parameters"]["rdf-csv"]["optional"] == [
+        "cutoff",
+        "bins",
+        "pairMode",
+        "activePairs",
+    ]
+    assert "maxAreaRatio" in schema["export_parameters"]["commensurate-csv"]["optional"]
+    assert schema["export_parameters"]["registry-csv"]["optional"] == [
+        "indices",
+        "metric",
+        "gridX",
+        "gridY",
+        "pairCutoffs",
+        "hkl",
+    ]
     assert schema["accepts_natural_language"] is False
     assert schema["stdin_commands"] is False
     assert schema["collaboration"]["protocol"] == "v_ase.collaboration.v1"
@@ -285,9 +754,79 @@ def test_agent_endpoints_serve_the_canonical_skill_and_schema():
     )
 
 
+def test_skill_documents_volumetric_and_rdf_end_to_end_contracts():
+    documented = _documented_skill_text()
+    for required in (
+        "`load-volumetric`",
+        "`show-volumetric`",
+        "`combine-volumetric`",
+        "`remove-volumetric`",
+        "`calculate-rdf`",
+        "`rdf-csv`",
+        '`pairMode:"selected"`',
+        "analysis.volumetricDatasets",
+        "identical dimensions, cell, origin, PBC",
+        "`periodicImageSpan`",
+        "fixed `2 x 2 x 2`",
+        "FP32",
+        "FP64",
+        "smearingSigma",
+        "smoothingIterations",
+        "display copy",
+        "cell-boundary vertices",
+        "analysis.volumetricSurface",
+        "partialSignedSurface",
+        "2,000,000",
+        "concentration-weighted",
+        "fully periodic 3D",
+        "V_ASE_MAX_VOLUMETRIC_POINTS",
+    ):
+        assert required in documented, required
+
+
+def test_skill_documents_commensurate_and_registry_end_to_end_contracts():
+    documented = _documented_skill_text()
+    normalized = " ".join(documented.split())
+    for required in (
+        "`load-commensurate-guest`",
+        "`remove-commensurate-guest`",
+        "`calculate-commensurate`",
+        "`rotate-to-commensurate`",
+        "`apply-commensurate-cell`",
+        "`dismiss-commensurate-cell`",
+        "`calculate-registry-map`",
+        "`commensurate-csv`",
+        "`registry-csv`",
+        "maxAreaRatio",
+        "default `maxAreaRatio` of 16",
+        "Paper strain projection",
+        "max principal strain",
+        "mean absolute strain",
+        "actual host-plus-guest atom count",
+        "examples/commensurate_host_guest",
+        "1..128",
+        "global Z",
+        "cells-only",
+        "shared in-plane origin",
+        "candidate validity",
+        "one-primitive-cell boundary shell",
+        "geometry scores, not energies",
+        "mass-weighted COM",
+        "space: \"cartesian\"",
+        "per-axis",
+        "icon-only CSV",
+        "CellMatch",
+        "Stradi",
+    ):
+        assert required in documented or required in normalized, required
+
+
 def test_legacy_guide_is_a_resolving_compatibility_link():
     legacy = ROOT / "v_ase/skills_v_ase.md"
     text = legacy.read_text(encoding="utf-8")
     target = re.search(r"\]\((skills/[^)]+/SKILL\.md)\)", text)
     assert target
     assert (legacy.parent / target.group(1)).resolve() == SKILL.resolve()
+    assert "Save Project" in text
+    assert "Include interactive rendered view" in text
+    assert "human HTML Project action" not in text

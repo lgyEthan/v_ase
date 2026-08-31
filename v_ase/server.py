@@ -5,13 +5,18 @@ import uuid
 from contextlib import asynccontextmanager, suppress
 import pickle
 import io
+import html
 import json
+import logging
 import tempfile
 from collections import Counter
+from importlib.metadata import PackageNotFoundError, distribution
 from pathlib import Path
 from typing import Dict, Any, List
+from ase.io.formats import UnknownFileTypeError
 from .session import (
     append_session_frames,
+    copy_atoms_with_calc,
     EditorSession,
     create_workspace_session,
     finalize_workspace,
@@ -24,21 +29,53 @@ from .session import (
 )
 from .serialization import atoms_to_json
 from .websocket_manager import ws_manager
-from .io import atom_labels, base_symbol_for_atom_type, normalize_atom_type_label, set_atom_labels
+from .io import (
+    atom_labels,
+    base_symbol_for_atom_type,
+    infer_input_format,
+    normalize_atom_type_label,
+    set_atom_labels,
+)
 from .repulsion import (
     copy_calculator,
     ensure_default_calculator,
     is_vase_repulsion_calculator,
     repulsion_metadata,
 )
-from .commensurate import find_commensurate_angles
+from .add_atoms import (
+    apply_atom_addition_positions,
+    atom_addition_domain_preview,
+    atom_addition_summary,
+    cancel_atom_addition,
+    default_pair_cutoffs,
+    finish_atom_addition,
+    molecule_catalog,
+    molecule_entry_elements,
+    normalize_molecule_entries,
+    start_atom_addition,
+    start_atom_addition_relaxation,
+    stop_atom_addition_relaxation,
+    update_atom_addition_region,
+)
+from .commensurate import (
+    COMMENSURATE_REFERENCES,
+    MAX_LATTICE_MATCH_AREA_RATIO,
+    commensurate_csv,
+    commensurate_supercell_geometry,
+    find_commensurate_angles,
+    find_lattice_matches,
+    host_guest_supercell_geometry,
+    row_rotation_matrix,
+)
 from .phonon import (
+    PHONON_EQUILIBRIUM_ARRAY,
     PhononDependencyError,
     generate_finite_displacements,
     generate_mode_trajectory,
     load_phonon_model,
     phonon_band_structure,
     phonon_modes_at_q,
+    phonon_structure_signature,
     validate_phonon_model_for_atoms,
 )
 from .symmetry import (
@@ -47,6 +84,30 @@ from .symmetry import (
     high_symmetry_path,
     symmetry_tolerance_scan,
     transform_by_symmetry,
+)
+from .analysis import calculate_rdf, rdf_csv
+from .atom_scalars import (
+    atom_force_vectors,
+    atom_property_snapshot,
+    atom_scalar_catalog,
+    atom_scalar_values,
+)
+from .builders import (
+    BulkBuildError,
+    build_bulk_atoms,
+    bulk_builder_catalog,
+    bulk_preview_payload,
+)
+from .colormaps import colormap_catalog, colormap_lut
+from .registry import calculate_registry_map, registry_map_csv
+from .registry_relax import (
+    cancel_registry_relaxation_mode,
+    finish_registry_relaxation_mode,
+    registry_relaxation_summary,
+    run_registry_relaxation,
+    set_registry_translation,
+    start_registry_relaxation_mode,
+    stop_registry_relaxation,
 )
 from .ai import AI_PROTOCOL, COLLABORATION_PROTOCOL, ai_skill_path
 from .project import (
@@ -58,10 +119,29 @@ from .project import (
     replace_session_from_project,
     write_project_archive,
 )
+from .preferences import (
+    PREFERENCES_SCHEMA,
+    clear_visual_defaults,
+    load_visual_defaults,
+    save_visual_defaults,
+)
+from .volumetric import (
+    GRID_GEOMETRY_ATOL,
+    GRID_GEOMETRY_RTOL,
+    combine_volumetric_datasets,
+    dataset_by_id,
+    generate_isosurface,
+    generate_volumetric_plane,
+    normalize_volumetric_precision,
+    read_volumetric_file,
+    resolve_volumetric_format,
+    volumetric_structure,
+)
 import numpy as np
-from ase import Atom
+from ase import Atom, Atoms
 from ase.build import make_supercell
 from ase.build.supercells import lattice_points_in_supercell
+from ase.calculators.singlepoint import SinglePointCalculator
 from ase.constraints import FixAtoms, FixCartesian, FixedLine, FixedPlane, FixScaled, Hookean
 from ase.data import atomic_numbers
 from ase.geometry import find_mic
@@ -104,6 +184,11 @@ class _MissingFastAPIApp:
         return decorator
 
     def post(self, *args, **kwargs):
+        def decorator(func):
+            return func
+        return decorator
+
+    def delete(self, *args, **kwargs):
         def decorator(func):
             return func
         return decorator
@@ -152,6 +237,7 @@ _AI_COMMAND_DEFAULT_TIMEOUT_SECONDS = 300.0
 _AI_COMMAND_MAX_TIMEOUT_SECONDS = 1800.0
 _AI_COMMAND_CONNECT_TIMEOUT_SECONDS = 15.0
 _ai_command_waiters: Dict[str, asyncio.Future] = {}
+LOGGER = logging.getLogger(__name__)
 
 
 def _remove_temporary_file(path: str) -> None:
@@ -159,6 +245,63 @@ def _remove_temporary_file(path: str) -> None:
         os.unlink(path)
     except OSError:
         pass
+
+
+def _root_exception_message(exc: BaseException) -> str:
+    """Return the final useful exception line without exposing a traceback."""
+
+    root = exc
+    visited: set[int] = set()
+    while id(root) not in visited:
+        visited.add(id(root))
+        nested = root.__cause__ or root.__context__
+        if nested is None:
+            break
+        root = nested
+    lines = [line.strip() for line in str(root).splitlines() if line.strip()]
+    return lines[-1] if lines else root.__class__.__name__
+
+
+def _exception_chain_contains(exc: BaseException, kind: type[BaseException]) -> bool:
+    current: BaseException | None = exc
+    visited: set[int] = set()
+    while current is not None and id(current) not in visited:
+        if isinstance(current, kind):
+            return True
+        visited.add(id(current))
+        current = current.__cause__ or current.__context__
+    return False
+
+
+def _file_read_error_detail(action: str, display_name: str, exc: BaseException) -> str:
+    message = _root_exception_message(exc)
+    if _exception_chain_contains(exc, UnknownFileTypeError):
+        message = (
+            "Could not determine the file format. Choose a Reader explicitly "
+            "or use a recognized filename extension."
+        )
+    elif _exception_chain_contains(exc, FileNotFoundError):
+        message = "The selected file no longer exists or is not accessible at that path."
+    elif _exception_chain_contains(exc, PermissionError):
+        message = "Permission was denied while reading the selected file."
+    elif _exception_chain_contains(exc, IsADirectoryError):
+        message = "The selected path is a directory, not a structure file."
+    elif _exception_chain_contains(exc, UnicodeDecodeError):
+        message = (
+            "The file is not valid text for the selected Reader. "
+            "Choose the matching binary Reader or another file."
+        )
+    elif _exception_chain_contains(exc, EOFError):
+        message = "The file ended unexpectedly and may be empty, incomplete, or damaged."
+    return f"Could not {action} {display_name}: {message}"
+
+
+def _file_read_http_error(action: str, display_name: str, exc: BaseException) -> HTTPException:
+    LOGGER.exception("Could not %s %s", action, display_name, exc_info=exc)
+    return HTTPException(
+        status_code=400,
+        detail=_file_read_error_detail(action, display_name, exc),
+    )
 
 if FASTAPI_AVAILABLE:
     @app.exception_handler(ValueError)
@@ -173,8 +316,31 @@ if FASTAPI_AVAILABLE:
     app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
 
+def v_ase_license_text() -> str:
+    """Return the installed AGPL text in source and wheel installations."""
+    source_license = Path(__file__).resolve().parent.parent / "LICENSE"
+    if source_license.is_file():
+        return source_license.read_text(encoding="utf-8")
+
+    try:
+        package = distribution("v_ase-gui")
+    except PackageNotFoundError:
+        package = None
+    if package is not None:
+        for record in package.files or ():
+            record_path = Path(str(record))
+            if record_path.name == "LICENSE" and "licenses" in record_path.parts:
+                installed_license = Path(package.locate_file(record))
+                if installed_license.is_file():
+                    return installed_license.read_text(encoding="utf-8")
+
+    raise FileNotFoundError("The v_ase license text is missing from this installation.")
+
+
 MAX_INLINE_TRAJECTORY_CACHE_VALUES = 750_000
 MAX_BINARY_TRAJECTORY_CACHE_VALUES = 30_000_000
+MAX_ATOM_SCALAR_CACHE_VALUES = 20_000_000
+MAX_FORCE_VECTOR_CACHE_VALUES = 6_000_000
 MAX_UPLOADED_STRUCTURE_BYTES = 64 * 1024 * 1024 * 1024
 MAX_UPLOADED_IMAGE_BYTES = 512 * 1024 * 1024
 MAX_UPLOADED_VIDEO_BYTES = 2 * 1024 * 1024 * 1024
@@ -193,6 +359,69 @@ COLLABORATION_EVENT_CATEGORIES = frozenset({
     "structure",
     "trajectory",
 })
+
+
+@app.get("/api/vendor/plotly.js", include_in_schema=False)
+async def plotly_javascript_bundle():
+    """Serve Plotly from the installed Python package without a CDN request."""
+    try:
+        import plotly
+    except ModuleNotFoundError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Interactive RDF plots require the plotly package.",
+        ) from exc
+    bundle = Path(plotly.__file__).resolve().parent / "package_data" / "plotly.min.js"
+    if not bundle.is_file():
+        raise HTTPException(status_code=503, detail="The installed Plotly bundle is incomplete.")
+    return FileResponse(
+        bundle,
+        media_type="text/javascript",
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
+
+
+_AI_REPULSION_CALCULATOR_SCHEMA = {
+    "type": "object",
+    "description": (
+        "Optional settings for v_ase's built-in repulsion calculator. Pair "
+        "distances are independent from visual bonds. In absolute mode each "
+        "pair_cutoffs value is its onset distance in Angstrom. In scaled mode "
+        "the value is multiplied by cutoff_scale. Zero disables a pair. Pair "
+        "energy and force are exactly zero at and beyond the onset distance."
+    ),
+    "additionalProperties": False,
+    "properties": {
+        "device": {"enum": ["cpu", "cuda"]},
+        "cpu_threads": {"type": "integer", "minimum": 1},
+        "cutoff_mode": {"enum": ["absolute", "scaled"]},
+        "cutoff_basis": {"enum": ["covalent", "vdw"]},
+        "cutoff_distance": {
+            "type": "number", "minimum": 0.01, "maximum": 100,
+        },
+        "cutoff_scale": {
+            "type": "number", "minimum": 0.05, "maximum": 3,
+        },
+        "pair_cutoffs": {
+            "type": "object",
+            "description": (
+                "Independent repulsion reference distances in Angstrom, keyed "
+                "by an unordered label pair such as Cu_surface|O_ads. Zero "
+                "disables the pair even if a visual bond is shown."
+            ),
+            "additionalProperties": {
+                "type": "number", "minimum": 0, "maximum": 100,
+            },
+        },
+        "k_repulsion": {
+            "type": "number", "minimum": 0, "maximum": 1000,
+        },
+        "k_boundary": {
+            "type": "number", "exclusiveMinimum": 0, "maximum": 1000,
+        },
+    },
+}
+
 
 AI_CONTROL_SCHEMA = {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -235,8 +464,12 @@ AI_CONTROL_SCHEMA = {
             "description": (
                 "Partial visual settings. Common keys include showBonds, "
                 "showCell, showAxes, showGrid, viewportBackground, "
-                "atomDisplayMode, atomRadiusScale, bondThickness, "
-                "supercell, translation, translationMode, lightingMode, "
+                "atomDisplayMode, atomRadiusScale, labelRadii, labelColors, "
+                "labelOpacities, labelMaterials, atomRadiusScales, atomColors, "
+                "atomOpacities, atomMaterials, atomBondStyles, bondThickness, "
+                "bondMaterial, bondOpacity, pairwiseBondStyles (including "
+                "pair thickness), supercell, "
+                "translation, translationMode, lightingMode, "
                 "sunIntensity, sunPosition, and sunTarget."
             ),
             "additionalProperties": True,
@@ -276,22 +509,47 @@ AI_CONTROL_SCHEMA = {
         "operation": {
             "description": (
                 "One semantic structure operation. Supported names are wrap, "
-                "translate-all, set-supercell, make-supercell, add-atom, "
+                "translate-all, center-selection-at-origin, set-unit-cell, build-bulk, set-supercell, make-supercell, add-atom, "
+                "scatter-atoms, scatter-molecules, update-add-atoms-region, "
+                "scale-add-atoms-regions, "
+                "relax-added-atoms, stop-added-atoms, "
+                "finish-add-atoms, cancel-add-atoms, "
                 "delete-selection, set-identity, set-constraints, "
-                "move-selection, rotate-selection, undo, redo, "
-                "reset-coordinates, start-relaxation, stop-relaxation, and "
-                "refresh-displacements, analyze-symmetry, symmetry-path, "
-                "standardize-symmetry, generate-phonon-displacements, "
-                "phonon-band-structure, inspect-phonon-modes, and "
-                "generate-phonon-mode."
+                "move-selection, rotate-selection, scale-selection, rotate-to-commensurate, "
+                "load-commensurate-guest, remove-commensurate-guest, "
+                "calculate-commensurate, apply-commensurate-cell, "
+                "dismiss-commensurate-cell, calculate-registry-map, "
+                "start-registry-relaxation, run-registry-relaxation, "
+                "set-registry-translation, "
+                "stop-registry-relaxation, finish-registry-relaxation, "
+                "cancel-registry-relaxation, undo, redo, "
+                "reset-coordinates, start-relaxation, stop-relaxation, "
+                "clear-relaxation-trajectory, exit-relaxation-mode, and "
+                "refresh-displacements, load-volumetric, show-volumetric, "
+                "add-volumetric-plane, update-volumetric-planes, "
+                "remove-volumetric-planes, combine-volumetric, "
+                "remove-volumetric, calculate-rdf, "
+                "set-interface-theme, set-personal-visual-default, and "
+                "restore-app-visual-defaults, set-atom-colorscale, "
+                "analyze-symmetry, symmetry-path, standardize-symmetry, "
+                "generate-phonon-displacements, phonon-band-structure, "
+                "inspect-phonon-modes, and generate-phonon-mode."
             ),
             "oneOf": [
                 {
                     "type": "string",
                     "enum": [
-                        "wrap", "undo", "redo", "reset-coordinates",
+                        "wrap", "center-selection-at-origin", "undo", "redo", "reset-coordinates",
                         "stop-relaxation", "refresh-displacements",
                         "analyze-symmetry", "symmetry-path",
+                        "apply-commensurate-cell", "dismiss-commensurate-cell",
+                        "remove-commensurate-guest", "calculate-rdf",
+                        "set-personal-visual-default",
+                        "stop-added-atoms", "finish-add-atoms", "cancel-add-atoms",
+                        "update-add-atoms-region",
+                        "stop-registry-relaxation", "finish-registry-relaxation",
+                        "cancel-registry-relaxation",
+                        "clear-relaxation-trajectory", "exit-relaxation-mode",
                     ],
                 },
                 {
@@ -300,22 +558,851 @@ AI_CONTROL_SCHEMA = {
                     "properties": {
                         "name": {
                             "enum": [
-                                "wrap", "translate-all", "set-supercell",
-                                "make-supercell", "add-atom",
+                                "wrap", "translate-all", "center-selection-at-origin", "set-unit-cell", "build-bulk", "set-supercell",
+                                "make-supercell", "add-atom", "scatter-atoms",
+                                "scatter-molecules",
+                                "update-add-atoms-region", "scale-add-atoms-regions",
+                                "relax-added-atoms", "stop-added-atoms",
+                                "finish-add-atoms", "cancel-add-atoms",
                                 "delete-selection", "set-identity",
                                 "set-constraints", "move-selection",
-                                "rotate-selection", "undo", "redo",
+                                "rotate-selection", "scale-selection", "rotate-to-commensurate",
+                                "load-commensurate-guest",
+                                "remove-commensurate-guest",
+                                "calculate-commensurate",
+                                "apply-commensurate-cell",
+                                "dismiss-commensurate-cell",
+                                "calculate-registry-map",
+                                "start-registry-relaxation",
+                                "run-registry-relaxation",
+                                "set-registry-translation",
+                                "stop-registry-relaxation",
+                                "finish-registry-relaxation",
+                                "cancel-registry-relaxation",
+                                "undo", "redo",
                                 "reset-coordinates", "start-relaxation",
-                                "stop-relaxation", "refresh-displacements",
+                                "stop-relaxation", "clear-relaxation-trajectory",
+                                "exit-relaxation-mode",
+                                "refresh-displacements",
                                 "analyze-symmetry", "symmetry-path",
                                 "standardize-symmetry",
                                 "generate-phonon-displacements",
                                 "phonon-band-structure",
                                 "inspect-phonon-modes",
                                 "generate-phonon-mode",
+                                "load-volumetric", "show-volumetric",
+                                "add-volumetric-plane",
+                                "update-volumetric-planes",
+                                "remove-volumetric-planes",
+                                "combine-volumetric", "remove-volumetric",
+                                "calculate-rdf", "set-interface-theme",
+                                "set-personal-visual-default",
+                                "restore-app-visual-defaults",
+                                "set-atom-colorscale",
                             ],
                         },
                     },
+                    "allOf": [
+                        {
+                            "if": {
+                                "required": ["name"],
+                                "properties": {"name": {"const": "build-bulk"}},
+                            },
+                            "then": {
+                                "required": ["formula"],
+                                "properties": {
+                                    "formula": {"type": "string", "minLength": 1},
+                                    "crystalStructure": {
+                                        "enum": [
+                                            "sc", "fcc", "bcc", "bct", "hcp",
+                                            "rhombohedral", "orthorhombic", "diamond",
+                                            "zincblende", "rocksalt", "cesiumchloride",
+                                            "fluorite", "wurtzite",
+                                        ],
+                                    },
+                                    "cellMode": {
+                                        "enum": ["primitive", "orthorhombic", "cubic"],
+                                    },
+                                    "a": {"type": "number", "exclusiveMinimum": 0},
+                                    "b": {"type": "number", "exclusiveMinimum": 0},
+                                    "c": {"type": "number", "exclusiveMinimum": 0},
+                                    "alpha": {
+                                        "type": "number",
+                                        "exclusiveMinimum": 0,
+                                        "exclusiveMaximum": 180,
+                                    },
+                                    "covera": {"type": "number", "exclusiveMinimum": 0},
+                                    "u": {"type": "number", "minimum": 0, "maximum": 1},
+                                    "basis": {
+                                        "type": "array",
+                                        "minItems": 1,
+                                        "items": {
+                                            "type": "array",
+                                            "items": {"type": "number"},
+                                            "minItems": 3,
+                                            "maxItems": 3,
+                                        },
+                                    },
+                                    "confirmReplace": {"type": "boolean"},
+                                },
+                            },
+                        },
+                        {
+                            "if": {
+                                "required": ["name"],
+                                "properties": {"name": {"const": "set-unit-cell"}},
+                            },
+                            "then": {
+                                "required": ["cell"],
+                                "properties": {
+                                    "cell": {
+                                        "type": "array",
+                                        "minItems": 3,
+                                        "maxItems": 3,
+                                        "items": {
+                                            "type": "array",
+                                            "items": {"type": "number"},
+                                            "minItems": 3,
+                                            "maxItems": 3,
+                                        },
+                                    },
+                                    "pbc": {
+                                        "type": "array",
+                                        "items": {"type": "boolean"},
+                                        "minItems": 3,
+                                        "maxItems": 3,
+                                    },
+                                },
+                            },
+                        },
+                        {
+                            "if": {
+                                "required": ["name"],
+                                "properties": {"name": {"const": "scatter-atoms"}},
+                            },
+                            "then": {
+                                "anyOf": [
+                                    {"required": ["entries"]},
+                                    {"required": ["element", "count"]},
+                                ],
+                                "properties": {
+                                    "entries": {
+                                        "type": "array",
+                                        "minItems": 1,
+                                        "items": {
+                                            "type": "object",
+                                            "required": ["element", "count"],
+                                            "properties": {
+                                                "element": {"type": "string", "minLength": 1},
+                                                "label": {"type": "string", "minLength": 1},
+                                                "count": {
+                                                    "type": "integer", "minimum": 1, "maximum": 100000
+                                                },
+                                            },
+                                        },
+                                    },
+                                    "element": {"type": "string", "minLength": 1},
+                                    "label": {"type": "string", "minLength": 1},
+                                    "count": {"type": "integer", "minimum": 1, "maximum": 100000},
+                                    "regionMode": {"enum": ["cell", "box", "regions"]},
+                                    "regions": {
+                                        "type": "array",
+                                        "maxItems": 32,
+                                        "items": {
+                                            "type": "object",
+                                            "required": ["id", "role", "bounds"],
+                                            "properties": {
+                                                "id": {"type": "string", "minLength": 1},
+                                                "name": {"type": "string", "minLength": 1},
+                                                "role": {"enum": ["allow", "reject"]},
+                                                "bounds": {
+                                                    "type": "array",
+                                                    "items": {"type": "number"},
+                                                    "minItems": 6,
+                                                    "maxItems": 6,
+                                                },
+                                            },
+                                        },
+                                    },
+                                    "bounds": {
+                                        "type": "array",
+                                        "items": {"type": "number"},
+                                        "minItems": 6,
+                                        "maxItems": 6,
+                                    },
+                                    "regionRole": {
+                                        "enum": ["allow", "reject", "allowed", "prohibited"]
+                                    },
+                                    "regionMic": {"type": "boolean"},
+                                    "constrainToDomain": {"type": "boolean"},
+                                    "allowEscape": {"type": "boolean"},
+                                    "placementMode": {"enum": ["random", "homogeneous", "regular"]},
+                                    "regularSpacing": {"type": "number", "exclusiveMinimum": 0},
+                                    "coordinateBasis": {"enum": ["cartesian", "fractional"]},
+                                    "pbcAware": {"type": "boolean"},
+                                    "seed": {"type": ["integer", "null"], "minimum": 0},
+                                    "freezeExisting": {"type": "boolean"},
+                                    "cutoffBasis": {"enum": ["covalent", "vdw", "pairwise"]},
+                                    "cutoffScale": {
+                                        "type": "number", "exclusiveMinimum": 0, "maximum": 3
+                                    },
+                                    "pairCutoffs": {"type": "object"},
+                                },
+                            },
+                        },
+                        {
+                            "if": {
+                                "required": ["name"],
+                                "properties": {"name": {"const": "scatter-molecules"}},
+                            },
+                            "then": {
+                                "anyOf": [
+                                    {"required": ["molecules"]},
+                                    {"required": ["molecule", "count"]},
+                                ],
+                                "properties": {
+                                    "molecules": {
+                                        "type": "array",
+                                        "minItems": 1,
+                                        "items": {
+                                            "type": "object",
+                                            "required": ["name", "count"],
+                                            "properties": {
+                                                "name": {"type": "string", "minLength": 1},
+                                                "label": {"type": "string", "minLength": 1},
+                                                "count": {
+                                                    "type": "integer", "minimum": 1, "maximum": 20000
+                                                },
+                                            },
+                                        },
+                                    },
+                                    "molecule": {"type": "string", "minLength": 1},
+                                    "label": {"type": "string", "minLength": 1},
+                                    "count": {"type": "integer", "minimum": 1, "maximum": 20000},
+                                    "regionMode": {"enum": ["cell", "box", "regions"]},
+                                    "regions": {
+                                        "type": "array",
+                                        "maxItems": 32,
+                                        "items": {
+                                            "type": "object",
+                                            "required": ["id", "role", "bounds"],
+                                            "properties": {
+                                                "id": {"type": "string", "minLength": 1},
+                                                "name": {"type": "string", "minLength": 1},
+                                                "role": {"enum": ["allow", "reject"]},
+                                                "bounds": {
+                                                    "type": "array",
+                                                    "items": {"type": "number"},
+                                                    "minItems": 6,
+                                                    "maxItems": 6,
+                                                },
+                                            },
+                                        },
+                                    },
+                                    "bounds": {
+                                        "type": "array",
+                                        "items": {"type": "number"},
+                                        "minItems": 6,
+                                        "maxItems": 6,
+                                    },
+                                    "regionRole": {
+                                        "enum": ["allow", "reject", "allowed", "prohibited"]
+                                    },
+                                    "regionMic": {"type": "boolean"},
+                                    "constrainToDomain": {"type": "boolean"},
+                                    "allowEscape": {"type": "boolean"},
+                                    "placementMode": {"enum": ["random", "homogeneous", "regular"]},
+                                    "regularSpacing": {"type": "number", "exclusiveMinimum": 0},
+                                    "coordinateBasis": {"enum": ["cartesian", "fractional"]},
+                                    "pbcAware": {"type": "boolean"},
+                                    "randomOrientation": {"type": "boolean"},
+                                    "rigidMolecules": {"type": "boolean"},
+                                    "quantityMode": {"enum": ["count", "density"]},
+                                    "targetDensityGcm3": {
+                                        "type": "number", "exclusiveMinimum": 0, "maximum": 100
+                                    },
+                                    "seed": {"type": ["integer", "null"], "minimum": 0},
+                                    "freezeExisting": {"type": "boolean"},
+                                    "cutoffBasis": {"enum": ["covalent", "vdw", "pairwise"]},
+                                    "cutoffScale": {
+                                        "type": "number", "exclusiveMinimum": 0, "maximum": 3
+                                    },
+                                    "pairCutoffs": {"type": "object"},
+                                },
+                            },
+                        },
+                        {
+                            "if": {
+                                "required": ["name"],
+                                "properties": {"name": {"const": "update-add-atoms-region"}},
+                            },
+                            "then": {
+                                "properties": {
+                                    "regions": {
+                                        "type": "array",
+                                        "maxItems": 32,
+                                        "items": {
+                                            "type": "object",
+                                            "required": ["id", "role", "bounds"],
+                                            "properties": {
+                                                "id": {"type": "string", "minLength": 1},
+                                                "name": {"type": "string", "minLength": 1},
+                                                "role": {"enum": ["allow", "reject"]},
+                                                "bounds": {
+                                                    "type": "array",
+                                                    "items": {"type": "number"},
+                                                    "minItems": 6,
+                                                    "maxItems": 6,
+                                                },
+                                            },
+                                        },
+                                    },
+                                    "regionId": {"type": "string", "minLength": 1},
+                                    "regionName": {"type": "string", "minLength": 1},
+                                    "bounds": {
+                                        "type": "array",
+                                        "items": {"type": "number"},
+                                        "minItems": 6,
+                                        "maxItems": 6,
+                                    },
+                                    "regionRole": {
+                                        "enum": ["allow", "reject", "allowed", "prohibited"]
+                                    },
+                                    "regionMic": {"type": "boolean"},
+                                    "constrainToDomain": {"type": "boolean"},
+                                    "allowEscape": {"type": "boolean"},
+                                },
+                            },
+                        },
+                        {
+                            "if": {
+                                "required": ["name"],
+                                "properties": {"name": {"const": "scale-add-atoms-regions"}},
+                            },
+                            "then": {
+                                "required": ["regionIds", "factor"],
+                                "properties": {
+                                    "regionIds": {
+                                        "type": "array",
+                                        "minItems": 1,
+                                        "uniqueItems": True,
+                                        "items": {"type": "string", "minLength": 1},
+                                    },
+                                    "factor": {"type": "number", "exclusiveMinimum": 0},
+                                    "axis": {"enum": ["ALL", "X", "Y", "Z"]},
+                                    "pivot": {
+                                        "oneOf": [
+                                            {"const": "selection"},
+                                            {
+                                                "type": "array",
+                                                "items": {"type": "number"},
+                                                "minItems": 3,
+                                                "maxItems": 3,
+                                            },
+                                        ],
+                                    },
+                                    "regionMic": {"type": "boolean"},
+                                    "constrainToDomain": {"type": "boolean"},
+                                    "allowEscape": {"type": "boolean"},
+                                },
+                            },
+                        },
+                        {
+                            "if": {
+                                "required": ["name"],
+                                "properties": {"name": {"const": "scale-selection"}},
+                            },
+                            "then": {
+                                "required": ["factor"],
+                                "properties": {
+                                    "factor": {"type": "number", "exclusiveMinimum": 0},
+                                    "axis": {"enum": ["ALL", "X", "Y", "Z"]},
+                                    "pivot": {
+                                        "oneOf": [
+                                            {"enum": ["com", "active", "origin", "cell"]},
+                                            {
+                                                "type": "array",
+                                                "items": {"type": "number"},
+                                                "minItems": 3,
+                                                "maxItems": 3,
+                                            },
+                                        ],
+                                    },
+                                },
+                            },
+                        },
+                        {
+                            "if": {
+                                "required": ["name"],
+                                "properties": {"name": {"const": "relax-added-atoms"}},
+                            },
+                            "then": {
+                                "properties": {
+                                    "pairCutoffs": {"type": "object"},
+                                    "hkl": {
+                                        "type": "array",
+                                        "prefixItems": [
+                                            {"type": "integer"},
+                                            {"type": "integer"},
+                                            {"type": "integer"},
+                                        ],
+                                        "minItems": 3,
+                                        "maxItems": 3,
+                                    },
+                                    "freezeExisting": {"type": "boolean"},
+                                    "strength": {"type": "number", "minimum": 0, "maximum": 1000},
+                                    "boundaryStrength": {
+                                        "type": "number", "exclusiveMinimum": 0, "maximum": 1000
+                                    },
+                                    "fmax": {"type": "number", "exclusiveMinimum": 0},
+                                    "steps": {"type": "integer", "minimum": 1, "maximum": 100000},
+                                    "device": {"enum": ["cpu", "cuda"]},
+                                    "cpuThreads": {"type": "integer", "minimum": 1},
+                                    "mic": {"type": "boolean"},
+                                    "constrainToDomain": {"type": "boolean"},
+                                    "allowEscape": {"type": "boolean"},
+                                },
+                            },
+                        },
+                        {
+                            "if": {
+                                "required": ["name"],
+                                "properties": {
+                                    "name": {"const": "clear-relaxation-trajectory"},
+                                },
+                            },
+                            "then": {
+                                "properties": {
+                                    "retain": {"enum": ["displayed", "final"]},
+                                },
+                            },
+                        },
+                        {
+                            "if": {
+                                "required": ["name"],
+                                "properties": {
+                                    "name": {"const": "set-atom-colorscale"},
+                                },
+                            },
+                            "then": {
+                                "properties": {
+                                    "enabled": {"type": "boolean"},
+                                    "field": {"type": "string", "minLength": 1},
+                                    "map": {"type": "string", "minLength": 1},
+                                    "customMap": {
+                                        "type": "object",
+                                        "required": ["mode", "stops"],
+                                        "properties": {
+                                            "mode": {"enum": ["continuous", "discrete"]},
+                                            "stops": {
+                                                "type": "array",
+                                                "minItems": 2,
+                                                "maxItems": 64,
+                                                "items": {
+                                                    "type": "object",
+                                                    "required": ["position", "color"],
+                                                    "properties": {
+                                                        "position": {
+                                                            "type": "number",
+                                                            "minimum": 0,
+                                                            "maximum": 1,
+                                                        },
+                                                        "color": {
+                                                            "type": "string",
+                                                            "pattern": "^#[0-9A-Fa-f]{6}$",
+                                                        },
+                                                    },
+                                                },
+                                            },
+                                        },
+                                    },
+                                    "reverse": {"type": "boolean"},
+                                    "scope": {"enum": ["all", "selected"]},
+                                    "autoRange": {"type": "boolean"},
+                                    "rangeMode": {
+                                        "enum": ["current", "trajectory", "manual"],
+                                    },
+                                    "minimum": {"type": "number"},
+                                    "maximum": {"type": "number"},
+                                    "gamma": {
+                                        "type": "number",
+                                        "minimum": 0.1,
+                                        "maximum": 5.0,
+                                    },
+                                },
+                            },
+                        },
+                        {
+                            "if": {
+                                "required": ["name"],
+                                "properties": {
+                                    "name": {"const": "add-volumetric-plane"},
+                                },
+                            },
+                            "then": {
+                                "required": ["datasetId", "hkl"],
+                                "properties": {
+                                    "datasetId": {"type": "string", "minLength": 1},
+                                    "planeName": {"type": "string", "minLength": 1},
+                                    "hkl": {
+                                        "type": "array",
+                                        "items": {"type": "number"},
+                                        "minItems": 3,
+                                        "maxItems": 3,
+                                    },
+                                    "offsetAngstrom": {"type": "number"},
+                                    "resolution": {"enum": [128, 256, 512, 1024]},
+                                    "colormap": {"type": "string", "minLength": 1},
+                                    "reverse": {"type": "boolean"},
+                                    "autoRange": {"type": "boolean"},
+                                    "vmin": {"type": "number"},
+                                    "vmax": {"type": "number"},
+                                    "opacity": {
+                                        "type": "number", "minimum": 0.05, "maximum": 1
+                                    },
+                                    "visible": {"type": "boolean"},
+                                },
+                            },
+                        },
+                        {
+                            "if": {
+                                "required": ["name"],
+                                "properties": {
+                                    "name": {"const": "update-volumetric-planes"},
+                                },
+                            },
+                            "then": {
+                                "required": ["planeIds"],
+                                "properties": {
+                                    "planeIds": {
+                                        "type": "array",
+                                        "items": {"type": "string", "minLength": 1},
+                                        "minItems": 1,
+                                        "uniqueItems": True,
+                                    },
+                                    "datasetId": {"type": "string", "minLength": 1},
+                                    "planeName": {"type": "string", "minLength": 1},
+                                    "hkl": {
+                                        "type": "array",
+                                        "items": {"type": "number"},
+                                        "minItems": 3,
+                                        "maxItems": 3,
+                                    },
+                                    "offsetAngstrom": {"type": "number"},
+                                    "resolution": {"enum": [128, 256, 512, 1024]},
+                                    "colormap": {"type": "string", "minLength": 1},
+                                    "reverse": {"type": "boolean"},
+                                    "autoRange": {"type": "boolean"},
+                                    "vmin": {"type": "number"},
+                                    "vmax": {"type": "number"},
+                                    "opacity": {
+                                        "type": "number", "minimum": 0.05, "maximum": 1
+                                    },
+                                    "visible": {"type": "boolean"},
+                                },
+                            },
+                        },
+                        {
+                            "if": {
+                                "required": ["name"],
+                                "properties": {
+                                    "name": {"const": "remove-volumetric-planes"},
+                                },
+                            },
+                            "then": {
+                                "required": ["planeIds"],
+                                "properties": {
+                                    "planeIds": {
+                                        "type": "array",
+                                        "items": {"type": "string", "minLength": 1},
+                                        "minItems": 1,
+                                        "uniqueItems": True,
+                                    },
+                                },
+                            },
+                        },
+                        {
+                            "if": {
+                                "required": ["name"],
+                                "properties": {
+                                    "name": {"const": "set-interface-theme"},
+                                },
+                            },
+                            "then": {
+                                "required": ["theme"],
+                                "properties": {
+                                    "theme": {"enum": ["system", "light", "dark"]},
+                                },
+                            },
+                        },
+                        {
+                            "if": {
+                                "required": ["name"],
+                                "properties": {
+                                    "name": {"const": "restore-app-visual-defaults"},
+                                },
+                            },
+                            "then": {
+                                "required": ["confirm"],
+                                "properties": {
+                                    "confirm": {"const": True},
+                                },
+                            },
+                        },
+                        {
+                            "if": {
+                                "required": ["name"],
+                                "properties": {
+                                    "name": {"const": "load-commensurate-guest"},
+                                },
+                            },
+                            "then": {
+                                "required": ["path"],
+                                "properties": {
+                                    "path": {"type": "string", "minLength": 1},
+                                    "format": {"type": "string"},
+                                    "calculate": {"type": "boolean"},
+                                    "gap": {
+                                        "type": "number", "minimum": 0, "maximum": 20
+                                    },
+                                },
+                            },
+                        },
+                        {
+                            "if": {
+                                "required": ["name"],
+                                "properties": {
+                                    "name": {"const": "calculate-commensurate"},
+                                },
+                            },
+                            "then": {
+                                "properties": {
+                                    "axis": {"const": "Z"},
+                                    "mode": {"enum": ["same-lattice", "host-guest"]},
+                                    "strainTarget": {"enum": ["host", "guest"]},
+                                    "strainTolerance": {
+                                        "type": "number", "minimum": 0, "maximum": 0.25
+                                    },
+                                    "maxIndex": {
+                                        "type": "integer", "minimum": 2, "maximum": 64
+                                    },
+                                    "maxAreaRatio": {
+                                        "type": "integer",
+                                        "minimum": 1,
+                                        "maximum": MAX_LATTICE_MATCH_AREA_RATIO,
+                                    },
+                                    "angleDeg": {"type": "number"},
+                                    "gap": {
+                                        "type": "number", "minimum": 0, "maximum": 20
+                                    },
+                                    "showAtoms": {"type": "boolean"},
+                                    "snap": {"type": "boolean"},
+                                    "indices": {
+                                        "type": "array",
+                                        "items": {"type": "integer", "minimum": 0},
+                                        "uniqueItems": True,
+                                    },
+                                },
+                            },
+                        },
+                        {
+                            "if": {
+                                "required": ["name"],
+                                "properties": {
+                                    "name": {"const": "set-registry-translation"},
+                                },
+                            },
+                            "then": {
+                                "required": ["coordinates"],
+                                "properties": {
+                                    "coordinates": {
+                                        "type": "array",
+                                        "items": {"type": "number"},
+                                        "minItems": 2,
+                                        "maxItems": 3,
+                                    },
+                                },
+                            },
+                        },
+                        {
+                            "if": {
+                                "required": ["name"],
+                                "properties": {
+                                    "name": {"const": "calculate-registry-map"},
+                                },
+                            },
+                            "then": {
+                                "properties": {
+                                    "indices": {
+                                        "type": "array",
+                                        "items": {"type": "integer", "minimum": 0},
+                                        "minItems": 1,
+                                        "uniqueItems": True,
+                                    },
+                                    "metric": {"enum": ["short-contact", "bond-strain"]},
+                                    "gridX": {
+                                        "type": "integer", "minimum": 4, "maximum": 160
+                                    },
+                                    "gridY": {
+                                        "type": "integer", "minimum": 4, "maximum": 160
+                                    },
+                                    "pairCutoffs": {"type": "object"},
+                                    "hkl": {
+                                        "type": "array",
+                                        "prefixItems": [
+                                            {"type": "integer"},
+                                            {"type": "integer"},
+                                            {"type": "integer"},
+                                        ],
+                                        "minItems": 3,
+                                        "maxItems": 3,
+                                    },
+                                    "space": {"enum": ["plane", "cartesian", "3d"]},
+                                    "maxDisplacement": {
+                                        "type": "number", "exclusiveMinimum": 0
+                                    },
+                                },
+                            },
+                        },
+                        {
+                            "if": {
+                                "required": ["name"],
+                                "properties": {
+                                    "name": {"const": "start-registry-relaxation"},
+                                },
+                            },
+                            "then": {
+                                "properties": {
+                                    "indices": {
+                                        "type": "array",
+                                        "items": {"type": "integer", "minimum": 0},
+                                        "minItems": 1,
+                                        "uniqueItems": True,
+                                    },
+                                    "hkl": {
+                                        "type": "array",
+                                        "prefixItems": [
+                                            {"type": "integer"},
+                                            {"type": "integer"},
+                                            {"type": "integer"},
+                                        ],
+                                        "minItems": 3,
+                                        "maxItems": 3,
+                                    },
+                                },
+                            },
+                        },
+                        {
+                            "if": {
+                                "required": ["name"],
+                                "properties": {
+                                    "name": {
+                                        "enum": [
+                                            "run-registry-relaxation",
+                                            "start-relaxation",
+                                        ],
+                                    },
+                                },
+                            },
+                            "then": {
+                                "properties": {
+                                    "fmax": {"type": "number", "exclusiveMinimum": 0},
+                                    "steps": {
+                                        "type": "integer", "minimum": 1, "maximum": 100000
+                                    },
+                                    "calculator": _AI_REPULSION_CALCULATOR_SCHEMA,
+                                },
+                            },
+                        },
+                        {
+                            "if": {
+                                "required": ["name"],
+                                "properties": {
+                                    "name": {"const": "load-volumetric"},
+                                },
+                            },
+                            "then": {
+                                "required": ["path"],
+                                "properties": {
+                                    "path": {
+                                        "type": "string",
+                                        "minLength": 1,
+                                    },
+                                    "format": {"type": "string"},
+                                    "precision": {
+                                        "enum": [
+                                            "fp32", "float32",
+                                            "fp64", "float64",
+                                        ],
+                                    },
+                                },
+                            },
+                        },
+                        {
+                            "if": {
+                                "required": ["name"],
+                                "properties": {
+                                    "name": {"const": "show-volumetric"},
+                                },
+                            },
+                            "then": {
+                                "required": ["datasetId", "level"],
+                                "properties": {
+                                    "datasetId": {
+                                        "type": "string",
+                                        "minLength": 1,
+                                    },
+                                    "level": {"type": "number"},
+                                    "surfaceMode": {
+                                        "enum": ["single", "signed"],
+                                    },
+                                    "stepSize": {"enum": [1, 2, 4]},
+                                    "smearingSigma": {
+                                        "type": "number",
+                                        "minimum": 0,
+                                        "maximum": 8,
+                                    },
+                                    "smoothingIterations": {
+                                        "type": "integer",
+                                        "minimum": 0,
+                                        "maximum": 30,
+                                    },
+                                    "opacity": {
+                                        "type": "number",
+                                        "minimum": 0.05,
+                                        "maximum": 1,
+                                    },
+                                    "positiveColor": {
+                                        "type": "string",
+                                        "pattern": "^#[0-9A-Fa-f]{6}$",
+                                    },
+                                    "negativeColor": {
+                                        "type": "string",
+                                        "pattern": "^#[0-9A-Fa-f]{6}$",
+                                    },
+                                },
+                                "allOf": [
+                                    {
+                                        "if": {
+                                            "required": ["surfaceMode"],
+                                            "properties": {
+                                                "surfaceMode": {
+                                                    "const": "signed",
+                                                },
+                                            },
+                                        },
+                                        "then": {
+                                            "properties": {
+                                                "level": {
+                                                    "not": {"const": 0},
+                                                },
+                                            },
+                                        },
+                                    },
+                                ],
+                            },
+                        },
+                    ],
                     "additionalProperties": True,
                 },
             ],
@@ -372,10 +1459,98 @@ AI_CONTROL_SCHEMA = {
                 },
             },
         },
+        "renderArea": {
+            "type": "object",
+            "description": (
+                "Persistent image, video, and HTML framing. Enable it to show "
+                "the render gate, follow the viewport while composing, or set "
+                "an independent camera that remains fixed while the scene changes."
+            ),
+            "additionalProperties": False,
+            "properties": {
+                "enabled": {"type": "boolean"},
+                "followViewport": {"type": "boolean"},
+                "fromCurrentView": {"type": "boolean"},
+                "camera": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "properties": {
+                        "position": {
+                            "type": "array", "items": {"type": "number"},
+                            "minItems": 3, "maxItems": 3,
+                        },
+                        "target": {
+                            "type": "array", "items": {"type": "number"},
+                            "minItems": 3, "maxItems": 3,
+                        },
+                        "up": {
+                            "type": "array", "items": {"type": "number"},
+                            "minItems": 3, "maxItems": 3,
+                        },
+                        "projection": {"enum": ["orthographic", "perspective"]},
+                        "fov": {
+                            "type": "number", "exclusiveMinimum": 1,
+                            "exclusiveMaximum": 179,
+                        },
+                        "zoom": {"type": "number", "exclusiveMinimum": 0},
+                        "ortho_scale": {"type": "number", "exclusiveMinimum": 0},
+                        "near": {"type": "number", "exclusiveMinimum": 0},
+                        "far": {"type": "number", "exclusiveMinimum": 0},
+                        "aspect": {"type": "number", "exclusiveMinimum": 0},
+                    },
+                },
+            },
+        },
     },
 }
 
 AI_OPERATION_PARAMETERS = {
+    "set-atom-colorscale": {
+        "mode": "view-or-edit",
+        "required": [],
+        "optional": [
+            "enabled", "field", "map", "customMap", "reverse", "scope", "autoRange",
+            "rangeMode", "minimum", "maximum", "gamma",
+        ],
+        "notes": (
+            "Colors atoms by x/y/z, force norm, or a discovered numeric per-atom "
+            "ASE array/calculator result. scope is all or selected. rangeMode is "
+            "current, trajectory, or manual; every trajectory frame uses the same "
+            "resolved minimum and maximum. Use map=custom with a customMap containing "
+            "two or more ordered 0-1 color stops and continuous or discrete mode. "
+            "gamma controls contrast. Disabling it immediately restores the saved "
+            "label and element colors."
+        ),
+    },
+    "set-interface-theme": {
+        "mode": "view-or-edit",
+        "required": ["theme"],
+        "optional": [],
+        "notes": (
+            "theme is system, light, or dark. system follows the browser/OS "
+            "color-scheme preference and is the built-in default."
+        ),
+    },
+    "set-personal-visual-default": {
+        "mode": "view-or-edit",
+        "required": [],
+        "optional": [],
+        "notes": (
+            "Persists the current reusable visual settings for this OS user. "
+            "Coordinates, trajectory data, absolute camera placement, and "
+            "per-atom appearance overrides are excluded."
+        ),
+    },
+    "restore-app-visual-defaults": {
+        "mode": "view-or-edit",
+        "required": ["confirm"],
+        "optional": [],
+        "notes": (
+            "Destructively deletes the saved personal visual default and applies "
+            "the built-in v_ase visual settings to the active tab. confirm must "
+            "be true and an agent must obtain human approval first."
+        ),
+    },
     "wrap": {
         "mode": "view-or-edit",
         "required": [],
@@ -386,6 +1561,33 @@ AI_OPERATION_PARAMETERS = {
         "required": ["vector"],
         "optional": ["coordinateMode", "applyConstraints"],
         "notes": "coordinateMode is cartesian or fractional.",
+    },
+    "set-unit-cell": {
+        "mode": "edit",
+        "required": ["cell"],
+        "optional": ["pbc"],
+        "notes": (
+            "Defines the 3 x 3 ASE cell without scaling atom coordinates. pbc defaults "
+            "to [true,true,true]. This also creates a usable scratch document when no "
+            "atoms have been loaded."
+        ),
+    },
+    "build-bulk": {
+        "mode": "edit",
+        "required": ["formula"],
+        "optional": [
+            "crystalStructure", "cellMode", "a", "b", "c", "alpha",
+            "covera", "u", "basis", "confirmReplace",
+        ],
+        "notes": (
+            "Builds a periodic crystal with ase.build.bulk. Query "
+            "/api/build/bulk/catalog/{session_id} for installed-ASE reference "
+            "materials and compatible cell shapes, then preview through "
+            "/api/build/bulk/preview/{session_id}. Custom compounds such as CuO "
+            "require crystalStructure and a. c and covera are mutually exclusive. "
+            "The operation replaces the active structure and trajectory; an existing "
+            "document requires explicit human approval and confirmReplace=true."
+        ),
     },
     "set-supercell": {
         "mode": "edit",
@@ -404,10 +1606,115 @@ AI_OPERATION_PARAMETERS = {
         "required": ["position", "label-or-element"],
         "optional": ["label", "element"],
     },
-    "delete-selection": {
+    "scatter-atoms": {
         "mode": "edit",
+        "required": ["entries-or-element-count"],
+        "optional": [
+            "entries", "element", "label", "count", "regionMode", "regions", "bounds",
+            "regionRole", "regionMic", "constrainToDomain", "allowEscape",
+            "placementMode", "regularSpacing", "coordinateBasis", "pbcAware",
+            "seed", "freezeExisting", "cutoffBasis", "cutoffScale", "pairCutoffs",
+        ],
+        "notes": (
+            "Starts an Add Atoms session or appends one or more element/label populations "
+            "to the active session after placement relaxation is inactive. The first "
+            "pre-session structure remains the immutable host across every placement. "
+            "placementMode is random, homogeneous, or regular. regular uses optional regularSpacing in A. "
+            "coordinateBasis=cartesian optimizes "
+            "physical nearest-neighbor spacing in angstrom and is the default; fractional "
+            "optimizes normalized cell-coordinate spacing. Random sampling remains volume-uniform "
+            "under either basis because the cell transform has a constant Jacobian. "
+            "regions defines up to 32 stable-id Cartesian Allow/Reject regions. The exact domain is "
+            "the unit cell intersected with the Allow union (or the full cell when no Allow exists), "
+            "minus the Reject union. Periodic region images are clipped to the triclinic primary cell "
+            "without voxel approximation. A structure without a finite cell requires an Allow region. "
+            "Legacy regionMode=box remains accepted. constrainToDomain defaults "
+            "to false, so the region controls initial sampling without confining relaxation; "
+            "allowEscape is the inverse compatibility field. The default "
+            "temporarily fixes every pre-session atom. Follow with common start-relaxation "
+            "and finish-add-atoms, append another batch, or use cancel-add-atoms to restore "
+            "the exact baseline."
+        ),
+    },
+    "scatter-molecules": {
+        "mode": "edit",
+        "required": ["molecules-or-molecule-count"],
+        "optional": [
+            "molecules", "molecule", "label", "count", "regionMode", "regions", "bounds",
+            "regionRole", "regionMic", "constrainToDomain", "allowEscape",
+            "placementMode", "regularSpacing", "coordinateBasis", "pbcAware",
+            "randomOrientation", "rigidMolecules", "seed", "freezeExisting",
+            "quantityMode", "targetDensityGcm3", "cutoffBasis", "cutoffScale", "pairCutoffs",
+        ],
+        "notes": (
+            "Starts an Add Molecules session or appends molecules to the active Add session "
+            "from the installed ASE G2 molecule catalog. "
+            "Query /api/add-session/molecules/{session_id} before choosing a name. Molecule "
+            "coordinates are placed and rotated about ASE's native coordinate origin without recentering. "
+            "randomOrientation uses Haar-uniform SO(3) rotations. rigidMolecules defaults to "
+            "true and preserves each molecule's internal distances during atomwise pairwise "
+            "repulsion; false permits ordinary atomwise relaxation. quantityMode=density computes "
+            "integer molecule counts from exact accessible volume and reports the realized density. "
+            "The placement, region, "
+            "host-freeze, relaxation, finish, and cancel semantics match scatter-atoms."
+        ),
+    },
+    "update-add-atoms-region": {
+        "mode": "edit",
+        "required": ["active-cartesian-add-atoms-session"],
+        "optional": [
+            "regions", "regionId", "regionName", "bounds", "regionRole",
+            "regionMic", "constrainToDomain", "allowEscape",
+        ],
+        "notes": (
+            "Replaces all active Allow/Reject regions, or updates one stable regionId, without moving "
+            "staged atoms. Regions can translate as a group but cannot be rotated."
+        ),
+    },
+    "relax-added-atoms": {
+        "mode": "edit",
+        "required": ["active-add-atoms-session"],
+        "optional": [
+            "pairCutoffs", "freezeExisting", "strength", "boundaryStrength",
+            "fmax", "steps", "device", "cpuThreads", "mic",
+            "constrainToDomain", "allowEscape",
+        ],
+        "notes": (
+            "Compatibility alias for the same shared placement-relaxation path used by "
+            "start-relaxation. It starts asynchronous FIRE with one "
+            "AdditionRepulsionCalculator attached to the complete staged structure. "
+            "device selects CPU or CUDA and "
+            "cpuThreads controls CPU parallelism; CUDA falls back to CPU when unavailable. "
+            "Every optimizer step is retained in the Add-mode trajectory. Poll "
+            "describe.addAtoms or consume collaboration events until is_relaxing is false."
+        ),
+    },
+    "stop-added-atoms": {
+        "mode": "edit",
+        "required": ["active-add-atoms-relaxation"],
+        "optional": [],
+    },
+    "finish-add-atoms": {
+        "mode": "edit",
+        "required": ["inactive-add-atoms-relaxation"],
+        "optional": [],
+        "notes": "Commits only inserted atoms; every host coordinate, constraint, and array is restored exactly.",
+    },
+    "cancel-add-atoms": {
+        "mode": "edit",
+        "required": ["active-add-atoms-session"],
+        "optional": [],
+        "notes": "Restores the complete pre-session structure and history state.",
+    },
+    "delete-selection": {
+        "mode": "view-or-edit",
         "required": ["selection-or-indices"],
         "optional": ["indices"],
+        "notes": (
+            "View mode hides the exact selected visual instances without "
+            "changing ASE atoms. Edit mode deletes the corresponding base "
+            "atom indices from the physical structure."
+        ),
     },
     "set-identity": {
         "mode": "edit",
@@ -437,6 +1744,160 @@ AI_OPERATION_PARAMETERS = {
             "or an explicit three-number position."
         ),
     },
+    "scale-selection": {
+        "mode": "edit",
+        "required": ["factor", "selection-or-indices"],
+        "optional": ["indices", "axis", "pivot", "applyConstraints"],
+        "notes": (
+            "Scales physical Cartesian atom coordinates about the pivot without changing "
+            "atom or bond radii. axis is X, Y, Z, or ALL and defaults to ALL. pivot is "
+            "com, active, origin, cell, or an explicit three-number position."
+        ),
+    },
+    "scale-add-atoms-regions": {
+        "mode": "edit",
+        "required": ["regionIds", "factor", "active-add-atoms-session"],
+        "optional": ["axis", "pivot", "regionMic", "constrainToDomain", "allowEscape"],
+        "notes": (
+            "Scales Cartesian insertion-region bounds about their shared center, or an "
+            "explicit three-number pivot. axis is X, Y, Z, or ALL."
+        ),
+    },
+    "rotate-to-commensurate": {
+        "mode": "edit",
+        "required": ["angleDeg", "selection-or-indices"],
+        "optional": [
+            "indices", "axis", "pivot", "maxAngleDifferenceDeg",
+            "strainTolerance", "maxIndex", "maxAreaRatio", "showAtoms",
+            "applyConstraints",
+        ],
+        "notes": (
+            "Finds the nearest validated periodic 2D lattice match, rotates the "
+            "selected layer to that exact angle, and opens the common-cell proposal. "
+            "The default is cells-only; showAtoms=true adds the opaque core and muted "
+            "one-primitive-cell boundary shell. axis is strictly Z; maxAreaRatio "
+            "defaults to 16 and is explicitly limited to 128. No proposal is made "
+            "above the requested limit."
+        ),
+    },
+    "load-commensurate-guest": {
+        "mode": "view-or-edit",
+        "required": ["path"],
+        "optional": [
+            "format", "calculate", "strainTarget", "strainTolerance",
+            "maxAreaRatio", "maxIndex", "angleDeg", "gap", "showAtoms",
+        ],
+        "notes": (
+            "Loads a separate guest structure from inside the GUI launch directory. "
+            "gap is guest minimum z minus host maximum z in angstrom and defaults "
+            "to 3. Absolute paths and parent-directory traversal are rejected."
+        ),
+    },
+    "remove-commensurate-guest": {
+        "mode": "view-or-edit",
+        "required": [],
+        "optional": [],
+    },
+    "calculate-commensurate": {
+        "mode": "view-or-edit",
+        "required": [],
+        "optional": [
+            "indices", "axis", "mode", "strainTarget", "strainTolerance",
+            "maxAreaRatio", "maxIndex", "angleDeg", "gap", "showAtoms", "snap",
+        ],
+        "notes": (
+            "Searches bounded integer common cells about global Z. Same-lattice "
+            "mode requires a selected rotating layer before atom preview or "
+            "materialization; host-guest mode requires a loaded guest. Cells-only "
+            "preview is the default. maxAreaRatio defaults to 16 and accepts 1..128. "
+            "Candidate acceptance uses maximum principal strain; the paper projection "
+            "reports mean absolute strain and actual host-plus-guest atom counts."
+        ),
+    },
+    "apply-commensurate-cell": {
+        "mode": "edit",
+        "required": ["active-commensurate-proposal"],
+        "optional": [],
+        "notes": "Materializes the active validated proposal as the ASE unit cell.",
+    },
+    "dismiss-commensurate-cell": {
+        "mode": "view-or-edit",
+        "required": [],
+        "optional": [],
+        "notes": "Closes the active proposal and restores the pre-preview camera.",
+    },
+    "calculate-registry-map": {
+        "mode": "view-or-edit",
+        "required": ["selection-or-indices"],
+        "optional": ["indices", "metric", "gridX", "gridY", "pairCutoffs", "hkl"],
+        "notes": (
+            "Scans one primitive periodic translation cell in the requested (hkl) plane. "
+            "metric is short-contact or bond-strain; both are geometry scores, not energies."
+        ),
+    },
+    "center-selection-at-origin": {
+        "mode": "view-or-edit",
+        "required": ["selection-or-indices"],
+        "optional": ["indices"],
+        "notes": (
+            "Sets visual translation so the selected atom, or the mass-weighted center "
+            "of mass of multiple selected atoms, lies at Cartesian origin. ASE positions "
+            "and the unit cell are unchanged."
+        ),
+    },
+    "start-registry-relaxation": {
+        "mode": "edit",
+        "required": ["selection-or-indices"],
+        "optional": ["indices", "hkl", "space", "maxDisplacement"],
+        "notes": (
+            "Activates rigid translation for a selected component. space=plane (default) "
+            "uses two coordinates in the periodic (hkl) plane; space=cartesian uses one "
+            "common x/y/z translation in Angstrom with maxDisplacement as the bound "
+            "for each Cartesian component. Host coordinates, cell vectors, and "
+            "selected internal relative coordinates remain invariant."
+        ),
+    },
+    "set-registry-translation": {
+        "mode": "edit",
+        "required": ["active-registry-relaxation", "coordinates"],
+        "optional": [],
+        "notes": (
+            "Sets two unwrapped plane-lattice coefficients in plane mode or three "
+            "Cartesian Angstrom components in 3D mode, without moving the cell or "
+            "changing selected internal coordinates."
+        ),
+    },
+    "run-registry-relaxation": {
+        "mode": "edit",
+        "required": ["active-registry-relaxation"],
+        "optional": ["fmax", "steps", "calculator"],
+        "notes": (
+            "Optimizes the active two-coordinate plane or three-coordinate Cartesian "
+            "rigid translation with the "
+            "attached calculator or the default pairwise repulsion calculator. Consume "
+            "registry_relax_step events until is_relaxing is false. calculator may "
+            "configure absolute pair_cutoffs as independent onset distances in "
+            "Angstrom, or cutoff_mode=scaled with reference pair distances and "
+            "cutoff_scale; neither cutoff is a hard constraint."
+        ),
+    },
+    "stop-registry-relaxation": {
+        "mode": "edit",
+        "required": ["active-registry-relaxation"],
+        "optional": [],
+    },
+    "finish-registry-relaxation": {
+        "mode": "edit",
+        "required": ["inactive-registry-relaxation"],
+        "optional": [],
+        "notes": "Commits the rigid translation as one undoable structure edit and exits the mode.",
+    },
+    "cancel-registry-relaxation": {
+        "mode": "edit",
+        "required": ["active-registry-relaxation"],
+        "optional": [],
+        "notes": "Restores the exact pre-mode coordinates and exits without a history entry.",
+    },
     "undo": {"mode": "view-or-edit", "required": [], "optional": []},
     "redo": {"mode": "view-or-edit", "required": [], "optional": []},
     "reset-coordinates": {
@@ -446,13 +1907,46 @@ AI_OPERATION_PARAMETERS = {
     },
     "start-relaxation": {
         "mode": "edit",
-        "required": ["attached-calculator"],
+        "required": ["attached-calculator-or-active-add-atoms-session"],
         "optional": ["fmax", "steps", "calculator", "applyConstraints"],
+        "notes": (
+            "When Add Atoms is active, this common operation routes the same calculator, "
+            "cutoff, device, fmax, and step contract through placement relaxation while "
+            "preserving the immutable pre-session host. Otherwise an ASE calculator must "
+            "be attached to the structure. "
+            "For the built-in repulsion calculator, calculator accepts device, "
+            "cpu_threads, k_repulsion, cutoff_basis, and independent label-pair "
+            "pair_cutoffs. Absolute mode interprets each enabled pair value directly "
+            "in Angstrom; scaled mode multiplies its reference distance by "
+            "cutoff_scale. "
+            "The cutoff is the zero-force onset distance, not a guaranteed minimum "
+            "separation."
+        ),
     },
     "stop-relaxation": {
         "mode": "edit",
         "required": [],
         "optional": [],
+        "notes": "Stops the active ordinary or Add Atoms placement optimizer.",
+    },
+    "clear-relaxation-trajectory": {
+        "mode": "edit",
+        "required": ["available-relaxation-trajectory"],
+        "optional": ["retain"],
+        "notes": (
+            "Removes the dedicated optimization movie while leaving its mode active. "
+            "retain is final by default or displayed to keep the frame currently shown."
+        ),
+    },
+    "exit-relaxation-mode": {
+        "mode": "edit",
+        "required": [],
+        "optional": ["keep"],
+        "notes": (
+            "Stops an active optimizer if needed, closes the dedicated movie timeline, "
+            "and either keeps current coordinates (default) or restores the exact "
+            "pre-relaxation structure when keep=false."
+        ),
     },
     "refresh-displacements": {
         "mode": "view-or-edit",
@@ -520,7 +2014,99 @@ AI_OPERATION_PARAMETERS = {
             "loaded-phonopy-force-constants",
         ],
         "optional": ["phaseDegrees", "frames", "oscillation", "nacDirection"],
-        "notes": "The q-point must satisfy that dimension.T @ q is integer.",
+        "notes": "The q-point must satisfy dimension.T @ q being integer.",
+    },
+    "load-volumetric": {
+        "mode": "view-or-edit",
+        "required": ["path"],
+        "optional": ["format", "precision"],
+        "notes": (
+            "path is resolved inside the GUI launch directory. Supported "
+            "formats include CHGCAR, LOCPOT, PARCHG, ELFCAR, Cube, and XSF. "
+            "precision is fp32/float32 or fp64/float64 and is applied while reading."
+        ),
+    },
+    "show-volumetric": {
+        "mode": "view-or-edit",
+        "required": ["datasetId", "level"],
+        "optional": [
+            "surfaceMode", "stepSize", "opacity",
+            "positiveColor", "negativeColor", "smearingSigma",
+            "smoothingIterations",
+        ],
+        "notes": (
+            "surfaceMode is single or signed; stepSize is 1, 2, or 4. "
+            "Signed mode renders +abs(level) and -abs(level), requires a "
+            "non-zero level, and may return only the sign that still crosses "
+            "the displayed field range after smearing. opacity is 0.05-1; "
+            "colors are six-digit #RRGGBB values. "
+            "smearingSigma is 0-8 grid points and filters only the displayed "
+            "field. smoothingIterations is an integer from 0-30 and fairs only "
+            "the extracted mesh. The default safety limits are 134,217,728 "
+            "source grid points and 2,000,000 output triangles per surface."
+        ),
+    },
+    "add-volumetric-plane": {
+        "mode": "view-or-edit",
+        "required": ["datasetId", "hkl"],
+        "optional": [
+            "planeName", "offsetAngstrom", "resolution", "colormap",
+            "reverse", "autoRange", "vmin", "vmax", "opacity", "visible",
+        ],
+        "notes": (
+            "Creates one cell-clipped scalar-field plane. hkl is a non-zero "
+            "three-number reciprocal-space normal; offsetAngstrom is the signed "
+            "distance from the origin along its Cartesian unit normal. If the "
+            "offset is omitted, the plane is centered in the displayed supercell."
+        ),
+    },
+    "update-volumetric-planes": {
+        "mode": "view-or-edit",
+        "required": ["planeIds"],
+        "optional": [
+            "datasetId", "planeName", "hkl", "offsetAngstrom", "resolution",
+            "colormap", "reverse", "autoRange", "vmin", "vmax", "opacity",
+            "visible",
+        ],
+        "notes": (
+            "Applies every supplied field to all planeIds as one visual edit. "
+            "resolution is 128, 256, 512, or 1024. vmin/vmax are used when "
+            "autoRange is false. Invalid IDs or values reject the whole edit."
+        ),
+    },
+    "remove-volumetric-planes": {
+        "mode": "view-or-edit",
+        "required": ["planeIds"],
+        "optional": [],
+        "notes": "Removes all requested planar sections as one visual edit.",
+    },
+    "combine-volumetric": {
+        "mode": "view-or-edit",
+        "required": ["datasetIds", "coefficients"],
+        "optional": ["name", "precision"],
+        "notes": (
+            "All grids must have matching dimensions, cell, origin, PBC, and "
+            "units. Output precision defaults to the highest input precision."
+        ),
+    },
+    "remove-volumetric": {
+        "mode": "view-or-edit",
+        "required": ["datasetId"],
+        "optional": [],
+    },
+    "calculate-rdf": {
+        "mode": "view-or-edit",
+        "required": [],
+        "optional": ["cutoff", "bins", "pairMode", "activePairs"],
+        "notes": (
+            "pairMode is active, selected, all, or none. selected filters partial "
+            "curves to active bonds whose endpoints are both selected in the GUI; "
+            "activePairs can provide the same label-pair filter explicitly. Fully "
+            "periodic 3D cells use bulk RDF normalization, while finite no-PBC "
+            "structures use an unordered-pair probability density. Every periodic "
+            "image inside the requested cutoff is counted; the cutoff is not reduced "
+            "to a fixed supercell or MIC radius."
+        ),
     },
 }
 
@@ -550,6 +2136,30 @@ AI_EXPORT_PARAMETERS = {
     },
     "project": {"optional": []},
     "settings": {"optional": []},
+    "rdf-csv": {
+        "optional": ["cutoff", "bins", "pairMode", "activePairs"],
+        "notes": (
+            "Exports the total RDF and currently requested partial curves. "
+            "pairMode accepts active, selected, all, or none; selected requires "
+            "the browser-derived selected active label pairs or explicit activePairs."
+        ),
+    },
+    "commensurate-csv": {
+        "optional": [
+            "mode", "strainTarget", "strainTolerance", "maxAreaRatio", "maxIndex",
+        ],
+        "notes": (
+            "Exports angle, host/guest integer matrices, area ratios, residual "
+            "strains, and the scientific references used by the bounded search."
+        ),
+    },
+    "registry-csv": {
+        "optional": ["indices", "metric", "gridX", "gridY", "pairCutoffs", "hkl"],
+        "notes": (
+            "Exports the complete periodic (hkl) translation grid, its exact "
+            "lattice basis, Cartesian vectors, and geometry metric values."
+        ),
+    },
 }
 
 
@@ -653,6 +2263,30 @@ def trajectory_layout_compatible(session: EditorSession) -> bool:
     return True
 
 
+def trajectory_identity_compatible(session: EditorSession) -> bool:
+    """Return whether stable atom indices have one element sequence in every frame."""
+    if session._trajectory_identity_compatible is not None:
+        return session._trajectory_identity_compatible
+    if session.frame_count <= 1:
+        session._trajectory_identity_compatible = True
+        return True
+    if session.trajectory_source is not None:
+        source = session.trajectory_source
+        compatible = int(getattr(source, "natoms", -1)) == len(session.working_atoms)
+        session._trajectory_identity_compatible = compatible
+        return compatible
+
+    atom_count = len(session.working_atoms)
+    elements = session.working_atoms.get_chemical_symbols()
+    compatible = all(
+        len(frame) == atom_count
+        and frame.get_chemical_symbols() == elements
+        for frame in session.trajectory_frames
+    )
+    session._trajectory_identity_compatible = bool(compatible)
+    return bool(compatible)
+
+
 def trajectory_position_cache(
     session: EditorSession,
     *,
@@ -715,6 +2349,37 @@ def session_atoms_to_json(session: EditorSession, include_inline_trajectory: boo
         if session.phonon_model is not None
         else None
     )
+    addition = atom_addition_summary(session)
+    data["metadata"]["atom_addition"] = addition
+    data["metadata"]["registry_relaxation"] = registry_relaxation_summary(session)
+    data["metadata"]["relaxation"] = {
+        "active": bool(session.relaxation_mode_active),
+        "is_relaxing": bool(session.is_relaxing),
+    }
+    if addition and addition["temporary_fixed_indices"]:
+        fixed = set(data["constraints"].get("fixed_indices") or [])
+        fixed.update(addition["temporary_fixed_indices"])
+        data["constraints"]["fixed_indices"] = sorted(fixed)
+    data["metadata"]["volumetric_datasets"] = [
+        dataset.summary()
+        for dataset in session.volumetric_datasets
+    ]
+    guest = session.commensurate_guest_atoms
+    data["metadata"]["commensurate_guest"] = (
+        {
+            "name": session.commensurate_guest_name or "Guest structure",
+            "natoms": len(guest),
+            "cell": np.asarray(guest.cell.array, dtype=float).tolist(),
+            "pbc": np.asarray(guest.pbc, dtype=bool).tolist(),
+            "labels": atom_labels(guest),
+            "chemical_symbols": guest.get_chemical_symbols(),
+            "min_z": float(np.min(guest.positions[:, 2])) if len(guest) else 0.0,
+            "max_z": float(np.max(guest.positions[:, 2])) if len(guest) else 0.0,
+            "default_gap": 3.0,
+        }
+        if isinstance(guest, Atoms)
+        else None
+    )
     if is_vase_repulsion_calculator(session.working_atoms.calc):
         data["metadata"]["calculator"] = "Repulsion"
         data["metadata"]["has_calculator"] = True
@@ -725,6 +2390,7 @@ def session_atoms_to_json(session: EditorSession, include_inline_trajectory: boo
         else None
     )
     data["metadata"]["trajectory_positions_cached"] = trajectory_positions is not None
+    data["metadata"]["trajectory_identity_compatible"] = trajectory_identity_compatible(session)
     if trajectory_positions is not None:
         data["trajectory_positions"] = trajectory_positions
     data["metadata"]["trajectory_positions_binary"] = (
@@ -900,7 +2566,13 @@ def schedule_workspace_autoclose(
     timer.start()
 
 
-def require_editable(session: EditorSession, action: str = "This operation"):
+def require_editable(
+    session: EditorSession,
+    action: str = "This operation",
+    *,
+    allow_atom_addition: bool = False,
+    allow_registry_relaxation: bool = False,
+):
     if is_viz_only(session):
         raise HTTPException(
             status_code=403,
@@ -908,6 +2580,26 @@ def require_editable(session: EditorSession, action: str = "This operation"):
                 f"{action} is disabled in View mode. "
                 "Switch the top-bar mode to Edit before modifying atoms."
             ),
+        )
+    if not allow_atom_addition:
+        require_no_atom_addition(session, action)
+    if not allow_registry_relaxation:
+        require_no_registry_relaxation(session, action)
+
+
+def require_no_atom_addition(session: EditorSession, action: str = "This operation"):
+    if session.atom_addition is not None:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Finish or cancel Add Atoms before {action.lower()}.",
+        )
+
+
+def require_no_registry_relaxation(session: EditorSession, action: str = "This operation"):
+    if session.registry_relaxation is not None:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Apply or cancel rigid translation relaxation before {action.lower()}.",
         )
 
 
@@ -1063,6 +2755,519 @@ def make_supercell_atoms(atoms, matrix):
     if atoms.calc:
         transformed.calc = copy_calculator(atoms.calc)
     return transformed
+
+
+def _commensurate_angular_distance(first: float, second: float) -> float:
+    return abs((float(first) - float(second) + 180.0) % 360.0 - 180.0)
+
+
+def _commensurate_search_signature(session: EditorSession, payload: Dict[str, Any]) -> str:
+    guest = session.commensurate_guest_atoms
+    mode = "host-guest" if payload.get("mode") == "host-guest" and guest is not None else "same-lattice"
+    signature = {
+        "mode": mode,
+        "axis": str(payload.get("axis", "Z")).upper(),
+        "max_index": int(payload.get("max_index", 32)),
+        "max_area_ratio": int(payload.get("max_area_ratio", 16)),
+        "strain_tolerance": round(float(payload.get("strain_tolerance", 0.01)), 12),
+        "strain_target": str(payload.get("strain_target", "guest")).lower(),
+        "selected_indices": sorted(
+            int(index)
+            for index in payload.get("selected_indices", payload.get("indices", []))
+            if isinstance(index, (int, np.integer))
+        ),
+        "host_cell": np.round(np.asarray(session.working_atoms.cell.array, dtype=float), 10).tolist(),
+        "host_pbc": np.asarray(session.working_atoms.pbc, dtype=bool).tolist(),
+        "guest_cell": (
+            np.round(np.asarray(guest.cell.array, dtype=float), 10).tolist()
+            if mode == "host-guest"
+            else None
+        ),
+        "guest_pbc": (
+            np.asarray(guest.pbc, dtype=bool).tolist()
+            if mode == "host-guest"
+            else None
+        ),
+    }
+    return json.dumps(signature, sort_keys=True, separators=(",", ":"))
+
+
+def _run_commensurate_search(
+    session: EditorSession,
+    payload: Dict[str, Any],
+    progress_callback=None,
+) -> Dict[str, Any]:
+    axis = str(payload.get("axis", "Z")).upper()
+    if axis != "Z":
+        raise ValueError(
+            "Commensurate atoms is restricted to in-plane rotation about global Z."
+        )
+    max_index = int(payload.get("max_index", 32))
+    strain_tolerance = float(payload.get("strain_tolerance", 0.01))
+    max_area_ratio = int(payload.get("max_area_ratio", 16))
+    if max_area_ratio < 1 or max_area_ratio > MAX_LATTICE_MATCH_AREA_RATIO:
+        raise ValueError(
+            "Maximum commensurate area ratio must be between 1 and "
+            f"{MAX_LATTICE_MATCH_AREA_RATIO}."
+        )
+    mode = "host-guest" if payload.get("mode") == "host-guest" else "same-lattice"
+    atoms = session.working_atoms
+    if mode == "host-guest":
+        guest = session.commensurate_guest_atoms
+        if guest is None:
+            raise ValueError("Load a guest structure before host/guest lattice matching.")
+        result = find_lattice_matches(
+            atoms.cell.array,
+            atoms.pbc,
+            guest.cell.array,
+            guest.pbc,
+            max_area_ratio=max_area_ratio,
+            strain_tolerance=strain_tolerance,
+            strain_target=payload.get("strain_target", "guest"),
+            progress_callback=progress_callback,
+        )
+        for candidate in result["candidates"]:
+            candidate["host_atom_count"] = (
+                len(atoms) * int(candidate.get("host_area_ratio", 0))
+            )
+            candidate["guest_atom_count"] = (
+                len(guest) * int(candidate.get("guest_area_ratio", 0))
+            )
+            candidate["total_atom_count"] = (
+                candidate["host_atom_count"] + candidate["guest_atom_count"]
+            )
+    else:
+        if progress_callback:
+            progress_callback(0.08, "Projecting the periodic host cell")
+        result = find_commensurate_angles(
+            atoms.cell.array,
+            atoms.pbc,
+            axis,
+            max_index=max_index,
+            strain_tolerance=strain_tolerance,
+            chemical_symbols=atoms.get_chemical_symbols(),
+        )
+        result["max_area_ratio"] = max_area_ratio
+        selected = {
+            int(index)
+            for index in payload.get("selected_indices", payload.get("indices", []))
+            if isinstance(index, (int, np.integer)) and 0 <= int(index) < len(atoms)
+        }
+        for candidate in result["candidates"]:
+            area = int(candidate.get("area_ratio", 0))
+            candidate["host_atom_count"] = (len(atoms) - len(selected)) * area
+            candidate["guest_atom_count"] = len(selected) * area
+            candidate["total_atom_count"] = len(atoms) * area
+        result["suggestion_count"] = sum(
+            1
+            for candidate in result["candidates"]
+            if candidate.get("supercell_supported")
+            and int(candidate.get("area_ratio", 0)) <= max_area_ratio
+        )
+        if progress_callback:
+            progress_callback(1.0, "Ranking valid commensurate matches")
+    return result
+
+
+def resolve_commensurate_candidate(session: EditorSession, payload: Dict[str, Any]):
+    """Validate a client-selected common-cell candidate against backend search."""
+
+    max_area_ratio = int(payload.get("max_area_ratio", 16))
+    requested = payload.get("candidate") or {}
+    try:
+        requested_guest = np.asarray(
+            requested.get("guest_matrix", requested.get("source_matrix")),
+            dtype=int,
+        )
+        requested_host = np.asarray(
+            requested.get("host_matrix", requested.get("target_matrix")),
+            dtype=int,
+        )
+        requested_angle = float(requested.get("angle_deg"))
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail="Invalid commensurate candidate payload.") from exc
+    if requested_guest.shape != (2, 2) or requested_host.shape != (2, 2):
+        raise HTTPException(status_code=400, detail="Commensurate candidate needs two 2 x 2 integer matrices.")
+
+    signature = _commensurate_search_signature(session, payload)
+    cached = session.commensurate_search_cache or {}
+    if cached.get("signature") == signature and isinstance(cached.get("result"), dict):
+        result = cached["result"]
+    else:
+        try:
+            result = _run_commensurate_search(session, payload)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        session.commensurate_search_cache = {"signature": signature, "result": result}
+    matches = [
+        candidate
+        for candidate in result["candidates"]
+        if np.array_equal(
+            np.asarray(candidate.get("guest_matrix", candidate.get("source_matrix")), dtype=int),
+            requested_guest,
+        )
+        and np.array_equal(
+            np.asarray(candidate.get("host_matrix", candidate.get("target_matrix")), dtype=int),
+            requested_host,
+        )
+        and _commensurate_angular_distance(candidate["angle_deg"], requested_angle) <= 2e-5
+    ]
+    if not matches:
+        raise HTTPException(
+            status_code=400,
+            detail="The proposed commensurate cell is not a current low-strain lattice match.",
+        )
+    candidate = matches[0]
+    if int(candidate["area_ratio"]) > max_area_ratio:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"The smallest matching cell has area ratio {candidate['area_ratio']}, "
+                f"above the configured maximum of {max_area_ratio}."
+            ),
+        )
+    if not candidate.get("supercell_supported", False):
+        raise HTTPException(
+            status_code=400,
+            detail=candidate.get("supercell_reason") or "This match cannot be materialized as a common cell.",
+        )
+    return candidate, result
+
+
+def _commensurate_constraint_indices(constraint, natoms: int) -> list[int]:
+    return [int(index) for index in _constraint_indices(constraint, natoms)]
+
+
+def materialize_commensurate_atoms(
+    atoms: Atoms,
+    geometry: Dict[str, Any],
+    candidate: Dict[str, Any],
+    selected_indices: List[int],
+    pivot,
+) -> Atoms:
+    """Create one editable common cell while preserving supported constraints."""
+
+    core_rows = [index for index, core in enumerate(geometry["core_mask"]) if core]
+    source_indices = [int(geometry["atom_indices"][row]) for row in core_rows]
+    source = atoms.copy()
+    source.set_constraint()
+    transformed = source[source_indices]
+    transformed.set_positions(np.asarray([geometry["positions"][row] for row in core_rows], dtype=float))
+    transformed.set_cell(np.asarray(geometry["cell"], dtype=float), scale_atoms=False)
+    transformed.set_pbc(atoms.pbc)
+    transformed.wrap(eps=1e-9)
+
+    row_metadata = [
+        (
+            int(geometry["atom_indices"][row]),
+            tuple(int(value) for value in geometry["lattice_indices"][row]),
+            str(geometry["components"][row]),
+        )
+        for row in core_rows
+    ]
+    index_map: Dict[tuple[int, tuple[int, int, int], str], int] = {
+        metadata: new_index for new_index, metadata in enumerate(row_metadata)
+    }
+    by_atom_component: Dict[tuple[int, str], List[int]] = {}
+    for new_index, (old_index, _, component) in enumerate(row_metadata):
+        by_atom_component.setdefault((old_index, component), []).append(new_index)
+
+    selected = set(int(index) for index in selected_indices)
+    rotation = row_rotation_matrix(
+        [1.0 if str(candidate.get("axis", "Z")).upper() == "X" else 0.0,
+         1.0 if str(candidate.get("axis", "Z")).upper() == "Y" else 0.0,
+         1.0 if str(candidate.get("axis", "Z")).upper() == "Z" else 0.0],
+        float(candidate["angle_deg"]),
+    )
+    deformation = np.asarray(candidate["deformation_matrix"], dtype=float)
+
+    def transformed_direction(values, component: str, *, plane_normal: bool = False):
+        direction = np.asarray(values, dtype=float)
+        if component == "rotating":
+            affine = rotation @ deformation
+            direction = (
+                np.linalg.solve(affine, direction)
+                if plane_normal
+                else direction @ affine
+            )
+        length = float(np.linalg.norm(direction))
+        if length <= 1e-12:
+            raise HTTPException(status_code=400, detail="A directional constraint became singular.")
+        return (direction / length).tolist()
+
+    constraints = []
+    for constraint in atoms.constraints or []:
+        old_indices = _commensurate_constraint_indices(constraint, len(atoms))
+        if isinstance(constraint, FixAtoms):
+            mapped = [
+                new_index
+                for old_index in old_indices
+                for component in (("rotating",) if old_index in selected else ("reference",))
+                for new_index in by_atom_component.get((old_index, component), [])
+            ]
+            if mapped:
+                constraints.append(FixAtoms(indices=mapped))
+        elif isinstance(constraint, FixCartesian):
+            for component in ("reference", "rotating"):
+                mapped = [
+                    new_index
+                    for old_index in old_indices
+                    for new_index in by_atom_component.get((old_index, component), [])
+                ]
+                if mapped:
+                    constraints.append(FixCartesian(mapped, mask=constraint.mask.tolist()))
+        elif isinstance(constraint, FixScaled):
+            for component in ("reference", "rotating"):
+                mapped = [
+                    new_index
+                    for old_index in old_indices
+                    for new_index in by_atom_component.get((old_index, component), [])
+                ]
+                if mapped:
+                    constraints.append(FixScaled(mapped, mask=constraint.mask.tolist()))
+        elif isinstance(constraint, (FixedLine, FixedPlane)):
+            constraint_type = FixedLine if isinstance(constraint, FixedLine) else FixedPlane
+            for component in ("reference", "rotating"):
+                mapped = [
+                    new_index
+                    for old_index in old_indices
+                    for new_index in by_atom_component.get((old_index, component), [])
+                ]
+                if mapped:
+                    constraints.append(constraint_type(
+                        mapped,
+                        transformed_direction(
+                            constraint.dir,
+                            component,
+                            plane_normal=isinstance(constraint, FixedPlane),
+                        ),
+                    ))
+        elif isinstance(constraint, Hookean):
+            if constraint._type != "two atoms":
+                raise HTTPException(
+                    status_code=400,
+                    detail="Hookean point/plane constraints must be removed before applying a commensurate cell.",
+                )
+            first, second = [int(value) for value in constraint.indices]
+            first_component = "rotating" if first in selected else "reference"
+            second_component = "rotating" if second in selected else "reference"
+            if first_component != second_component:
+                raise HTTPException(
+                    status_code=400,
+                    detail="A Hookean constraint crossing the two commensurate layers cannot be replicated unambiguously.",
+                )
+            component = first_component
+            lattice_points = sorted({
+                lattice
+                for old_index, lattice, row_component in row_metadata
+                if old_index == first and row_component == component
+            })
+            for lattice in lattice_points:
+                first_new = index_map.get((first, lattice, component))
+                second_new = index_map.get((second, lattice, component))
+                if first_new is not None and second_new is not None:
+                    constraints.append(Hookean(
+                        first_new,
+                        second_new,
+                        rt=constraint.threshold,
+                        k=constraint.spring,
+                    ))
+    if constraints:
+        transformed.set_constraint(constraints)
+    if atoms.calc:
+        transformed.calc = copy_calculator(atoms.calc)
+    return transformed
+
+
+def _normalized_affine_line_direction(values, affine: np.ndarray) -> list[float]:
+    direction = np.asarray(values, dtype=float) @ affine
+    length = float(np.linalg.norm(direction))
+    if length <= 1e-12:
+        raise HTTPException(
+            status_code=400,
+            detail="A directional constraint became singular in the common cell.",
+        )
+    return (direction / length).tolist()
+
+
+def _normalized_affine_plane_normal(values, affine: np.ndarray) -> list[float]:
+    try:
+        normal = np.linalg.solve(np.asarray(affine, dtype=float), np.asarray(values, dtype=float))
+    except np.linalg.LinAlgError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail="A fixed-plane normal became singular in the common cell.",
+        ) from exc
+    length = float(np.linalg.norm(normal))
+    if length <= 1e-12:
+        raise HTTPException(
+            status_code=400,
+            detail="A fixed-plane normal became singular in the common cell.",
+        )
+    return (normal / length).tolist()
+
+
+def _transform_commensurate_constraints(
+    atoms: Atoms,
+    affine: np.ndarray,
+    translation: np.ndarray,
+) -> list[Any]:
+    transformed: list[Any] = []
+    for constraint in atoms.constraints or []:
+        indices = _commensurate_constraint_indices(constraint, len(atoms))
+        if isinstance(constraint, FixAtoms):
+            transformed.append(FixAtoms(indices=indices))
+        elif isinstance(constraint, FixCartesian):
+            transformed.append(FixCartesian(indices, mask=constraint.mask.tolist()))
+        elif isinstance(constraint, FixScaled):
+            transformed.append(FixScaled(indices, mask=constraint.mask.tolist()))
+        elif isinstance(constraint, FixedLine):
+            transformed.append(FixedLine(
+                indices,
+                _normalized_affine_line_direction(constraint.dir, affine),
+            ))
+        elif isinstance(constraint, FixedPlane):
+            transformed.append(FixedPlane(
+                indices,
+                _normalized_affine_plane_normal(constraint.dir, affine),
+            ))
+        elif isinstance(constraint, Hookean) and constraint._type == "two atoms":
+            transformed.append(Hookean(
+                int(constraint.indices[0]),
+                int(constraint.indices[1]),
+                rt=constraint.threshold,
+                k=constraint.spring,
+            ))
+        elif isinstance(constraint, Hookean) and constraint._type == "point":
+            origin = np.asarray(constraint.origin, dtype=float) @ affine + translation
+            transformed.append(Hookean(
+                int(constraint.index),
+                origin,
+                rt=constraint.threshold,
+                k=constraint.spring,
+            ))
+        elif isinstance(constraint, Hookean) and constraint._type == "plane":
+            coefficients = np.asarray(constraint.plane[:3], dtype=float)
+            try:
+                normal = np.linalg.solve(affine, coefficients)
+            except np.linalg.LinAlgError as exc:
+                raise HTTPException(
+                    status_code=400,
+                    detail="A Hookean plane became singular in the common cell.",
+                ) from exc
+            offset = float(constraint.plane[3]) - float(np.dot(translation, normal))
+            norm = float(np.linalg.norm(normal))
+            if norm <= 1e-12:
+                raise HTTPException(status_code=400, detail="A Hookean plane became singular.")
+            transformed.append(Hookean(
+                int(constraint.index),
+                [*(normal / norm), offset / norm],
+                rt=constraint.threshold,
+                k=constraint.spring,
+            ))
+    return transformed
+
+
+def _offset_constraints(constraints: List[Any], offset: int) -> list[Any]:
+    shifted: list[Any] = []
+    for constraint in constraints:
+        if isinstance(constraint, FixAtoms):
+            shifted.append(FixAtoms(indices=[int(value) + offset for value in constraint.index]))
+        elif isinstance(constraint, FixCartesian):
+            shifted.append(FixCartesian(
+                [int(value) + offset for value in constraint.index],
+                mask=constraint.mask.tolist(),
+            ))
+        elif isinstance(constraint, FixScaled):
+            shifted.append(FixScaled(
+                [int(value) + offset for value in constraint.index],
+                mask=constraint.mask.tolist(),
+            ))
+        elif isinstance(constraint, FixedLine):
+            shifted.append(FixedLine(
+                [int(value) + offset for value in constraint.index],
+                constraint.dir,
+            ))
+        elif isinstance(constraint, FixedPlane):
+            shifted.append(FixedPlane(
+                [int(value) + offset for value in constraint.index],
+                constraint.dir,
+            ))
+        elif isinstance(constraint, Hookean) and constraint._type == "two atoms":
+            shifted.append(Hookean(
+                int(constraint.indices[0]) + offset,
+                int(constraint.indices[1]) + offset,
+                rt=constraint.threshold,
+                k=constraint.spring,
+            ))
+        elif isinstance(constraint, Hookean) and constraint._type == "point":
+            shifted.append(Hookean(
+                int(constraint.index) + offset,
+                constraint.origin,
+                rt=constraint.threshold,
+                k=constraint.spring,
+            ))
+        elif isinstance(constraint, Hookean) and constraint._type == "plane":
+            shifted.append(Hookean(
+                int(constraint.index) + offset,
+                constraint.plane,
+                rt=constraint.threshold,
+                k=constraint.spring,
+            ))
+    return shifted
+
+
+def materialize_host_guest_atoms(
+    host: Atoms,
+    guest: Atoms,
+    candidate: Dict[str, Any],
+    guest_offset,
+) -> Atoms:
+    """Materialize a validated host/guest candidate as one ASE structure."""
+
+    host_matrix = np.asarray(candidate["host_matrix_3d"], dtype=int)
+    guest_matrix = np.asarray(candidate["guest_matrix_3d"], dtype=int)
+    host_super = make_supercell_atoms(host, host_matrix)
+    guest_super = make_supercell_atoms(guest, guest_matrix)
+    rotation = row_rotation_matrix([0.0, 0.0, 1.0], float(candidate["angle_deg"]))
+    host_affine = np.asarray(candidate["host_deformation_matrix"], dtype=float)
+    guest_affine = rotation @ np.asarray(candidate["guest_deformation_matrix"], dtype=float)
+    offset = np.asarray(guest_offset, dtype=float)
+    common_cell = np.asarray(candidate["suggested_cell"], dtype=float)
+
+    host_super.set_positions(host_super.get_positions() @ host_affine, apply_constraint=False)
+    guest_super.set_positions(
+        guest_super.get_positions() @ guest_affine + offset,
+        apply_constraint=False,
+    )
+    host_constraints = _transform_commensurate_constraints(
+        host_super,
+        host_affine,
+        np.zeros(3),
+    )
+    guest_constraints = _transform_commensurate_constraints(
+        guest_super,
+        guest_affine,
+        offset,
+    )
+    host_labels = atom_labels(host_super)
+    guest_labels = atom_labels(guest_super)
+    host_super.set_constraint()
+    guest_super.set_constraint()
+    combined = host_super.copy()
+    combined.extend(guest_super)
+    combined.set_cell(common_cell, scale_atoms=False)
+    combined.set_pbc(host.pbc)
+    set_atom_labels(combined, [*host_labels, *guest_labels])
+    combined.set_constraint([
+        *host_constraints,
+        *_offset_constraints(guest_constraints, len(host_super)),
+    ])
+    if host.calc:
+        combined.calc = copy_calculator(host.calc)
+    else:
+        ensure_default_calculator(combined)
+    return combined
 
 
 def translate_atoms(atoms, vector, coordinate_mode="cartesian"):
@@ -1267,6 +3472,98 @@ def delete_indices_from_atoms(atoms, delete_indices):
     if atoms.calc:
         new_atoms.calc = copy_calculator(atoms.calc)
     return new_atoms
+
+
+def constraints_for_duplicated_atoms(atoms: Atoms, source_indices: List[int]):
+    """Copy constraints whose complete physical subject is duplicated."""
+
+    selected = sorted({int(index) for index in source_indices})
+    index_map = {
+        old_index: len(atoms) + new_offset
+        for new_offset, old_index in enumerate(selected)
+    }
+    duplicated = []
+    for constraint in atoms.constraints or []:
+        if isinstance(constraint, FixAtoms):
+            indices = [index_map[index] for index in _constraint_indices(constraint, len(atoms)) if index in index_map]
+            if indices:
+                duplicated.append(FixAtoms(indices=indices))
+        elif isinstance(constraint, FixCartesian):
+            indices = [index_map[index] for index in _constraint_indices(constraint, len(atoms)) if index in index_map]
+            if indices:
+                duplicated.append(FixCartesian(indices, mask=constraint.mask.tolist()))
+        elif isinstance(constraint, FixedLine):
+            indices = [index_map[index] for index in _constraint_indices(constraint, len(atoms)) if index in index_map]
+            if indices:
+                duplicated.append(FixedLine(indices, constraint.dir.tolist()))
+        elif isinstance(constraint, FixedPlane):
+            indices = [index_map[index] for index in _constraint_indices(constraint, len(atoms)) if index in index_map]
+            if indices:
+                duplicated.append(FixedPlane(indices, constraint.dir.tolist()))
+        elif isinstance(constraint, FixScaled):
+            indices = [index_map[index] for index in _constraint_indices(constraint, len(atoms)) if index in index_map]
+            if indices:
+                duplicated.append(FixScaled(indices, mask=constraint.mask.tolist()))
+        elif isinstance(constraint, Hookean) and constraint._type == "two atoms":
+            first, second = [int(value) for value in constraint.indices]
+            if first in index_map and second in index_map:
+                duplicated.append(Hookean(
+                    index_map[first],
+                    index_map[second],
+                    rt=constraint.threshold,
+                    k=constraint.spring,
+                ))
+        elif isinstance(constraint, Hookean) and constraint._type == "point":
+            index = int(constraint.index)
+            if index in index_map:
+                duplicated.append(Hookean(
+                    index_map[index],
+                    np.asarray(constraint.origin, dtype=float),
+                    rt=constraint.threshold,
+                    k=constraint.spring,
+                ))
+        elif isinstance(constraint, Hookean) and constraint._type == "plane":
+            index = int(constraint.index)
+            if index in index_map:
+                duplicated.append(Hookean(
+                    index_map[index],
+                    constraint.plane,
+                    rt=constraint.threshold,
+                    k=constraint.spring,
+                ))
+    return duplicated
+
+
+def duplicate_indices_in_atoms(atoms: Atoms, source_indices: List[int]) -> tuple[Atoms, list[int]]:
+    """Duplicate atoms in place, retaining every per-atom ASE array and constraint."""
+
+    indices = sorted({int(index) for index in source_indices})
+    if not indices:
+        return atoms.copy(), []
+    if indices[0] < 0 or indices[-1] >= len(atoms):
+        raise HTTPException(status_code=400, detail="Duplicate indices are out of range.")
+
+    duplicated_constraints = constraints_for_duplicated_atoms(atoms, indices)
+    duplicate = atoms[indices]
+    duplicate.set_constraint()
+    result = atoms.copy()
+    original_constraints = list(result.constraints or [])
+    result.set_constraint()
+    result.extend(duplicate)
+    result.set_constraint([*original_constraints, *duplicated_constraints])
+    if isinstance(atoms.calc, SinglePointCalculator):
+        copied_results = {}
+        for name, value in atoms.calc.results.items():
+            if isinstance(value, np.ndarray):
+                copied = np.asarray(value).copy()
+                if copied.ndim >= 1 and copied.shape[0] == len(atoms):
+                    copied = np.concatenate([copied, copied[indices]], axis=0)
+                    copied_results[name] = copied
+        if copied_results:
+            result.calc = SinglePointCalculator(result, **copied_results)
+    elif atoms.calc:
+        result.calc = copy_calculator(atoms.calc)
+    return result, list(range(len(atoms), len(result)))
 
 
 def inferred_base_symbol_for_label(label) -> str | None:
@@ -1599,7 +3896,11 @@ def configure_repulsion_calculators(
     *,
     device=None,
     cpu_threads=None,
+    cutoff_mode=None,
+    cutoff_basis=None,
+    cutoff_distance=None,
     cutoff_scale=None,
+    pair_cutoffs=None,
     k_repulsion=None,
 ):
     configured = False
@@ -1609,7 +3910,11 @@ def configure_repulsion_calculators(
             atoms.calc.configure(
                 device=device,
                 cpu_threads=cpu_threads,
+                cutoff_mode=cutoff_mode,
+                cutoff_basis=cutoff_basis,
+                cutoff_distance=cutoff_distance,
                 cutoff_scale=cutoff_scale,
+                pair_cutoffs=pair_cutoffs,
                 k_repulsion=k_repulsion,
             )
             configured = True
@@ -1619,6 +3924,38 @@ def configure_repulsion_calculators(
 async def get_index():
     with open(os.path.join(static_dir, "index.html"), "r") as f:
         return HTMLResponse(f.read())
+
+
+@app.get("/license", include_in_schema=False)
+async def get_license():
+    try:
+        content = v_ase_license_text()
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return HTMLResponse(
+        """<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>v_ase license</title>
+  <style>
+    body { max-width: 920px; margin: 0 auto; padding: 40px 24px; color: #202523; background: #fff; font: 16px/1.55 system-ui, sans-serif; }
+    h1 { margin: 0 0 8px; font-size: 28px; }
+    p { margin: 0 0 28px; color: #4f5955; }
+    a { color: #167c6b; }
+    pre { overflow: auto; white-space: pre-wrap; font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  </style>
+</head>
+<body>
+  <h1>v_ase</h1>
+  <p>Licensed under AGPL-3.0-or-later. <a href="https://github.com/lgyEthan/v_ase">Get the corresponding source.</a></p>
+  <pre>"""
+        + html.escape(content)
+        + """</pre>
+</body>
+</html>"""
+    )
 
 
 @app.get("/workspace")
@@ -2031,6 +4368,8 @@ async def poll_ai_workspace_collaboration_events(
 @app.post("/api/mode/{session_id}")
 async def update_session_mode(session_id: str, payload: Dict[str, Any]):
     session = get_session(session_id)
+    require_no_atom_addition(session, "changing View/Edit mode")
+    require_no_registry_relaxation(session, "changing View/Edit mode")
     requested = payload.get("viz_only")
     if not isinstance(requested, bool):
         raise HTTPException(status_code=400, detail="viz_only must be true or false.")
@@ -2092,18 +4431,12 @@ async def get_frame_positions(session_id: str, frame_index: int):
     if session.trajectory_source is None:
         raise HTTPException(status_code=404, detail="Virtual trajectory positions are not available for this session.")
     try:
-        positions = await asyncio.to_thread(
-            session.trajectory_source.read_positions,
-            frame_index,
-        )
+        frame_atoms = await asyncio.to_thread(session.set_frame, frame_index)
     except IndexError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    session.current_frame = int(frame_index)
-    session.working_atoms.set_positions(positions, apply_constraint=False)
-    cell = np.asarray(session.trajectory_source.cells[frame_index], dtype=float)
-    pbc = np.asarray(session.trajectory_source.pbc[frame_index], dtype=bool)
-    session.working_atoms.set_cell(cell)
-    session.working_atoms.set_pbc(pbc)
+    positions = frame_atoms.get_positions()
+    cell = np.asarray(frame_atoms.cell.array, dtype=float)
+    pbc = np.asarray(frame_atoms.pbc, dtype=bool)
     return Response(
         content=np.asarray(positions, dtype=np.float32).tobytes(order="C"),
         media_type="application/octet-stream",
@@ -2126,16 +4459,7 @@ async def active_session():
 
 
 def _uploaded_format_hint(filename: str, explicit_format: str | None) -> str | None:
-    if explicit_format:
-        return explicit_format
-    lower_name = filename.lower()
-    if lower_name in {"poscar", "contcar"}:
-        return "vasp"
-    if lower_name == "xdatcar":
-        return "vasp-xdatcar"
-    if lower_name == "vasprun.xml":
-        return "vasp-xml"
-    return None
+    return infer_input_format(filename, explicit_format)
 
 
 def _selected_frame_indices(index: str | int | slice | None, frame_count: int) -> list[int]:
@@ -2318,12 +4642,36 @@ async def _replace_session_from_file(
     index: str,
     *,
     source_is_temporary: bool,
+    volumetric_precision: str = "float32",
+    runtime_mode: str | None = None,
 ) -> tuple[Dict[str, Any], bool]:
-    from .io import read_fast_lammps_dump, read_structure_frames, resolve_input_format
+    from .io import (
+        read_fast_lammps_dump,
+        read_indexed_trajectory,
+        read_structure_frames,
+        resolve_input_format,
+    )
+
+    requested_mode = None
+    if runtime_mode is not None and str(runtime_mode).strip():
+        requested_mode = str(runtime_mode).strip().lower()
+        if requested_mode not in {"view", "edit"}:
+            raise HTTPException(
+                status_code=400,
+                detail="runtime_mode must be 'view' or 'edit'.",
+            )
+        # Select the reader before parsing.  In particular, View mode must use
+        # the virtual LAMMPS trajectory path instead of materializing every
+        # frame as editable ASE Atoms first.
+        session.config["viz_only"] = requested_mode == "view"
 
     suffix = Path(display_name).suffix
     format_hint = _uploaded_format_hint(display_name, input_format)
     resolved_format = resolve_input_format(format_hint)
+    volumetric_format = resolve_volumetric_format(
+        Path(display_name),
+        format_hint or resolved_format,
+    )
     is_vase_project = (
         suffix.lower() == ".vase"
         or resolved_format == "vase-project"
@@ -2346,6 +4694,21 @@ async def _replace_session_from_file(
         session.cleanup_temporary_files()
         replace_session_from_project(session, project)
         loaded_kind = "project"
+    elif volumetric_format:
+        datasets = await asyncio.to_thread(
+            read_volumetric_file,
+            source_path,
+            volumetric_format,
+            normalize_volumetric_precision(volumetric_precision),
+        )
+        structure = volumetric_structure(datasets)
+        session.cleanup_temporary_files()
+        replace_session_frames(
+            session,
+            [structure],
+            volumetric_datasets=datasets,
+        )
+        loaded_kind = "volumetric"
     elif is_viz_only(session) and is_lammps_dump:
         try:
             fast = await asyncio.to_thread(read_fast_lammps_dump, source_path, index)
@@ -2367,6 +4730,41 @@ async def _replace_session_from_file(
             session.cleanup_temporary_files()
             replace_session_frames(session, frames)
         loaded_kind = "trajectory" if session.frame_count > 1 else "structure"
+    elif is_viz_only(session):
+        try:
+            indexed = await asyncio.to_thread(
+                read_indexed_trajectory,
+                source_path,
+                index,
+                format_hint,
+            )
+        except ValueError as exc:
+            LOGGER.info(
+                "Indexed trajectory loading is unavailable for %s; "
+                "falling back to the general ASE reader: %s",
+                display_name,
+                exc,
+            )
+            indexed = None
+        if indexed is None:
+            frames = await asyncio.to_thread(
+                read_structure_frames, source_path, index, format_hint
+            )
+            session.cleanup_temporary_files()
+            replace_session_frames(session, frames)
+        else:
+            session.cleanup_temporary_files()
+            replace_session_frames(
+                session,
+                [indexed.atoms],
+                trajectory_source=indexed.trajectory,
+                current_frame=indexed.initial_frame,
+            )
+            if source_is_temporary:
+                source_text = str(source_path)
+                session.temporary_files.add(source_text)
+                keep_source = True
+        loaded_kind = "trajectory" if session.frame_count > 1 else "structure"
     else:
         frames = await asyncio.to_thread(
             read_structure_frames, source_path, index, format_hint
@@ -2375,13 +4773,15 @@ async def _replace_session_from_file(
         replace_session_frames(session, frames)
         loaded_kind = "trajectory" if session.frame_count > 1 else "structure"
 
+    if requested_mode is not None:
+        switch_session_mode(session, viz_only=requested_mode == "view")
     session.config["empty_workspace"] = False
     session.config["document_name"] = display_name
     data = session_atoms_to_json(session)
     data["loaded_file"] = {
         "filename": display_name,
         "kind": loaded_kind,
-        "format": resolved_format or (
+        "format": volumetric_format or resolved_format or (
             "vase-html-project" if is_html_project
             else "vase-project" if is_vase_project
             else "auto"
@@ -2395,12 +4795,31 @@ async def _replace_session_from_file(
     return data, keep_source
 
 
+def _volumetric_matches_original_structure(
+    session: EditorSession,
+    dataset,
+) -> bool:
+    original_cell = np.asarray(session.original_atoms.cell.array, dtype=float)
+    original_pbc = np.asarray(session.original_atoms.pbc, dtype=bool)
+    return (
+        abs(float(np.linalg.det(original_cell))) > 1e-12
+        and np.allclose(
+            dataset.cell,
+            original_cell,
+            rtol=GRID_GEOMETRY_RTOL,
+            atol=GRID_GEOMETRY_ATOL,
+        )
+        and np.array_equal(dataset.pbc, original_pbc)
+    )
+
+
 async def _append_session_from_file(
     session: EditorSession,
     source_path: Path,
     display_name: str,
     input_format: str | None,
     index: str,
+    volumetric_precision: str = "float32",
 ) -> Dict[str, Any]:
     from .io import read_fast_lammps_dump, read_structure_frames, resolve_input_format
 
@@ -2408,6 +4827,10 @@ async def _append_session_from_file(
     was_empty = bool((session.config or {}).get("empty_workspace", False)) and len(session.working_atoms) == 0
     format_hint = _uploaded_format_hint(display_name, input_format)
     resolved_format = resolve_input_format(format_hint)
+    volumetric_format = resolve_volumetric_format(
+        Path(display_name),
+        format_hint or resolved_format,
+    )
     is_vase_project = (
         suffix.lower() == ".vase"
         or resolved_format == "vase-project"
@@ -2428,6 +4851,66 @@ async def _append_session_from_file(
         selected_indices = _selected_frame_indices(index, len(project.frames))
         frames = [project.frames[frame_index] for frame_index in selected_indices]
         source_kind = "project"
+    elif volumetric_format:
+        datasets = await asyncio.to_thread(
+            read_volumetric_file,
+            source_path,
+            volumetric_format,
+            normalize_volumetric_precision(volumetric_precision),
+        )
+        with session.mode_transition_lock:
+            if was_empty:
+                replace_session_frames(
+                    session,
+                    [volumetric_structure(datasets)],
+                    volumetric_datasets=datasets,
+                )
+                session.config["document_name"] = display_name
+                session.config["empty_workspace"] = False
+            else:
+                reference_cell = np.asarray(session.working_atoms.cell.array, dtype=float)
+                reference_pbc = np.asarray(session.working_atoms.pbc, dtype=bool)
+                if (
+                    abs(float(np.linalg.det(reference_cell))) <= 1e-12
+                    or any(
+                        not np.allclose(
+                            dataset.cell,
+                            reference_cell,
+                            rtol=GRID_GEOMETRY_RTOL,
+                            atol=GRID_GEOMETRY_ATOL,
+                        )
+                        or not np.array_equal(dataset.pbc, reference_pbc)
+                        for dataset in datasets
+                    )
+                ):
+                    raise ValueError(
+                        "Added volumetric data must use the current structure's "
+                        "unit cell and periodic boundary conditions."
+                    )
+                if session.frame_count > 1:
+                    for dataset in datasets:
+                        local_frame = int(dataset.metadata.get("source_frame", 0))
+                        dataset.metadata["trajectory_frame"] = min(
+                            session.frame_count - 1,
+                            session.current_frame + max(0, local_frame),
+                        )
+                session.volumetric_datasets.extend(datasets)
+                session.original_volumetric_datasets.extend(
+                    dataset
+                    for dataset in datasets
+                    if _volumetric_matches_original_structure(session, dataset)
+                )
+        data = session_atoms_to_json(session)
+        data["loaded_file"] = {
+            "filename": display_name,
+            "kind": "append",
+            "source_kind": "volumetric",
+            "format": volumetric_format,
+            "appended_frames": 0,
+            "appended_volumetric_datasets": len(datasets),
+            "project_settings_ignored": False,
+        }
+        return data
     elif is_lammps_dump:
         try:
             fast = await asyncio.to_thread(read_fast_lammps_dump, source_path, index)
@@ -2478,9 +4961,13 @@ async def load_structure_file(
     filename: str,
     input_format: str | None = None,
     index: str = ":",
+    volumetric_precision: str = "float32",
+    runtime_mode: str | None = None,
 ):
     """Stream a browser-selected structure, trajectory, or project into a session."""
     session = get_session(session_id)
+    require_no_atom_addition(session, "Loading another file")
+    require_no_registry_relaxation(session, "Loading another file")
     display_name = _validated_uploaded_filename(filename)
     tmp_path = await _stream_uploaded_file(request, display_name)
     keep_temporary_file = False
@@ -2492,12 +4979,14 @@ async def load_structure_file(
             input_format,
             index,
             source_is_temporary=True,
+            volumetric_precision=volumetric_precision,
+            runtime_mode=runtime_mode,
         )
         return data
     except HTTPException:
         raise
-    except (TypeError, ValueError, KeyError, OSError) as exc:
-        raise HTTPException(status_code=400, detail=f"Could not load {display_name}: {exc}") from exc
+    except Exception as exc:
+        raise _file_read_http_error("load", display_name, exc) from exc
     finally:
         if not keep_temporary_file:
             _remove_temporary_file(tmp_path)
@@ -2507,6 +4996,8 @@ async def load_structure_file(
 async def load_structure_path(session_id: str, payload: Dict[str, Any]):
     """Load a file selected from the terminal launch directory."""
     session = get_session(session_id)
+    require_no_atom_addition(session, "Loading another file")
+    require_no_registry_relaxation(session, "Loading another file")
     source_path = _resolve_launch_path(
         session,
         str(payload.get("path") or ""),
@@ -2516,6 +5007,8 @@ async def load_structure_path(session_id: str, payload: Dict[str, Any]):
     display_name = _validated_uploaded_filename(source_path.name)
     input_format = payload.get("input_format") or None
     index = str(payload.get("index") or ":")
+    volumetric_precision = str(payload.get("volumetric_precision") or "float32")
+    runtime_mode = payload.get("runtime_mode")
     try:
         data, _ = await _replace_session_from_file(
             session,
@@ -2524,12 +5017,14 @@ async def load_structure_path(session_id: str, payload: Dict[str, Any]):
             str(input_format) if input_format else None,
             index,
             source_is_temporary=False,
+            volumetric_precision=volumetric_precision,
+            runtime_mode=str(runtime_mode) if runtime_mode is not None else None,
         )
         return data
     except HTTPException:
         raise
-    except (TypeError, ValueError, KeyError, OSError) as exc:
-        raise HTTPException(status_code=400, detail=f"Could not load {display_name}: {exc}") from exc
+    except Exception as exc:
+        raise _file_read_http_error("load", display_name, exc) from exc
 
 
 @app.post("/api/file/append/{session_id}")
@@ -2539,9 +5034,12 @@ async def append_structure_file(
     filename: str,
     input_format: str | None = None,
     index: str = ":",
+    volumetric_precision: str = "float32",
 ):
     """Append uploaded structures as movie frames without replacing visual settings."""
     session = get_session(session_id)
+    require_no_atom_addition(session, "Appending trajectory frames")
+    require_no_registry_relaxation(session, "Appending trajectory frames")
     display_name = _validated_uploaded_filename(filename)
     tmp_path = await _stream_uploaded_file(request, display_name)
     try:
@@ -2551,11 +5049,12 @@ async def append_structure_file(
             display_name,
             input_format,
             index,
+            volumetric_precision,
         )
     except HTTPException:
         raise
-    except (TypeError, ValueError, KeyError, OSError) as exc:
-        raise HTTPException(status_code=400, detail=f"Could not append {display_name}: {exc}") from exc
+    except Exception as exc:
+        raise _file_read_http_error("append", display_name, exc) from exc
     finally:
         _remove_temporary_file(tmp_path)
 
@@ -2564,6 +5063,8 @@ async def append_structure_file(
 async def append_structure_path(session_id: str, payload: Dict[str, Any]):
     """Append a file selected from the terminal launch directory."""
     session = get_session(session_id)
+    require_no_atom_addition(session, "Appending trajectory frames")
+    require_no_registry_relaxation(session, "Appending trajectory frames")
     source_path = _resolve_launch_path(
         session,
         str(payload.get("path") or ""),
@@ -2573,6 +5074,7 @@ async def append_structure_path(session_id: str, payload: Dict[str, Any]):
     display_name = _validated_uploaded_filename(source_path.name)
     input_format = payload.get("input_format") or None
     index = str(payload.get("index") or ":")
+    volumetric_precision = str(payload.get("volumetric_precision") or "float32")
     try:
         return await _append_session_from_file(
             session,
@@ -2580,11 +5082,133 @@ async def append_structure_path(session_id: str, payload: Dict[str, Any]):
             display_name,
             str(input_format) if input_format else None,
             index,
+            volumetric_precision,
         )
     except HTTPException:
         raise
-    except (TypeError, ValueError, KeyError, OSError) as exc:
-        raise HTTPException(status_code=400, detail=f"Could not append {display_name}: {exc}") from exc
+    except Exception as exc:
+        raise _file_read_http_error("append", display_name, exc) from exc
+
+
+@app.post("/api/volumetric/difference/{session_id}")
+async def create_volumetric_difference(session_id: str, payload: Dict[str, Any]):
+    """Create a validated linear combination of loaded scalar fields."""
+    session = get_session(session_id)
+    dataset_ids = payload.get("dataset_ids") or []
+    coefficients = payload.get("coefficients") or []
+    if not isinstance(dataset_ids, list) or not isinstance(coefficients, list):
+        raise HTTPException(
+            status_code=400,
+            detail="Volumetric dataset ids and coefficients must be arrays.",
+        )
+    try:
+        with session.mode_transition_lock:
+            datasets = [
+                dataset_by_id(session.volumetric_datasets, str(dataset_id))
+                for dataset_id in dataset_ids
+            ]
+            combined = combine_volumetric_datasets(
+                datasets,
+                coefficients,
+                name=str(payload.get("name") or "Charge density difference"),
+                precision=(
+                    normalize_volumetric_precision(payload["precision"])
+                    if payload.get("precision")
+                    else None
+                ),
+            )
+            session.volumetric_datasets.append(combined)
+            if _volumetric_matches_original_structure(session, combined):
+                session.original_volumetric_datasets.append(combined)
+    except (KeyError, TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {
+        "status": "ok",
+        "dataset": combined.summary(),
+        "volumetric_datasets": [
+            dataset.summary()
+            for dataset in session.volumetric_datasets
+        ],
+    }
+
+
+@app.post("/api/volumetric/isosurface/{session_id}")
+async def volumetric_isosurface(session_id: str, payload: Dict[str, Any]):
+    """Return a compact binary mesh without transferring the source grid."""
+    session = get_session(session_id)
+    try:
+        dataset = dataset_by_id(
+            session.volumetric_datasets,
+            str(payload.get("dataset_id") or ""),
+        )
+        mesh = await asyncio.to_thread(
+            generate_isosurface,
+            dataset,
+            float(payload.get("level")),
+            step_size=int(payload.get("step_size", 1)),
+            smearing_sigma=float(payload.get("smearing_sigma", 0.0)),
+            smoothing_iterations=payload.get("smoothing_iterations", 4),
+        )
+    except (KeyError, TypeError, ValueError, RuntimeError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return Response(
+        content=mesh.binary(),
+        media_type="application/vnd.v-ase.isosurface",
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@app.post("/api/volumetric/plane/{session_id}")
+async def volumetric_plane(session_id: str, payload: Dict[str, Any]):
+    """Return one compact, cell-clipped scalar plane without the source grid."""
+    session = get_session(session_id)
+    try:
+        dataset = dataset_by_id(
+            session.volumetric_datasets,
+            str(payload.get("dataset_id") or ""),
+        )
+        plane = await asyncio.to_thread(
+            generate_volumetric_plane,
+            dataset,
+            payload.get("hkl") or [0, 0, 1],
+            float(payload.get("offset_angstrom", 0.0)),
+            repetitions=payload.get("repetitions") or [1, 1, 1],
+            resolution=int(payload.get("resolution", 256)),
+        )
+    except (KeyError, TypeError, ValueError, RuntimeError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return Response(
+        content=plane.binary(),
+        media_type="application/vnd.v-ase.volumetric-plane",
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@app.post("/api/volumetric/delete/{session_id}")
+async def delete_volumetric_dataset(session_id: str, payload: Dict[str, Any]):
+    session = get_session(session_id)
+    dataset_id = str(payload.get("dataset_id") or "")
+    with session.mode_transition_lock:
+        retained = [
+            dataset
+            for dataset in session.volumetric_datasets
+            if dataset.dataset_id != dataset_id
+        ]
+        if len(retained) == len(session.volumetric_datasets):
+            raise HTTPException(status_code=404, detail="Volumetric dataset was not found.")
+        session.volumetric_datasets = retained
+        session.original_volumetric_datasets = [
+            dataset
+            for dataset in session.original_volumetric_datasets
+            if dataset.dataset_id != dataset_id
+        ]
+    return {
+        "status": "ok",
+        "volumetric_datasets": [
+            dataset.summary()
+            for dataset in retained
+        ],
+    }
 
 
 def invalidate_phonon_model(session: EditorSession) -> None:
@@ -2619,31 +5243,379 @@ async def constrain_positions(session_id: str, payload: Dict[str, Any]):
     return {"positions": temp_atoms.get_positions().tolist()}
 
 
+def _suggested_guest_offset(
+    host: Atoms,
+    guest: Atoms,
+    separation: float = 3.0,
+) -> list[float]:
+    if not len(host) or not len(guest):
+        return [0.0, 0.0, 0.0]
+    separation = max(0.0, float(separation))
+    return [
+        0.0,
+        0.0,
+        float(np.max(host.positions[:, 2]) - np.min(guest.positions[:, 2]) + separation),
+    ]
+
+
+def _read_commensurate_guest_structure(
+    source_path: Path,
+    display_name: str,
+    input_format: str | None = None,
+) -> Atoms:
+    """Read and validate one independent in-plane guest structure."""
+
+    from .commensurate import project_periodic_lattice
+    from .io import read_structure_frames, resolve_input_format
+
+    format_hint = _uploaded_format_hint(display_name, input_format or None)
+    resolved = resolve_input_format(format_hint)
+    if resolved in {"vase-project", "vase-html-project"}:
+        raise ValueError("Load a structure file, not a v_ase project, as the guest lattice.")
+    frames = read_structure_frames(source_path, "0", resolved)
+    if not frames:
+        raise ValueError("The guest file contains no readable structure.")
+    guest = frames[0]
+    if len(guest) < 1:
+        raise ValueError("The guest structure contains no atoms.")
+    projected = project_periodic_lattice(guest.cell.array, guest.pbc, "Z")
+    if projected.axis_alignment < 0.985:
+        raise ValueError(
+            "Guest matching requires two periodic cell vectors in the global XY plane."
+        )
+    return guest
+
+
+def _set_commensurate_guest(
+    session: EditorSession,
+    guest: Atoms,
+    display_name: str,
+) -> Dict[str, Any]:
+    session.commensurate_guest_atoms = copy_atoms_with_calc(guest, attach_default=False)
+    session.commensurate_guest_name = display_name
+    session.commensurate_search_cache = None
+    return {
+        "status": "ok",
+        "guest": {
+            "name": display_name,
+            "atoms": atoms_to_json(session.commensurate_guest_atoms),
+            "min_z": float(np.min(session.commensurate_guest_atoms.positions[:, 2])),
+            "max_z": float(np.max(session.commensurate_guest_atoms.positions[:, 2])),
+            "default_gap": 3.0,
+            "suggested_offset": _suggested_guest_offset(
+                session.working_atoms,
+                session.commensurate_guest_atoms,
+            ),
+        },
+    }
+
+
+def _enrich_commensurate_preview_visuals(
+    geometry: Dict[str, Any],
+    host: Atoms,
+    guest: Atoms | None = None,
+) -> Dict[str, Any]:
+    if not geometry.get("positions"):
+        return geometry
+    serialized = {"host": atoms_to_json(host), "reference": atoms_to_json(host), "rotating": atoms_to_json(host)}
+    if guest is not None:
+        serialized["guest"] = atoms_to_json(guest)
+    labels: list[str] = []
+    chemical_symbols: list[str] = []
+    colors: list[str] = []
+    radii: list[float] = []
+    bond_radii: list[float] = []
+    for atom_index, component in zip(geometry["atom_indices"], geometry["components"]):
+        source = serialized.get(str(component), serialized["host"])
+        index = int(atom_index)
+        labels.append(str(source["symbols"][index]))
+        chemical_symbols.append(str(source["chemical_symbols"][index]))
+        colors.append(str(source["visual"]["colors"][index]))
+        radii.append(float(source["visual"]["radii"][index]))
+        bond_radii.append(float(source["visual"]["bond_radii"][index]))
+    return {
+        **geometry,
+        "labels": labels,
+        "chemical_symbols": chemical_symbols,
+        "colors": colors,
+        "radii": radii,
+        "bond_radii": bond_radii,
+    }
+
+
+@app.post("/api/commensurate/guest/{session_id}")
+async def load_commensurate_guest(
+    session_id: str,
+    request: Request,
+    filename: str = "guest.xyz",
+    input_format: str = "",
+):
+    """Load one independent guest structure for interface-cell matching."""
+
+    session = get_session(session_id)
+    display_name = _validated_uploaded_filename(filename)
+    temporary = await _stream_uploaded_file(request, display_name)
+    try:
+        guest = await asyncio.to_thread(
+            _read_commensurate_guest_structure,
+            temporary,
+            display_name,
+            input_format or None,
+        )
+        return _set_commensurate_guest(session, guest, display_name)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    finally:
+        _remove_temporary_file(temporary)
+
+
+@app.post("/api/commensurate/guest-path/{session_id}")
+async def load_commensurate_guest_path(session_id: str, payload: Dict[str, Any]):
+    """Load a guest structure from the terminal launch directory for agents."""
+
+    session = get_session(session_id)
+    source_path = _resolve_launch_path(
+        session,
+        str(payload.get("path") or ""),
+        require_file=True,
+    )
+    _validate_launch_file_size(source_path)
+    display_name = _validated_uploaded_filename(source_path.name)
+    try:
+        guest = await asyncio.to_thread(
+            _read_commensurate_guest_structure,
+            source_path,
+            display_name,
+            str(payload.get("input_format") or "") or None,
+        )
+        return _set_commensurate_guest(session, guest, display_name)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/commensurate/guest/remove/{session_id}")
+async def remove_commensurate_guest(session_id: str):
+    session = get_session(session_id)
+    session.commensurate_guest_atoms = None
+    session.commensurate_guest_name = None
+    session.commensurate_search_cache = None
+    return {"status": "ok", "guest": None}
+
+
 @app.post("/api/commensurate/{session_id}")
 async def commensurate_rotation_candidates(session_id: str, payload: Dict[str, Any]):
-    """Return periodic 2D cell-boundary matches for an axis-locked rotate."""
+    """Return bounded same-lattice or host/guest periodic-cell matches."""
     session = get_session(session_id)
     sync_session_frame_from_payload(session, payload)
-    atoms = session.working_atoms
-    return await asyncio.to_thread(
-        find_commensurate_angles,
-        atoms.cell.array,
-        atoms.pbc,
-        payload.get("axis", "Z"),
-        max_index=payload.get("max_index", 32),
-        strain_tolerance=payload.get("strain_tolerance", 0.01),
-        chemical_symbols=atoms.get_chemical_symbols(),
+    job_id = str(payload.get("job_id") or uuid.uuid4())
+
+    def progress(value: float, stage: str) -> None:
+        ws_manager.broadcast_sync({
+            "type": "analysis_progress",
+            "analysis": "commensurate",
+            "job_id": job_id,
+            "progress": float(value),
+            "stage": str(stage),
+        }, session_id=session_id)
+
+    try:
+        result = await asyncio.to_thread(
+            _run_commensurate_search,
+            session,
+            payload,
+            progress,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    result["job_id"] = job_id
+    result["guest"] = (
+        {
+            "name": session.commensurate_guest_name or "Guest structure",
+            "natoms": len(session.commensurate_guest_atoms),
+            "min_z": float(np.min(session.commensurate_guest_atoms.positions[:, 2])),
+            "max_z": float(np.max(session.commensurate_guest_atoms.positions[:, 2])),
+            "default_gap": 3.0,
+            "suggested_offset": _suggested_guest_offset(
+                session.working_atoms,
+                session.commensurate_guest_atoms,
+            ),
+        }
+        if session.commensurate_guest_atoms is not None
+        else None
     )
+    session.commensurate_search_cache = {
+        "signature": _commensurate_search_signature(session, payload),
+        "result": result,
+    }
+    return result
+
+
+@app.post("/api/commensurate/preview/{session_id}")
+async def preview_commensurate_supercell(session_id: str, payload: Dict[str, Any]):
+    """Build a separate common-cell preview without mutating ASE state."""
+
+    session = get_session(session_id)
+    sync_session_frame_from_payload(session, payload)
+    atoms = session.working_atoms.copy()
+    if payload.get("positions") is not None:
+        positions = np.asarray(payload["positions"], dtype=float)
+        if positions.shape != (len(atoms), 3) or not np.all(np.isfinite(positions)):
+            raise HTTPException(status_code=400, detail="Preview positions must match the current atom count.")
+        atoms.set_positions(positions, apply_constraint=False)
+    candidate, search = resolve_commensurate_candidate(session, payload)
+    mode = str(search.get("mode") or "same-lattice")
+    selected = [int(value) for value in payload.get("selected_indices", [])]
+    pivot = payload.get("pivot", [0.0, 0.0, 0.0])
+    try:
+        if mode == "host-guest":
+            guest = session.commensurate_guest_atoms
+            if guest is None:
+                raise ValueError("The guest structure is no longer loaded.")
+            geometry = await asyncio.to_thread(
+                host_guest_supercell_geometry,
+                host_cell=atoms.cell.array,
+                host_positions=atoms.get_positions(),
+                guest_cell=guest.cell.array,
+                guest_positions=guest.get_positions(),
+                candidate=candidate,
+                guest_offset=payload.get(
+                    "guest_offset",
+                    _suggested_guest_offset(atoms, guest),
+                ),
+                padding_cells=1,
+                include_atoms=bool(payload.get("show_atoms", False)),
+                display_angle_deg=payload.get("display_angle_deg"),
+                parent_lattice_preview=True,
+                parent_grid_radius=max(2, min(64, int(payload.get("parent_grid_radius", 4)))),
+            )
+            geometry = _enrich_commensurate_preview_visuals(geometry, atoms, guest)
+        else:
+            geometry = await asyncio.to_thread(
+                commensurate_supercell_geometry,
+                cell=atoms.cell.array,
+                positions=atoms.get_positions(),
+                selected_indices=selected,
+                candidate=candidate,
+                pivot=pivot,
+                padding_cells=1,
+                include_atoms=bool(payload.get("show_atoms", False)),
+                display_angle_deg=payload.get("display_angle_deg"),
+                positions_include_display_rotation=bool(
+                    payload.get("positions_include_display_rotation", True)
+                ),
+                parent_lattice_preview=True,
+                parent_grid_radius=max(2, min(64, int(payload.get("parent_grid_radius", 4)))),
+            )
+            geometry = _enrich_commensurate_preview_visuals(geometry, atoms)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    materialization_reason = None
+    if session.frame_count > 1 or session.trajectory_source is not None:
+        materialization_reason = (
+            "Preview is available, but materialization is disabled for trajectories because "
+            "each frame may require an independently validated layer mapping."
+        )
+    elif session.volumetric_datasets:
+        materialization_reason = (
+            "Remove volumetric datasets before materializing a layer-specific commensurate cell."
+        )
+    return {
+        "status": "ok",
+        "candidate": candidate,
+        "search": {
+            "axis": search["axis"],
+            "mode": mode,
+            "lattice_family": search["lattice_family"],
+            "strain_tolerance": search["strain_tolerance"],
+            "max_area_ratio": int(payload.get("max_area_ratio", 16)),
+        },
+        "preview": geometry,
+        "materialization_supported": materialization_reason is None,
+        "materialization_reason": materialization_reason,
+    }
+
+
+@app.post("/api/commensurate/apply/{session_id}")
+async def apply_commensurate_supercell(session_id: str, payload: Dict[str, Any]):
+    """Materialize a validated two-component common cell as editable ASE atoms."""
+
+    session = get_session(session_id)
+    require_editable(session, "Applying a commensurate common cell")
+    if session.frame_count > 1 or session.trajectory_source is not None:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Commensurate cell materialization currently requires a single structure; "
+                "the opaque preview remains available for trajectories."
+            ),
+        )
+    if session.volumetric_datasets:
+        raise HTTPException(
+            status_code=400,
+            detail="Remove volumetric datasets before applying a layer-specific commensurate cell.",
+        )
+    sync_session_frame_from_payload(session, payload)
+    set_current_payload_positions(session, payload)
+    atoms = session.working_atoms
+    candidate, search = resolve_commensurate_candidate(session, payload)
+    selected = [int(value) for value in payload.get("selected_indices", [])]
+    pivot = payload.get("pivot", [0.0, 0.0, 0.0])
+    mode = str(search.get("mode") or "same-lattice")
+    session.push_history(include_trajectory=True)
+    if mode == "host-guest":
+        guest = session.commensurate_guest_atoms
+        if guest is None:
+            raise HTTPException(status_code=400, detail="The guest structure is no longer loaded.")
+        transformed = materialize_host_guest_atoms(
+            atoms,
+            guest,
+            candidate,
+            payload.get("guest_offset", _suggested_guest_offset(atoms, guest)),
+        )
+        session.commensurate_guest_atoms = None
+        session.commensurate_guest_name = None
+    else:
+        try:
+            geometry = await asyncio.to_thread(
+                commensurate_supercell_geometry,
+                cell=atoms.cell.array,
+                positions=atoms.get_positions(),
+                selected_indices=selected,
+                candidate=candidate,
+                pivot=pivot,
+                padding_cells=0,
+                include_atoms=True,
+                display_angle_deg=payload.get("display_angle_deg"),
+                positions_include_display_rotation=bool(
+                    payload.get("positions_include_display_rotation", True)
+                ),
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        transformed = materialize_commensurate_atoms(atoms, geometry, candidate, selected, pivot)
+    session.working_atoms = transformed
+    session.commensurate_search_cache = None
+    session.sync_current_frame()
+    session.invalidate_trajectory_layout()
+    session.refresh_trajectory_identity()
+    return session_update_to_json(session)
 
 @app.post("/api/apply/{session_id}")
 async def apply_positions(session_id: str, payload: Dict[str, Any]):
     """COMMIT: Backend state update with authoritative constraints."""
     session = get_session(session_id)
-    require_editable(session, "Atom coordinate editing")
+    require_editable(session, "Atom coordinate editing", allow_atom_addition=True)
     sync_session_frame_from_payload(session, payload)
-    session.push_history()
-    
     positions = np.array(payload["positions"])
+    if session.atom_addition is not None:
+        try:
+            apply_atom_addition_positions(session, positions)
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return session_update_to_json(session)
+
+    session.push_history()
     # Enforcement: Final coordinates MUST respect ASE constraints
     session.working_atoms.set_positions(positions, apply_constraint=payload_apply_constraint(payload))
     session.sync_current_frame()
@@ -2651,7 +5623,7 @@ async def apply_positions(session_id: str, payload: Dict[str, Any]):
     if session.is_relaxing:
         from .relax import request_relax_restart
         request_relax_restart(session)
-    
+
     return session_update_to_json(session)
 
 
@@ -2660,7 +5632,10 @@ async def reset(session_id: str, payload: Dict[str, Any] | None = None):
     session = get_session(session_id)
     require_editable(session, "Full reset")
     sync_session_frame_from_payload(session, payload)
-    session.push_history(include_trajectory=True)
+    session.push_history(
+        include_trajectory=True,
+        include_volumetric=bool(session.volumetric_datasets),
+    )
     session.reset_all_frames()
     invalidate_phonon_model(session)
     return session_update_to_json(session)
@@ -2671,7 +5646,10 @@ async def reset_coordinates(session_id: str, payload: Dict[str, Any] | None = No
     session = get_session(session_id)
     require_editable(session, "Coordinate reset")
     sync_session_frame_from_payload(session, payload)
-    session.push_history(include_trajectory=True)
+    session.push_history(
+        include_trajectory=True,
+        include_volumetric=bool(session.volumetric_datasets),
+    )
     session.reset_all_frames()
     invalidate_phonon_model(session)
     return session_update_to_json(session)
@@ -2700,8 +5678,29 @@ async def save_visual_settings(session_id: str, payload: Dict[str, Any]):
 async def load_visual_settings(session_id: str, request: Request):
     get_session(session_id)
     raw = await request.body()
-    if len(raw) > 8 * 1024 * 1024:
+    if len(raw) > 512 * 1024 * 1024:
         raise HTTPException(status_code=400, detail="Visual settings file is too large.")
+    stripped = raw.lstrip()
+    if stripped.startswith((b"<!doctype html", b"<html")) or b'v-ase-project-data' in raw[:2 * 1024 * 1024]:
+        temporary_path = None
+        try:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".html") as temporary:
+                temporary.write(raw)
+                temporary_path = temporary.name
+            project = read_project_html(temporary_path)
+            return {
+                "schema": SETTINGS_SCHEMA,
+                "settings": normalize_visual_settings(project.settings),
+            }
+        except (OSError, TypeError, ValueError) as exc:
+            raise HTTPException(
+                status_code=400,
+                detail=f"This HTML file does not contain an importable v_ase project preset: {exc}",
+            ) from exc
+        finally:
+            if temporary_path:
+                with suppress(OSError):
+                    Path(temporary_path).unlink()
     try:
         data = json.loads(raw.decode("utf-8"))
     except (json.JSONDecodeError, UnicodeDecodeError):
@@ -2723,6 +5722,47 @@ async def load_visual_settings(session_id: str, request: Request):
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return {"schema": SETTINGS_SCHEMA, "settings": settings}
     raise HTTPException(status_code=400, detail="Visual settings file must contain a JSON object.")
+
+
+@app.get("/api/preferences/visual-defaults/{session_id}")
+async def get_user_visual_defaults(session_id: str):
+    get_session(session_id)
+    settings = load_visual_defaults()
+    return {
+        "schema": PREFERENCES_SCHEMA,
+        "configured": settings is not None,
+        "settings": settings,
+    }
+
+
+@app.post("/api/preferences/visual-defaults/{session_id}")
+async def set_user_visual_defaults(session_id: str, payload: Dict[str, Any]):
+    get_session(session_id)
+    try:
+        settings = normalize_visual_settings(payload.get("settings", payload))
+        saved = save_visual_defaults(settings)
+    except (OSError, TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {
+        "schema": PREFERENCES_SCHEMA,
+        "configured": True,
+        "settings": saved,
+    }
+
+
+@app.delete("/api/preferences/visual-defaults/{session_id}")
+async def delete_user_visual_defaults(session_id: str):
+    get_session(session_id)
+    try:
+        removed = clear_visual_defaults()
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=f"Could not clear user defaults: {exc}") from exc
+    return {
+        "schema": PREFERENCES_SCHEMA,
+        "configured": False,
+        "removed": removed,
+        "settings": None,
+    }
 
 
 @app.post("/api/project/save/{session_id}")
@@ -2756,6 +5796,8 @@ async def save_project(session_id: str, payload: Dict[str, Any]):
 @app.post("/api/project/load/{session_id}")
 async def load_project(session_id: str, request: Request):
     session = get_session(session_id)
+    require_no_atom_addition(session, "Loading a project")
+    require_no_registry_relaxation(session, "Loading a project")
     raw = await request.body()
     if not raw:
         raise HTTPException(status_code=400, detail="The .vase project is empty.")
@@ -2804,7 +5846,7 @@ async def wrap(session_id: str, payload: Dict[str, Any] | None = None):
 @app.post("/api/undo/{session_id}")
 async def undo(session_id: str):
     session = get_session(session_id)
-    require_editable(session, "Undo")
+    require_editable(session, "Undo", allow_atom_addition=True)
     atoms = session.undo()
     if atoms is not None:
         session.sync_current_frame()
@@ -2814,10 +5856,121 @@ async def undo(session_id: str):
 @app.post("/api/redo/{session_id}")
 async def redo(session_id: str):
     session = get_session(session_id)
-    require_editable(session, "Redo")
+    require_editable(session, "Redo", allow_atom_addition=True)
     atoms = session.redo()
     if atoms is not None:
         session.sync_current_frame()
+    return session_update_to_json(session)
+
+
+@app.get("/api/add-session/molecules/{session_id}")
+async def atom_addition_molecule_catalog(session_id: str):
+    get_session(session_id)
+    return {"molecules": [dict(entry) for entry in molecule_catalog()]}
+
+
+@app.post("/api/add-session/pairs/{session_id}")
+async def atom_addition_pair_cutoffs(session_id: str, payload: Dict[str, Any]):
+    session = get_session(session_id)
+    require_editable(session, "Random atom insertion", allow_atom_addition=True)
+    elements = list(session.working_atoms.get_chemical_symbols())
+    elements.extend(payload.get("elements") or [])
+    if payload.get("molecules"):
+        try:
+            entries = normalize_molecule_entries({"molecules": payload.get("molecules")})
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        elements.extend(molecule_entry_elements(entries))
+    if not elements:
+        elements = ["H"]
+    return {
+        "basis": str(payload.get("basis") or "covalent").lower(),
+        "scale": float(payload.get("scale", 1.0)),
+        "pair_cutoffs": default_pair_cutoffs(
+            elements,
+            basis=payload.get("basis") or "covalent",
+            scale=payload.get("scale", 1.0),
+        ),
+    }
+
+
+@app.post("/api/add-session/domain/{session_id}")
+async def atom_addition_domain(session_id: str, payload: Dict[str, Any]):
+    session = get_session(session_id)
+    require_editable(session, "Insertion-domain preview", allow_atom_addition=True)
+    try:
+        return await asyncio.to_thread(
+            atom_addition_domain_preview,
+            session.working_atoms,
+            payload,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/add-session/start/{session_id}")
+async def start_random_atom_addition(session_id: str, payload: Dict[str, Any]):
+    session = get_session(session_id)
+    require_editable(session, "Random atom insertion", allow_atom_addition=True)
+    sync_session_frame_from_payload(session, payload)
+    try:
+        addition = await asyncio.to_thread(start_atom_addition, session, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    data = session_update_to_json(session)
+    data["metadata"]["atom_addition"].update({
+        "sampling": addition.get("sampling") or {},
+    })
+    return data
+
+
+@app.post("/api/add-session/relax/{session_id}")
+async def relax_random_atom_addition(session_id: str, payload: Dict[str, Any]):
+    session = get_session(session_id)
+    require_editable(session, "Random atom insertion", allow_atom_addition=True)
+    try:
+        return start_atom_addition_relaxation(session, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.patch("/api/add-session/region/{session_id}")
+async def update_random_atom_addition_region(session_id: str, payload: Dict[str, Any]):
+    session = get_session(session_id)
+    require_editable(session, "Random atom insertion", allow_atom_addition=True)
+    try:
+        summary = update_atom_addition_region(session, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    data = session_update_to_json(session)
+    data["metadata"]["atom_addition"] = summary
+    return data
+
+
+@app.post("/api/add-session/stop/{session_id}")
+async def stop_random_atom_addition(session_id: str):
+    session = get_session(session_id)
+    return {"status": "stopping" if stop_atom_addition_relaxation(session) else "idle"}
+
+
+@app.post("/api/add-session/finish/{session_id}")
+async def finish_random_atom_addition(session_id: str):
+    session = get_session(session_id)
+    require_editable(session, "Random atom insertion", allow_atom_addition=True)
+    try:
+        result = finish_atom_addition(session)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    data = session_update_to_json(session)
+    data["metadata"]["atom_addition_result"] = result
+    return data
+
+
+@app.post("/api/add-session/cancel/{session_id}")
+async def cancel_random_atom_addition(session_id: str):
+    session = get_session(session_id)
+    require_editable(session, "Random atom insertion", allow_atom_addition=True)
+    cancel_atom_addition(session)
     return session_update_to_json(session)
 
 
@@ -2825,6 +5978,7 @@ async def redo(session_id: str):
 async def add_atoms(session_id: str, payload: Dict[str, Any]):
     session = get_session(session_id)
     require_editable(session, "Adding atoms")
+    require_no_atom_addition(session, "adding a separate atom")
     sync_session_frame_from_payload(session, payload)
     symbols = payload.get("symbols")
     positions = payload.get("positions")
@@ -2854,7 +6008,7 @@ async def add_atoms(session_id: str, payload: Dict[str, Any]):
         )
         session.working_atoms.append(Atom(atom_symbol, position=position))
     set_atom_labels(session.working_atoms, labels)
-    invalidate_phonon_model(session)
+    session.config["empty_workspace"] = False
     session.invalidate_trajectory_layout()
     session.sync_current_frame()
     session.refresh_trajectory_identity()
@@ -2877,6 +6031,30 @@ async def delete_atoms(session_id: str, payload: Dict[str, Any]):
     session.sync_current_frame()
     session.refresh_trajectory_identity()
     return session_update_to_json(session)
+
+
+@app.post("/api/duplicate/{session_id}")
+async def duplicate_atoms(session_id: str, payload: Dict[str, Any]):
+    session = get_session(session_id)
+    require_editable(session, "Duplicating atoms")
+    require_no_atom_addition(session, "duplicating atoms")
+    sync_session_frame_from_payload(session, payload)
+    indices = payload.get("indices", [])
+    if not indices:
+        return session_update_to_json(session)
+
+    session.push_history()
+    session.working_atoms, new_indices = duplicate_indices_in_atoms(
+        session.working_atoms,
+        indices,
+    )
+    session.config["empty_workspace"] = False
+    session.invalidate_trajectory_layout()
+    session.sync_current_frame()
+    session.refresh_trajectory_identity()
+    data = session_update_to_json(session)
+    data["duplicated_indices"] = new_indices
+    return data
 
 
 @app.post("/api/atom-identity/{session_id}")
@@ -2955,15 +6133,22 @@ async def update_constraints(session_id: str, payload: Dict[str, Any]):
 @app.post("/api/calculator/{session_id}")
 async def update_calculator(session_id: str, payload: Dict[str, Any]):
     session = get_session(session_id)
-    require_editable(session, "Calculator device settings")
+    require_editable(session, "Repulsion calculator settings")
     sync_session_frame_from_payload(session, payload)
     if not is_vase_repulsion_calculator(session.working_atoms.calc):
-        raise HTTPException(status_code=400, detail="Calculator device settings are only available for the default repulsion calculator.")
+        raise HTTPException(
+            status_code=400,
+            detail="These settings are only available for the default repulsion calculator.",
+        )
     configure_repulsion_calculators(
         session,
         device=payload.get("device"),
         cpu_threads=payload.get("cpu_threads"),
+        cutoff_mode=payload.get("cutoff_mode"),
+        cutoff_basis=payload.get("cutoff_basis"),
+        cutoff_distance=payload.get("cutoff_distance"),
         cutoff_scale=payload.get("cutoff_scale"),
+        pair_cutoffs=payload.get("pair_cutoffs"),
         k_repulsion=payload.get("k_repulsion"),
     )
     session.sync_current_frame()
@@ -2973,6 +6158,8 @@ async def update_calculator(session_id: str, payload: Dict[str, Any]):
 @app.post("/api/frame/{session_id}")
 async def set_frame(session_id: str, payload: Dict[str, Any]):
     session = get_session(session_id)
+    require_no_atom_addition(session, "changing trajectory frames")
+    require_no_registry_relaxation(session, "changing trajectory frames")
     frame_index = int(payload.get("index", 0))
     try:
         session.set_frame(frame_index)
@@ -3011,6 +6198,41 @@ def _analysis_frame_atoms(session: EditorSession, frame_index: int):
     raise HTTPException(status_code=400, detail="The requested trajectory frame is unavailable.")
 
 
+def _atom_scalar_frame_atoms(session: EditorSession, frame_index: int):
+    if frame_index == session.current_frame:
+        return session.working_atoms.copy()
+    return _analysis_frame_atoms(session, frame_index)
+
+
+def _stored_atom_property_frame_atoms(session: EditorSession, frame_index: int):
+    """Return a lock-protected frame without dropping its stored calculator."""
+
+    if frame_index < 0 or frame_index >= session.frame_count:
+        raise IndexError(
+            f"Frame index {frame_index} is out of range for {session.frame_count} frames."
+        )
+    if frame_index == session.current_frame:
+        return session.working_atoms
+    if session.trajectory_source is not None:
+        return session.trajectory_source.read_atoms(frame_index)
+    if session.trajectory_frames:
+        return session.trajectory_frames[frame_index]
+    if frame_index == 0:
+        return session.working_atoms
+    raise IndexError("The requested trajectory frame is unavailable.")
+
+
+def _fast_trajectory_scalar_values(
+    session: EditorSession,
+    frame_index: int,
+    field_id: str,
+):
+    reader = getattr(session.trajectory_source, "read_scalar_values", None)
+    if not callable(reader):
+        return None
+    return reader(frame_index, field_id)
+
+
 def _unique_particle_ids(atoms):
     for name in _PARTICLE_ID_ARRAY_NAMES:
         values = atoms.arrays.get(name)
@@ -3031,7 +6253,8 @@ def _unique_particle_ids(atoms):
 
 def calculate_displacements(session: EditorSession, payload: Dict[str, Any]):
     frame_count = session.frame_count
-    if frame_count <= 1:
+    reference_mode = str(payload.get("reference_mode", "previous")).strip().lower()
+    if frame_count <= 1 and reference_mode != "phonon":
         return {
             "status": "unavailable",
             "message": "Displacement analysis requires at least two trajectory frames.",
@@ -3039,7 +6262,14 @@ def calculate_displacements(session: EditorSession, payload: Dict[str, Any]):
         }
 
     current_index = int(payload.get("frame_index", session.current_frame))
-    reference_mode = str(payload.get("reference_mode", "previous")).strip().lower()
+    current = _analysis_frame_atoms(session, current_index)
+    current_positions = np.asarray(current.get_positions(), dtype=float)
+    supplied_positions = payload.get("positions")
+    if supplied_positions is not None:
+        supplied = np.asarray(supplied_positions, dtype=float)
+        if supplied.shape == current_positions.shape and np.all(np.isfinite(supplied)):
+            current_positions = supplied
+
     if reference_mode == "previous":
         if current_index <= 0:
             return {
@@ -3051,64 +6281,82 @@ def calculate_displacements(session: EditorSession, payload: Dict[str, Any]):
         reference_index = current_index - 1
     elif reference_mode == "frame":
         reference_index = int(payload.get("reference_frame", 0))
+    elif reference_mode == "phonon":
+        reference_index = None
     else:
         raise HTTPException(
             status_code=400,
-            detail="reference_mode must be 'previous' or 'frame'.",
+            detail="reference_mode must be 'previous', 'frame', or 'phonon'.",
         )
 
-    current = _analysis_frame_atoms(session, current_index)
-    reference = _analysis_frame_atoms(session, reference_index)
-    current_positions = np.asarray(current.get_positions(), dtype=float)
-    supplied_positions = payload.get("positions")
-    if supplied_positions is not None:
-        supplied = np.asarray(supplied_positions, dtype=float)
-        if supplied.shape == current_positions.shape and np.all(np.isfinite(supplied)):
-            current_positions = supplied
-
-    current_id_name, current_ids = _unique_particle_ids(current)
-    reference_id_name, reference_ids = _unique_particle_ids(reference)
     mapping = "index"
     warnings = []
-    if (
-        current_ids is not None
-        and reference_ids is not None
-        and current_id_name == reference_id_name
-    ):
-        mapping = f"particle-id:{current_id_name}"
-        reference_lookup = {
-            particle_id: index
-            for index, particle_id in enumerate(reference_ids)
-        }
-        current_indices = [
-            index
-            for index, particle_id in enumerate(current_ids)
-            if particle_id in reference_lookup
-        ]
-        reference_indices = [
-            reference_lookup[current_ids[index]]
-            for index in current_indices
-        ]
-        unmatched_current = len(current) - len(current_indices)
-        unmatched_reference = len(reference) - len(current_indices)
-        if unmatched_current or unmatched_reference:
-            warnings.append(
-                f"Matched {len(current_indices)} particles by {current_id_name}; "
-                f"{unmatched_current} current and {unmatched_reference} reference particles were unmatched."
+    if reference_mode == "phonon":
+        equilibrium = current.arrays.get(PHONON_EQUILIBRIUM_ARRAY)
+        if equilibrium is None:
+            return {
+                "status": "unavailable",
+                "message": "The current frame does not contain a phonon equilibrium reference.",
+                "frame_count": frame_count,
+                "current_frame": current_index,
+            }
+        equilibrium = np.asarray(equilibrium, dtype=float)
+        if equilibrium.shape != current_positions.shape or not np.isfinite(equilibrium).all():
+            raise HTTPException(
+                status_code=400,
+                detail="The stored phonon equilibrium reference is invalid for this frame.",
             )
-    elif len(current) == len(reference):
         current_indices = list(range(len(current)))
-        reference_indices = list(range(len(reference)))
+        reference_indices = list(current_indices)
         unmatched_current = 0
         unmatched_reference = 0
+        reference_mapped = equilibrium
     else:
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                "Trajectory frames have different atom counts and no common unique "
-                "particle-ID array. Displacement mapping is not physically defined."
-            ),
-        )
+        reference = _analysis_frame_atoms(session, reference_index)
+        current_id_name, current_ids = _unique_particle_ids(current)
+        reference_id_name, reference_ids = _unique_particle_ids(reference)
+        if (
+            current_ids is not None
+            and reference_ids is not None
+            and current_id_name == reference_id_name
+        ):
+            mapping = f"particle-id:{current_id_name}"
+            reference_lookup = {
+                particle_id: index
+                for index, particle_id in enumerate(reference_ids)
+            }
+            current_indices = [
+                index
+                for index, particle_id in enumerate(current_ids)
+                if particle_id in reference_lookup
+            ]
+            reference_indices = [
+                reference_lookup[current_ids[index]]
+                for index in current_indices
+            ]
+            unmatched_current = len(current) - len(current_indices)
+            unmatched_reference = len(reference) - len(current_indices)
+            if unmatched_current or unmatched_reference:
+                warnings.append(
+                    f"Matched {len(current_indices)} particles by {current_id_name}; "
+                    f"{unmatched_current} current and {unmatched_reference} reference particles were unmatched."
+                )
+        elif len(current) == len(reference):
+            current_indices = list(range(len(current)))
+            reference_indices = list(range(len(reference)))
+            unmatched_current = 0
+            unmatched_reference = 0
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Trajectory frames have different atom counts and no common unique "
+                    "particle-ID array. Displacement mapping is not physically defined."
+                ),
+            )
+        reference_mapped = np.asarray(reference.get_positions(), dtype=float)[
+            np.asarray(reference_indices, dtype=int)
+        ]
 
     if not current_indices:
         raise HTTPException(
@@ -3117,9 +6365,6 @@ def calculate_displacements(session: EditorSession, payload: Dict[str, Any]):
         )
 
     current_mapped = current_positions[np.asarray(current_indices, dtype=int)]
-    reference_mapped = np.asarray(reference.get_positions(), dtype=float)[
-        np.asarray(reference_indices, dtype=int)
-    ]
     vectors = current_mapped - reference_mapped
     use_mic = bool(payload.get("mic", True))
     mic_applied = False
@@ -3132,10 +6377,10 @@ def calculate_displacements(session: EditorSession, payload: Dict[str, Any]):
         else:
             warnings.append("MIC was requested but the current frame has no invertible unit cell.")
 
-    # Vectors describe the physical current-reference displacement, while the
-    # glyph anchor is the atom's current position. The renderer may add a
-    # visual-only translation or displayed supercell offset to both endpoints.
-    starts = current_mapped
+    # Generic trajectory vectors start at the displayed atom, matching the
+    # analysis contract. A phonon eigenmode instead starts at the equilibrium
+    # site so each arrow terminates at the current harmonic displacement.
+    starts = reference_mapped if reference_mode == "phonon" else current_mapped
     magnitudes = np.linalg.norm(vectors, axis=1)
     return {
         "status": "ok",
@@ -3313,10 +6558,7 @@ async def phonon_displacements(session_id: str, payload: Dict[str, Any]):
             )
             session.push_history(include_trajectory=True)
             session.trajectory_source = None
-            session.trajectory_frames = [
-                session._copy_atoms(frame)
-                for frame in frames
-            ]
+            session.trajectory_frames = [session._copy_atoms(frame) for frame in frames]
             session.current_frame = 0
             session.working_atoms = session._copy_atoms(session.trajectory_frames[0])
             session.phonon_model = model
@@ -3383,6 +6625,29 @@ def _require_session_phonon_model(session: EditorSession):
                 "load a completed phonopy YAML project first."
             ),
         )
+    matches_unitcell = True
+    try:
+        validate_phonon_model_for_atoms(model, session.working_atoms)
+    except ValueError as exc:
+        matches_unitcell = False
+        expected_signature = session.working_atoms.info.get(
+            "v_ase_phonon_structure_signature"
+        )
+        if (
+            not isinstance(expected_signature, str)
+            or phonon_structure_signature(session.working_atoms) != expected_signature
+        ):
+            session.phonon_model = None
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "The loaded phonopy model no longer matches the active atom order, "
+                    "elements, cell, or periodic positions. Load matching force constants "
+                    "for the current structure before calculating modes."
+                ),
+            ) from exc
+    if matches_unitcell:
+        model.unit_labels = atom_labels(session.working_atoms)
     return model
 
 
@@ -3452,10 +6717,7 @@ async def phonon_modulate(session_id: str, payload: Dict[str, Any]):
             )
             session.push_history(include_trajectory=True)
             session.trajectory_source = None
-            session.trajectory_frames = [
-                session._copy_atoms(frame)
-                for frame in frames
-            ]
+            session.trajectory_frames = [session._copy_atoms(frame) for frame in frames]
             session.current_frame = 0
             session.working_atoms = session._copy_atoms(session.trajectory_frames[0])
             session.invalidate_trajectory_layout()
@@ -3471,9 +6733,566 @@ async def phonon_modulate(session_id: str, payload: Dict[str, Any]):
     except (TypeError, ValueError, RuntimeError) as exc:
         raise _scientific_input_detail(exc) from exc
 
+
+@app.get("/api/analysis/atom-scalars/catalog/{session_id}")
+async def per_atom_scalar_catalog(session_id: str, frame_index: int | None = None):
+    session = get_session(session_id)
+
+    def discover():
+        with session.mode_transition_lock:
+            index = session.current_frame if frame_index is None else int(frame_index)
+            atoms = _atom_scalar_frame_atoms(session, index)
+            return {
+                "frame_index": index,
+                "atom_count": len(atoms),
+                "fields": atom_scalar_catalog(atoms),
+            }
+
+    try:
+        return await asyncio.to_thread(discover)
+    except (IndexError, TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/analysis/atom-properties/{session_id}/{atom_index}")
+async def per_atom_properties(
+    session_id: str,
+    atom_index: int,
+    frame_index: int | None = None,
+):
+    """Return one atom's stored ASE arrays and calculator results lazily."""
+
+    session = get_session(session_id)
+
+    def inspect():
+        with session.mode_transition_lock:
+            index = session.current_frame if frame_index is None else int(frame_index)
+            atoms = _stored_atom_property_frame_atoms(session, index)
+            if atom_index < 0 or atom_index >= len(atoms):
+                raise IndexError(
+                    f"Atom index {atom_index} is out of range for frame {index} "
+                    f"with {len(atoms)} atoms."
+                )
+            return {
+                "frame_index": index,
+                "atom_index": int(atom_index),
+                "atom_count": len(atoms),
+                "properties": atom_property_snapshot(atoms, atom_index),
+            }
+
+    try:
+        return await asyncio.to_thread(inspect)
+    except (IndexError, TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+def _session_atom_scalar_values(session: EditorSession, payload: Dict[str, Any]):
+    field_id = str(payload.get("field_id") or "").strip()
+    if not field_id:
+        raise ValueError("field_id is required.")
+    requested_frame = int(payload.get("frame_index", session.current_frame))
+    requested_all_frames = bool(payload.get("all_frames", False))
+
+    with session.mode_transition_lock:
+        current_atoms = None
+        atom_count = (
+            int(session.trajectory_source.natoms)
+            if session.trajectory_source is not None
+            and hasattr(session.trajectory_source, "natoms")
+            else len(_atom_scalar_frame_atoms(session, requested_frame))
+        )
+        can_cache_trajectory = (
+            requested_all_frames
+            and session.frame_count > 1
+            and trajectory_layout_compatible(session)
+            and session.frame_count * atom_count <= MAX_ATOM_SCALAR_CACHE_VALUES
+        )
+        if not can_cache_trajectory:
+            fast_values = _fast_trajectory_scalar_values(session, requested_frame, field_id)
+            if fast_values is not None:
+                return requested_frame, np.asarray(fast_values, dtype=np.float32).reshape(1, atom_count)
+            current_atoms = _atom_scalar_frame_atoms(session, requested_frame)
+            try:
+                values = atom_scalar_values(current_atoms, field_id).reshape(1, atom_count)
+            except ValueError:
+                # A field may be absent from one trajectory frame. Keep its
+                # identity/range stable and render that frame as uncolored.
+                values = np.full((1, atom_count), np.nan, dtype=np.float32)
+            return requested_frame, values
+
+        values = np.full((session.frame_count, atom_count), np.nan, dtype=np.float32)
+        for index in range(session.frame_count):
+            fast_values = _fast_trajectory_scalar_values(session, index, field_id)
+            if fast_values is not None:
+                values[index] = fast_values
+                continue
+            atoms = _atom_scalar_frame_atoms(session, index)
+            if len(atoms) != atom_count:
+                raise ValueError("Trajectory atom counts differ; this field cannot be cached across frames.")
+            try:
+                values[index] = atom_scalar_values(atoms, field_id)
+            except ValueError:
+                # Calculator and custom arrays may be absent from individual frames.
+                # NaN keeps those frames explicit instead of substituting misleading data.
+                continue
+        return 0, values
+
+
+@app.post("/api/analysis/atom-scalars/values/{session_id}")
+async def per_atom_scalar_values(session_id: str, payload: Dict[str, Any]):
+    session = get_session(session_id)
+    try:
+        start_frame, values = await asyncio.to_thread(_session_atom_scalar_values, session, payload)
+    except (IndexError, TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    packed = np.asarray(values, dtype=np.float32, order="C")
+    return Response(
+        content=packed.tobytes(order="C"),
+        media_type="application/octet-stream",
+        headers={
+            "X-V-Ase-Frames": str(packed.shape[0]),
+            "X-V-Ase-Atoms": str(packed.shape[1]),
+            "X-V-Ase-Start-Frame": str(start_frame),
+            "X-V-Ase-Dtype": "float32",
+            "X-V-Ase-Cache": "trajectory" if packed.shape[0] > 1 else "frame",
+        },
+    )
+
+
+def _session_force_vector_values(session: EditorSession, payload: Dict[str, Any]):
+    requested_frame = int(payload.get("frame_index", session.current_frame))
+    requested_all_frames = bool(payload.get("all_frames", False))
+
+    with session.mode_transition_lock:
+        current_atoms = _atom_scalar_frame_atoms(session, requested_frame)
+        atom_count = len(current_atoms)
+        can_cache_trajectory = (
+            requested_all_frames
+            and session.frame_count > 1
+            and trajectory_layout_compatible(session)
+            and session.frame_count * atom_count * 3 <= MAX_FORCE_VECTOR_CACHE_VALUES
+        )
+        frame_indices = range(session.frame_count) if can_cache_trajectory else (requested_frame,)
+        start_frame = 0 if can_cache_trajectory else requested_frame
+        values = np.full((len(frame_indices), atom_count, 3), np.nan, dtype=np.float32)
+        for output_index, frame_index in enumerate(frame_indices):
+            fast_reader = getattr(session.trajectory_source, "read_force_vectors", None)
+            vectors = None
+            if callable(fast_reader) and frame_index != session.current_frame:
+                vectors = fast_reader(frame_index)
+            if vectors is None:
+                atoms = current_atoms if frame_index == requested_frame else _atom_scalar_frame_atoms(
+                    session, frame_index
+                )
+                if len(atoms) != atom_count:
+                    raise ValueError(
+                        "Trajectory atom counts differ; force vectors cannot be cached across frames."
+                    )
+                vectors = atom_force_vectors(atoms)
+            if vectors is not None:
+                values[output_index] = vectors
+        return start_frame, values
+
+
+@app.post("/api/analysis/force-vectors/{session_id}")
+async def per_atom_force_vectors(session_id: str, payload: Dict[str, Any]):
+    """Return stored frame forces as compact float32 Cartesian vectors."""
+
+    session = get_session(session_id)
+    try:
+        start_frame, values = await asyncio.to_thread(
+            _session_force_vector_values, session, payload
+        )
+    except (IndexError, TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    packed = np.asarray(values, dtype=np.float32, order="C")
+    return Response(
+        content=packed.tobytes(order="C"),
+        media_type="application/octet-stream",
+        headers={
+            "X-V-Ase-Frames": str(packed.shape[0]),
+            "X-V-Ase-Atoms": str(packed.shape[1]),
+            "X-V-Ase-Start-Frame": str(start_frame),
+            "X-V-Ase-Dtype": "float32",
+            "X-V-Ase-Cache": "trajectory" if packed.shape[0] > 1 else "frame",
+        },
+    )
+
+
+def _session_atom_scalar_range(session: EditorSession, payload: Dict[str, Any]):
+    field_id = str(payload.get("field_id") or "").strip()
+    if not field_id:
+        raise ValueError("field_id is required.")
+    requested_frame = int(payload.get("frame_index", session.current_frame))
+    requested_all_frames = bool(payload.get("all_frames", False))
+    requested_indices = payload.get("indices")
+
+    with session.mode_transition_lock:
+        current_atoms = _atom_scalar_frame_atoms(session, requested_frame)
+        if requested_indices is None:
+            selected = None
+        else:
+            if not isinstance(requested_indices, list):
+                raise ValueError("indices must be a list when a selected-atom range is requested.")
+            selected = np.asarray(sorted({int(index) for index in requested_indices}), dtype=np.int64)
+            if selected.size == 0:
+                raise ValueError("Select at least one atom before fitting a selected-atom color range.")
+            if selected[0] < 0 or selected[-1] >= len(current_atoms):
+                raise ValueError("A selected atom index is outside the current structure.")
+
+        frame_indices = (
+            range(session.frame_count)
+            if requested_all_frames and session.frame_count > 1
+            else (requested_frame,)
+        )
+        minimum = np.inf
+        maximum = -np.inf
+        finite_count = 0
+        frames_with_values = 0
+        missing_frames = 0
+
+        for index in frame_indices:
+            fast_values = _fast_trajectory_scalar_values(session, index, field_id)
+            if fast_values is not None:
+                values = np.asarray(fast_values, dtype=np.float64)
+            else:
+                atoms = _atom_scalar_frame_atoms(session, index)
+                try:
+                    values = np.asarray(atom_scalar_values(atoms, field_id), dtype=np.float64)
+                except ValueError:
+                    missing_frames += 1
+                    continue
+            if selected is not None:
+                valid = selected[selected < values.shape[0]]
+                if valid.size == 0:
+                    missing_frames += 1
+                    continue
+                values = values[valid]
+            finite = values[np.isfinite(values)]
+            if finite.size == 0:
+                missing_frames += 1
+                continue
+            frames_with_values += 1
+            finite_count += int(finite.size)
+            minimum = min(minimum, float(np.min(finite)))
+            maximum = max(maximum, float(np.max(finite)))
+
+        if finite_count == 0:
+            target = "trajectory" if requested_all_frames else "current frame"
+            raise ValueError(f"The selected per-atom property has no finite values in the {target}.")
+        if minimum == maximum:
+            padding = max(1e-12, abs(minimum) * 1e-6)
+            minimum -= padding
+            maximum += padding
+        return {
+            "field_id": field_id,
+            "scope": "selected" if selected is not None else "all",
+            "range_mode": "trajectory" if requested_all_frames and session.frame_count > 1 else "current",
+            "minimum": minimum,
+            "maximum": maximum,
+            "finite_values": finite_count,
+            "frames_scanned": len(frame_indices),
+            "frames_with_values": frames_with_values,
+            "missing_frames": missing_frames,
+        }
+
+
+@app.post("/api/analysis/atom-scalars/range/{session_id}")
+async def per_atom_scalar_range(session_id: str, payload: Dict[str, Any]):
+    session = get_session(session_id)
+    try:
+        return await asyncio.to_thread(_session_atom_scalar_range, session, payload)
+    except (IndexError, TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/analysis/colormaps/{session_id}")
+async def registered_colormaps(session_id: str):
+    get_session(session_id)
+    return await asyncio.to_thread(colormap_catalog)
+
+
+@app.post("/api/analysis/colormaps/{session_id}")
+async def sampled_colormap(session_id: str, payload: Dict[str, Any]):
+    get_session(session_id)
+    try:
+        return await asyncio.to_thread(
+            colormap_lut,
+            str(payload.get("name") or "viridis"),
+            int(payload.get("samples", 256)),
+            bool(payload.get("reverse", False)),
+        )
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+def _calculate_session_rdf(session: EditorSession, payload: Dict[str, Any]):
+    with session.mode_transition_lock:
+        frame_index = int(payload.get("frame_index", session.current_frame))
+        # Analysis requests must not move the live editor session. This also
+        # permits trajectory RDF frames to be prefetched safely while the GUI
+        # remains on the frame chosen by the user.
+        atoms = _atom_scalar_frame_atoms(session, frame_index)
+    supplied_positions = payload.get("positions")
+    if supplied_positions is not None:
+        positions = np.asarray(supplied_positions, dtype=float)
+        if positions.shape != (len(atoms), 3) or not np.all(np.isfinite(positions)):
+            raise ValueError("Displayed RDF positions must contain one finite xyz row per atom.")
+        atoms.set_positions(positions, apply_constraint=False)
+    requested_cutoff = payload.get("cutoff")
+    cutoff = (
+        None
+        if requested_cutoff is None or requested_cutoff == ""
+        else float(requested_cutoff)
+    )
+    return calculate_rdf(
+        atoms,
+        cutoff=cutoff,
+        bins=int(payload.get("bins", 200)),
+        pair_mode=str(payload.get("pair_mode") or "active"),
+        active_pairs=payload.get("active_pairs") or [],
+        frame_index=frame_index,
+    )
+
+
+@app.post("/api/analysis/rdf/{session_id}")
+async def radial_distribution_analysis(session_id: str, payload: Dict[str, Any]):
+    session = get_session(session_id)
+    try:
+        result = await asyncio.to_thread(_calculate_session_rdf, session, payload)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return result.payload()
+
+
+@app.post("/api/analysis/rdf-csv/{session_id}")
+async def radial_distribution_csv(session_id: str, payload: Dict[str, Any]):
+    session = get_session(session_id)
+    try:
+        result = await asyncio.to_thread(_calculate_session_rdf, session, payload)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return Response(
+        content=rdf_csv(result),
+        media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="v_ase_rdf.csv"'},
+    )
+
+
+@app.post("/api/analysis/commensurate-csv/{session_id}")
+async def commensurate_candidate_csv(session_id: str, payload: Dict[str, Any]):
+    session = get_session(session_id)
+    try:
+        signature = _commensurate_search_signature(session, payload)
+        cached = session.commensurate_search_cache or {}
+        result = (
+            cached["result"]
+            if cached.get("signature") == signature and isinstance(cached.get("result"), dict)
+            else await asyncio.to_thread(_run_commensurate_search, session, payload)
+        )
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return Response(
+        content=commensurate_csv(result),
+        media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="v_ase_commensurate.csv"'},
+    )
+
+
+def _calculate_session_registry(
+    session: EditorSession,
+    payload: Dict[str, Any],
+    progress_callback=None,
+):
+    with session.mode_transition_lock:
+        sync_session_frame_from_payload(session, payload)
+        active_mode = session.registry_relaxation
+        atoms = (
+            copy_atoms_with_calc(active_mode.baseline_atoms)
+            if active_mode is not None
+            else session.working_atoms.copy()
+        )
+        positions = payload.get("positions")
+        if positions is not None and active_mode is None:
+            coordinates = np.asarray(positions, dtype=float)
+            if coordinates.shape != (len(atoms), 3) or not np.all(np.isfinite(coordinates)):
+                raise ValueError("Registry-map positions must match the current atom count.")
+            atoms.set_positions(coordinates, apply_constraint=False)
+    return calculate_registry_map(
+        atoms,
+        payload.get("selected_indices") or [],
+        grid_x=int(payload.get("grid_x", 32)),
+        grid_y=int(payload.get("grid_y", 32)),
+        metric=str(payload.get("metric") or "short-contact"),
+        pair_cutoffs=payload.get("pair_cutoffs") or {},
+        hkl=payload.get("hkl") or [0, 0, 1],
+        progress_callback=progress_callback,
+    )
+
+
+@app.post("/api/analysis/registry/{session_id}")
+async def registry_analysis(session_id: str, payload: Dict[str, Any]):
+    session = get_session(session_id)
+    job_id = str(payload.get("job_id") or uuid.uuid4())
+
+    def progress(value: float, stage: str) -> None:
+        ws_manager.broadcast_sync({
+            "type": "analysis_progress",
+            "analysis": "registry",
+            "job_id": job_id,
+            "progress": float(value),
+            "stage": str(stage),
+        }, session_id=session_id)
+
+    try:
+        result = await asyncio.to_thread(
+            _calculate_session_registry,
+            session,
+            payload,
+            progress,
+        )
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    response = result.payload()
+    response["job_id"] = job_id
+    return response
+
+
+@app.post("/api/analysis/registry-csv/{session_id}")
+async def registry_analysis_csv(session_id: str, payload: Dict[str, Any]):
+    session = get_session(session_id)
+    try:
+        result = await asyncio.to_thread(_calculate_session_registry, session, payload)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return Response(
+        content=registry_map_csv(result),
+        media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="v_ase_registry_map.csv"'},
+    )
+
+
+@app.post("/api/registry-relax/start/{session_id}")
+async def start_registry_relaxation(session_id: str, payload: Dict[str, Any]):
+    session = get_session(session_id)
+    require_editable(session, "rigid translation relaxation")
+    sync_session_frame_from_payload(session, payload)
+    positions = payload.get("positions")
+    if positions is not None:
+        coordinates = np.asarray(positions, dtype=float)
+        if coordinates.shape != (len(session.working_atoms), 3) or not np.all(np.isfinite(coordinates)):
+            raise HTTPException(status_code=400, detail="Registry positions must match the current atom count.")
+        session.working_atoms.set_positions(coordinates, apply_constraint=False)
+        session.sync_current_frame()
+    try:
+        summary = start_registry_relaxation_mode(
+            session,
+            payload.get("selected_indices") or [],
+            payload.get("hkl") or [0, 0, 1],
+            payload.get("translation_space") or payload.get("space") or "plane",
+            float(payload.get("max_displacement", payload.get("maxDisplacement", 5.0))),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    data = session_update_to_json(session)
+    data["metadata"]["registry_relaxation"] = summary
+    return data
+
+
+@app.post("/api/registry-relax/run/{session_id}")
+async def run_registry_relaxation_endpoint(session_id: str, payload: Dict[str, Any]):
+    session = get_session(session_id)
+    require_editable(
+        session,
+        "rigid translation relaxation",
+        allow_registry_relaxation=True,
+    )
+    calculator = payload.get("calculator") or {}
+    if is_vase_repulsion_calculator(session.working_atoms.calc):
+        configure_repulsion_calculators(
+            session,
+            device=calculator.get("device"),
+            cpu_threads=calculator.get("cpu_threads"),
+            cutoff_mode=calculator.get("cutoff_mode"),
+            cutoff_distance=calculator.get("cutoff_distance"),
+            cutoff_scale=calculator.get("cutoff_scale"),
+            pair_cutoffs=calculator.get("pair_cutoffs"),
+            k_repulsion=calculator.get("k_repulsion"),
+        )
+        mode = session.registry_relaxation
+        if mode is not None and is_vase_repulsion_calculator(mode.baseline_atoms.calc):
+            mode.baseline_atoms.calc.configure(
+                device=calculator.get("device"),
+                cpu_threads=calculator.get("cpu_threads"),
+                cutoff_mode=calculator.get("cutoff_mode"),
+                cutoff_distance=calculator.get("cutoff_distance"),
+                cutoff_scale=calculator.get("cutoff_scale"),
+                pair_cutoffs=calculator.get("pair_cutoffs"),
+                k_repulsion=calculator.get("k_repulsion"),
+            )
+    try:
+        return run_registry_relaxation(session, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.post("/api/registry-relax/stop/{session_id}")
+async def stop_registry_relaxation_endpoint(session_id: str):
+    session = get_session(session_id)
+    return {"status": "stopping" if stop_registry_relaxation(session) else "idle"}
+
+
+@app.post("/api/registry-relax/translate/{session_id}")
+async def translate_registry_relaxation_endpoint(session_id: str, payload: Dict[str, Any]):
+    session = get_session(session_id)
+    require_editable(
+        session,
+        "rigid translation",
+        allow_registry_relaxation=True,
+    )
+    try:
+        summary = set_registry_translation(session, payload.get("coordinates") or [])
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    data = session_update_to_json(session)
+    data["metadata"]["registry_relaxation"] = summary
+    return data
+
+
+@app.post("/api/registry-relax/finish/{session_id}")
+async def finish_registry_relaxation_endpoint(session_id: str):
+    session = get_session(session_id)
+    require_editable(
+        session,
+        "rigid translation relaxation",
+        allow_registry_relaxation=True,
+    )
+    try:
+        result = finish_registry_relaxation_mode(session)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    data = session_update_to_json(session)
+    data["metadata"]["registry_relaxation_result"] = result
+    return data
+
+
+@app.post("/api/registry-relax/cancel/{session_id}")
+async def cancel_registry_relaxation_endpoint(session_id: str):
+    session = get_session(session_id)
+    require_editable(
+        session,
+        "rigid translation relaxation",
+        allow_registry_relaxation=True,
+    )
+    cancel_registry_relaxation_mode(session)
+    return session_update_to_json(session)
+
+
 @app.post("/api/done/{session_id}")
 async def done(session_id: str, payload: Dict[str, Any]):
     session = get_session(session_id)
+    require_no_atom_addition(session, "closing the editor")
+    require_no_registry_relaxation(session, "closing the editor")
     sync_session_frame_from_payload(session, payload)
     if not is_viz_only(session):
         positions = np.array(payload["positions"])
@@ -3494,10 +7313,162 @@ async def apply_supercell(session_id: str, payload: Dict[str, Any]):
     sync_session_frame_from_payload(session, payload)
     reps = [int(v) for v in payload.get("reps", [1, 1, 1])]
     validate_supercell_request(session, reps)
-    session.push_history(include_trajectory=True)
+    repeated_volumes = [
+        dataset.replicated(reps)
+        for dataset in session.volumetric_datasets
+    ]
+    session.push_history(
+        include_trajectory=True,
+        include_volumetric=bool(session.volumetric_datasets),
+    )
     set_current_payload_positions(session, payload)
     apply_all_frames(session, lambda atoms: repeat_atoms_as_supercell(atoms, reps))
-    invalidate_phonon_model(session)
+    session.volumetric_datasets = repeated_volumes
+    session.invalidate_trajectory_layout()
+    return session_update_to_json(session)
+
+
+@app.get("/api/build/bulk/catalog/{session_id}")
+async def ase_bulk_catalog(session_id: str):
+    """Describe the installed ASE bulk builder without mutating the session."""
+    get_session(session_id)
+    return bulk_builder_catalog()
+
+
+@app.post("/api/build/bulk/preview/{session_id}")
+async def preview_ase_bulk(session_id: str, payload: Dict[str, Any]):
+    """Validate one bulk request and return its exact generated geometry summary."""
+    get_session(session_id)
+    try:
+        return bulk_preview_payload(payload)
+    except BulkBuildError as exc:
+        return exc.as_dict()
+
+
+def _session_has_replaceable_content(session: EditorSession) -> bool:
+    if len(session.working_atoms):
+        return True
+    cell = np.asarray(session.working_atoms.cell.array, dtype=float)
+    return bool(cell.shape == (3, 3) and abs(float(np.linalg.det(cell))) > 1e-12)
+
+
+def _replace_session_with_built_atoms(session: EditorSession, atoms: Atoms) -> None:
+    """Install a generated single frame while keeping the replacement undoable."""
+    attach_default = not is_viz_only(session)
+    session.push_history(include_trajectory=True, include_original=True)
+    original = copy_atoms_with_calc(atoms, attach_default=attach_default)
+    working = copy_atoms_with_calc(atoms, attach_default=attach_default)
+    session.original_atoms = copy_atoms_with_calc(
+        original,
+        attach_default=attach_default,
+    )
+    session.working_atoms = working
+    session.original_frames = [copy_atoms_with_calc(
+        original,
+        attach_default=attach_default,
+    )]
+    session.trajectory_frames = [copy_atoms_with_calc(
+        working,
+        attach_default=attach_default,
+    )]
+    session.trajectory_source = None
+    session.current_frame = 0
+    session.result_atoms = None
+    session.commensurate_search_cache = None
+    session.stop_relax = False
+    session.is_relaxing = False
+    session.relax_restart_requested = False
+    session.relax_run_id += 1
+    session.relax_params.clear()
+    session.relaxation_baseline = None
+    session.relaxation_mode_active = False
+    session.config["empty_workspace"] = False
+    session.invalidate_trajectory_layout()
+    session.refresh_trajectory_identity()
+
+
+@app.post("/api/build/bulk/apply/{session_id}")
+async def apply_ase_bulk(session_id: str, payload: Dict[str, Any]):
+    """Replace the active Edit document with a validated ASE bulk structure."""
+    session = get_session(session_id)
+    require_editable(session, "Building an ASE bulk structure")
+    if session.volumetric_datasets:
+        raise HTTPException(
+            status_code=409,
+            detail="Remove loaded volumetric data before replacing the structure.",
+        )
+    if session.commensurate_guest_atoms is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="Remove the commensurate guest structure before replacing the document.",
+        )
+    if session.is_relaxing or session.relaxation_mode_active:
+        raise HTTPException(
+            status_code=409,
+            detail="Exit the active Relaxation mode before replacing the structure.",
+        )
+    if _session_has_replaceable_content(session) and payload.get("replace_existing") is not True:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "This build replaces the current structure and trajectory. "
+                "Confirm the replacement and retry with replace_existing=true."
+            ),
+        )
+    try:
+        atoms, normalized = build_bulk_atoms(payload)
+    except BulkBuildError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    _replace_session_with_built_atoms(session, atoms)
+    data = session_update_to_json(session)
+    data["generated_structure"] = {
+        "generator": "ase.build.bulk",
+        "formula": normalized["formula"],
+        "crystalstructure": normalized["effective_crystalstructure"],
+        "cell_mode": normalized["cell_mode"],
+    }
+    return data
+
+
+@app.post("/api/cell/{session_id}")
+async def set_unit_cell(session_id: str, payload: Dict[str, Any]):
+    """Set one explicit Cartesian 3 x 3 cell on every editable frame."""
+    session = get_session(session_id)
+    require_editable(session, "Setting the unit cell")
+    if session.volumetric_datasets:
+        raise HTTPException(
+            status_code=409,
+            detail="Remove loaded volumetric data before replacing its unit cell.",
+        )
+    try:
+        cell = np.asarray(payload.get("cell"), dtype=float)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail="Cell entries must be numeric.") from exc
+    if cell.shape != (3, 3) or not np.all(np.isfinite(cell)):
+        raise HTTPException(
+            status_code=400,
+            detail="Cell must be a 3 x 3 matrix of finite Cartesian values in angstrom.",
+        )
+    determinant = float(np.linalg.det(cell))
+    if abs(determinant) <= 1e-12:
+        raise HTTPException(status_code=400, detail="Cell vectors must span a non-zero volume.")
+    raw_pbc = payload.get("pbc", [True, True, True])
+    if not isinstance(raw_pbc, (list, tuple)) or len(raw_pbc) != 3:
+        raise HTTPException(status_code=400, detail="PBC must contain three boolean values.")
+    pbc = np.asarray([bool(value) for value in raw_pbc], dtype=bool)
+    scale_atoms = bool(payload.get("scale_atoms", False))
+
+    def transform(atoms):
+        updated = atoms.copy()
+        updated.set_cell(cell, scale_atoms=scale_atoms)
+        updated.set_pbc(pbc)
+        if atoms.calc:
+            updated.calc = copy_calculator(atoms.calc)
+        return updated
+
+    session.push_history(include_trajectory=True)
+    apply_all_frames(session, transform)
+    session.config["empty_workspace"] = False
     session.invalidate_trajectory_layout()
     return session_update_to_json(session)
 
@@ -3509,10 +7480,30 @@ async def apply_supercell_matrix(session_id: str, payload: Dict[str, Any]):
     sync_session_frame_from_payload(session, payload)
     matrix = payload.get("matrix")
     P = validate_supercell_matrix_request(session, matrix)
-    session.push_history(include_trajectory=True)
+    repeated_volumes = None
+    if session.volumetric_datasets:
+        diagonal = np.diag(np.diag(P))
+        if not np.array_equal(P, diagonal) or np.any(np.diag(P) < 1):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "A non-diagonal cell transform cannot preserve the loaded "
+                    "volumetric grid exactly. Remove the volumetric dataset or "
+                    "use diagonal supercell repetitions."
+                ),
+            )
+        repeated_volumes = [
+            dataset.replicated(np.diag(P).tolist())
+            for dataset in session.volumetric_datasets
+        ]
+    session.push_history(
+        include_trajectory=True,
+        include_volumetric=bool(session.volumetric_datasets),
+    )
     set_current_payload_positions(session, payload)
     apply_all_frames(session, lambda atoms: make_supercell_atoms(atoms, P))
-    invalidate_phonon_model(session)
+    if repeated_volumes is not None:
+        session.volumetric_datasets = repeated_volumes
     session.invalidate_trajectory_layout()
     return session_update_to_json(session)
 
@@ -3583,7 +7574,12 @@ async def workspace_websocket_endpoint(websocket: WebSocket, workspace_id: str):
 
 # Modular endpoints for scientific features
 if FASTAPI_AVAILABLE:
-    from .relax import start_relaxation, stop_relaxation
+    from .relax import (
+        clear_relaxation_trajectory,
+        exit_relaxation,
+        start_relaxation,
+        stop_relaxation,
+    )
     from .export import (
         OptionalExportDependencyError,
         VideoExportError,
@@ -3827,6 +7823,8 @@ if FASTAPI_AVAILABLE:
     @app.post("/api/relax/start/{session_id}")
     async def api_relax_start(session_id: str, payload: Dict[str, Any], bt: BackgroundTasks):
         session = get_session(session_id)
+        require_no_atom_addition(session, "starting structure relaxation")
+        require_no_registry_relaxation(session, "starting structure relaxation")
         sync_session_frame_from_payload(session, payload)
         return await start_relaxation(session, payload, bt)
 
@@ -3834,3 +7832,22 @@ if FASTAPI_AVAILABLE:
     async def api_relax_stop(session_id: str):
         session = get_session(session_id)
         return await stop_relaxation(session)
+
+    @app.post("/api/relax/trajectory/clear/{session_id}")
+    async def api_relax_trajectory_clear(session_id: str, payload: Dict[str, Any]):
+        session = get_session(session_id)
+        try:
+            result = clear_relaxation_trajectory(session, payload)
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        data = session_update_to_json(session)
+        data["relaxation_trajectory"] = result
+        return data
+
+    @app.post("/api/relax/exit/{session_id}")
+    async def api_relax_exit(session_id: str, payload: Dict[str, Any]):
+        session = get_session(session_id)
+        result = await exit_relaxation(session, keep=bool(payload.get("keep", True)))
+        data = session_update_to_json(session)
+        data["relaxation_exit"] = result
+        return data

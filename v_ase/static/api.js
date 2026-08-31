@@ -10,6 +10,7 @@ export class ASEApi {
         this.onCollaborationMutation = null;
         this.currentFrameProvider = null;
         this.mockCollaborationRevision = 0;
+        this.mockVisualDefaults = null;
     }
 
     mockElementVisual(symbol) {
@@ -92,6 +93,12 @@ export class ASEApi {
                     effective_device: 'cpu',
                     cpu_threads: 4,
                     cpu_thread_options: [1, 2, 3, 4],
+                    cutoff_mode: 'absolute',
+                    cutoff_basis: 'covalent',
+                    cutoff_distance: 2.0,
+                    cutoff_scale: 1.0,
+                    pair_cutoffs: {},
+                    k_repulsion: 1.0,
                     torch_available: false,
                     cuda_available: false
                 },
@@ -164,10 +171,14 @@ export class ASEApi {
         });
     }
 
-    async request(path, options = {}, { expect = 'json', needsSession = true } = {}) {
+    async request(
+        path,
+        options = {},
+        { expect = 'json', needsSession = true, emitMutation = true } = {}
+    ) {
         if (this.mock) {
             const result = await this.handleMockRequest(path, options, { expect, needsSession });
-            this.emitMutationCallbacks(path, options);
+            if (emitMutation) this.emitMutationCallbacks(path, options);
             return result;
         }
         if (window.location.protocol === 'file:') {
@@ -201,9 +212,10 @@ export class ASEApi {
 
         let result;
         if (expect === 'blob') result = await res.blob();
+        else if (expect === 'arrayBuffer') result = await res.arrayBuffer();
         else if (expect === 'text') result = await res.text();
         else result = await res.json();
-        this.emitMutationCallbacks(path, options);
+        if (emitMutation) this.emitMutationCallbacks(path, options);
         return result;
     }
 
@@ -218,27 +230,34 @@ export class ASEApi {
     }
 
     isUndoableMutation(path, options = {}) {
-        if (String(options.method || 'GET').toUpperCase() !== 'POST') return false;
+        const method = String(options.method || 'GET').toUpperCase();
+        if (method === 'PATCH') {
+            return path.includes('/api/add-session/region/');
+        }
+        if (method !== 'POST') return false;
         return [
             '/api/apply/',
             '/api/reset/',
             '/api/reset-coordinates/',
             '/api/wrap/',
             '/api/add/',
+            '/api/duplicate/',
+            '/api/add-session/start/',
+            '/api/add-session/relax/',
             '/api/delete/',
             '/api/atom-identity/',
             '/api/constraints/',
+            '/api/build/bulk/apply/',
             '/api/supercell/apply/',
             '/api/supercell/matrix/',
-            '/api/translate/',
-            '/api/analysis/symmetry/transform/',
-            '/api/analysis/phonon/displacements/',
-            '/api/analysis/phonon/modulate/'
+            '/api/commensurate/apply/',
+            '/api/registry-relax/finish/',
+            '/api/translate/'
         ].some(prefix => path.includes(prefix));
     }
 
     isCollaborationMutation(path, options = {}) {
-        if (String(options.method || 'GET').toUpperCase() !== 'POST') return false;
+        if (!['POST', 'PATCH'].includes(String(options.method || 'GET').toUpperCase())) return false;
         return [
             '/api/file/load/',
             '/api/file/load-path/',
@@ -249,13 +268,151 @@ export class ASEApi {
             '/api/calculator/',
             '/api/relax/start/',
             '/api/relax/stop/',
-            '/api/analysis/phonon/load/'
+            '/api/add-session/relax/',
+            '/api/add-session/region/',
+            '/api/add-session/stop/',
+            '/api/add-session/finish/',
+            '/api/add-session/cancel/',
+            '/api/registry-relax/start/',
+            '/api/registry-relax/run/',
+            '/api/registry-relax/translate/',
+            '/api/registry-relax/stop/',
+            '/api/registry-relax/cancel/'
         ].some(prefix => path.includes(prefix));
     }
 
     async handleMockRequest(path, options = {}, { expect = 'json' } = {}) {
         if (path.includes('/api/session/active')) {
             return { session_id: 'mock-session', count: 1 };
+        }
+        if (path.includes('/api/analysis/atom-scalars/catalog/')) {
+            return {
+                frame_index: 0,
+                atom_count: this.mockState.atoms.positions.length,
+                fields: [
+                    { id: 'position:x', label: 'x coordinate', group: 'Position', source: 'position', name: 'positions', reduction: 'component', component: 0, unit: 'A' },
+                    { id: 'position:y', label: 'y coordinate', group: 'Position', source: 'position', name: 'positions', reduction: 'component', component: 1, unit: 'A' },
+                    { id: 'position:z', label: 'z coordinate', group: 'Position', source: 'position', name: 'positions', reduction: 'component', component: 2, unit: 'A' },
+                    { id: 'force:norm', label: 'Force |norm|', group: 'Calculator results', source: 'force', name: 'forces', reduction: 'norm', component: null, unit: 'eV/A' },
+                    { id: 'array::tags::scalar', label: 'tags', group: 'ASE arrays', source: 'array', name: 'tags', reduction: 'scalar', component: null, unit: '' },
+                    { id: 'array::initial_charges::scalar', label: 'initial_charges', group: 'ASE arrays', source: 'array', name: 'initial_charges', reduction: 'scalar', component: null, unit: 'e' },
+                    { id: 'array::initial_magmoms::scalar', label: 'initial_magmoms', group: 'ASE arrays', source: 'array', name: 'initial_magmoms', reduction: 'scalar', component: null, unit: 'mu_B' }
+                ]
+            };
+        }
+        if (path.includes('/api/analysis/colormaps/')) {
+            if (String(options.method || 'GET').toUpperCase() === 'POST') {
+                const payload = JSON.parse(options.body || '{}');
+                const count = Math.max(16, Math.min(2048, parseInt(payload.samples || 256, 10)));
+                const endpoints = payload.name === 'coolwarm'
+                    ? ['#3B4CC0', '#F7F7F7', '#B40426']
+                    : ['#440154', '#21918C', '#FDE725'];
+                const colors = Array.from({ length: count }, (_, index) => {
+                    const t = count <= 1 ? 0 : index / (count - 1);
+                    const segment = Math.min(endpoints.length - 2, Math.floor(t * (endpoints.length - 1)));
+                    const local = t * (endpoints.length - 1) - segment;
+                    const parse = hex => [1, 3, 5].map(offset => parseInt(hex.slice(offset, offset + 2), 16));
+                    const a = parse(endpoints[segment]);
+                    const b = parse(endpoints[segment + 1]);
+                    const rgb = a.map((value, channel) => Math.round(value + (b[channel] - value) * local));
+                    return `#${rgb.map(value => value.toString(16).padStart(2, '0')).join('').toUpperCase()}`;
+                });
+                if (payload.reverse) colors.reverse();
+                return { provider: 'Matplotlib', name: payload.name || 'viridis', reverse: Boolean(payload.reverse), samples: count, colors };
+            }
+            return {
+                provider: 'Matplotlib',
+                default: 'viridis',
+                preview_samples: 3,
+                maps: [
+                    { name: 'viridis', category: 'Perceptually uniform sequential', reversed_variant: false, preview: ['#440154', '#21918C', '#FDE725'] },
+                    { name: 'plasma', category: 'Perceptually uniform sequential', reversed_variant: false, preview: ['#0D0887', '#CC4778', '#F0F921'] },
+                    { name: 'coolwarm', category: 'Diverging', reversed_variant: false, preview: ['#3B4CC0', '#F7F7F7', '#B40426'] },
+                    { name: 'tab20', category: 'Qualitative', reversed_variant: false, preview: ['#1F77B4', '#98DF8A', '#9EDAE5'] }
+                ]
+            };
+        }
+        if (path.includes('/api/build/bulk/catalog/')) {
+            return {
+                schema: 'v_ase.ase-build.bulk.v1',
+                generator: 'ase.build.bulk',
+                ase_version: 'mock',
+                cell_modes: [
+                    { id: 'primitive', label: 'Native / primitive' },
+                    { id: 'orthorhombic', label: 'Orthorhombic' },
+                    { id: 'cubic', label: 'Cubic' }
+                ],
+                structures: [
+                    { id: 'fcc', label: 'Face-centered cubic', formula_atoms: 1, formula_hint: 'one element', cell_modes: ['primitive', 'orthorhombic', 'cubic'], parameters: ['a'] },
+                    { id: 'hcp', label: 'Hexagonal close-packed', formula_atoms: 1, formula_hint: 'one element', cell_modes: ['primitive', 'orthorhombic'], parameters: ['a', 'c', 'covera'] },
+                    { id: 'rocksalt', label: 'Rocksalt', formula_atoms: 2, formula_hint: '1:1 binary formula', cell_modes: ['primitive', 'orthorhombic', 'cubic'], parameters: ['a'] }
+                ],
+                reference_materials: [
+                    { formula: 'Cu', element: 'Cu', crystalstructure: 'fcc', a: 3.61, compatible_cell_modes: ['primitive', 'orthorhombic', 'cubic'], atom_counts: { primitive: 1, orthorhombic: 2, cubic: 4 } },
+                    { formula: 'Mg', element: 'Mg', crystalstructure: 'hcp', a: 3.21, compatible_cell_modes: ['primitive', 'orthorhombic'], atom_counts: { primitive: 2, orthorhombic: 4 } }
+                ],
+                elements: ['H', 'C', 'O', 'Mg', 'Fe', 'Cu'],
+                examples: []
+            };
+        }
+        if (path.includes('/api/build/bulk/preview/')) {
+            const payload = JSON.parse(options.body || '{}');
+            const formula = String(payload.formula || '').trim();
+            const structure = String(payload.crystalstructure || payload.crystalStructure || (formula === 'Cu' ? 'fcc' : '')).trim();
+            const cellMode = String(payload.cell_mode || payload.cellMode || 'primitive');
+            if (!formula) return { valid: false, message: 'Enter a chemical formula.', missing_fields: ['formula'] };
+            if (formula === 'CuO' && !structure) {
+                return { valid: false, message: 'CuO requires crystal structure and lattice parameter a.', missing_fields: ['crystalstructure', 'a'] };
+            }
+            if (formula === 'CuO' && !Number.isFinite(Number(payload.a))) {
+                return { valid: false, message: 'CuO requires lattice parameter a.', missing_fields: ['a'] };
+            }
+            if (structure === 'hcp' && cellMode === 'cubic') {
+                return { valid: false, message: 'ASE cannot construct a cubic cell for hcp.', missing_fields: [], field: 'cell_mode' };
+            }
+            const lattice = Number(payload.a) || 3.61;
+            const atomCount = formula === 'CuO' ? (cellMode === 'cubic' ? 8 : 2) : (cellMode === 'cubic' ? 4 : 1);
+            return {
+                valid: true,
+                formula,
+                crystalstructure: structure || 'fcc',
+                cell_mode: cellMode,
+                atom_count: atomCount,
+                chemical_formula: formula,
+                cell: [[lattice, 0, 0], [0, lattice, 0], [0, 0, lattice]],
+                cell_parameters: { a: lattice, b: lattice, c: lattice, alpha: 90, beta: 90, gamma: 90 }
+            };
+        }
+        if (path.includes('/api/build/bulk/apply/')) {
+            const payload = JSON.parse(options.body || '{}');
+            const preview = await this.handleMockRequest('/api/build/bulk/preview/', {
+                ...options,
+                body: JSON.stringify(payload)
+            }, { expect });
+            if (!preview.valid) throw new Error(preview.message);
+            const count = preview.atom_count;
+            const symbols = preview.formula === 'CuO'
+                ? Array.from({ length: count }, (_, index) => index % 2 ? 'O' : 'Cu')
+                : Array(count).fill(preview.formula);
+            this.mockPushHistory();
+            this.mockState.atoms.symbols = [...symbols];
+            this.mockState.atoms.chemical_symbols = [...symbols];
+            this.mockState.atoms.positions = Array.from({ length: count }, (_, index) => [
+                (index & 1) * preview.cell_parameters.a * 0.5,
+                ((index >> 1) & 1) * preview.cell_parameters.b * 0.5,
+                ((index >> 2) & 1) * preview.cell_parameters.c * 0.5
+            ]);
+            this.mockState.atoms.cell = preview.cell;
+            this.mockState.atoms.pbc = [true, true, true];
+            this.mockState.atoms.forces = Array.from({ length: count }, () => [0, 0, 0]);
+            this.mockState.atoms.tags = Array(count).fill(0);
+            this.mockState.atoms.charges = Array(count).fill(0);
+            this.mockState.atoms.magmoms = Array(count).fill(0);
+            this.mockState.atoms.visual = this.mockVisualForSymbols(symbols);
+            this.mockState.atoms.metadata.natoms = count;
+            this.mockState.atoms.metadata.frame_count = 1;
+            this.mockState.atoms.metadata.current_frame = 0;
+            return await this.mockResponse(this.mockState.atoms);
         }
         if (path.includes('/api/atoms/')) {
             return await this.mockResponse(this.mockState.atoms);
@@ -367,8 +524,97 @@ export class ASEApi {
                 body: JSON.stringify({ ...payload, reps })
             }, { expect });
         }
+        if (path.includes('/api/commensurate/preview/')) {
+            const payload = JSON.parse(options.body || '{}');
+            const angle = Number(payload.candidate?.angle_deg || 21.7867893);
+            const positive = angle >= 0;
+            const sourceMatrix = payload.candidate?.source_matrix
+                || (positive ? [[2, 1], [-1, 3]] : [[1, 2], [-2, 3]]);
+            const targetMatrix = payload.candidate?.target_matrix
+                || (positive ? [[1, 2], [-2, 3]] : [[2, 1], [-1, 3]]);
+            const positions = payload.positions || this.mockState.atoms.positions;
+            const atomIndices = positions.map((_, index) => index);
+            const cell = this.mockState.atoms.cell || [[8, 0, 0], [0, 8, 0], [0, 0, 8]];
+            const suggestedCell = [
+                cell[0].map((value, index) => (
+                    targetMatrix[0][0] * value + targetMatrix[0][1] * cell[1][index]
+                )),
+                cell[0].map((value, index) => (
+                    targetMatrix[1][0] * value + targetMatrix[1][1] * cell[1][index]
+                )),
+                [...cell[2]]
+            ];
+            const matrixText = matrix => `[[${matrix[0].join(',')}],[${matrix[1].join(',')}]]`;
+            return {
+                status: 'ok',
+                candidate: {
+                    angle_deg: angle,
+                    strain: 0,
+                    area: 7,
+                    area_ratio: 7,
+                    source_matrix: sourceMatrix,
+                    target_matrix: targetMatrix,
+                    source_matrix_text: matrixText(sourceMatrix),
+                    target_matrix_text: matrixText(targetMatrix),
+                    source_notation: '(√7 × √7)',
+                    target_notation: '(√7 × √7)',
+                    cell_lengths_angstrom: [21.166, 21.166],
+                    cell_angle_deg: 60,
+                    supercell_supported: true
+                },
+                search: {
+                    axis: payload.axis || 'Z',
+                    lattice_family: 'hexagonal',
+                    strain_tolerance: payload.strain_tolerance ?? 0.01,
+                    max_area_ratio: payload.max_area_ratio ?? 16
+                },
+                preview: {
+                    positions: positions.map(position => [...position]),
+                    atom_indices: atomIndices,
+                    lattice_indices: positions.map(() => [0, 0, 0]),
+                    components: atomIndices.map(index => (
+                        (payload.selected_indices || []).includes(index) ? 'rotating' : 'reference'
+                    )),
+                    core_mask: positions.map(() => true),
+                    core_atom_count: positions.length,
+                    preview_atom_count: positions.length,
+                    padding_cells: 1,
+                    cell: suggestedCell,
+                    area_ratio: 7
+                },
+                materialization_supported: true,
+                materialization_reason: null
+            };
+        }
+        if (path.includes('/api/commensurate/apply/')) {
+            const payload = JSON.parse(options.body || '{}');
+            this.mockPushHistory();
+            if (Array.isArray(payload.positions)) {
+                this.mockState.atoms.positions = payload.positions.map(position => [...position]);
+            }
+            return await this.mockResponse(this.mockState.atoms);
+        }
         if (path.includes('/api/commensurate/')) {
             const payload = JSON.parse(options.body || '{}');
+            const candidate = (angle, source, target, area, magic = false) => ({
+                angle_deg: angle,
+                strain: 0,
+                area,
+                area_ratio: area,
+                source_matrix: source,
+                target_matrix: target,
+                source_notation: area === 7 ? '(√7 × √7)' : `${area} primitive cells`,
+                target_notation: area === 7 ? '(√7 × √7)' : `${area} primitive cells`,
+                source_matrix_text: `[[${source[0].join(',')}],[${source[1].join(',')}]]`,
+                target_matrix_text: `[[${target[0].join(',')}],[${target[1].join(',')}]]`,
+                family: 'hexagonal-r1',
+                magic_reference: magic,
+                supercell_supported: true
+            });
+            const negativeSource = [[1, 2], [-2, 3]];
+            const negativeTarget = [[2, 1], [-1, 3]];
+            const positiveSource = negativeTarget;
+            const positiveTarget = negativeSource;
             return {
                 axis: payload.axis || 'Z',
                 lattice_family: 'hexagonal',
@@ -376,14 +622,16 @@ export class ASEApi {
                 axis_alignment: 1,
                 strain_tolerance: payload.strain_tolerance ?? 0.01,
                 max_index: payload.max_index ?? 32,
+                max_area_ratio: payload.max_area_ratio ?? 16,
+                suggestion_count: 2,
                 warning: null,
                 candidates: [
-                    { angle_deg: -21.7867893, strain: 0, area: 7, family: 'hexagonal-r1', magic_reference: false },
-                    { angle_deg: -13.1735511, strain: 0, area: 19, family: 'hexagonal-r1', magic_reference: false },
-                    { angle_deg: -1.0501209, strain: 0, area: 2977, family: 'hexagonal-r1', magic_reference: true },
-                    { angle_deg: 1.0501209, strain: 0, area: 2977, family: 'hexagonal-r1', magic_reference: true },
-                    { angle_deg: 13.1735511, strain: 0, area: 19, family: 'hexagonal-r1', magic_reference: false },
-                    { angle_deg: 21.7867893, strain: 0, area: 7, family: 'hexagonal-r1', magic_reference: false }
+                    candidate(-21.7867893, negativeSource, negativeTarget, 7),
+                    candidate(-13.1735511, [[2, 3], [-3, 5]], [[3, 2], [-2, 5]], 19),
+                    candidate(-1.0501209, [[31, 32], [-32, 63]], [[32, 31], [-31, 63]], 2977, true),
+                    candidate(1.0501209, [[32, 31], [-31, 63]], [[31, 32], [-32, 63]], 2977, true),
+                    candidate(13.1735511, [[3, 2], [-2, 5]], [[2, 3], [-3, 5]], 19),
+                    candidate(21.7867893, positiveSource, positiveTarget, 7)
                 ]
             };
         }
@@ -453,6 +701,29 @@ export class ASEApi {
             this.mockState.atoms.visual = this.mockVisualForSymbols(this.mockState.atoms.chemical_symbols);
             this.mockState.atoms.metadata.natoms = this.mockState.atoms.positions.length;
             return await this.mockResponse(this.mockState.atoms);
+        }
+        if (path.includes('/api/duplicate/')) {
+            const payload = JSON.parse(options.body || '{}');
+            const indices = [...new Set((payload.indices || []).map(Number))]
+                .filter(index => index >= 0 && index < this.mockState.atoms.positions.length)
+                .sort((a, b) => a - b);
+            this.mockPushHistory();
+            const start = this.mockState.atoms.positions.length;
+            for (const index of indices) {
+                this.mockState.atoms.symbols.push(this.mockState.atoms.symbols[index]);
+                this.mockState.atoms.chemical_symbols.push(this.mockState.atoms.chemical_symbols[index]);
+                this.mockState.atoms.positions.push([...this.mockState.atoms.positions[index]]);
+                this.mockState.atoms.forces.push([...(this.mockState.atoms.forces[index] || [0, 0, 0])]);
+                this.mockState.atoms.tags.push(this.mockState.atoms.tags[index] || 0);
+                this.mockState.atoms.charges.push(this.mockState.atoms.charges[index] || 0);
+                this.mockState.atoms.magmoms.push(this.mockState.atoms.magmoms[index] || 0);
+            }
+            this.mockState.atoms.visual = this.mockVisualForSymbols(this.mockState.atoms.chemical_symbols);
+            this.mockState.atoms.metadata.natoms = this.mockState.atoms.positions.length;
+            return {
+                ...await this.mockResponse(this.mockState.atoms),
+                duplicated_indices: indices.map((_, offset) => start + offset)
+            };
         }
         if (path.includes('/api/delete/')) {
             const payload = JSON.parse(options.body || '{}');
@@ -566,6 +837,24 @@ export class ASEApi {
             details.requested_device = payload.device || details.requested_device || 'cpu';
             details.effective_device = details.requested_device === 'cuda' && details.cuda_available ? 'cuda' : 'cpu';
             details.cpu_threads = payload.cpu_threads || details.cpu_threads || 4;
+            details.cutoff_mode = ['scaled', 'bonding'].includes(payload.cutoff_mode)
+                ? 'scaled'
+                : payload.cutoff_mode === 'absolute'
+                    ? 'absolute'
+                    : details.cutoff_mode || 'absolute';
+            details.cutoff_basis = payload.cutoff_basis === 'vdw' ? 'vdw' : 'covalent';
+            details.cutoff_distance = Number.isFinite(Number(payload.cutoff_distance))
+                ? Math.max(0.01, Math.min(100, Number(payload.cutoff_distance)))
+                : Number(details.cutoff_distance ?? 2.0);
+            details.cutoff_scale = Number.isFinite(Number(payload.cutoff_scale))
+                ? Math.max(0.05, Math.min(3, Number(payload.cutoff_scale)))
+                : Number(details.cutoff_scale ?? 1.0);
+            if (payload.pair_cutoffs && typeof payload.pair_cutoffs === 'object') {
+                details.pair_cutoffs = this.clone(payload.pair_cutoffs);
+            }
+            details.k_repulsion = Number.isFinite(Number(payload.k_repulsion))
+                ? Math.max(0, Math.min(1000, Number(payload.k_repulsion)))
+                : Number(details.k_repulsion ?? 1.0);
             this.mockState.atoms.metadata.has_calculator = true;
             this.mockState.atoms.metadata.calculator = 'Repulsion';
             this.mockState.atoms.metadata.calculator_details = details;
@@ -732,12 +1021,12 @@ export class ASEApi {
         throw new Error(`Unhandled mock ASE API path: ${path}`);
     }
 
-    jsonPost(path, payload = {}) {
+    jsonPost(path, payload = {}, requestOptions = {}) {
         return this.request(path, {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify(payload)
-        });
+        }, requestOptions);
     }
 
     post(path) {
@@ -852,6 +1141,59 @@ export class ASEApi {
         return await this.jsonPost(`/api/add/{session_id}`, this.framePayload(payload));
     }
 
+    async duplicateAtoms(indices) {
+        return await this.jsonPost(
+            `/api/duplicate/{session_id}`,
+            this.framePayload({ indices })
+        );
+    }
+
+    async atomAdditionMoleculeCatalog() {
+        return await this.request(`/api/add-session/molecules/{session_id}`);
+    }
+
+    async atomAdditionPairCutoffs(elements, basis = 'covalent', scale = 1.0, molecules = []) {
+        return await this.jsonPost(
+            `/api/add-session/pairs/{session_id}`,
+            { elements, basis, scale, molecules }
+        );
+    }
+
+    async atomAdditionDomain(payload) {
+        return await this.jsonPost(`/api/add-session/domain/{session_id}`, payload);
+    }
+
+    async startAtomAddition(payload) {
+        return await this.jsonPost(
+            `/api/add-session/start/{session_id}`,
+            this.framePayload(payload)
+        );
+    }
+
+    async relaxAtomAddition(payload) {
+        return await this.jsonPost(`/api/add-session/relax/{session_id}`, payload);
+    }
+
+    async updateAtomAdditionRegion(payload) {
+        return this.request(`/api/add-session/region/{session_id}`, {
+            method: 'PATCH',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(payload)
+        });
+    }
+
+    async stopAtomAdditionRelaxation() {
+        return await this.jsonPost(`/api/add-session/stop/{session_id}`, {});
+    }
+
+    async finishAtomAddition() {
+        return await this.jsonPost(`/api/add-session/finish/{session_id}`, {});
+    }
+
+    async cancelAtomAddition() {
+        return await this.jsonPost(`/api/add-session/cancel/{session_id}`, {});
+    }
+
     async deleteAtoms(indices) {
         return await this.jsonPost(`/api/delete/{session_id}`, this.framePayload({ indices }));
     }
@@ -929,6 +1271,26 @@ export class ASEApi {
         );
     }
 
+    async setUnitCell(cell, pbc = [true, true, true], scaleAtoms = false) {
+        return await this.jsonPost(`/api/cell/{session_id}`, {
+            cell,
+            pbc,
+            scale_atoms: Boolean(scaleAtoms)
+        });
+    }
+
+    async fetchBulkBuilderCatalog() {
+        return await this.request(`/api/build/bulk/catalog/{session_id}`);
+    }
+
+    async previewBulkStructure(payload) {
+        return await this.jsonPost(`/api/build/bulk/preview/{session_id}`, payload);
+    }
+
+    async buildBulkStructure(payload) {
+        return await this.jsonPost(`/api/build/bulk/apply/{session_id}`, payload);
+    }
+
     async applyTranslation(positions, vector, coordinateMode = 'cartesian', applyConstraint = true) {
         return await this.jsonPost(`/api/translate/{session_id}`, this.framePayload({
             positions,
@@ -938,12 +1300,305 @@ export class ASEApi {
         }));
     }
 
-    async commensurateAngles(axis, maxIndex = 32, strainTolerance = 0.01) {
+    async commensurateAngles(
+        axis,
+        maxIndex = 32,
+        strainTolerance = 0.01,
+        maxAreaRatio = 16,
+        options = {}
+    ) {
         return await this.jsonPost(`/api/commensurate/{session_id}`, this.framePayload({
             axis,
             max_index: maxIndex,
-            strain_tolerance: strainTolerance
+            strain_tolerance: strainTolerance,
+            max_area_ratio: maxAreaRatio,
+            mode: options.mode || 'same-lattice',
+            strain_target: options.strainTarget || 'guest',
+            selected_indices: Array.isArray(options.selectedIndices)
+                ? options.selectedIndices
+                : [],
+            job_id: options.jobId || undefined
         }));
+    }
+
+    async loadCommensurateGuest(file, inputFormat = '') {
+        const params = new URLSearchParams({
+            filename: file?.name || 'guest.xyz'
+        });
+        if (inputFormat) params.set('input_format', inputFormat);
+        return await this.request(`/api/commensurate/guest/{session_id}?${params.toString()}`, {
+            method: 'POST',
+            headers: {'Content-Type': file?.type || 'application/octet-stream'},
+            body: file
+        });
+    }
+
+    async loadCommensurateGuestPath(path, inputFormat = '') {
+        return await this.jsonPost(`/api/commensurate/guest-path/{session_id}`, {
+            path,
+            input_format: inputFormat || undefined
+        });
+    }
+
+    async removeCommensurateGuest() {
+        return await this.post(`/api/commensurate/guest/remove/{session_id}`);
+    }
+
+    async previewCommensurateSupercell(payload) {
+        return await this.jsonPost(
+            `/api/commensurate/preview/{session_id}`,
+            this.framePayload(payload)
+        );
+    }
+
+    async applyCommensurateSupercell(payload) {
+        return await this.jsonPost(
+            `/api/commensurate/apply/{session_id}`,
+            this.framePayload(payload)
+        );
+    }
+
+    async exportCommensurateCsv(options = {}) {
+        return await this.request(`/api/analysis/commensurate-csv/{session_id}`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(this.framePayload(options))
+        }, { expect: 'blob' });
+    }
+
+    async fetchRegistryMap(options = {}) {
+        return await this.jsonPost(
+            `/api/analysis/registry/{session_id}`,
+            this.framePayload(options)
+        );
+    }
+
+    async exportRegistryCsv(options = {}) {
+        return await this.request(`/api/analysis/registry-csv/{session_id}`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(this.framePayload(options))
+        }, { expect: 'blob' });
+    }
+
+    async startRegistryRelaxation(payload = {}) {
+        return await this.jsonPost(
+            `/api/registry-relax/start/{session_id}`,
+            this.framePayload(payload)
+        );
+    }
+
+    async runRegistryRelaxation(payload = {}) {
+        return await this.jsonPost(`/api/registry-relax/run/{session_id}`, payload);
+    }
+
+    async stopRegistryRelaxation() {
+        return await this.jsonPost(`/api/registry-relax/stop/{session_id}`, {});
+    }
+
+    async translateRegistryRelaxation(coordinates) {
+        return await this.jsonPost(`/api/registry-relax/translate/{session_id}`, {
+            coordinates: Array.isArray(coordinates) ? coordinates.map(Number) : []
+        });
+    }
+
+    async finishRegistryRelaxation() {
+        return await this.jsonPost(`/api/registry-relax/finish/{session_id}`, {});
+    }
+
+    async cancelRegistryRelaxation() {
+        return await this.jsonPost(`/api/registry-relax/cancel/{session_id}`, {});
+    }
+
+    async fetchAtomScalarCatalog(frameIndex = this.currentFrameIndex()) {
+        const query = new URLSearchParams({ frame_index: `${Math.max(0, parseInt(frameIndex, 10) || 0)}` });
+        return await this.request(`/api/analysis/atom-scalars/catalog/{session_id}?${query.toString()}`);
+    }
+
+    async fetchAtomProperties(atomIndex, frameIndex = this.currentFrameIndex()) {
+        const index = Math.max(0, parseInt(atomIndex, 10) || 0);
+        const frame = Math.max(0, parseInt(frameIndex, 10) || 0);
+        if (this.mock) {
+            const atoms = this.mockState.atoms;
+            const force = atoms.forces?.[index] ?? null;
+            return {
+                frame_index: frame,
+                atom_index: index,
+                atom_count: atoms.positions.length,
+                properties: [
+                    { source: 'ase', name: 'atomic_number', value: null, shape: [], dtype: 'int64', unit: '' },
+                    { source: 'ase', name: 'mass', value: null, shape: [], dtype: 'float64', unit: 'amu' },
+                    { source: 'ase', name: 'tag', value: atoms.tags?.[index] ?? 0, shape: [], dtype: 'int64', unit: '' },
+                    { source: 'ase', name: 'initial_charge', value: atoms.charges?.[index] ?? 0, shape: [], dtype: 'float64', unit: 'e' },
+                    { source: 'ase', name: 'initial_magmom', value: atoms.magmoms?.[index] ?? 0, shape: [], dtype: 'float64', unit: 'mu_B' },
+                    ...(Array.isArray(force)
+                        ? [{ source: 'calculator', name: 'forces', value: force, shape: [force.length], dtype: 'float64', unit: 'eV/A' }]
+                        : [])
+                ]
+            };
+        }
+        const query = new URLSearchParams({ frame_index: `${frame}` });
+        return await this.request(
+            `/api/analysis/atom-properties/{session_id}/${index}?${query.toString()}`,
+            {},
+            { emitMutation: false }
+        );
+    }
+
+    async fetchAtomScalarValues(fieldId, frameIndex = this.currentFrameIndex(), allFrames = false) {
+        if (this.mock) {
+            const atoms = this.mockState.atoms;
+            let source;
+            if (fieldId === 'force:norm') {
+                source = (atoms.forces || []).map(force => Math.hypot(...force.map(Number)));
+            } else if (fieldId === 'array::tags::scalar') {
+                source = atoms.tags || [];
+            } else if (fieldId === 'array::initial_charges::scalar') {
+                source = atoms.charges || [];
+            } else if (fieldId === 'array::initial_magmoms::scalar') {
+                source = atoms.magmoms || [];
+            } else {
+                throw new Error(`Mock per-atom field is unavailable: ${fieldId}`);
+            }
+            return {
+                frames: 1,
+                atoms: atoms.positions.length,
+                startFrame: Math.max(0, parseInt(frameIndex, 10) || 0),
+                cache: 'frame',
+                values: Float32Array.from(source, Number)
+            };
+        }
+        const apiPath = this.sessionPath('/api/analysis/atom-scalars/values/{session_id}');
+        const res = await fetch(new URL(apiPath, this.baseUrl), {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                field_id: fieldId,
+                frame_index: Math.max(0, parseInt(frameIndex, 10) || 0),
+                all_frames: Boolean(allFrames)
+            })
+        });
+        if (!res.ok) {
+            let message = '';
+            try {
+                const data = await res.json();
+                message = data.detail || JSON.stringify(data);
+            } catch {
+                message = await res.text().catch(() => '');
+            }
+            throw new Error(message || `Per-atom scalar request failed (${res.status})`);
+        }
+        const frames = parseInt(res.headers.get('X-V-Ase-Frames') || '0', 10);
+        const atoms = parseInt(res.headers.get('X-V-Ase-Atoms') || '0', 10);
+        const startFrame = parseInt(res.headers.get('X-V-Ase-Start-Frame') || '0', 10);
+        const cache = res.headers.get('X-V-Ase-Cache') || 'frame';
+        const values = new Float32Array(await res.arrayBuffer());
+        if (!frames || !atoms || values.length !== frames * atoms) {
+            throw new Error('Per-atom scalar cache shape does not match the received binary payload.');
+        }
+        return { frames, atoms, startFrame, cache, values };
+    }
+
+    async fetchForceVectors(frameIndex = this.currentFrameIndex(), allFrames = false) {
+        if (this.mock) {
+            const atoms = this.mockState.atoms;
+            const source = Array.isArray(atoms.forces) ? atoms.forces : [];
+            const values = new Float32Array(atoms.positions.length * 3);
+            values.fill(Number.NaN);
+            source.forEach((force, atomIndex) => {
+                if (!Array.isArray(force) || atomIndex >= atoms.positions.length) return;
+                for (let axis = 0; axis < 3; axis += 1) {
+                    const value = Number(force[axis]);
+                    values[atomIndex * 3 + axis] = Number.isFinite(value) ? value : Number.NaN;
+                }
+            });
+            return {
+                frames: 1,
+                atoms: atoms.positions.length,
+                startFrame: Math.max(0, parseInt(frameIndex, 10) || 0),
+                cache: 'frame',
+                values
+            };
+        }
+        const apiPath = this.sessionPath('/api/analysis/force-vectors/{session_id}');
+        const res = await fetch(new URL(apiPath, this.baseUrl), {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                frame_index: Math.max(0, parseInt(frameIndex, 10) || 0),
+                all_frames: Boolean(allFrames)
+            })
+        });
+        if (!res.ok) {
+            let message = '';
+            try {
+                const data = await res.json();
+                message = data.detail || JSON.stringify(data);
+            } catch {
+                message = await res.text().catch(() => '');
+            }
+            throw new Error(message || `Force-vector request failed (${res.status})`);
+        }
+        const frames = parseInt(res.headers.get('X-V-Ase-Frames') || '0', 10);
+        const atoms = parseInt(res.headers.get('X-V-Ase-Atoms') || '0', 10);
+        const startFrame = parseInt(res.headers.get('X-V-Ase-Start-Frame') || '0', 10);
+        const cache = res.headers.get('X-V-Ase-Cache') || 'frame';
+        const values = new Float32Array(await res.arrayBuffer());
+        if (!frames || !atoms || values.length !== frames * atoms * 3) {
+            throw new Error('Force-vector cache shape does not match the received binary payload.');
+        }
+        return { frames, atoms, startFrame, cache, values };
+    }
+
+    async fetchAtomScalarRange(
+        fieldId,
+        frameIndex = this.currentFrameIndex(),
+        allFrames = false,
+        indices = null
+    ) {
+        if (this.mock) {
+            const result = await this.fetchAtomScalarValues(fieldId, frameIndex, false);
+            const requested = Array.isArray(indices)
+                ? indices.map(index => result.values[index]).filter(Number.isFinite)
+                : Array.from(result.values).filter(Number.isFinite);
+            if (!requested.length) throw new Error('The selected per-atom property has no finite values.');
+            let minimum = Math.min(...requested);
+            let maximum = Math.max(...requested);
+            if (minimum === maximum) {
+                const padding = Math.max(1e-12, Math.abs(minimum) * 1e-6);
+                minimum -= padding;
+                maximum += padding;
+            }
+            return {
+                field_id: fieldId,
+                scope: Array.isArray(indices) ? 'selected' : 'all',
+                range_mode: allFrames ? 'trajectory' : 'current',
+                minimum,
+                maximum,
+                finite_values: requested.length,
+                frames_scanned: 1,
+                frames_with_values: 1,
+                missing_frames: 0
+            };
+        }
+        return await this.jsonPost('/api/analysis/atom-scalars/range/{session_id}', {
+            field_id: fieldId,
+            frame_index: Math.max(0, parseInt(frameIndex, 10) || 0),
+            all_frames: Boolean(allFrames),
+            indices: Array.isArray(indices) ? indices.map(Number) : null
+        });
+    }
+
+    async fetchColormapCatalog() {
+        return await this.request('/api/analysis/colormaps/{session_id}');
+    }
+
+    async fetchColormapLut(name = 'viridis', reverse = false, samples = 256) {
+        return await this.jsonPost('/api/analysis/colormaps/{session_id}', {
+            name,
+            reverse: Boolean(reverse),
+            samples: Math.max(16, Math.min(2048, parseInt(samples, 10) || 256))
+        });
     }
 
     async setFrame(index) {
@@ -962,6 +1617,20 @@ export class ASEApi {
 
     async relaxStop() {
         return await this.post(`/api/relax/stop/{session_id}`);
+    }
+
+    async clearRelaxTrajectory(kind, positions, useLatest = true) {
+        return await this.jsonPost(`/api/relax/trajectory/clear/{session_id}`, {
+            kind,
+            positions,
+            use_latest: Boolean(useLatest)
+        });
+    }
+
+    async relaxExit(keep = true) {
+        return await this.jsonPost(`/api/relax/exit/{session_id}`, {
+            keep: Boolean(keep)
+        });
     }
 
     async exportPoscar(positions, applyConstraint = true) {
@@ -1171,6 +1840,72 @@ export class ASEApi {
         });
     }
 
+    readMockVisualDefaults() {
+        try {
+            const raw = window.localStorage.getItem('v_ase_mock_visual_defaults');
+            return raw ? JSON.parse(raw) : this.mockVisualDefaults;
+        } catch {
+            return this.mockVisualDefaults;
+        }
+    }
+
+    writeMockVisualDefaults(settings) {
+        this.mockVisualDefaults = settings ? this.clone(settings) : null;
+        try {
+            if (settings) {
+                window.localStorage.setItem('v_ase_mock_visual_defaults', JSON.stringify(settings));
+            } else {
+                window.localStorage.removeItem('v_ase_mock_visual_defaults');
+            }
+        } catch {
+            // Static mock pages may run with storage disabled.
+        }
+    }
+
+    async fetchUserVisualDefaults() {
+        if (this.mock) {
+            const settings = this.readMockVisualDefaults();
+            return {
+                schema: 'v_ase.user_preferences.v1',
+                configured: Boolean(settings),
+                settings: settings ? this.clone(settings) : null
+            };
+        }
+        return await this.request(`/api/preferences/visual-defaults/{session_id}`);
+    }
+
+    async saveUserVisualDefaults(settings) {
+        if (this.mock) {
+            this.writeMockVisualDefaults(settings);
+            return {
+                schema: 'v_ase.user_preferences.v1',
+                configured: true,
+                settings: this.clone(settings)
+            };
+        }
+        return await this.request(`/api/preferences/visual-defaults/{session_id}`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ settings })
+        });
+    }
+
+    async clearUserVisualDefaults() {
+        if (this.mock) {
+            const removed = Boolean(this.readMockVisualDefaults());
+            this.writeMockVisualDefaults(null);
+            return {
+                schema: 'v_ase.user_preferences.v1',
+                configured: false,
+                removed,
+                settings: null
+            };
+        }
+        return await this.request(`/api/preferences/visual-defaults/{session_id}`, {
+            method: 'DELETE'
+        });
+    }
+
     async saveProject(positions, settings, applyConstraint = true) {
         const payload = this.framePayload({ positions, settings, apply_constraint: applyConstraint });
         return await this.request(`/api/project/save/{session_id}`, {
@@ -1250,6 +1985,55 @@ export class ASEApi {
         );
     }
 
+    async fetchRdf(options = {}) {
+        const payload = this.framePayload(options);
+        if (Number.isInteger(Number(options.frame_index)) && Number(options.frame_index) >= 0) {
+            payload.frame_index = Number(options.frame_index);
+        }
+        return await this.jsonPost(
+            `/api/analysis/rdf/{session_id}`,
+            payload
+        );
+    }
+
+    async exportRdfCsv(options = {}) {
+        return await this.request(`/api/analysis/rdf-csv/{session_id}`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(this.framePayload(options))
+        }, { expect: 'blob' });
+    }
+
+    async fetchIsosurface(options = {}) {
+        return await this.request(`/api/volumetric/isosurface/{session_id}`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(options)
+        }, { expect: 'arrayBuffer' });
+    }
+
+    async fetchVolumetricPlane(options = {}) {
+        return await this.request(`/api/volumetric/plane/{session_id}`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(options)
+        }, { expect: 'arrayBuffer' });
+    }
+
+    async createVolumetricDifference(options = {}) {
+        return await this.jsonPost(
+            `/api/volumetric/difference/{session_id}`,
+            options
+        );
+    }
+
+    async deleteVolumetricDataset(datasetId) {
+        return await this.jsonPost(
+            `/api/volumetric/delete/{session_id}`,
+            { dataset_id: datasetId }
+        );
+    }
+
     async loadProject(file) {
         const body = file instanceof Blob ? await file.arrayBuffer() : file;
         return await this.request(`/api/project/load/{session_id}`, {
@@ -1259,12 +2043,22 @@ export class ASEApi {
         });
     }
 
-    async loadStructureFile(file, inputFormat = '', index = ':') {
+    async loadStructureFile(
+        file,
+        inputFormat = '',
+        index = ':',
+        volumetricPrecision = 'float32',
+        runtimeMode = null
+    ) {
         const params = new URLSearchParams({
             filename: file?.name || 'structure',
-            index: index || ':'
+            index: index || ':',
+            volumetric_precision: volumetricPrecision || 'float32'
         });
         if (inputFormat) params.set('input_format', inputFormat);
+        if (runtimeMode === 'view' || runtimeMode === 'edit') {
+            params.set('runtime_mode', runtimeMode);
+        }
         return await this.request(`/api/file/load/{session_id}?${params.toString()}`, {
             method: 'POST',
             headers: {'Content-Type': file?.type || 'application/octet-stream'},
@@ -1272,17 +2066,39 @@ export class ASEApi {
         });
     }
 
-    async appendStructureFile(file, inputFormat = '', index = ':') {
+    async appendStructureFile(
+        file,
+        inputFormat = '',
+        index = ':',
+        volumetricPrecision = 'float32',
+        { emitMutation = true } = {}
+    ) {
         const params = new URLSearchParams({
             filename: file?.name || 'structure',
-            index: index || ':'
+            index: index || ':',
+            volumetric_precision: volumetricPrecision || 'float32'
         });
         if (inputFormat) params.set('input_format', inputFormat);
         return await this.request(`/api/file/append/{session_id}?${params.toString()}`, {
             method: 'POST',
             headers: {'Content-Type': file?.type || 'application/octet-stream'},
             body: file
-        });
+        }, { emitMutation });
+    }
+
+    async appendStructurePath(
+        path,
+        inputFormat = '',
+        index = ':',
+        volumetricPrecision = 'float32',
+        { emitMutation = true } = {}
+    ) {
+        return await this.jsonPost(`/api/file/append-path/{session_id}`, {
+            path,
+            input_format: inputFormat || null,
+            index: index || ':',
+            volumetric_precision: volumetricPrecision || 'float32'
+        }, { emitMutation });
     }
 
 }

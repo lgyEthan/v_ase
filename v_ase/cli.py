@@ -10,16 +10,33 @@ import time
 from pathlib import Path
 from urllib.parse import unquote_to_bytes, urlsplit
 
-from ase import Atoms
-from ase.io import write
-
 from v_ase._version import __version__
-from v_ase.io import (
-    read_fast_lammps_dump,
-    read_structure_frames,
-    resolve_input_format,
-)
-from v_ase.viewer import view
+
+# Kept as an injectable seam for the CLI regression suite while the actual
+# viewer import remains lazy for normal command startup.
+view = None
+
+
+def _scientific_stack_error(error: Exception) -> str:
+    detail = str(error).strip() or error.__class__.__name__
+    lowered = detail.lower()
+    binary_markers = (
+        "numpy.dtype size changed",
+        "numpy.core.multiarray failed to import",
+        "_array_api not found",
+        "compiled using numpy 1.x",
+    )
+    if any(marker in lowered for marker in binary_markers):
+        return (
+            "v_ase: NumPy and SciPy/matscipy are binary-incompatible in this "
+            "Python environment. The structure file has not been read yet. "
+            "Upgrade v_ase in the same interpreter with "
+            "`python -m pip install --upgrade --force-reinstall v_ase-gui`; "
+            "if this is a shared Conda base environment, a clean environment "
+            "is recommended. Original import error: "
+            f"{detail}"
+        )
+    return f"v_ase: could not load the scientific Python stack: {detail}"
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -58,8 +75,19 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "force the input file format when the filename is ambiguous. "
             "Common aliases: POSCAR, XDATCAR, vasprun.xml, lammpstrj, traj, xyz, "
-            "extxyz, data, vase, html. "
+            "extxyz, data, CHG, CHGCAR, LOCPOT, PARCHG, ELFCAR, cube, xsf, "
+            "vase, html. "
             "Raw ASE format names such as vasp-xml and lammps-data also work."
+        ),
+    )
+    gui.add_argument(
+        "--volumetric-precision",
+        choices=("fp32", "fp64"),
+        default="fp32",
+        help=(
+            "scalar-grid precision used when reading CHGCAR, LOCPOT, PARCHG, "
+            "Cube, or XSF data. FP32 is faster and uses half the memory; FP64 "
+            "preserves double precision. Default: fp32"
         ),
     )
     gui.add_argument("--output-format", help="ASE output format override")
@@ -72,6 +100,15 @@ def build_parser() -> argparse.ArgumentParser:
         "--no-browser",
         action="store_true",
         help="do not launch a browser automatically; print the URL for SSH tunnels or headless servers",
+    )
+    gui.add_argument(
+        "--remote-python",
+        metavar="ABSOLUTE_PATH",
+        help=(
+            "for a HOST:/path input, run the remote backend with this exact "
+            "Python executable instead of the remote shell PATH; the value "
+            "overrides any saved host setting for this launch"
+        ),
     )
     gui.add_argument(
         "--no-block",
@@ -119,6 +156,41 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     gui.set_defaults(func=run_gui, show_bonds=True)
+
+    remote = subparsers.add_parser(
+        "remote",
+        help="configure exact Python runtimes for SSH hosts",
+        description=(
+            "Save or inspect the Python executable used for HOST:/path launches. "
+            "No shell activation or .bashrc sourcing is required."
+        ),
+    )
+    remote_subparsers = remote.add_subparsers(dest="remote_command", required=True)
+    remote_configure = remote_subparsers.add_parser(
+        "configure",
+        help="save the Python executable for one SSH host",
+    )
+    remote_configure.add_argument("host", help="SSH host or user@host, matching HOST:/path")
+    remote_configure.add_argument(
+        "--python",
+        required=True,
+        dest="remote_python_path",
+        metavar="ABSOLUTE_PATH",
+        help="absolute Python executable containing the v_ase installation",
+    )
+    remote_configure.set_defaults(func=run_remote_configure)
+    remote_show = remote_subparsers.add_parser(
+        "show",
+        help="show saved remote Python runtimes",
+    )
+    remote_show.add_argument("host", nargs="?", help="optional single SSH host")
+    remote_show.set_defaults(func=run_remote_show)
+    remote_remove = remote_subparsers.add_parser(
+        "remove",
+        help="remove one saved remote Python runtime",
+    )
+    remote_remove.add_argument("host", help="SSH host or user@host")
+    remote_remove.set_defaults(func=run_remote_remove)
 
     api = subparsers.add_parser(
         "api",
@@ -180,7 +252,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def normalize_argv(argv: list[str] | None) -> list[str]:
     args = list(sys.argv[1:] if argv is None else argv)
-    if args and args[0] not in {"gui", "api", "-h", "--help", "--version"} and not args[0].startswith("-"):
+    if args and args[0] not in {"gui", "api", "remote", "-h", "--help", "--version"} and not args[0].startswith("-"):
         return ["gui", *args]
     return args
 
@@ -274,6 +346,56 @@ def run_api_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def run_remote_configure(args: argparse.Namespace) -> int:
+    from v_ase.remote import RemoteLaunchError, configure_remote_runtime
+
+    try:
+        path = configure_remote_runtime(args.host, args.remote_python_path)
+    except (OSError, ValueError, RemoteLaunchError) as exc:
+        raise SystemExit(f"v_ase remote configure: {exc}") from exc
+    print(f"Configured {args.host} to use {args.remote_python_path}")
+    print(f"Saved in {path}")
+    return 0
+
+
+def run_remote_show(args: argparse.Namespace) -> int:
+    from v_ase.remote import (
+        RemoteLaunchError,
+        load_remote_runtime_config,
+        remote_runtime_config_path,
+    )
+
+    try:
+        hosts = load_remote_runtime_config()
+    except (OSError, ValueError, RemoteLaunchError) as exc:
+        raise SystemExit(f"v_ase remote show: {exc}") from exc
+    if args.host:
+        python = hosts.get(args.host)
+        if python is None:
+            raise SystemExit(f"v_ase remote show: no runtime is configured for {args.host}")
+        print(f"{args.host}\t{python}")
+        return 0
+    if not hosts:
+        print(f"No remote runtimes configured ({remote_runtime_config_path()})")
+        return 0
+    for host, python in sorted(hosts.items()):
+        print(f"{host}\t{python}")
+    return 0
+
+
+def run_remote_remove(args: argparse.Namespace) -> int:
+    from v_ase.remote import RemoteLaunchError, remove_remote_runtime
+
+    try:
+        path, removed = remove_remote_runtime(args.host)
+    except (OSError, ValueError, RemoteLaunchError) as exc:
+        raise SystemExit(f"v_ase remote remove: {exc}") from exc
+    if not removed:
+        raise SystemExit(f"v_ase remote remove: no runtime is configured for {args.host}")
+    print(f"Removed the saved runtime for {args.host} from {path}")
+    return 0
+
+
 def run_gui(args: argparse.Namespace) -> int:
     if args.file:
         from v_ase.remote import (
@@ -289,15 +411,35 @@ def run_gui(args: argparse.Namespace) -> int:
             except RemoteLaunchError as exc:
                 raise SystemExit(f"v_ase: {exc}") from exc
 
+    if args.remote_python:
+        raise SystemExit(
+            "v_ase: --remote-python is only valid with a HOST:/path input"
+        )
+
+    try:
+        from ase import Atoms
+        from ase.io import write
+
+        from v_ase.io import (
+            infer_input_format,
+            read_fast_lammps_dump,
+            read_indexed_trajectory,
+            read_structure_frames,
+        )
+        from v_ase.viewer import view as imported_view
+    except (ImportError, ModuleNotFoundError, ValueError) as exc:
+        raise SystemExit(_scientific_stack_error(exc)) from exc
+
     path = Path(args.file).expanduser() if args.file else None
     if path is not None and not path.exists():
         raise SystemExit(f"v_ase: file not found: {path}")
 
-    resolved_format = resolve_input_format(args.format)
+    resolved_format = infer_input_format(path, args.format)
     suffix = path.suffix.lower() if path is not None else ""
     trajectory_source = None
     initial_frame = 0
     initial_design_settings = None
+    volumetric_datasets = None
     is_vase_project = suffix == ".vase" or resolved_format == "vase-project"
     is_html_project = (
         suffix in {".html", ".htm"}
@@ -306,7 +448,9 @@ def run_gui(args: argparse.Namespace) -> int:
     is_lammps_dump = resolved_format == "lammps-dump-text" or (
         args.format is None and suffix in {".lammpstrj", ".dump"}
     )
-    viz_only = not args.interactive
+    # A filename-free launch is a scratch workspace.  Start it in Edit mode so
+    # the user can define a cell and build atoms without an extra mode switch.
+    viz_only = False if path is None else not args.interactive
     if path is None:
         frames = [Atoms()]
     elif is_vase_project or is_html_project:
@@ -321,28 +465,97 @@ def run_gui(args: argparse.Namespace) -> int:
         except ValueError as exc:
             raise SystemExit(f"v_ase: could not open project: {exc}") from exc
         frames = project.frames
+        volumetric_datasets = project.volumetric_datasets
         initial_frame = project.current_frame
         initial_design_settings = project.settings
-    elif viz_only and is_lammps_dump:
-        try:
-            fast = read_fast_lammps_dump(path, args.index)
-            frames = [fast.atoms]
-            trajectory_source = fast.trajectory
-            initial_frame = fast.initial_frame
-        except ValueError as exc:
-            print(
-                f"v_ase: fast LAMMPS loader unavailable ({exc}); "
-                "falling back to the compatible loader.",
-                file=sys.stderr,
-            )
+    elif path is not None:
+        from v_ase.volumetric import (
+            read_volumetric_file,
+            resolve_volumetric_format,
+            volumetric_structure,
+        )
+
+        volumetric_format = resolve_volumetric_format(
+            path,
+            args.format or resolved_format,
+        )
+        if volumetric_format:
+            try:
+                volumetric_datasets = read_volumetric_file(
+                    path,
+                    volumetric_format,
+                    precision=args.volumetric_precision,
+                )
+            except (OSError, TypeError, ValueError) as exc:
+                raise SystemExit(
+                    f"v_ase: could not open volumetric data: {exc}"
+                ) from exc
+            frames = [volumetric_structure(volumetric_datasets)]
+            first_dataset = volumetric_datasets[0]
+            minimum = float(first_dataset.minimum)
+            maximum = float(first_dataset.maximum)
+            has_surface_range = maximum > minimum
+            if has_surface_range and minimum < 0.0 < maximum:
+                volumetric_level = max(abs(minimum), abs(maximum)) * 0.18
+                volumetric_surface_mode = "signed"
+            elif has_surface_range:
+                volumetric_level = minimum + (maximum - minimum) * 0.22
+                volumetric_surface_mode = "single"
+            else:
+                volumetric_level = None
+                volumetric_surface_mode = "single"
+            initial_design_settings = {
+                "display": {
+                    "showVolumetric": has_surface_range,
+                    "volumetricPrecision": (
+                        "float64"
+                        if args.volumetric_precision == "fp64"
+                        else "float32"
+                    ),
+                    "volumetricDatasetId": first_dataset.dataset_id,
+                    "volumetricLevel": volumetric_level,
+                    "volumetricSurfaceMode": volumetric_surface_mode,
+                    "volumetricSmearingSigma": 0.0,
+                    "volumetricSmoothingIterations": 4,
+                }
+            }
+        elif viz_only and is_lammps_dump:
+            try:
+                fast = read_fast_lammps_dump(path, args.index)
+                frames = [fast.atoms]
+                trajectory_source = fast.trajectory
+                initial_frame = fast.initial_frame
+            except ValueError as exc:
+                print(
+                    f"v_ase: fast LAMMPS loader unavailable ({exc}); "
+                    "falling back to the compatible loader.",
+                    file=sys.stderr,
+                )
+                frames = read_structure_frames(path, args.index, args.format)
+        elif viz_only and args.stream_frames:
+            try:
+                indexed = read_indexed_trajectory(path, args.index, args.format)
+            except ValueError as exc:
+                print(
+                    f"v_ase: indexed trajectory loader unavailable ({exc}); "
+                    "falling back to the compatible loader.",
+                    file=sys.stderr,
+                )
+                indexed = None
+            if indexed is None:
+                frames = read_structure_frames(path, args.index, args.format)
+            else:
+                frames = [indexed.atoms]
+                trajectory_source = indexed.trajectory
+                initial_frame = indexed.initial_frame
+        else:
             frames = read_structure_frames(path, args.index, args.format)
-    else:
-        frames = read_structure_frames(path, args.index, args.format)
     if not frames:
         raise SystemExit(f"v_ase: no frames found in {path}")
 
     keep_alive = bool(args.no_block or args.cli_mode)
-    result = view(
+    runtime_view = view or imported_view
+    result = runtime_view(
         frames,
         block=not keep_alive,
         port=args.port,
@@ -356,6 +569,7 @@ def run_gui(args: argparse.Namespace) -> int:
         document_name=path.name if path is not None else "Untitled",
         open_browser=not args.no_browser and not args.cli_mode,
         stream_trajectory=args.stream_frames,
+        volumetric_datasets=volumetric_datasets,
     )
 
     if keep_alive:
