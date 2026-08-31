@@ -152,6 +152,22 @@ def test_cli_event_stream_emits_ndjson_with_authoritative_state_url(monkeypatch)
     assert stderr.getvalue() == ""
 
 
+def test_ai_handshake_advertises_workspace_methods_only_for_workspaces():
+    document = ai_handshake(
+        "http://127.0.0.1:49152/?session_id=session"
+    )
+    workspace = ai_handshake(
+        "http://127.0.0.1:49152/workspace"
+        "?workspace_id=workspace&session_id=session"
+    )
+
+    workspace_only = {"documents", "activate", "newDocument"}
+    assert workspace_only.isdisjoint(document["command_methods"])
+    assert workspace_only.issubset(workspace["command_methods"])
+    assert document["event_scope"] == "document"
+    assert workspace["event_scope"] == "workspace"
+
+
 def test_cli_event_stream_marks_workspace_gap_for_full_resynchronization(monkeypatch):
     handshake = ai_handshake(
         "http://127.0.0.1:49152/workspace"

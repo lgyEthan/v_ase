@@ -10,16 +10,16 @@ authors:
     affiliation: "The University of Sydney"
     email: "giyeok.lee@sydney.edu.au"
 repository-code: "https://github.com/lgyEthan/v_ase"
-repository-artifact: "https://pypi.org/project/v-ase-gui/0.2.18/"
+repository-artifact: "https://github.com/lgyEthan/v_ase/tree/symmetry"
 url: "https://github.com/lgyEthan/v_ase"
 license: AGPL-3.0-or-later
-version: 0.2.18
-date-released: 2026-08-15
+version: "0.2.35a1+symmetry"
+date-released: 2026-08-31
 abstract: >-
   v_ase is an ASE-native local browser workspace for interactive atomistic
   structure editing, trajectories, volumetric fields, periodic-interface
-  workflows, analysis, publication export, and revision-aware collaboration
-  with external AI agents.
+  workflows, crystal-symmetry and phonon analysis, publication export, and
+  revision-aware collaboration with external AI agents.
 keywords:
   - atomic simulation environment
   - atomistic modelling

@@ -528,6 +528,38 @@ def test_agent_endpoints_serve_the_canonical_skill_and_schema():
             if item["if"]["properties"]["name"].get("const") == name
         )
 
+    colorscale_schema = operation_schema("set-atom-colorscale")
+    assert "indices" in schema["operation_parameters"]["set-atom-colorscale"][
+        "optional"
+    ]
+    assert colorscale_schema["properties"]["indices"] == {
+        "type": "array",
+        "items": {"type": "integer", "minimum": 0},
+        "uniqueItems": True,
+    }
+
+    relax_added_schema = operation_schema("relax-added-atoms")
+    assert "hkl" not in relax_added_schema["properties"]
+    assert {
+        "calculator", "cutoffMode", "cutoffDistance", "cutoffScale"
+    }.issubset(relax_added_schema["properties"])
+    assert {
+        "calculator", "cutoffMode", "cutoffDistance", "cutoffScale"
+    }.issubset(schema["operation_parameters"]["relax-added-atoms"]["optional"])
+
+    registry_map_schema = operation_schema("calculate-registry-map")
+    assert "space" not in registry_map_schema["properties"]
+    assert "maxDisplacement" not in registry_map_schema["properties"]
+    registry_start_schema = operation_schema("start-registry-relaxation")
+    assert registry_start_schema["properties"]["space"]["enum"] == [
+        "plane",
+        "cartesian",
+        "3d",
+    ]
+    assert registry_start_schema["properties"]["maxDisplacement"][
+        "exclusiveMinimum"
+    ] == 0
+
     scatter_atoms_schema = operation_schema("scatter-atoms")
     atoms_regions = scatter_atoms_schema["properties"]["regions"]
     assert atoms_regions["maxItems"] == 32
@@ -744,6 +776,9 @@ def test_agent_endpoints_serve_the_canonical_skill_and_schema():
         "pairCutoffs",
         "hkl",
     ]
+    frontend = (ROOT / "v_ase/static/main.js").read_text(encoding="utf-8")
+    assert "hkl: request.hkl" in frontend
+    assert "unsupported top-level field(s)" in frontend
     assert schema["accepts_natural_language"] is False
     assert schema["stdin_commands"] is False
     assert schema["collaboration"]["protocol"] == "v_ase.collaboration.v1"

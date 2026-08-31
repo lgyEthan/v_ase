@@ -3,11 +3,34 @@ include AGENTS.md
 include CHANGELOG.md
 include LICENSE
 include requirements.txt
+include .readthedocs.yaml
+include docs/Makefile
+include docs/conf.py
+include docs/requirements.txt
 recursive-include v_ase/static *.html *.css *.js *.png
 recursive-include v_ase/static/vendor *
 recursive-include v_ase/skills *.md *.yaml
 recursive-include docs *.md *.html
-prune docs/assets
+recursive-include docs/_static *
+prune docs/_build
+include docs/assets/readme_add_atoms.png
+include docs/assets/readme_atom_colorscale.png
+include docs/assets/readme_commensurate_host_guest.png
+include docs/assets/readme_constraints.png
+include docs/assets/readme_displacement.png
+include docs/assets/readme_hookean.png
+include docs/assets/readme_measurement.png
+include docs/assets/readme_overview.png
+include docs/assets/readme_rdf.png
+include docs/assets/readme_registry_map.png
+include docs/assets/readme_relaxation.png
+include docs/assets/readme_volumetric.png
+include docs/assets/readme_volumetric_plane.png
+include docs/assets/v_ase-logo.png
+include docs/assets/readme_phonon_displacements.png
+include docs/assets/readme_phonon_mode.png
+include docs/assets/readme_symmetry_analysis.png
+include docs/assets/readme_symmetry_standard_cell.png
 recursive-include examples *.py *.traj *.extxyz *.cif *.yaml *.json *.md
 recursive-include scripts *.py
 prune tests

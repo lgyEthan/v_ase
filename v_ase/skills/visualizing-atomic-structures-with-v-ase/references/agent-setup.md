@@ -97,7 +97,9 @@ plan, but a local agent must execute it.
 The user installs v_ase once:
 
 ```bash
-python -m pip install v_ase-gui
+git clone --branch symmetry https://github.com/lgyEthan/v_ase.git
+cd v_ase
+python -m pip install -e ".[symmetry,phonon]"
 ```
 
 The agent then launches the machine-readable session itself:

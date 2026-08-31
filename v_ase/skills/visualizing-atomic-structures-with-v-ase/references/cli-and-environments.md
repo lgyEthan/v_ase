@@ -20,8 +20,8 @@ cd v_ase
 python -m pip install -e ".[symmetry,phonon]"
 ```
 
-The tested experimental version is `0.2.34a1+symmetry`, synchronized from
-main `0.2.34`. It is available only from the `symmetry` branch and is never
+The tested experimental version is `0.2.35a1+symmetry`, synchronized from
+main `0.2.35`. It is available only from the `symmetry` branch and is never
 published to PyPI.
 
 Optional Rhino export:
@@ -343,7 +343,7 @@ Treat an upgrade warning as a request to update before opening large
 trajectories or using a newly added backend feature:
 
 ```bash
-ssh physics 'python -m pip install --upgrade v_ase-gui'
+ssh physics 'python -m pip install --upgrade "v_ase-gui[symmetry,phonon] @ git+https://github.com/lgyEthan/v_ase.git@symmetry"'
 ```
 
 `ERR_CONNECTION_RESET` immediately after remote startup indicates a local

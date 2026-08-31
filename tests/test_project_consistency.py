@@ -7,16 +7,43 @@ import re
 import tomllib
 from pathlib import Path
 
-from v_ase import __version__
+from v_ase._version import __version__
 from v_ase.io import ATOM_LABEL_ARRAY, atom_labels, set_atom_labels
 
 
 ROOT = Path(__file__).resolve().parents[1]
 MARKDOWN_LINK = re.compile(r"!?\[[^\]]*]\(([^)]+)\)")
+MYST_TOCTREE = re.compile(
+    r"^```\{toctree\}\s*$\n(?P<body>.*?)^```\s*$",
+    re.MULTILINE | re.DOTALL,
+)
+FENCED_CODE = re.compile(
+    r"^```[^\n]*\n(?P<body>.*?)^```\s*$",
+    re.MULTILINE | re.DOTALL,
+)
+
+
+def _yaml_scalar(path: Path, key: str) -> str:
+    text = path.read_text(encoding="utf-8")
+    match = re.search(rf"^{re.escape(key)}:\s*(.+?)\s*$", text, re.MULTILINE)
+    assert match is not None, f"{path.relative_to(ROOT)} has no {key!r} field"
+    return match.group(1).strip().strip('"').strip("'")
+
+
+def _toctree_entries(index_text: str) -> list[str]:
+    entries = []
+    for match in MYST_TOCTREE.finditer(index_text):
+        for raw_line in match.group("body").splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith((":", "#")):
+                continue
+            titled = re.fullmatch(r".+?\s*<([^<>]+)>", line)
+            entries.append((titled.group(1) if titled else line).strip())
+    return entries
 
 
 def test_local_markdown_links_resolve():
-    markdown_files = [ROOT / "README.md", *sorted((ROOT / "docs").glob("*.md"))]
+    markdown_files = [ROOT / "README.md", *sorted((ROOT / "docs").rglob("*.md"))]
     missing = []
     for document in markdown_files:
         text = document.read_text(encoding="utf-8")
@@ -47,6 +74,90 @@ def test_release_version_is_synchronized():
 
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     assert f"## {__version__}" in changelog
+
+
+def test_documentation_release_metadata_is_synchronized():
+    index = (ROOT / "docs/index.md").read_text(encoding="utf-8")
+    documented = re.search(
+        r"This manual describes \*\*v_ase ([^*]+)\*\*\.",
+        index,
+    )
+    assert documented is not None, "docs/index.md has no current-release declaration"
+    assert documented.group(1) == __version__
+
+    citation = ROOT / "CITATION.cff"
+    assert _yaml_scalar(citation, "version") == __version__
+    repository_artifact = _yaml_scalar(citation, "repository-artifact")
+    if __version__.endswith("+symmetry"):
+        assert repository_artifact == "https://github.com/lgyEthan/v_ase/tree/symmetry"
+    else:
+        assert repository_artifact == f"https://pypi.org/project/v-ase-gui/{__version__}/"
+
+
+def test_readthedocs_configuration_and_toctree_targets_exist():
+    readthedocs = ROOT / ".readthedocs.yaml"
+    conf = ROOT / "docs/conf.py"
+    requirements = ROOT / "docs/requirements.txt"
+    for path in (readthedocs, conf, requirements):
+        assert path.is_file(), path.relative_to(ROOT)
+
+    readthedocs_text = readthedocs.read_text(encoding="utf-8")
+    assert re.search(
+        r"^\s*configuration:\s*docs/conf\.py\s*$",
+        readthedocs_text,
+        re.MULTILINE,
+    )
+    assert re.search(
+        r"^\s*-?\s*requirements:\s*docs/requirements\.txt\s*$",
+        readthedocs_text,
+        re.MULTILINE,
+    )
+
+    index_path = ROOT / "docs/index.md"
+    entries = _toctree_entries(index_path.read_text(encoding="utf-8"))
+    assert entries, "docs/index.md contains no MyST toctree entries"
+    missing = []
+    for entry in entries:
+        target = entry.split("#", 1)[0]
+        if not target or target == "self" or target.startswith(("http://", "https://")):
+            continue
+        base = index_path.parent / target
+        candidates = [base]
+        if not base.suffix:
+            candidates.extend(
+                [
+                    base.with_suffix(".md"),
+                    base.with_suffix(".rst"),
+                    base / "index.md",
+                    base / "index.rst",
+                ]
+            )
+        if not any(candidate.is_file() for candidate in candidates):
+            missing.append(target)
+    assert not missing, "Missing docs/index.md toctree targets:\n" + "\n".join(missing)
+
+
+def test_api_apply_examples_use_the_current_command_shape():
+    api = (ROOT / "docs/api.md").read_text(encoding="utf-8")
+    inline_apply_examples = []
+    legacy_apply_examples = []
+    for match in FENCED_CODE.finditer(api):
+        body = match.group("body")
+        if re.search(r"\bapply\b", body) and '"parameters"' in body:
+            legacy_apply_examples.append(body)
+        if "v_ase api" in body and re.search(r"\bapply\s+--params(?!-)", body):
+            inline_apply_examples.append(body)
+    assert not legacy_apply_examples, (
+        "docs/api.md must not restore the obsolete top-level "
+        "{name, parameters} apply shape:\n" + "\n\n".join(legacy_apply_examples)
+    )
+    assert inline_apply_examples, "docs/api.md has no inline v_ase api apply example"
+    for example in inline_apply_examples:
+        if '"name"' in example:
+            assert '"operation"' in example, (
+                "An inline apply example places name outside the current "
+                "top-level operation object:\n" + example
+            )
 
 
 def test_scientific_binary_dependencies_follow_supported_python_abis():

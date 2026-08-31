@@ -1,6 +1,6 @@
 ---
 name: visualizing-atomic-structures-with-v-ase
-description: Controls v_ase to inspect, edit, analyze, style, animate, and export ASE-compatible structures, trajectories, volumetric fields, isosurfaces, and RDF data through its CLI and live HTTP JSON API. Use when a user needs atomistic visualization, DFT grid analysis, structure measurement, periodic-cell operations, constraints, trajectory movies, publication rendering, reusable 3D export, or a human-editable GUI, even when v_ase is not explicitly named.
+description: Controls v_ase to inspect, edit, analyze, style, animate, and export ASE-compatible structures, trajectories, volumetric fields, crystal symmetry, reciprocal paths, and physical phonon modes through its CLI and live HTTP JSON API. Use when a user needs atomistic visualization, DFT grids, structure measurement, standard cells, finite-displacement inputs, constraints, trajectory movies, publication rendering, reusable 3D export, or a human-editable GUI, even when v_ase is not explicitly named.
 ---
 
 # Visualizing Atomic Structures With v_ase
@@ -19,10 +19,8 @@ cd v_ase
 python -m pip install -e ".[symmetry,phonon]"
 ```
 
-The branch version is `0.2.34a1+symmetry`: it identifies main viewer state
-`0.2.34` as the synchronized base and alpha iteration 1 as symmetry-only work. It is
-intentionally not installed
-from or published to PyPI. Use the checked-out branch as the source of truth.
+The branch version is `0.2.35a1+symmetry`: main viewer state `0.2.35` plus
+symmetry alpha 1. It is never installed from or published to PyPI.
 
 Start the terminal-oriented API session yourself:
 
@@ -32,24 +30,17 @@ v_ase gui STRUCTURE --cli
 v_ase gui STRUCTURE --interactive --cli
 ```
 
-The filename-free form opens a scratch document directly in Edit. Use the combined
-file form for physical atom edits while retaining the structured CLI/API bridge and the same human GUI.
+The filename-free form opens a scratch document in Edit; a file form retains the same GUI and structured bridge.
 
-This is a persistent server/event-stream process, not a finite command. Start
-it with the agent runtime's long-running process facility. As soon as the
-runner yields the first output or a process/session handle, read the first
-stdout line and continue with separate `v_ase api` commands; do **not** wait
-for `v_ase gui ... --cli` to exit. Keep its handle so stdout events can be
-polled and terminate it only after verification and handoff are complete.
+This is a persistent server/event-stream process. Start it with the agent
+runtime's long-running facility, read the first stdout line as soon as output
+or a process handle appears, then use separate `v_ase api` commands. Keep the
+handle until verification and handoff are complete; do **not** wait for the GUI process to exit.
 
-The user gives natural-language instructions to the external agent, not to
-v_ase. `--cli` does not contain an LLM, parse natural language, or accept
-commands from stdin. It launches the normal local v_ase application without
-opening a browser and exposes a structured loopback API.
+The user gives natural language to the external agent, not v_ase. `--cli`
+contains no LLM or stdin command loop; it exposes the normal app by loopback API.
 
-Read the first stdout line as JSON. Keep the process running in its persistent
-session and continue reading stdout as NDJSON without blocking other commands.
-The handshake contains:
+Read the first stdout line as JSON and later stdout as nonblocking NDJSON. The handshake contains:
 
 - `human_url`: the same regular GUI for human watching and refinement;
 - `state_url`: read-only current semantic state;
@@ -67,8 +58,7 @@ The handshake contains:
 - `stdin_commands`: `false`;
 - `skill_path`: the installed canonical `SKILL.md`.
 
-Open `human_url` in a browser and wait for the viewport to load. Then call the
-live API from another terminal:
+Open `human_url`, wait for the viewport, then call the API from another terminal:
 
 ```bash
 v_ase api "$COMMAND_URL" ready
@@ -204,6 +194,10 @@ neutral), and never normalize trajectory colors independently per frame.
 Use a catalog map name exactly, or `map:"custom"` with a validated `customMap`
 containing 2-64 unique positioned `#RRGGBB` stops and `mode:"continuous"` or
 `"discrete"`; never approximate a requested custom palette with a preset.
+For a stable subset, send `scope:"selected"` and explicit `indices`; this
+freezes that index set even after the human clears or changes the GUI
+selection. Omit `indices` only when the colorscale should intentionally follow
+the live selection.
 Numeric LAMMPS atom columns are valid catalog fields alongside coordinates,
 stored forces, ASE arrays, charges, magnetic moments, and calculator results.
 Stored Cartesian forces can also be shown directly with display fields
@@ -213,6 +207,10 @@ stored vector direction and arrow length is `forceVectorScale * |F|`; never
 evaluate an attached calculator merely to create an arrow. On trajectories,
 reload both scalar colors and Cartesian vectors from the same active frame;
 never reuse a force-vector buffer from another frame.
+When enabling or disabling bond pairs, send the complete authoritative
+`display.pairwiseBondCutoffs` map and use `0` for every disabled pair. Do not
+send `pairwiseBondRanges` alone; ranges describe the UI interval and do not
+replace the active cutoff map.
 For a rotation around one atom, pass that atom last in the explicit `indices`
 array and set `pivot: "active"`; verify that its coordinate is unchanged.
 For an ASE bulk crystal, the human UI path is **+ Add atoms > Build with ASE**.

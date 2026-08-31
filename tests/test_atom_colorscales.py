@@ -799,6 +799,35 @@ def test_browser_colorscale_is_lazy_selection_scoped_frame_aware_and_reversible(
                     name: 'set-atom-colorscale',
                     enabled: true,
                     field: 'position:z',
+                    map: 'plasma',
+                    scope: 'selected',
+                    indices: [1],
+                    rangeMode: 'manual',
+                    minimum: -1,
+                    maximum: 12
+                }
+            })""")
+            page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                app.clearAtomSelection();
+                app.updateSelectionVisuals();
+                app.updateUI();
+            }""")
+            page.evaluate("window.__ASE_APP__.updateAtomColorScale({quiet:true})")
+            fixed_scope_colors = page.evaluate(
+                "window.__ASE_APP__.renderer.atomColorScaleColors"
+            )
+            assert fixed_scope_colors[0] is None
+            assert fixed_scope_colors[1].startswith("#")
+            assert fixed_scope_colors[2] is None
+            assert page.evaluate(
+                "window.__ASE_APP__.state.display.atomColorScaleIndices"
+            ) == [1]
+            page.evaluate("""async () => await window.v_aseAI.apply({
+                operation: {
+                    name: 'set-atom-colorscale',
+                    enabled: true,
+                    field: 'position:z',
                     customMap: {
                         mode: 'continuous',
                         stops: [

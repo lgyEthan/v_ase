@@ -1,9 +1,10 @@
 # Changelog
 
-## 0.2.34a1+symmetry
+## 0.2.35a1+symmetry
 
 - Synchronized the experimental symmetry branch with the complete v_ase
-  `0.2.34` main application without modifying or publishing to `main` or PyPI.
+  `0.2.35` main application and its Sphinx/MyST user manual without modifying
+  or publishing to `main` or PyPI.
 - Reintegrated crystal-symmetry analysis, HPKOT reciprocal paths, standard-cell
   transforms, finite-displacement generation, phonopy project loading,
   interactive phonon bands, and commensurate mode trajectories into the new
@@ -15,8 +16,15 @@
 - Isolated the experimental browser implementation in `symmetry-ui.js` and
   `symmetry-ui.css` to reduce conflicts with future main updates.
 
-## 0.2.34
+## 0.2.35
 
+- Added a release-matched Sphinx/MyST manual configured for Read the Docs,
+  strict HTML/link/PDF/ePub builds, responsive navigation, and a concise
+  quick-start README whose former detailed workflows now live in versioned
+  guides and worked examples.
+- Hardened the external-agent contract by rejecting unknown top-level apply
+  fields and synchronizing selected-scope colorscale indices, staged-relaxation
+  parameters, registry schemas/CSV `(hkl)`, and document/workspace discovery.
 - Made long dialogs genuinely scrollable while keeping their actions visible,
   centered the first scratch insertion region, and replaced wrapped Appearance
   rows with a single horizontal table whose TYPE column remains fixed.

@@ -1,16 +1,16 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.2.34a1%2Bsymmetry';
-import { ASERenderer } from './renderer.js?v=0.2.34a1%2Bsymmetry';
-import { ASESelection } from './selection.js?v=0.2.34a1%2Bsymmetry';
-import { ASETransform } from './transform.js?v=0.2.34a1%2Bsymmetry';
+import { ASEApi } from './api.js?v=0.2.35a1%2Bsymmetry';
+import { ASERenderer } from './renderer.js?v=0.2.35a1%2Bsymmetry';
+import { ASESelection } from './selection.js?v=0.2.35a1%2Bsymmetry';
+import { ASETransform } from './transform.js?v=0.2.35a1%2Bsymmetry';
 import {
     interpolateTrajectoryFrames,
     interpolatedFrameCount,
     normalizeInterpolationMultiplier
-} from './trajectory.js?v=0.2.34a1%2Bsymmetry';
-import { installSymmetryPhononMethods } from './symmetry-ui.js?v=0.2.34a1%2Bsymmetry';
+} from './trajectory.js?v=0.2.35a1%2Bsymmetry';
+import { installSymmetryPhononMethods } from './symmetry-ui.js?v=0.2.35a1%2Bsymmetry';
 
-const V_ASE_BUILD_VERSION = '0.2.34a1+symmetry';
+const V_ASE_BUILD_VERSION = '0.2.35a1+symmetry';
 
 const CHEMICAL_ELEMENT_SYMBOLS = Object.freeze([
     'H','He','Li','Be','B','C','N','O','F','Ne',
@@ -195,6 +195,7 @@ class VAseApp {
                 },
                 atomColorScaleReverse: false,
                 atomColorScaleScope: 'all',
+                atomColorScaleIndices: [],
                 atomColorScaleAutoRange: true,
                 atomColorScaleRangeMode: 'current',
                 atomColorScaleMin: 0,
@@ -1342,6 +1343,7 @@ class VAseApp {
         });
         scope?.addEventListener('change', () => {
             this.state.display.atomColorScaleScope = scope.value === 'selected' ? 'selected' : 'all';
+            this.state.display.atomColorScaleIndices = [];
             this.state.display.atomColorScaleRangeMode = 'current';
             this.state.display.atomColorScaleAutoRange = true;
             this.atomColorScaleRuntime.rangeSignature = '';
@@ -1762,6 +1764,11 @@ class VAseApp {
     }
 
     atomColorScaleSelection() {
+        const fixed = this.state.display.atomColorScaleScope === 'selected'
+            && Array.isArray(this.state.display.atomColorScaleIndices)
+            ? this.state.display.atomColorScaleIndices
+            : [];
+        if (fixed.length) return new Set(fixed);
         const selected = new Set(this.state.selected);
         if (this.state.vizOnly) {
             this.state.replicaSelected.forEach(reference => {
@@ -16975,6 +16982,9 @@ class VAseApp {
                     this.state.display.atomColorScaleCustomMap
                 );
             const scope = operation.scope === 'selected' ? 'selected' : 'all';
+            const fixedIndices = scope === 'selected' && operation.indices !== undefined
+                ? this.aiOperationIndices(operation)
+                : [];
             const rangeMode = ['current', 'trajectory', 'manual'].includes(operation.rangeMode)
                 ? operation.rangeMode
                 : (operation.autoRange === false ? 'manual' : 'current');
@@ -16994,6 +17004,7 @@ class VAseApp {
                 atomColorScaleCustomMap: customMap,
                 atomColorScaleReverse: operation.reverse === true,
                 atomColorScaleScope: scope,
+                atomColorScaleIndices: fixedIndices,
                 atomColorScaleAutoRange: rangeMode !== 'manual',
                 atomColorScaleRangeMode: rangeMode,
                 atomColorScaleMin: minimum,
@@ -18290,6 +18301,19 @@ class VAseApp {
         if (!command || typeof command !== 'object' || Array.isArray(command)) {
             throw new Error('AI control command must be an object.');
         }
+        const supportedFields = new Set([
+            'expectedRevision', 'frame', 'mode', 'display', 'quality',
+            'applyConstraints', 'camera', 'renderArea', 'selection', 'operation'
+        ]);
+        const unsupportedFields = Object.keys(command).filter(
+            field => !supportedFields.has(field)
+        );
+        if (unsupportedFields.length) {
+            throw new Error(
+                `AI control command contains unsupported top-level field(s): `
+                + unsupportedFields.join(', ')
+            );
+        }
         if (command.expectedRevision !== undefined) {
             const expected = Number(command.expectedRevision);
             if (!Number.isInteger(expected) || expected < 0) {
@@ -18653,7 +18677,8 @@ class VAseApp {
                 metric: request.metric ?? this.state.registryResult.metric,
                 gridX: request.gridX ?? this.state.registryResult.x_fractional?.length,
                 gridY: request.gridY ?? this.state.registryResult.y_fractional?.length,
-                pairCutoffs: request.pairCutoffs
+                pairCutoffs: request.pairCutoffs,
+                hkl: request.hkl
             }));
             filename = 'v_ase_registry_map.csv';
             mimeType = 'text/csv';
@@ -19338,6 +19363,13 @@ class VAseApp {
             ),
             atomColorScaleReverse: Boolean(nextDisplay.atomColorScaleReverse),
             atomColorScaleScope: nextDisplay.atomColorScaleScope === 'selected' ? 'selected' : 'all',
+            atomColorScaleIndices: Array.isArray(nextDisplay.atomColorScaleIndices)
+                ? [...new Set(nextDisplay.atomColorScaleIndices.map(Number))].filter(
+                    index => Number.isInteger(index)
+                        && index >= 0
+                        && index < (this.state.atoms?.positions?.length || 0)
+                )
+                : [],
             atomColorScaleAutoRange: ['current', 'trajectory'].includes(nextDisplay.atomColorScaleRangeMode)
                 || (
                     !['current', 'trajectory', 'manual'].includes(nextDisplay.atomColorScaleRangeMode)
@@ -22346,7 +22378,7 @@ class VAseApp {
             <h3 class="help-section-title">Geometry Export</h3>
             <div class="help-save-grid">
                 <strong>Rhino 3DM (.3dm)</strong>
-                <span>Editable instanced atoms and bonds, optional unit-cell layers, and saved camera views in Angstrom units. Requires: python -m pip install "v_ase-gui[rhino]"</span>
+                <span>Editable instanced atoms and bonds, optional unit-cell layers, and saved camera views in Angstrom units. Requires this checkout with: python -m pip install -e ".[symmetry,phonon,rhino]"</span>
                 <strong>OBJ Bundle (.zip)</strong>
                 <span>Dependency-free static geometry with separately named atoms and bonds. Extract the OBJ, MTL, and camera/metadata JSON into the same directory.</span>
                 <strong>Blender Script (.py)</strong>

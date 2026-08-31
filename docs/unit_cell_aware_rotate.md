@@ -190,7 +190,7 @@ descriptor/tree path with complete enumeration through area ratio 5 and
 requires identical canonical angle, area, and strain candidates.
 
 The separate graphene/Cu(111) files and machine-readable expected values are
-in [`examples/commensurate_host_guest`](../examples/commensurate_host_guest/README.md).
+in the [periodic host/guest workflow](periodic-interfaces.md).
 The complete equations, validation scope, and measured search bounds are in
 [`commensurate_validation.md`](commensurate_validation.md).
 

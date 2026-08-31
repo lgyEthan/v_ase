@@ -1,8 +1,9 @@
 # Current Implementation Contract
 
 This document is the concise implementation source of truth for maintainers.
-User-facing behavior belongs in the [README](../README.md); scientific
-cell-rotation details belong in
+User-facing behavior belongs in this [versioned user guide](index.md) and the
+[repository README](https://github.com/lgyEthan/v_ase/blob/symmetry/README.md);
+scientific cell-rotation details belong in
 [unit_cell_aware_rotate.md](unit_cell_aware_rotate.md).
 
 ## Product Contract

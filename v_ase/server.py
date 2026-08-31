@@ -426,7 +426,7 @@ _AI_REPULSION_CALCULATOR_SCHEMA = {
 AI_CONTROL_SCHEMA = {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "$id": (
-        "https://github.com/lgyEthan/v_ase/blob/main/v_ase/skills/"
+        "https://github.com/lgyEthan/v_ase/blob/symmetry/v_ase/skills/"
         "visualizing-atomic-structures-with-v-ase/SKILL.md"
     ),
     "title": "v_ase live semantic control",
@@ -938,16 +938,14 @@ AI_CONTROL_SCHEMA = {
                             },
                             "then": {
                                 "properties": {
+                                    "calculator": _AI_REPULSION_CALCULATOR_SCHEMA,
                                     "pairCutoffs": {"type": "object"},
-                                    "hkl": {
-                                        "type": "array",
-                                        "prefixItems": [
-                                            {"type": "integer"},
-                                            {"type": "integer"},
-                                            {"type": "integer"},
-                                        ],
-                                        "minItems": 3,
-                                        "maxItems": 3,
+                                    "cutoffMode": {"enum": ["absolute", "scaled"]},
+                                    "cutoffDistance": {
+                                        "type": "number", "minimum": 0.01, "maximum": 100
+                                    },
+                                    "cutoffScale": {
+                                        "type": "number", "minimum": 0.05, "maximum": 3
                                     },
                                     "freezeExisting": {"type": "boolean"},
                                     "strength": {"type": "number", "minimum": 0, "maximum": 1000},
@@ -1018,6 +1016,11 @@ AI_CONTROL_SCHEMA = {
                                     },
                                     "reverse": {"type": "boolean"},
                                     "scope": {"enum": ["all", "selected"]},
+                                    "indices": {
+                                        "type": "array",
+                                        "items": {"type": "integer", "minimum": 0},
+                                        "uniqueItems": True,
+                                    },
                                     "autoRange": {"type": "boolean"},
                                     "rangeMode": {
                                         "enum": ["current", "trajectory", "manual"],
@@ -1257,10 +1260,6 @@ AI_CONTROL_SCHEMA = {
                                         "minItems": 3,
                                         "maxItems": 3,
                                     },
-                                    "space": {"enum": ["plane", "cartesian", "3d"]},
-                                    "maxDisplacement": {
-                                        "type": "number", "exclusiveMinimum": 0
-                                    },
                                 },
                             },
                         },
@@ -1288,6 +1287,10 @@ AI_CONTROL_SCHEMA = {
                                         ],
                                         "minItems": 3,
                                         "maxItems": 3,
+                                    },
+                                    "space": {"enum": ["plane", "cartesian", "3d"]},
+                                    "maxDisplacement": {
+                                        "type": "number", "exclusiveMinimum": 0
                                     },
                                 },
                             },
@@ -1510,7 +1513,7 @@ AI_OPERATION_PARAMETERS = {
         "required": [],
         "optional": [
             "enabled", "field", "map", "customMap", "reverse", "scope", "autoRange",
-            "rangeMode", "minimum", "maximum", "gamma",
+            "rangeMode", "minimum", "maximum", "gamma", "indices",
         ],
         "notes": (
             "Colors atoms by x/y/z, force norm, or a discovered numeric per-atom "
@@ -1518,7 +1521,9 @@ AI_OPERATION_PARAMETERS = {
             "current, trajectory, or manual; every trajectory frame uses the same "
             "resolved minimum and maximum. Use map=custom with a customMap containing "
             "two or more ordered 0-1 color stops and continuous or discrete mode. "
-            "gamma controls contrast. Disabling it immediately restores the saved "
+            "gamma controls contrast. For scope=selected, optional indices freezes "
+            "the target atom indices independently of later GUI selection changes. "
+            "Without indices, the scope follows the live GUI selection. Disabling it immediately restores the saved "
             "label and element colors."
         ),
     },
@@ -1675,7 +1680,8 @@ AI_OPERATION_PARAMETERS = {
         "mode": "edit",
         "required": ["active-add-atoms-session"],
         "optional": [
-            "pairCutoffs", "freezeExisting", "strength", "boundaryStrength",
+            "calculator", "pairCutoffs", "cutoffMode", "cutoffDistance",
+            "cutoffScale", "freezeExisting", "strength", "boundaryStrength",
             "fmax", "steps", "device", "cpuThreads", "mic",
             "constrainToDomain", "allowEscape",
         ],

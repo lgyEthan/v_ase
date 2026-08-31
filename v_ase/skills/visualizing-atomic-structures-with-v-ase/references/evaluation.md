@@ -76,7 +76,8 @@ Current operation coverage:
   stop-registry-relaxation, finish-registry-relaxation,
   cancel-registry-relaxation, undo, redo,
   reset-coordinates;
-- start-relaxation, stop-relaxation, exit-relaxation-mode,
+- start-relaxation, stop-relaxation, clear-relaxation-trajectory,
+  exit-relaxation-mode,
   refresh-displacements;
 - load-volumetric, show-volumetric, add-volumetric-plane,
   update-volumetric-planes, remove-volumetric-planes, combine-volumetric,

@@ -684,6 +684,14 @@ def test_http_bridge_controls_the_same_live_workspace_without_page_evaluation(
                 "required"
             ] == ["planeIds"]
 
+            obsolete_apply = _post_command(
+                command_url,
+                "apply",
+                {"name": "wrap", "parameters": {}},
+                expected_status=422,
+            )
+            assert "unsupported top-level field(s)" in obsolete_apply["detail"]
+
             themed = _post_command(
                 command_url,
                 "apply",
