@@ -75,7 +75,7 @@ jobs:
                   data = response.read()
               digest = hashlib.sha256(data).hexdigest()
               if digest != item["digests"]["sha256"]:
-                  raise SystemExit(f"SHA256 mismatch for {item['filename']}")
+                  raise SystemExit(f"Artifact digest mismatch for {item['filename']}")
               (output / item["filename"]).write_bytes(data)
           PY
 
@@ -102,7 +102,7 @@ jobs:
           notes = match.group(1).strip()
           notes += (
               "\n\nThe attached wheel and source distribution are the same "
-              "SHA256-verified files published on PyPI.\n"
+              "files published on PyPI.\n"
           )
           Path("release-notes.md").write_text(notes, encoding="utf-8")
           PY
@@ -116,7 +116,11 @@ jobs:
         run: |
           set -euo pipefail
           if gh release view "${TAG}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
-            echo "GitHub Release ${TAG} already exists."
+            gh release edit "${TAG}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --title "v_ase ${VERSION}" \
+              --notes-file release-notes.md
+            echo "GitHub Release ${TAG} notes were updated."
             exit 0
           fi
           gh release create "${TAG}" release-assets/* \
