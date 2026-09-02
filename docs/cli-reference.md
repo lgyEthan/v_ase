@@ -132,9 +132,9 @@ methods are:
 | Method | Purpose |
 | --- | --- |
 | `ready` | Wait for the live browser/document bridge |
-| `schema` | Read operation and export parameter maps without a document round trip |
-| `describe` | Read exact semantic document state and current revision |
-| `capabilities` | Read live feature, operation, export, calculator, and limit information |
+| `schema` | Read a compact operation/export index or one focused typed contract |
+| `describe` | Read one exact semantic state profile and current revision |
+| `capabilities` | Read a compact live feature/catalog index; request full only for integration diagnostics |
 | `documents` | List workspace documents |
 | `activate` | Activate one document before subsequent commands |
 | `newDocument` | Create an empty workspace document |
@@ -147,12 +147,21 @@ methods are:
 Pass a JSON value directly or from a UTF-8 file:
 
 ```bash
-v_ase api "$COMMAND_URL" describe \
-  --params '{"includePositions":true}'
+v_ase api "$COMMAND_URL" schema --operation-schema move-selection
+v_ase api "$COMMAND_URL" describe --profile structure --include-positions
 
 v_ase api "$COMMAND_URL" apply \
   --params-file command.json
 ```
+
+Bare `schema` and `describe` default to compact summary responses. Schema
+shortcuts are repeatable `--operation-schema NAME`, `--export-schema FORMAT`, and
+`--schema-method apply|describe|render`; use `--full-schema` only for integration
+audits. Describe profiles are `summary`, `structure`, `appearance`, `bonding`,
+`render`, `analysis`, and `full`, with opt-in `--include-positions`,
+`--include-properties`, and `--include-overrides`. CLI apply responses default
+to summary plus `mutation.changedPaths`; choose another with
+`--response-profile`.
 
 `--timeout SECONDS` defaults to 300 and is capped at 1800.
 

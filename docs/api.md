@@ -180,6 +180,29 @@ reports `command_transport="http-json-bridge"`,
 `accepts_natural_language=false`, and `stdin_commands=false`, plus
 `events_url`, `event_protocol`, `event_delivery`, and `event_scope`.
 
+The terminal client uses progressive discovery and compact responses by
+default:
+
+```bash
+v_ase api "$COMMAND_URL" schema
+v_ase api "$COMMAND_URL" schema --operation-schema compose-view \
+  --operation-schema style-atoms --operation-schema configure-bonds
+v_ase api "$COMMAND_URL" describe --profile summary
+v_ase api "$COMMAND_URL" describe --profile structure --include-positions
+v_ase api "$COMMAND_URL" describe --profile render
+v_ase api "$COMMAND_URL" apply --params-file command.json
+v_ase api "$COMMAND_URL" render --params-file render.json --save result.png
+```
+
+Bare `schema` returns an operation/export index; `--full-schema` is reserved
+for integration auditing. State profiles are `summary`, `structure`,
+`appearance`, `bonding`, `render`, `analysis`, and `full`. CLI `apply` adds a
+summary response unless `--response-profile` requests another profile, and
+reports exact `mutation.changedPaths`. Render results report
+`effectiveRender.source` and the exact camera used. This keeps inactive bond
+tables, complete per-atom arrays, and Base64 image data out of an agent's
+context unless they are explicitly needed.
+
 ### ASE Bulk Builder
 
 The installed ASE compatibility catalog and nonmutating preview are available
@@ -289,7 +312,7 @@ same value immediately controls wrapped previews and optional confinement.
 `schema` is authoritative for all parameter names and allowed ranges.
 
 ```bash
-v_ase api "$COMMAND_URL" describe --params '{"includePositions":false}'
+v_ase api "$COMMAND_URL" describe --profile summary
 v_ase api "$COMMAND_URL" apply --params-file command.json
 v_ase api "$COMMAND_URL" render --params-file render.json --save figure.png
 ```
@@ -625,8 +648,9 @@ after the output file is complete.
 The command bridge exposes `schema`, `ready`, `capabilities`, `describe`,
 `apply`, `render`, and `export`; workspace scope also exposes `documents`,
 `activate`, and `newDocument`. The optional document-level
-`window.v_aseAI` object mirrors the live document methods but does not define
-`schema()`; use `v_ase api ... schema` or `GET /api/ai/schema` for the schema.
+`window.v_aseAI` object mirrors the live document methods, including focused
+`schema(options)` discovery. Use the separate `v_ase api` client for ordinary
+agent work so the integration does not depend on page-main-world JavaScript.
 `capabilities()` advertises
 `expectedRevision` in its `apply` fields, and `describe()` reports the current
 document collaboration revision. `apply()` accepts that revision as an
@@ -639,6 +663,22 @@ relaxation, rigid periodic-plane translation, and displacement analysis. Visual
 translation and display supercells are ordinary `display` settings available
 in View and Edit. `rotate-selection` accepts `pivot: "active"`; the last
 explicit atom index is the fixed rotation pivot.
+Reference-figure composition is exposed through `set-visual-label`,
+`style-atoms`, `configure-bonds`, and `compose-view`. These operations separate
+index/layer roles without changing ASE elements, apply final rendered radii,
+define an intentional visual-label policy or exact index-edge list, and align a centered periodic
+motif using explicit `cellOffset` references and centered display replication.
+`configure-bonds` accepts an empty pair list with `disableUnspecified:true` as
+the explicit no-bond state. `clearEndpointOverrides:true` makes requested pair
+appearance authoritative over stale atom-level bond styling. `compose-view` can use `fit:"references"` with
+exact atom/replica references to match a bounded panel's visible motif count
+without modifying or hiding the remaining structure.
+`configure-bonds.indexPairs` selects exact zero-based visual atom edges for a
+figure that highlights only one chain or local motif while preserving every
+label-pair cutoff, range, and appearance setting when sent without `pairs`.
+For crop-only refinement, `preserveOrientation:true` retains the current camera
+direction and roll. `atomDisplayMode:"2d"` switches the complete composition to
+flat, unlit 2D geometry; `"3d"` restores material-aware geometry.
 It also covers commensurate search/materialization, optional `(hkl)` translation maps,
 volumetric loading, compatible-grid combinations, isosurface settings/removal,
 and RDF calculation. `describe().analysis` returns commensurate and registry

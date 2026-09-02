@@ -485,9 +485,13 @@ class VAseWorkspace {
                 await workspace.ready;
                 return await (await workspace.waitForActiveAIBridge()).describe(options);
             },
-            capabilities: async () => {
+            schema: async options => {
                 await workspace.ready;
-                return await (await workspace.waitForActiveAIBridge()).capabilities();
+                return await (await workspace.waitForActiveAIBridge()).schema(options);
+            },
+            capabilities: async options => {
+                await workspace.ready;
+                return await (await workspace.waitForActiveAIBridge()).capabilities(options);
             },
             documents: async () => {
                 await workspace.ready;
@@ -568,7 +572,7 @@ class VAseWorkspace {
                 throw new Error(`AI method '${method}' is not available on this workspace.`);
             }
             const noArgumentMethods = new Set([
-                'ready', 'capabilities', 'documents', 'newDocument'
+                'ready', 'documents', 'newDocument'
             ]);
             let result;
             if (noArgumentMethods.has(method)) {

@@ -1,13 +1,13 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.2.35';
-import { ASERenderer } from './renderer.js?v=0.2.35';
-import { ASESelection } from './selection.js?v=0.2.35';
-import { ASETransform } from './transform.js?v=0.2.35';
+import { ASEApi } from './api.js?v=0.2.36';
+import { ASERenderer } from './renderer.js?v=0.2.36';
+import { ASESelection } from './selection.js?v=0.2.36';
+import { ASETransform } from './transform.js?v=0.2.36';
 import {
     interpolateTrajectoryFrames,
     interpolatedFrameCount,
     normalizeInterpolationMultiplier
-} from './trajectory.js?v=0.2.35';
+} from './trajectory.js?v=0.2.36';
 
 const CHEMICAL_ELEMENT_SYMBOLS = Object.freeze([
     'H','He','Li','Be','B','C','N','O','F','Ne',
@@ -16075,7 +16075,7 @@ class VAseApp {
         };
     }
 
-    aiSelectionSnapshot() {
+    aiSelectionSnapshot({ includePositions = true } = {}) {
         return this.selectionEntries().map(reference => {
             const normalized = this.normalizeSelectionReference(reference);
             if (!normalized) return null;
@@ -16085,19 +16085,543 @@ class VAseApp {
                     index: normalized.index,
                     cellOffset: [...normalized.cellOffset],
                     label: this.selectionReferenceSymbol(normalized),
-                    position: this.selectionReferencePosition(normalized)?.toArray() || null
+                    ...(includePositions ? {
+                        position: this.selectionReferencePosition(normalized)?.toArray() || null
+                    } : {})
                 }
                 : {
                     kind: 'atom',
                     index: normalized.index,
                     label: this.selectionReferenceSymbol(normalized),
-                    position: this.selectionReferencePosition(normalized)?.toArray() || null
+                    ...(includePositions ? {
+                        position: this.selectionReferencePosition(normalized)?.toArray() || null
+                    } : {})
                 };
         }).filter(Boolean);
     }
 
-    aiDescribe({ includePositions = true } = {}) {
+    aiIdentityGroups(atoms = this.state.atoms || {}) {
+        const groups = new Map();
+        const labels = atoms.symbols || [];
+        const elements = atoms.chemical_symbols || [];
+        labels.forEach((label, index) => {
+            const element = String(elements[index] || label || '');
+            const key = `${String(label)}\u0000${element}`;
+            if (!groups.has(key)) {
+                groups.set(key, {
+                    label: String(label),
+                    element,
+                    count: 0,
+                    indexRanges: []
+                });
+            }
+            const group = groups.get(key);
+            group.count += 1;
+            const last = group.indexRanges[group.indexRanges.length - 1];
+            if (last && last[1] + 1 === index) last[1] = index;
+            else group.indexRanges.push([index, index]);
+        });
+        return [...groups.values()];
+    }
+
+    aiBondingSnapshot({
+        includeEndpointOverrides = false,
+        includeInactivePairs = false
+    } = {}) {
+        const display = this.state.display || {};
+        const activeLabelPairs = [];
+        let inactiveStyledPairCount = 0;
+        this.uniqueLabelPairs().forEach(([left, right]) => {
+            const key = this.labelPairKey(left, right);
+            const range = this.pairwiseBondRange(left, right, display);
+            const style = display.pairwiseBondStyles?.[key];
+            if (!range.enabled) {
+                if (style) inactiveStyledPairCount += 1;
+                if (!includeInactivePairs || !style) return;
+            }
+            activeLabelPairs.push({
+                key,
+                labels: [left, right],
+                enabled: Boolean(range.enabled),
+                minimumAngstrom: Number(range.min || 0),
+                maximumAngstrom: Number(range.max || 0),
+                ...(style ? { appearance: this.clonePlain(style) } : {})
+            });
+        });
+        const endpointOverrides = display.atomBondStyles || {};
+        return {
+            showBonds: Boolean(display.showBonds),
+            mode: display.bondMode || 'auto',
+            showPeriodicBonds: Boolean(display.showPeriodicBonds),
+            defaultAppearance: {
+                style: display.bondStyle,
+                material: display.bondMaterial,
+                thicknessAngstrom: Number(display.bondThickness),
+                colorMode: display.bondColorMode,
+                color: display.bondCustomColor,
+                opacity: Number(display.bondOpacity)
+            },
+            activeLabelPairs,
+            inactiveStyledPairCount,
+            manualIndexPairs: this.clonePlain(display.manualBondPairs || []),
+            endpointOverrideCount: Object.keys(endpointOverrides).length,
+            ...(includeEndpointOverrides
+                ? { endpointOverrides: this.clonePlain(endpointOverrides) }
+                : {})
+        };
+    }
+
+    aiAppearanceSnapshot({ includeOverrides = false } = {}) {
+        const display = this.state.display || {};
+        const omitted = new Set([
+            'manualBondPairs', 'pairwiseBondCutoffs', 'pairwiseBondRanges',
+            'pairwiseBondStyles', 'atomRadiusScales', 'atomColors',
+            'atomOpacities', 'atomMaterials', 'atomBondStyles',
+            'hiddenAtomReferences'
+        ]);
+        const compact = {};
+        Object.entries(display).forEach(([key, value]) => {
+            if (omitted.has(key)) return;
+            if (value === null || ['string', 'number', 'boolean'].includes(typeof value)) {
+                compact[key] = value;
+                return;
+            }
+            if (Array.isArray(value)) {
+                if (value.length <= 64) compact[key] = this.clonePlain(value);
+                return;
+            }
+            if (key.startsWith('label') || key === 'atomColorScaleCustomMap') {
+                compact[key] = this.clonePlain(value);
+            }
+        });
+        const overrideFields = [
+            'atomRadiusScales', 'atomColors', 'atomOpacities',
+            'atomMaterials', 'atomBondStyles', 'hiddenAtomReferences'
+        ];
+        compact.indexOverrideCounts = Object.fromEntries(overrideFields.map(key => [
+            key,
+            Array.isArray(display[key])
+                ? display[key].length
+                : Object.keys(display[key] || {}).length
+        ]));
+        if (includeOverrides) {
+            overrideFields.forEach(key => {
+                compact[key] = this.clonePlain(display[key] || (key === 'hiddenAtomReferences' ? [] : {}));
+            });
+        }
+        return compact;
+    }
+
+    aiEffectiveRenderSnapshot({
+        width = null,
+        height = null,
+        requestOptions = null,
+        cameraSource = 'auto'
+    } = {}) {
+        const profile = this.currentImageExportProfile();
+        const sourceOptions = requestOptions && typeof requestOptions === 'object'
+            ? requestOptions
+            : profile.options;
+        const requestedSource = String(cameraSource || 'auto').trim().toLowerCase();
+        const explicitCamera = this.normalizedCameraSettings(sourceOptions?.camera);
+        const renderAreaCamera = this.normalizedCameraSettings(this.state.exportPreviewCamera);
+        const profileCamera = this.normalizedCameraSettings(profile.options?.camera);
+        const viewportCamera = this.normalizedCameraSettings(this.currentCameraForExport());
+        let source = 'viewport';
+        let camera = viewportCamera;
+        if (requestedSource === 'viewport') {
+            source = 'viewport';
+        } else if (requestedSource === 'explicit') {
+            if (!explicitCamera) {
+                throw new Error('cameraSource explicit requires options.camera.');
+            }
+            source = 'explicit-request';
+            camera = explicitCamera;
+        } else if (requestedSource === 'render-area') {
+            if (!renderAreaCamera) {
+                throw new Error('cameraSource render-area requires a stored Render Area camera.');
+            }
+            source = 'render-area';
+            camera = renderAreaCamera;
+        } else if (requestedSource === 'image-export') {
+            if (!profileCamera) {
+                throw new Error('cameraSource image-export requires a stored image export camera.');
+            }
+            source = 'image-export-profile';
+            camera = profileCamera;
+        } else if (requestedSource !== 'auto') {
+            throw new Error(
+                'cameraSource must be auto, viewport, render-area, image-export, or explicit.'
+            );
+        } else if (requestOptions && Object.prototype.hasOwnProperty.call(requestOptions, 'camera')) {
+            if (!explicitCamera) throw new Error('options.camera must be a valid camera object.');
+            source = 'explicit-request';
+            camera = explicitCamera;
+        } else if (renderAreaCamera) {
+            source = this.state.exportPreviewEnabled
+                ? 'render-area'
+                : 'image-export-profile';
+            camera = renderAreaCamera;
+        } else if (profileCamera) {
+            source = 'image-export-profile';
+            camera = profileCamera;
+        }
+        const outputWidth = Math.max(64, Math.round(Number(width) || profile.width || 1920));
+        const outputHeight = Math.max(64, Math.round(Number(height) || profile.height || 1080));
+        return {
+            source,
+            width: outputWidth,
+            height: outputHeight,
+            aspect: outputWidth / outputHeight,
+            camera,
+            options: this.clonePlain(sourceOptions || {}),
+            renderAreaEnabled: Boolean(this.state.exportPreviewEnabled),
+            renderAreaFollowsViewport: Boolean(this.state.exportPreviewFollowViewport)
+        };
+    }
+
+    aiStateFingerprint(value) {
+        const text = JSON.stringify(value);
+        let hash = 0x811c9dc5;
+        for (let index = 0; index < text.length; index += 1) {
+            hash ^= text.charCodeAt(index);
+            hash = Math.imul(hash, 0x01000193) >>> 0;
+        }
+        return `fnv1a32:${hash.toString(16).padStart(8, '0')}`;
+    }
+
+    aiRelaxationSnapshot(atoms = this.state.atoms || {}) {
+        return {
+            active: Boolean(
+                atoms.metadata?.relaxation?.active
+                || this.state.relaxTrajectory?.active
+            ),
+            running: Boolean(this.state.isRelaxing),
+            kind: this.state.relaxTrajectory?.kind || null,
+            frame: Number(this.state.relaxTrajectory?.frame || 0),
+            frameCount: Number(this.state.relaxTrajectory?.frames?.length || 0),
+            finished: Boolean(this.state.relaxTrajectory?.finished)
+        };
+    }
+
+    aiCalculatorSnapshot(atoms = this.state.atoms || {}, { includeDetails = true } = {}) {
+        return {
+            attached: Boolean(atoms.metadata?.has_calculator),
+            name: atoms.metadata?.calculator || null,
+            ...(includeDetails ? {
+                details: this.clonePlain(atoms.metadata?.calculator_details || {})
+            } : {})
+        };
+    }
+
+    aiFocusedBaseSnapshot(profile, atoms = this.state.atoms || {}, {
+        includeSelectionPositions = false
+    } = {}) {
+        const labels = atoms.symbols || [];
+        const elements = atoms.chemical_symbols || [];
+        const labelCounts = {};
+        const elementCounts = {};
+        labels.forEach(label => {
+            labelCounts[label] = (labelCounts[label] || 0) + 1;
+        });
+        elements.forEach(symbol => {
+            elementCounts[symbol] = (elementCounts[symbol] || 0) + 1;
+        });
+        const document = this.workspaceDocumentTitle();
+        const mode = this.state.vizOnly ? 'view' : 'edit';
+        const frame = Number(atoms.metadata?.current_frame || 0);
+        const atomCount = Number(atoms.metadata?.natoms || atoms.positions?.length || 0);
+        const selection = this.aiSelectionSnapshot({
+            includePositions: includeSelectionPositions
+        });
+        return {
+            protocol: 'v_ase.ai.v1',
+            profile,
+            units: { length: 'angstrom', angle: 'degree' },
+            document,
+            mode,
+            frame,
+            frameCount: Number(atoms.metadata?.frame_count || 1),
+            atomCount,
+            labelCounts,
+            elementCounts,
+            cell: this.clonePlain(atoms.cell || []),
+            pbc: [...(atoms.pbc || [])],
+            selection,
+            relaxation: this.aiRelaxationSnapshot(atoms),
+            collaboration: {
+                protocol: 'v_ase.collaboration.v1',
+                revision: this.collaborationRevision,
+                eventStream: true
+            },
+            stateFingerprint: this.aiStateFingerprint({
+                document,
+                mode,
+                frame,
+                atomCount,
+                collaborationRevision: this.collaborationRevision,
+                selection: selection.map(item => ({
+                    kind: item.kind,
+                    index: item.index,
+                    cellOffset: item.cellOffset || null
+                }))
+            })
+        };
+    }
+
+    aiFocusedDescribe(profile, options = {}, atoms = this.state.atoms || {}) {
+        const includePositions = options.includePositions === true;
+        const base = this.aiFocusedBaseSnapshot(profile, atoms, {
+            includeSelectionPositions: includePositions
+        });
+        const positions = () => (atoms.positions || []).map((position, index) => {
+            const current = this.currentAtomPosition(index);
+            return current ? [...current] : [...position];
+        });
+        if (profile === 'summary') {
+            return {
+                ...base,
+                identityGroups: this.aiIdentityGroups(atoms),
+                calculator: this.aiCalculatorSnapshot(atoms, {includeDetails: false}),
+                availableProfiles: [
+                    'summary', 'structure', 'appearance', 'bonding',
+                    'render', 'analysis', 'full'
+                ]
+            };
+        }
+        if (profile === 'structure') {
+            const tags = atoms.tags || [];
+            const charges = atoms.charges || [];
+            const magneticMoments = atoms.magmoms || [];
+            const forces = atoms.forces || [];
+            const result = {
+                ...base,
+                identityGroups: this.aiIdentityGroups(atoms),
+                constraints: this.clonePlain(atoms.constraints || {}),
+                addAtoms: this.clonePlain(
+                    this.addAtomsUI?.active || atoms.metadata?.atom_addition || null
+                ),
+                calculator: this.aiCalculatorSnapshot(atoms),
+                measurement: this.getSelectionMeasureText(),
+                propertyCounts: {
+                    tags: tags.length,
+                    charges: charges.filter(Number.isFinite).length,
+                    magneticMoments: magneticMoments.filter(Number.isFinite).length,
+                    forces: forces.filter(vector => (
+                        Array.isArray(vector)
+                        && vector.length === 3
+                        && vector.every(Number.isFinite)
+                    )).length
+                }
+            };
+            if (includePositions) result.positions = positions();
+            if (options.includeProperties === true) {
+                Object.assign(result, {
+                    labels: [...(atoms.symbols || [])],
+                    chemicalSymbols: [...(atoms.chemical_symbols || [])],
+                    atomicNumbers: [...(atoms.atomic_numbers || [])],
+                    tags: [...tags],
+                    charges: [...charges],
+                    magneticMoments: [...magneticMoments],
+                    forces: this.clonePlain(forces)
+                });
+            }
+            result.structureFingerprint = this.aiStateFingerprint({
+                labels: atoms.symbols || [],
+                chemicalSymbols: atoms.chemical_symbols || [],
+                positions: atoms.positions || [],
+                cell: atoms.cell || [],
+                pbc: atoms.pbc || [],
+                constraints: atoms.constraints || {}
+            });
+            return result;
+        }
+        if (profile === 'appearance') {
+            const display = this.aiAppearanceSnapshot({
+                includeOverrides: options.includeOverrides === true
+            });
+            return {
+                ...base,
+                identityGroups: this.aiIdentityGroups(atoms),
+                display,
+                bonding: this.aiBondingSnapshot({
+                    includeEndpointOverrides: options.includeOverrides === true,
+                    includeInactivePairs: options.includeOverrides === true
+                }),
+                appearanceFingerprint: this.aiStateFingerprint(display)
+            };
+        }
+        if (profile === 'bonding') {
+            const result = {
+                ...base,
+                identityGroups: this.aiIdentityGroups(atoms),
+                bonding: this.aiBondingSnapshot({
+                    includeEndpointOverrides: options.includeOverrides === true,
+                    includeInactivePairs: options.includeOverrides === true
+                })
+            };
+            if (includePositions) result.positions = positions();
+            result.bondingFingerprint = this.aiStateFingerprint(result.bonding);
+            return result;
+        }
+        if (profile === 'render') {
+            const profileSnapshot = this.clonePlain(this.currentImageExportProfile());
+            return {
+                ...base,
+                identityGroups: this.aiIdentityGroups(atoms),
+                display: this.aiAppearanceSnapshot({
+                    includeOverrides: options.includeOverrides === true
+                }),
+                camera: this.cameraSettingsSnapshot(),
+                renderArea: {
+                    enabled: Boolean(this.state.exportPreviewEnabled),
+                    followViewport: Boolean(this.state.exportPreviewFollowViewport),
+                    camera: this.clonePlain(
+                        this.state.exportPreviewCamera
+                        || profileSnapshot.options?.camera
+                        || null
+                    ),
+                    width: Number(profileSnapshot.width || 0),
+                    height: Number(profileSnapshot.height || 0)
+                },
+                imageExport: profileSnapshot,
+                effectiveRender: this.aiEffectiveRenderSnapshot()
+            };
+        }
+        return null;
+    }
+
+    aiDescribeProfile(full, profile, options = {}) {
+        const selection = options.includePositions === true
+            ? full.selection
+            : full.selection.map(item => {
+                const copy = { ...item };
+                delete copy.position;
+                return copy;
+            });
+        const base = {
+            protocol: full.protocol,
+            profile,
+            units: full.units,
+            document: full.document,
+            mode: full.mode,
+            frame: full.frame,
+            frameCount: full.frameCount,
+            atomCount: full.atomCount,
+            labelCounts: full.labelCounts,
+            elementCounts: full.elementCounts,
+            cell: full.cell,
+            pbc: full.pbc,
+            selection,
+            relaxation: full.relaxation,
+            collaboration: full.collaboration,
+            stateFingerprint: full.stateFingerprint
+        };
+        if (profile === 'summary') {
+            return {
+                ...base,
+                identityGroups: this.aiIdentityGroups(),
+                calculator: {
+                    attached: full.calculator.attached,
+                    name: full.calculator.name
+                },
+                availableProfiles: [
+                    'summary', 'structure', 'appearance', 'bonding',
+                    'render', 'analysis', 'full'
+                ]
+            };
+        }
+        if (profile === 'structure') {
+            const propertyCounts = {
+                tags: full.tags.length,
+                charges: full.charges.filter(Number.isFinite).length,
+                magneticMoments: full.magneticMoments.filter(Number.isFinite).length,
+                forces: full.forces.filter(vector => (
+                    Array.isArray(vector) && vector.length === 3 && vector.every(Number.isFinite)
+                )).length
+            };
+            return {
+                ...base,
+                identityGroups: this.aiIdentityGroups(),
+                constraints: full.constraints,
+                addAtoms: full.addAtoms,
+                calculator: full.calculator,
+                measurement: full.measurement,
+                propertyCounts,
+                ...(full.positions ? { positions: full.positions } : {}),
+                ...(options.includeProperties === true ? {
+                    labels: full.labels,
+                    chemicalSymbols: full.chemicalSymbols,
+                    atomicNumbers: full.atomicNumbers,
+                    tags: full.tags,
+                    charges: full.charges,
+                    magneticMoments: full.magneticMoments,
+                    forces: full.forces
+                } : {})
+            };
+        }
+        if (profile === 'appearance') {
+            return {
+                ...base,
+                identityGroups: this.aiIdentityGroups(),
+                display: this.aiAppearanceSnapshot({
+                    includeOverrides: options.includeOverrides === true
+                }),
+                bonding: this.aiBondingSnapshot({
+                    includeEndpointOverrides: options.includeOverrides === true
+                })
+            };
+        }
+        if (profile === 'bonding') {
+            return {
+                ...base,
+                identityGroups: this.aiIdentityGroups(),
+                bonding: this.aiBondingSnapshot({
+                    includeEndpointOverrides: options.includeOverrides === true
+                }),
+                ...(full.positions ? { positions: full.positions } : {})
+            };
+        }
+        if (profile === 'render') {
+            return {
+                ...base,
+                identityGroups: this.aiIdentityGroups(),
+                display: this.aiAppearanceSnapshot({
+                    includeOverrides: options.includeOverrides === true
+                }),
+                camera: full.camera,
+                renderArea: full.renderArea,
+                imageExport: full.imageExport,
+                effectiveRender: full.effectiveRender
+            };
+        }
+        if (profile === 'analysis') return { ...base, analysis: full.analysis };
+        throw new Error(
+            'describe profile must be summary, structure, appearance, bonding, render, analysis, or full.'
+        );
+    }
+
+    aiDescribe(options = {}) {
+        const profile = String(options.profile || 'full').trim().toLowerCase();
+        const supportedProfiles = new Set([
+            'summary', 'structure', 'appearance', 'bonding',
+            'render', 'analysis', 'full'
+        ]);
+        if (!supportedProfiles.has(profile)) {
+            throw new Error(
+                'describe profile must be summary, structure, appearance, bonding, render, analysis, or full.'
+            );
+        }
+        const includePositions = options.includePositions === undefined
+            ? profile === 'full'
+            : Boolean(options.includePositions);
         const atoms = this.state.atoms || {};
+        if (profile !== 'full' && profile !== 'analysis') {
+            return this.aiFocusedDescribe(profile, {
+                ...options,
+                includePositions
+            }, atoms);
+        }
         const positions = includePositions
             ? (atoms.positions || []).map((position, index) => {
                 const current = this.currentAtomPosition(index);
@@ -16176,6 +16700,7 @@ class VAseApp {
                 personalVisualDefaults: this.hasPersonalVisualDefaults
             },
             imageExport: this.clonePlain(this.currentImageExportProfile()),
+            effectiveRender: this.aiEffectiveRenderSnapshot(),
             analysis: {
                 frameSynchronization: {
                     displayedFrame,
@@ -16307,7 +16832,21 @@ class VAseApp {
             }
         };
         if (includePositions) result.positions = positions;
-        return result;
+        result.stateFingerprint = this.aiStateFingerprint({
+            document: result.document,
+            mode: result.mode,
+            frame: result.frame,
+            atomCount: result.atomCount,
+            collaborationRevision: this.collaborationRevision,
+            selection: result.selection.map(item => ({
+                kind: item.kind,
+                index: item.index,
+                cellOffset: item.cellOffset || null
+            }))
+        });
+        return profile === 'full'
+            ? result
+            : this.aiDescribeProfile(result, profile, options);
     }
 
     setAIAxisView(axis) {
@@ -16332,7 +16871,471 @@ class VAseApp {
         this.completeCameraViewChange('ai-axis-view');
     }
 
-    async aiCapabilities() {
+    aiCellAxisVector(value, name = 'cell axis') {
+        const match = /^([+-])([abc])$/i.exec(String(value || '').trim());
+        if (!match || !this.hasUsableCell()) {
+            throw new Error(`${name} must be one of +a, -a, +b, -b, +c, or -c with a defined cell.`);
+        }
+        const axis = { a: 0, b: 1, c: 2 }[match[2].toLowerCase()];
+        const vector = new THREE.Vector3(...this.state.atoms.cell[axis]);
+        if (match[1] === '-') vector.multiplyScalar(-1);
+        if (vector.lengthSq() <= 1e-16) throw new Error(`${name} points along a zero-length cell vector.`);
+        return vector;
+    }
+
+    aiPeriodicReference(value, name = 'reference') {
+        if (!value || typeof value !== 'object' || Array.isArray(value)) {
+            throw new Error(`${name} must contain index and cellOffset.`);
+        }
+        const index = Number(value.index);
+        const atomCount = this.state.atoms?.positions?.length || 0;
+        if (!Number.isInteger(index) || index < 0 || index >= atomCount) {
+            throw new Error(`${name}.index must be inside 0..${Math.max(0, atomCount - 1)}.`);
+        }
+        const cellOffset = value.cellOffset ?? [0, 0, 0];
+        if (
+            !Array.isArray(cellOffset)
+            || cellOffset.length !== 3
+            || !cellOffset.every(component => Number.isInteger(Number(component)))
+        ) {
+            throw new Error(`${name}.cellOffset must contain three integers.`);
+        }
+        if (cellOffset.some(Number) && !this.hasUsableCell()) {
+            throw new Error(`${name} uses a periodic image but the structure has no usable cell.`);
+        }
+        return { index, cellOffset: cellOffset.map(Number) };
+    }
+
+    aiPeriodicReferencePosition(value, { includeVisualTranslation = true } = {}) {
+        const reference = this.aiPeriodicReference(value);
+        const position = this.currentAtomPosition(reference.index)
+            || this.state.atoms.positions[reference.index];
+        const point = new THREE.Vector3(...position);
+        if (this.hasUsableCell()) {
+            reference.cellOffset.forEach((offset, axis) => {
+                point.addScaledVector(new THREE.Vector3(...this.state.atoms.cell[axis]), offset);
+            });
+        }
+        if (includeVisualTranslation) point.add(this.renderer.visualTranslationVector());
+        return point;
+    }
+
+    aiReferencePositions(references, options = {}) {
+        if (!Array.isArray(references) || !references.length) {
+            throw new Error('At least one periodic atom reference is required.');
+        }
+        return references.map((reference, index) => this.aiPeriodicReferencePosition(
+            this.aiPeriodicReference(reference, `reference ${index + 1}`),
+            options
+        ));
+    }
+
+    aiAverageVector(vectors, name = 'points') {
+        if (!Array.isArray(vectors) || !vectors.length) {
+            throw new Error(`${name} must contain at least one point.`);
+        }
+        const average = new THREE.Vector3();
+        vectors.forEach(vector => average.add(vector));
+        return average.multiplyScalar(1 / vectors.length);
+    }
+
+    aiIndexReferences(indices) {
+        if (!Array.isArray(indices) || !indices.length) {
+            throw new Error('A non-empty atom index list is required.');
+        }
+        return indices.map(index => ({ index: Number(index), cellOffset: [0, 0, 0] }));
+    }
+
+    aiStyleIndices(operation) {
+        const targets = new Set();
+        if (operation.indices !== undefined) {
+            this.aiOperationIndices(operation).forEach(index => targets.add(index));
+        }
+        const labels = Array.isArray(operation.labels) ? operation.labels.map(String) : [];
+        const elements = Array.isArray(operation.elements) ? operation.elements.map(String) : [];
+        const knownLabels = new Set(this.state.atoms?.symbols || []);
+        const knownElements = new Set(this.state.atoms?.chemical_symbols || []);
+        const missingLabels = labels.filter(label => !knownLabels.has(label));
+        const missingElements = elements.filter(element => !knownElements.has(element));
+        if (missingLabels.length) {
+            throw new Error(`Unknown visual label(s): ${missingLabels.join(', ')}.`);
+        }
+        if (missingElements.length) {
+            throw new Error(`Unknown ASE element(s): ${missingElements.join(', ')}.`);
+        }
+        (this.state.atoms?.symbols || []).forEach((label, index) => {
+            if (labels.includes(label)) targets.add(index);
+        });
+        (this.state.atoms?.chemical_symbols || []).forEach((element, index) => {
+            if (elements.includes(element)) targets.add(index);
+        });
+        if (!targets.size) {
+            throw new Error('style-atoms requires indices, labels, or elements that match at least one atom.');
+        }
+        return [...targets].sort((left, right) => left - right);
+    }
+
+    applyAIAtomStyle(operation) {
+        const indices = this.aiStyleIndices(operation);
+        const supplied = ['color', 'material', 'opacity', 'radiusAngstrom', 'radiusScale']
+            .filter(field => operation[field] !== undefined);
+        if (!supplied.length) throw new Error('style-atoms requires at least one appearance field.');
+        if (operation.radiusAngstrom !== undefined && operation.radiusScale !== undefined) {
+            throw new Error('Use radiusAngstrom or radiusScale, not both.');
+        }
+        const color = operation.color === undefined ? null : String(operation.color).toLowerCase();
+        if (color !== null && !this.validHexColor(color)) {
+            throw new Error('style-atoms color must use #RRGGBB notation.');
+        }
+        const material = operation.material === undefined
+            ? null
+            : this.normalizedAtomMaterialPreset(operation.material);
+        const opacity = operation.opacity === undefined ? null : Number(operation.opacity);
+        if (opacity !== null && (!Number.isFinite(opacity) || opacity < 0 || opacity > 1)) {
+            throw new Error('style-atoms opacity must be between 0 and 1.');
+        }
+        const radiusAngstrom = operation.radiusAngstrom === undefined
+            ? null
+            : Number(operation.radiusAngstrom);
+        const radiusScale = operation.radiusScale === undefined
+            ? null
+            : Number(operation.radiusScale);
+        if (radiusAngstrom !== null && (!Number.isFinite(radiusAngstrom) || radiusAngstrom <= 0)) {
+            throw new Error('style-atoms radiusAngstrom must be positive.');
+        }
+        if (radiusScale !== null && (!Number.isFinite(radiusScale) || radiusScale <= 0)) {
+            throw new Error('style-atoms radiusScale must be positive.');
+        }
+
+        const display = this.clonePlain(this.state.display);
+        const atomColors = { ...(display.atomColors || {}) };
+        const atomMaterials = { ...(display.atomMaterials || {}) };
+        const atomOpacities = { ...(display.atomOpacities || {}) };
+        const atomRadiusScales = { ...(display.atomRadiusScales || {}) };
+        const atomBondStyles = this.clonePlain(display.atomBondStyles || {});
+        const globalScale = Math.max(1e-12, Number(display.atomRadiusScale) || 0.6);
+        indices.forEach(index => {
+            if (color !== null) atomColors[index] = color;
+            if (material !== null) atomMaterials[index] = material;
+            if (opacity !== null) atomOpacities[index] = opacity;
+            if (radiusScale !== null) atomRadiusScales[index] = radiusScale;
+            if (radiusAngstrom !== null) {
+                const currentOverride = Number(
+                    display.atomRadiusScales?.[index]
+                    ?? display.atomRadiusScales?.[String(index)]
+                    ?? 1
+                );
+                const currentRadius = Math.max(1e-12, this.renderer.atomVisualRadius(index));
+                const sourceRadius = currentRadius / Math.max(1e-12, currentOverride * globalScale);
+                atomRadiusScales[index] = radiusAngstrom / Math.max(1e-12, sourceRadius * globalScale);
+            }
+            if (operation.affectBonds === true) {
+                const style = { ...(atomBondStyles[index] || atomBondStyles[String(index)] || {}) };
+                if (material !== null) style.material = material;
+                if (opacity !== null) style.opacity = opacity;
+                atomBondStyles[index] = style;
+            }
+        });
+        this.scheduleVisualHistoryCommit('ai-style-atoms');
+        this.applyDesignSettings({ display: {
+            ...display,
+            atomColors,
+            atomMaterials,
+            atomOpacities,
+            atomRadiusScales,
+            atomBondStyles,
+            selectedAppearanceAffectsBonds: operation.affectBonds === undefined
+                ? display.selectedAppearanceAffectsBonds !== false
+                : operation.affectBonds === true
+        }});
+    }
+
+    applyAIBondConfiguration(operation) {
+        const hasPairs = operation.pairs !== undefined;
+        const hasIndexPairs = operation.indexPairs !== undefined;
+        if (hasPairs && !Array.isArray(operation.pairs)) {
+            throw new Error('configure-bonds pairs must be an array.');
+        }
+        if (!hasPairs && !hasIndexPairs) {
+            throw new Error('configure-bonds requires pairs or indexPairs.');
+        }
+        if (hasPairs && !operation.pairs.length
+            && operation.disableUnspecified !== true && !hasIndexPairs) {
+            throw new Error(
+                'An empty configure-bonds pairs array requires disableUnspecified: true or indexPairs.'
+            );
+        }
+        const display = this.clonePlain(this.state.display);
+        const cutoffs = { ...(display.pairwiseBondCutoffs || {}) };
+        const ranges = this.clonePlain(display.pairwiseBondRanges || {});
+        const styles = this.clonePlain(display.pairwiseBondStyles || {});
+        let bondMode = display.bondMode;
+        let manualBondPairs = this.clonePlain(display.manualBondPairs || []);
+        if (hasIndexPairs) {
+            if (!Array.isArray(operation.indexPairs)) {
+                throw new Error('configure-bonds indexPairs must be an array.');
+            }
+            const atomCount = this.state.atoms?.positions?.length || 0;
+            const seen = new Set();
+            manualBondPairs = operation.indexPairs.map((pair, index) => {
+                if (!Array.isArray(pair) || pair.length !== 2) {
+                    throw new Error(`configure-bonds index pair ${index + 1} requires two indices.`);
+                }
+                const values = pair.map(Number);
+                if (!values.every(value => Number.isInteger(value) && value >= 0 && value < atomCount)) {
+                    throw new Error(`configure-bonds index pair ${index + 1} is outside the atom range.`);
+                }
+                if (values[0] === values[1]) {
+                    throw new Error(`configure-bonds index pair ${index + 1} cannot connect an atom to itself.`);
+                }
+                values.sort((left, right) => left - right);
+                const key = values.join(':');
+                if (seen.has(key)) {
+                    throw new Error(`configure-bonds index pair ${index + 1} is duplicated.`);
+                }
+                seen.add(key);
+                return values;
+            });
+            bondMode = 'manual';
+        }
+        // An index-only edit selects exact rendered edges and must not rewrite
+        // independent label-pair cutoff or appearance policy.
+        if (hasPairs && operation.disableUnspecified === true) {
+            this.uniqueLabelPairs().forEach(([left, right]) => {
+                const key = this.labelPairKey(left, right);
+                cutoffs[key] = 0;
+                ranges[key] = { enabled: false, min: 0, max: 0 };
+            });
+        }
+        const knownLabels = new Set(this.state.atoms?.symbols || []);
+        let enabledCount = 0;
+        (operation.pairs || []).forEach((pair, index) => {
+            if (!pair || !Array.isArray(pair.labels) || pair.labels.length !== 2) {
+                throw new Error(`configure-bonds pair ${index + 1} requires two labels.`);
+            }
+            const labels = pair.labels.map(String);
+            const missing = labels.filter(label => !knownLabels.has(label));
+            if (missing.length) throw new Error(`Unknown bond label(s): ${missing.join(', ')}.`);
+            const key = this.labelPairKey(labels[0], labels[1]);
+            const prior = this.pairwiseBondRange(labels[0], labels[1], display);
+            const maximum = pair.maximumAngstrom === undefined
+                ? prior.max
+                : Number(pair.maximumAngstrom);
+            if (!Number.isFinite(maximum) || maximum < 0) {
+                throw new Error(`configure-bonds pair ${key} has an invalid maximumAngstrom.`);
+            }
+            const enabled = pair.enabled !== false && maximum > 0;
+            cutoffs[key] = enabled ? maximum : 0;
+            ranges[key] = { enabled, min: 0, max: enabled ? maximum : 0 };
+            if (enabled) enabledCount += 1;
+            const appearanceFields = [
+                'style', 'material', 'thicknessAngstrom', 'colorMode', 'color', 'opacity'
+            ];
+            if (appearanceFields.some(field => pair[field] !== undefined)) {
+                styles[key] = this.normalizedBondPairStyle({
+                    ...(styles[key] || {}),
+                    style: pair.style ?? styles[key]?.style,
+                    material: pair.material ?? styles[key]?.material,
+                    thickness: pair.thicknessAngstrom ?? styles[key]?.thickness,
+                    colorMode: pair.colorMode ?? styles[key]?.colorMode,
+                    color: pair.color ?? styles[key]?.color,
+                    opacity: pair.opacity ?? styles[key]?.opacity
+                });
+            }
+        });
+        this.scheduleVisualHistoryCommit('ai-configure-bonds');
+        this.applyDesignSettings({ display: {
+            ...display,
+            showBonds: hasIndexPairs
+                ? manualBondPairs.length > 0
+                : (enabledCount > 0 || operation.disableUnspecified !== true),
+            bondMode,
+            manualBondPairs,
+            pairwiseBondCutoffs: cutoffs,
+            pairwiseBondRanges: ranges,
+            pairwiseBondStyles: styles,
+            atomBondStyles: operation.clearEndpointOverrides === true
+                ? {}
+                : display.atomBondStyles
+        }});
+    }
+
+    applyAIComposedView(operation) {
+        if (operation.translation !== undefined && operation.centerMotif !== undefined) {
+            throw new Error('compose-view accepts translation or centerMotif, not both.');
+        }
+        const orientationFields = [
+            'viewDirection', 'viewFromCellAxis', 'screenUp',
+            'screenUpCellAxis', 'verticalReferences'
+        ];
+        if (operation.preserveOrientation === true
+            && orientationFields.some(field => operation[field] !== undefined)) {
+            throw new Error(
+                'compose-view preserveOrientation cannot be combined with camera direction or screen-up fields.'
+            );
+        }
+        const display = this.clonePlain(this.state.display);
+        if (operation.atomDisplayMode !== undefined) {
+            if (!['2d', '3d'].includes(operation.atomDisplayMode)) {
+                throw new Error('compose-view atomDisplayMode must be 2d or 3d.');
+            }
+            display.atomDisplayMode = operation.atomDisplayMode;
+        }
+        if (operation.displaySupercell !== undefined) {
+            const reps = this.aiFiniteVector(operation.displaySupercell, 'displaySupercell');
+            if (!reps.every(value => Number.isInteger(value) && value >= 1 && value <= 64)) {
+                throw new Error('displaySupercell must contain three integers from 1 through 64.');
+            }
+            display.supercell = reps;
+        }
+        if (operation.translation !== undefined) {
+            display.translation = this.aiFiniteVector(operation.translation, 'translation');
+            display.translationMode = operation.translationMode === 'fractional'
+                ? 'fractional'
+                : 'cartesian';
+        }
+
+        let centeredReferences = null;
+        if (operation.centerMotif !== undefined) {
+            if (!this.hasUsableCell()) throw new Error('centerMotif requires a defined unit cell.');
+            const center = operation.centerMotif || {};
+            centeredReferences = Array.isArray(center.references)
+                ? center.references
+                : this.aiIndexReferences(center.indices);
+            const points = this.aiReferencePositions(centeredReferences, {
+                includeVisualTranslation: false
+            });
+            const centroidFractional = this.renderer.cartToFrac(this.aiAverageVector(points));
+            const targetFractional = this.aiFiniteVector(
+                center.targetFractional || [0.5, 0.5, 0.5],
+                'centerMotif.targetFractional'
+            );
+            const axes = Array.isArray(center.axes) && center.axes.length
+                ? center.axes.map(value => String(value).toLowerCase())
+                : ['a', 'b', 'c'];
+            if (!axes.every(axis => ['a', 'b', 'c'].includes(axis))) {
+                throw new Error('centerMotif.axes may contain only a, b, and c.');
+            }
+            const deltaFractional = new THREE.Vector3();
+            const components = ['x', 'y', 'z'];
+            axes.forEach(axis => {
+                const index = { a: 0, b: 1, c: 2 }[axis];
+                deltaFractional[components[index]] = (
+                    targetFractional[index] - centroidFractional[components[index]]
+                );
+            });
+            display.translation = this.renderer.fracToCart(deltaFractional).toArray();
+            display.translationMode = 'cartesian';
+        }
+
+        this.scheduleVisualHistoryCommit('ai-compose-view');
+        this.applyDesignSettings({ display });
+
+        const projection = operation.projection === undefined
+            ? (this.state.display.projectionMode === 'perspective' ? 'perspective' : 'orthographic')
+            : (operation.projection === 'perspective' ? 'perspective' : 'orthographic');
+        this.state.display.projectionMode = projection;
+        this.renderer.setProjectionMode(projection);
+
+        let target;
+        if (operation.target !== undefined) {
+            target = new THREE.Vector3(...this.aiFiniteVector(operation.target, 'target'));
+        } else if (Array.isArray(operation.targetReferences)) {
+            target = this.aiAverageVector(this.aiReferencePositions(operation.targetReferences));
+        } else if (Array.isArray(operation.targetIndices)) {
+            target = this.aiAverageVector(this.aiReferencePositions(
+                this.aiIndexReferences(operation.targetIndices)
+            ));
+        } else if (Array.isArray(operation.fitReferences)) {
+            target = this.aiAverageVector(this.aiReferencePositions(operation.fitReferences));
+        } else if (Array.isArray(operation.fitIndices)) {
+            target = this.aiAverageVector(this.aiReferencePositions(
+                this.aiIndexReferences(operation.fitIndices)
+            ));
+        } else if (centeredReferences) {
+            target = this.aiAverageVector(this.aiReferencePositions(centeredReferences));
+        } else if (operation.preserveOrientation === true) {
+            target = this.renderer.controls.target.clone();
+        } else {
+            const bounds = this.renderer.structureBounds();
+            target = bounds ? bounds.getCenter(new THREE.Vector3()) : new THREE.Vector3();
+        }
+
+        let viewDirection;
+        if (operation.viewFromCellAxis !== undefined) {
+            viewDirection = this.aiCellAxisVector(operation.viewFromCellAxis, 'viewFromCellAxis');
+        } else if (operation.viewDirection !== undefined) {
+            viewDirection = new THREE.Vector3(...this.aiFiniteVector(
+                operation.viewDirection,
+                'viewDirection'
+            ));
+        } else {
+            viewDirection = this.renderer.camera.position.clone()
+                .sub(this.renderer.controls.target);
+        }
+        if (viewDirection.lengthSq() <= 1e-16) {
+            throw new Error('compose-view view direction must be non-zero.');
+        }
+        viewDirection.normalize();
+
+        let screenUp;
+        if (Array.isArray(operation.verticalReferences)) {
+            if (operation.verticalReferences.length !== 2) {
+                throw new Error('verticalReferences must contain exactly two references.');
+            }
+            const points = this.aiReferencePositions(operation.verticalReferences);
+            screenUp = points[1].clone().sub(points[0]);
+        } else if (operation.screenUpCellAxis !== undefined) {
+            screenUp = this.aiCellAxisVector(operation.screenUpCellAxis, 'screenUpCellAxis');
+        } else if (operation.screenUp !== undefined) {
+            screenUp = new THREE.Vector3(...this.aiFiniteVector(operation.screenUp, 'screenUp'));
+        } else {
+            screenUp = this.renderer.camera.up.clone();
+        }
+        screenUp.addScaledVector(viewDirection, -screenUp.dot(viewDirection));
+        if (screenUp.lengthSq() <= 1e-16) {
+            throw new Error('compose-view screen-up direction is parallel to the view direction.');
+        }
+        screenUp.normalize();
+
+        const camera = this.renderer.camera;
+        const distance = Math.max(4, camera.position.distanceTo(this.renderer.controls.target));
+        camera.position.copy(target).addScaledVector(viewDirection, distance);
+        camera.up.copy(screenUp);
+        this.renderer.controls.target.copy(target);
+        camera.lookAt(target);
+        camera.updateMatrixWorld(true);
+
+        if (operation.fit !== 'none') {
+            const padding = Math.max(0, Math.min(0.4, Number(operation.padding) || 0));
+            const margin = 1 / Math.max(0.2, 1 - 2 * padding);
+            let bounds = null;
+            if (operation.fit === 'references') {
+                const references = Array.isArray(operation.fitReferences)
+                    ? operation.fitReferences
+                    : this.aiIndexReferences(operation.fitIndices);
+                const normalized = references.map((reference, index) => (
+                    this.aiPeriodicReference(reference, `fit reference ${index + 1}`)
+                ));
+                const points = normalized.map(reference => this.aiPeriodicReferencePosition(reference));
+                bounds = new THREE.Box3();
+                points.forEach((point, index) => {
+                    const radius = Math.max(
+                        0.02,
+                        Number(this.renderer.atomVisualRadius(normalized[index].index)) || 0.5
+                    );
+                    bounds.expandByPoint(point.clone().addScalar(-radius));
+                    bounds.expandByPoint(point.clone().addScalar(radius));
+                });
+            }
+            this.renderer.fitCameraToStructure(bounds, { target, margin });
+        }
+        this.completeCameraViewChange('ai-compose-view');
+        this.adoptCameraViewWithoutHistory();
+    }
+
+    async aiCapabilities(options = {}) {
+        const compact = String(options?.profile || 'full').trim().toLowerCase() === 'summary';
         const schemaUrl = new URL('/api/ai/schema', window.location.origin).href;
         const bulkBuilderCatalogUrl = new URL(
             `/api/build/bulk/catalog/${this.sessionId}`,
@@ -16358,25 +17361,27 @@ class VAseApp {
         } catch {
             // The static capability lists below remain usable offline.
         }
-        try {
-            const response = await fetch(moleculeCatalogUrl);
-            if (response.ok) {
-                const payload = await response.json();
-                moleculeCatalog = Array.isArray(payload.molecules)
-                    ? payload.molecules
-                    : [];
+        if (!compact) {
+            try {
+                const response = await fetch(moleculeCatalogUrl);
+                if (response.ok) {
+                    const payload = await response.json();
+                    moleculeCatalog = Array.isArray(payload.molecules)
+                        ? payload.molecules
+                        : [];
+                }
+            } catch {
+                // The URL remains available for a later retry.
             }
-        } catch {
-            // The URL remains available for a later retry.
         }
         const operationParameters = this.clonePlain(discovery.operation_parameters || {});
         const exportParameters = this.clonePlain(discovery.export_parameters || {});
         const fallbackOperations = [
-            'wrap', 'translate-all', 'center-selection-at-origin', 'set-unit-cell', 'build-bulk', 'set-supercell', 'make-supercell',
+            'wrap', 'translate-all', 'center-selection-at-origin', 'compose-view', 'set-unit-cell', 'build-bulk', 'set-supercell', 'make-supercell',
             'add-atom', 'scatter-atoms', 'scatter-molecules',
             'update-add-atoms-region', 'scale-add-atoms-regions', 'relax-added-atoms',
             'stop-added-atoms', 'finish-add-atoms', 'cancel-add-atoms',
-            'delete-selection', 'set-identity', 'set-constraints',
+            'delete-selection', 'set-visual-label', 'style-atoms', 'configure-bonds', 'set-identity', 'set-constraints',
             'move-selection', 'rotate-selection', 'scale-selection', 'rotate-to-commensurate',
             'load-commensurate-guest', 'remove-commensurate-guest',
             'calculate-commensurate', 'apply-commensurate-cell',
@@ -16399,11 +17404,10 @@ class VAseApp {
             'html', 'project', 'settings', 'rdf-csv', 'commensurate-csv',
             'registry-csv'
         ];
-        return {
+        const common = {
             protocol: 'v_ase.ai.v1',
+            profile: compact ? 'summary' : 'full',
             schemaUrl,
-            operationParameters,
-            exportParameters,
             state: [
                 'atoms', 'labels', 'elements', 'positions', 'cell', 'pbc',
                 'constraints', 'forces', 'charges', 'tags', 'magnetic-moments',
@@ -16416,14 +17420,36 @@ class VAseApp {
             ],
             apply: [
                 'expectedRevision', 'frame', 'mode', 'display', 'quality',
-                'applyConstraints', 'camera', 'renderArea', 'selection', 'operation'
+                'applyConstraints', 'camera', 'renderArea', 'selection', 'operation',
+                'responseProfile'
             ],
+            describeProfiles: this.clonePlain(discovery.describe_profiles || {}),
+            render: this.clonePlain(discovery.render_parameters || {}),
             operations: Object.keys(operationParameters).length
                 ? Object.keys(operationParameters)
                 : fallbackOperations,
             exports: Object.keys(exportParameters).length
                 ? Object.keys(exportParameters)
-                : fallbackExports,
+                : fallbackExports
+        };
+        if (compact) {
+            return {
+                ...common,
+                catalogs: {
+                    atomColorScale: new URL(
+                        `/api/analysis/atom-scalars/catalog/${this.sessionId}`,
+                        window.location.origin
+                    ).href,
+                    bulkBuilder: bulkBuilderCatalogUrl,
+                    molecules: moleculeCatalogUrl,
+                    insertionDomain: insertionDomainPreviewUrl
+                }
+            };
+        }
+        return {
+            ...common,
+            operationParameters,
+            exportParameters,
             atomColorScale: {
                 provider: 'Matplotlib',
                 providers: ['Matplotlib', 'Custom'],
@@ -16683,6 +17709,12 @@ class VAseApp {
         if (!operation || typeof operation !== 'object' || Array.isArray(operation)) {
             throw new Error('operation must be a string or object with a name.');
         }
+        if (Object.prototype.hasOwnProperty.call(operation, 'parameters')) {
+            throw new Error(
+                'operation.parameters is not valid. Put operation fields directly beside '
+                + 'operation.name and request its focused schema before retrying.'
+            );
+        }
         const name = String(operation.name || '').trim().toLowerCase();
         const addAtomsControls = new Set([
             'scatter-atoms', 'scatter-molecules',
@@ -16743,6 +17775,30 @@ class VAseApp {
                 );
             }
             await this.applyBuiltInVisualDefaults();
+            return;
+        }
+        if (name === 'compose-view') {
+            this.applyAIComposedView(operation);
+            return;
+        }
+        if (name === 'set-visual-label') {
+            if (!this.state.vizOnly) {
+                throw new Error(
+                    'set-visual-label is visualization-only and requires View mode. '
+                    + 'Use set-identity in Edit mode only when the ASE element or physical identity must change.'
+                );
+            }
+            const label = this.normalizedTypeLabel(operation.label);
+            if (!label) throw new Error('set-visual-label requires a non-empty label.');
+            this.applySelectedLabelForVisualization(this.aiOperationIndices(operation), label);
+            return;
+        }
+        if (name === 'style-atoms') {
+            this.applyAIAtomStyle(operation);
+            return;
+        }
+        if (name === 'configure-bonds') {
+            this.applyAIBondConfiguration(operation);
             return;
         }
         if (name === 'set-atom-colorscale') {
@@ -17919,7 +18975,10 @@ class VAseApp {
             );
             return;
         }
-        throw new Error(`Unsupported AI operation '${name}'.`);
+        throw new Error(
+            `Unsupported AI operation '${name}'. Request the compact schema index, then `
+            + 'request that operation by name before retrying.'
+        );
     }
 
     async aiApply(command = {}) {
@@ -17928,7 +18987,8 @@ class VAseApp {
         }
         const supportedFields = new Set([
             'expectedRevision', 'frame', 'mode', 'display', 'quality',
-            'applyConstraints', 'camera', 'renderArea', 'selection', 'operation'
+            'applyConstraints', 'camera', 'renderArea', 'selection', 'operation',
+            'responseProfile'
         ]);
         const unsupportedFields = Object.keys(command).filter(
             field => !supportedFields.has(field)
@@ -17938,6 +18998,18 @@ class VAseApp {
                 `AI control command contains unsupported top-level field(s): `
                 + unsupportedFields.join(', ')
             );
+        }
+        if (command.responseProfile !== undefined) {
+            const profile = String(command.responseProfile).trim().toLowerCase();
+            if (![
+                'summary', 'structure', 'appearance', 'bonding',
+                'render', 'analysis', 'full'
+            ].includes(profile)) {
+                throw new Error(
+                    'responseProfile must be summary, structure, appearance, bonding, '
+                    + 'render, analysis, or full.'
+                );
+            }
         }
         if (command.expectedRevision !== undefined) {
             const expected = Number(command.expectedRevision);
@@ -18094,17 +19166,29 @@ class VAseApp {
             await this.aiApplyOperation(command.operation);
         }
         this.renderer.renderNow();
-        return this.aiDescribe();
+        return this.aiDescribe({
+            profile: command.responseProfile || 'full',
+            includePositions: command.responseProfile === 'structure'
+        });
     }
 
     async aiRender(request = {}) {
         const width = Math.max(64, Math.min(8192, Math.round(Number(request.width) || 1920)));
         const height = Math.max(64, Math.min(8192, Math.round(Number(request.height) || 1080)));
         const format = this.normalizedImageFormat(request.format);
+        const requestOptions = this.clonePlain(request.options || {});
+        const effectiveRender = this.aiEffectiveRenderSnapshot({
+            width,
+            height,
+            requestOptions,
+            cameraSource: request.cameraSource || 'auto'
+        });
         const options = {
             ...this.defaultImageExportOptions(),
-            ...this.clonePlain(request.options || {})
+            ...requestOptions,
+            camera: this.clonePlain(effectiveRender.camera)
         };
+        effectiveRender.options = this.clonePlain(options);
         this.renderer.renderNow();
         const blob = await this.renderOptimizedImage(width, height, options, format);
         const dataUrl = await this.blobToDataUrl(blob);
@@ -18117,8 +19201,9 @@ class VAseApp {
             width,
             height,
             dataUrl,
-            camera: this.cameraSettingsSnapshot(),
-            options
+            camera: this.clonePlain(effectiveRender.camera),
+            options,
+            effectiveRender
         };
     }
 
@@ -18349,6 +19434,8 @@ class VAseApp {
     async aiApplyCollaboratively(command = {}) {
         this.flushVisualHistoryCommit();
         await this.flushCollaborationEvents();
+        const before = this.aiDescribe({profile: 'full', includePositions: true});
+        const beforeRevision = this.collaborationRevision;
         this.collaborationActorDepth += 1;
         let completed = false;
         try {
@@ -18360,7 +19447,33 @@ class VAseApp {
             await this.flushCollaborationEvents();
             this.collaborationActorDepth = Math.max(0, this.collaborationActorDepth - 1);
         }
-        return completed ? this.aiDescribe() : null;
+        if (!completed) return null;
+        const responseProfile = String(command.responseProfile || 'full').trim().toLowerCase();
+        const afterFull = this.aiDescribe({profile: 'full', includePositions: true});
+        const changedPaths = this.collaborationChangedPaths(before, afterFull)
+            .filter(path => (
+                path !== 'stateFingerprint'
+                && !path.startsWith('collaboration.')
+            ));
+        const state = responseProfile === 'full'
+            ? afterFull
+            : this.aiDescribe({
+                profile: responseProfile,
+                includePositions: responseProfile === 'structure'
+            });
+        state.mutation = {
+            applied: true,
+            responseProfile,
+            beforeRevision,
+            revision: this.collaborationRevision,
+            beforeFingerprint: before.stateFingerprint,
+            stateFingerprint: afterFull.stateFingerprint,
+            changedPaths,
+            operation: typeof command.operation === 'string'
+                ? command.operation
+                : (command.operation?.name || null)
+        };
+        return state;
     }
 
     createAIBridge() {
@@ -18383,9 +19496,28 @@ class VAseApp {
                 await app.flushCollaborationEvents();
                 return app.aiDescribe(options);
             },
-            capabilities: async () => {
+            schema: async options => {
                 await app.ready;
-                return await app.aiCapabilities();
+                const response = await fetch('/api/ai/schema', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(options || {})
+                });
+                if (!response.ok) {
+                    let detail = `${response.status} ${response.statusText}`;
+                    try {
+                        const payload = await response.json();
+                        detail = payload.detail || detail;
+                    } catch {
+                        // Keep the HTTP status when no JSON detail is available.
+                    }
+                    throw new Error(`Could not read the v_ase AI schema: ${detail}`);
+                }
+                return await response.json();
+            },
+            capabilities: async options => {
+                await app.ready;
+                return await app.aiCapabilities(options);
             },
             apply: async command => {
                 await app.ready;
@@ -18441,7 +19573,7 @@ class VAseApp {
             if (typeof bridge[method] !== 'function') {
                 throw new Error(`AI method '${method}' is not available on a document session.`);
             }
-            const noArgumentMethods = new Set(['ready', 'capabilities']);
+            const noArgumentMethods = new Set(['ready']);
             const result = noArgumentMethods.has(method)
                 ? await bridge[method]()
                 : await bridge[method](message.params ?? {});

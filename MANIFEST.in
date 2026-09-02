@@ -36,4 +36,11 @@ recursive-include examples *.py *.traj *.extxyz *.json *.md
 recursive-include scripts *.py
 exclude scripts/capture_ai_collaboration_concepts.py
 exclude scripts/plot_agent_guidance_evaluation.py
+exclude scripts/analyze_end_to_end_gui_skill_cli_evaluation.py
+exclude scripts/analyze_gui_skill_cli_tokens.py
+exclude scripts/create_agent_reproduction_report.py
+exclude scripts/create_end_to_end_gui_skill_cli_report.py
+exclude scripts/create_gui_skill_cli_token_report.py
+exclude scripts/run_end_to_end_gui_skill_cli_evaluation.py
+exclude scripts/run_gui_skill_cli_token_evaluation.py
 prune tests

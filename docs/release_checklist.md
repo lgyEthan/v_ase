@@ -14,11 +14,11 @@ and rendered examples in sync.
    `v_ase/skills/visualizing-atomic-structures-with-v-ase/SKILL.md` and its
    one-level references for every semantic API, workflow, display, analysis,
    export, dependency, safety rule, or error-handling change.
-5. Validate skill frontmatter, trigger/no-trigger cases, reference links, and
-   capability parity against `v_ase api "$COMMAND_URL" capabilities`, the
-   optional `window.v_aseAI.capabilities()` mirror, and the live schema. If an
-   AI failed because the skill was incomplete, update both the skill and a
-   regression test before release.
+5. Validate skill frontmatter, trigger/no-trigger cases, reference links,
+   compact schema/capability indexes, every focused operation contract, all
+   state profiles, and full capability parity. Verify default apply mutation
+   paths and effective render cameras. If an AI failed because the skill or
+   CLI contract was incomplete, update both and add a regression before release.
 6. Build the documentation with the pinned dependencies and treat every Sphinx
    warning as a release failure:
 
@@ -58,8 +58,12 @@ and rendered examples in sync.
    real notebook kernel.
    Run a fresh zero-context agent with only the canonical Skill and require it
    to use the HTTP JSON bridge rather than page-main-world evaluation. Require
-   it to call `schema`, inspect calculator state, exercise every operation and
-   export, verify output contents, and run alone in its own document session.
+   it to use compact `schema`, grouped focused operation schemas, and only the
+   needed state profiles; inspect calculator state, exercise every operation
+   and export, verify output contents, and run alone in its own document
+   session. Record serialized response bytes, CLI calls, success, wall time,
+   and provider-reported token fields so a regression cannot hide behind a
+   successful final image.
 9. Run the complete test suite, build wheel and source distribution, and run
    `twine check`. Inspect the sdist to confirm the Sphinx configuration,
    Markdown sources, selected documentation assets, and canonical Skill are

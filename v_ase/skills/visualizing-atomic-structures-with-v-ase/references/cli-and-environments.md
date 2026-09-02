@@ -14,13 +14,13 @@
 Install the tested release into the active Python environment:
 
 ```bash
-python -m pip install "v_ase-gui==0.2.35"
+python -m pip install "v_ase-gui==0.2.36"
 ```
 
 Optional Rhino export:
 
 ```bash
-python -m pip install "v_ase-gui[rhino]==0.2.35"
+python -m pip install "v_ase-gui[rhino]==0.2.36"
 ```
 
 Runtime dependencies are ASE, matscipy, FastAPI, Uvicorn, NumPy, SciPy,
@@ -37,7 +37,7 @@ the complete environment with the same interpreter instead of replacing NumPy
 alone:
 
 ```bash
-python -m pip install --upgrade --force-reinstall "v_ase-gui==0.2.35"
+python -m pip install --upgrade --force-reinstall "v_ase-gui==0.2.36"
 ```
 
 v_ase uses the `AGPL-3.0-or-later` license. Preserve the license and source
@@ -136,12 +136,17 @@ handshake, an external agent opens `human_url` and sends structured HTTP JSON
 through the handshake's `command_url`:
 
 ```bash
-v_ase api "$COMMAND_URL" describe \
-  --params '{"includePositions":false}'
+v_ase api "$COMMAND_URL" schema
+v_ase api "$COMMAND_URL" describe --profile summary
+v_ase api "$COMMAND_URL" schema --operation-schema compose-view
 v_ase api "$COMMAND_URL" apply --params-file command.json
 v_ase api "$COMMAND_URL" render --params-file render.json --save preview.png
 ```
 
+Bare schema/state calls use compact progressive disclosure. Use
+`describe --profile structure --include-positions`, `appearance`, `bonding`,
+`render`, or `analysis` only when needed. `apply` returns summary plus exact
+changed paths unless `--response-profile` requests another profile.
 Use `--save` for render/export data URLs. It refuses to replace an existing
 file unless `--force` is explicitly passed. Without `--save`, the CLI omits
 the Base64 payload and returns compact metadata by default; use

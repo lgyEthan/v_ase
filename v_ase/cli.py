@@ -198,7 +198,15 @@ def build_parser() -> argparse.ArgumentParser:
         description=(
             "Send a JSON command to command_url from the first line printed by "
             "`v_ase gui STRUCTURE --cli`. This interface is intended for "
-            "external AI agents and automation; it does not parse natural language."
+            "external AI agents and automation; it does not parse natural language. "
+            "Schema and state queries are focused by default so an agent does not "
+            "re-read the complete scene after every action."
+        ),
+        epilog=(
+            "Typical sequence: `schema --operation-schema compose-view`; "
+            "`describe --profile render`; `apply --params-file command.json`; "
+            "`render --params '{\"width\":800,\"height\":600}' --save draft.png`. "
+            "Use `schema --full-schema` or `describe --profile full` only when needed."
         ),
     )
     api.add_argument("command_url", help="loopback command_url from the CLI handshake")
@@ -228,6 +236,64 @@ def build_parser() -> argparse.ArgumentParser:
         "--params-file",
         type=Path,
         help="read method parameters from a UTF-8 JSON file",
+    )
+    api.add_argument(
+        "--profile",
+        choices=(
+            "summary", "structure", "appearance", "bonding",
+            "render", "analysis", "full",
+        ),
+        help=(
+            "describe profile. The CLI defaults to summary when no explicit params "
+            "are supplied"
+        ),
+    )
+    api.add_argument(
+        "--include-positions",
+        action="store_true",
+        help="include Cartesian positions in a focused structure or bonding description",
+    )
+    api.add_argument(
+        "--include-properties",
+        action="store_true",
+        help="include complete per-atom arrays in a structure description",
+    )
+    api.add_argument(
+        "--include-overrides",
+        action="store_true",
+        help="include complete per-index appearance or bond endpoint overrides",
+    )
+    api.add_argument(
+        "--operation-schema",
+        metavar="NAME",
+        action="append",
+        help=(
+            "with schema, return an exact semantic-operation contract; repeat the "
+            "flag to request up to 16 related operations in one response"
+        ),
+    )
+    api.add_argument(
+        "--export-schema",
+        metavar="FORMAT",
+        help="with schema, return only one export contract",
+    )
+    api.add_argument(
+        "--schema-method",
+        choices=("apply", "describe", "render"),
+        help="with schema, return only the selected method contract",
+    )
+    api.add_argument(
+        "--full-schema",
+        action="store_true",
+        help="with schema, return the complete compatibility schema instead of the compact index",
+    )
+    api.add_argument(
+        "--response-profile",
+        choices=(
+            "summary", "structure", "appearance", "bonding",
+            "render", "analysis", "full",
+        ),
+        help="state profile returned after apply (CLI default: summary)",
     )
     api.add_argument(
         "--timeout",
@@ -280,6 +346,87 @@ def _load_api_params(args: argparse.Namespace):
         ) from exc
 
 
+def _resolved_api_params(args: argparse.Namespace):
+    """Merge token-efficient method shortcuts into one JSON parameter object."""
+    params = _load_api_params(args)
+    if args.method in {"schema", "describe", "apply", "render", "export", "activate"} \
+            and not isinstance(params, dict):
+        raise SystemExit(f"v_ase api: {args.method} parameters must be a JSON object.")
+    shortcut_values = (
+        args.profile,
+        args.include_positions,
+        args.include_properties,
+        args.include_overrides,
+        args.operation_schema,
+        args.export_schema,
+        args.schema_method,
+        args.full_schema,
+        args.response_profile,
+    )
+    if any(shortcut_values) and not isinstance(params, dict):
+        raise SystemExit("v_ase api: method shortcut flags require JSON object parameters.")
+    explicit_params = args.params_file is not None or args.params != "{}"
+    if args.method == "schema":
+        invalid = args.profile or args.include_positions or args.include_properties \
+            or args.include_overrides or args.response_profile
+        if invalid:
+            raise SystemExit("v_ase api: describe/apply profile flags cannot be used with schema.")
+        selectors = [
+            bool(args.operation_schema), bool(args.export_schema),
+            bool(args.schema_method), bool(args.full_schema),
+        ]
+        if sum(selectors) > 1:
+            raise SystemExit(
+                "v_ase api: choose only one of --operation-schema, --export-schema, "
+                "--schema-method, or --full-schema."
+            )
+        if args.operation_schema:
+            if len(args.operation_schema) == 1:
+                params["operation"] = args.operation_schema[0]
+            else:
+                params["operations"] = args.operation_schema
+        elif args.export_schema:
+            params["export"] = args.export_schema
+        elif args.schema_method:
+            params["method"] = args.schema_method
+        elif not args.full_schema and not explicit_params:
+            params["scope"] = "summary"
+    elif args.method == "describe":
+        invalid = args.operation_schema or args.export_schema or args.schema_method \
+            or args.full_schema or args.response_profile
+        if invalid:
+            raise SystemExit("v_ase api: schema/apply shortcut flags cannot be used with describe.")
+        if args.profile:
+            params["profile"] = args.profile
+        elif not explicit_params:
+            params["profile"] = "summary"
+        if args.include_positions:
+            params["includePositions"] = True
+        if args.include_properties:
+            params["includeProperties"] = True
+        if args.include_overrides:
+            params["includeOverrides"] = True
+    elif args.method == "apply":
+        invalid = args.profile or args.include_positions or args.include_properties \
+            or args.include_overrides or args.operation_schema or args.export_schema \
+            or args.schema_method or args.full_schema
+        if invalid:
+            raise SystemExit("v_ase api: schema/describe shortcut flags cannot be used with apply.")
+        params.setdefault("responseProfile", args.response_profile or "summary")
+    elif args.method == "capabilities":
+        if any(shortcut_values):
+            raise SystemExit(
+                "v_ase api: schema/describe/apply shortcut flags cannot be used with capabilities."
+            )
+        if not explicit_params:
+            params["profile"] = "summary"
+    elif any(shortcut_values):
+        raise SystemExit(
+            f"v_ase api: profile and schema shortcut flags do not apply to {args.method}."
+        )
+    return params
+
+
 def _decode_data_url(data_url: str) -> bytes:
     if not isinstance(data_url, str) or not data_url.startswith("data:"):
         raise ValueError("The command result does not contain a valid data URL.")
@@ -318,7 +465,7 @@ def run_api_command(args: argparse.Namespace) -> int:
             args.command_url,
             json={
                 "method": args.method,
-                "params": _load_api_params(args),
+                "params": _resolved_api_params(args),
                 "timeout_seconds": min(float(args.timeout), 1800.0),
             },
             timeout=min(float(args.timeout), 1800.0) + 5.0,

@@ -130,13 +130,14 @@ A typical workspace event is:
 - `changed_paths` identifies likely semantic fields but is not a state patch.
 - `state_url` points to current backend state for the affected document.
 
-Events deliberately omit positions and other large arrays. Use the `describe`
-method as the authoritative live state after receiving an event.
+Events deliberately omit positions and other large arrays. Use
+`describe --profile summary` as the authoritative live state after receiving
+an event, then request one focused profile only when needed.
 
 ## Required Agent Loop
 
 1. Parse the first stdout line and open `human_url`.
-2. Call `ready`, `capabilities`, and `describe` through `v_ase api`.
+2. Call `ready`, compact `schema`, and `describe --profile summary` through `v_ase api`.
 3. Record `state.collaboration.revision`.
 4. Send that value as `expectedRevision` with every `apply` call.
 5. Keep reading later stdout lines while working.
@@ -156,8 +157,7 @@ Use optimistic concurrency and treat stale-revision rejection as a required
 safety boundary:
 
 ```bash
-v_ase api "$COMMAND_URL" describe \
-  --params '{"includePositions":true}'
+v_ase api "$COMMAND_URL" describe --profile structure --include-positions
 v_ase api "$COMMAND_URL" apply --params \
   '{"expectedRevision":CURRENT_REVISION,"display":{"atomRadiusScale":0.72}}'
 ```
@@ -182,8 +182,7 @@ A workspace-scoped stream reports changes from every v_ase tab. Use the event's
 v_ase api "$COMMAND_URL" documents
 v_ase api "$COMMAND_URL" activate \
   --params '{"sessionId":"EVENT_SESSION_ID"}'
-v_ase api "$COMMAND_URL" describe \
-  --params '{"includePositions":true}'
+v_ase api "$COMMAND_URL" describe --profile structure --include-positions
 ```
 
 Each tab keeps independent structure, trajectory, camera, selection, history,

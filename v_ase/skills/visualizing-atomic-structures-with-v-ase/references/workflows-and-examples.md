@@ -4,6 +4,7 @@
 
 1. Analyze, Style, And Render
    - Per-Atom Property Colorscale And Stored Forces
+   - Reproduce A Reference Figure Without Editing The Structure
    - Publication Image
 2. Edit Structures
    - Natural-Language Defect Edit
@@ -153,6 +154,178 @@ colorscale minimum and maximum on every trajectory frame and export.
 For a full-structure request, use `scope:"all"` and require the mapped-color
 count to equal the number of finite-valued visible atoms. Selected-only scope
 is an explicit masking workflow, not a valid fallback for missing full colors.
+
+### Reproduce A Reference Figure Without Editing The Structure
+
+A paper image is a visual target, not a substitute for atomistic state. Read
+the input structure with `describe({includePositions:true})`, inspect the
+reference pixels, and write a compact composition specification before sending
+any mutation. The specification must answer all of these questions:
+
+1. Which ASE elements and exact zero-based atom indices form each visible
+   scientific role or height/layer group?
+2. How many periodic motifs are visible along each lattice direction? This is
+   display replication, never a physical supercell edit.
+3. Which periodic atom references define the motif center, view normal, and
+   screen-vertical feature? Include `cellOffset` for boundary-spanning motifs.
+4. Which visual label pairs are bonded, and which pairs are explicitly absent?
+5. What final rendered radii, colors, materials, opacity, projection, crop, and
+   background are visible? Do not reuse chemical-element defaults when the
+   figure distinguishes substrate, active layer, adsorbate, or height groups.
+
+Keep the document in View mode. Split scientific roles by exact index while
+preserving `chemicalSymbols`:
+
+```javascript
+await applyCurrent({operation: {
+  name: "set-visual-label",
+  indices: SUBSTRATE_INDICES,
+  label: "substrate"
+}});
+await applyCurrent({operation: {
+  name: "set-visual-label",
+  indices: ACTIVE_LAYER_INDICES,
+  label: "active_layer"
+}});
+```
+
+Use `style-atoms` for the final rendered radius in Angstrom. For a touching-sphere
+request, calculate the relevant nearest-neighbor distance from semantic
+coordinates with MIC and set `radiusAngstrom = 0.5 * d_nn`; do not confuse this
+with `labelRadii`, which is affected by the global scale.
+
+```javascript
+await applyCurrent({operation: {
+  name: "style-atoms",
+  labels: ["substrate"],
+  color: "#f4f4f1",
+  material: "unlit",
+  radiusAngstrom: SUBSTRATE_NEAREST_NEIGHBOR_DISTANCE / 2,
+  opacity: 1
+}});
+await applyCurrent({operation: {
+  name: "style-atoms",
+  labels: ["active_layer"],
+  color: "#b87333",
+  material: "standard",
+  radiusAngstrom: ACTIVE_LAYER_RADIUS
+}});
+```
+
+Make the bond policy authoritative. `disableUnspecified:true` prevents a
+chemically plausible but visually unwanted pair from reappearing after a label
+split or frame change:
+
+```javascript
+await applyCurrent({operation: {
+  name: "configure-bonds",
+  disableUnspecified: true,
+  clearEndpointOverrides: true,
+  pairs: [{
+    labels: ["active_layer", "adsorbate"],
+    enabled: true,
+    maximumAngstrom: ACTIVE_BOND_CUTOFF,
+    style: "flat",
+    thicknessAngstrom: 0.12,
+    colorMode: "custom",
+    color: "#202020",
+    opacity: 1
+  }]
+}});
+```
+
+When the reference draws no bonds, do not invent a chemically reasonable
+network. Send the explicit empty allow-list:
+
+```javascript
+await applyCurrent({operation: {
+  name: "configure-bonds",
+  disableUnspecified: true,
+  pairs: []
+}});
+```
+
+Compose periodic translation, replication, camera roll, target, and framing in
+one `compose-view` transaction. The example below moves a boundary-spanning
+motif to fractional cell center along `a` and `b`, views from `+c`, and makes a
+specific atom-to-atom feature vertical. `viewFromCellAxis` is the
+target-to-camera direction. `verticalReferences[0] -> verticalReferences[1]`
+points upward on screen after projection into the image plane.
+
+```javascript
+await applyCurrent({operation: {
+  name: "compose-view",
+  displaySupercell: [3, 3, 1],
+  centerMotif: {
+    references: MOTIF_REFERENCES,
+    targetFractional: [0.5, 0.5, 0.5],
+    axes: ["a", "b"]
+  },
+  viewFromCellAxis: "+c",
+  verticalReferences: [VERTICAL_START_REFERENCE, VERTICAL_END_REFERENCE],
+  targetReferences: MOTIF_REFERENCES,
+  projection: "orthographic",
+  fit: "displayed",
+  padding: 0.07
+}});
+```
+
+When an accepted camera direction must survive a later crop correction, do not
+send another lattice direction or vertical reference. Preserve it explicitly:
+
+```javascript
+await applyCurrent({operation: {
+  name: "compose-view",
+  preserveOrientation: true,
+  targetReferences: CENTRAL_REFERENCES,
+  fit: "references",
+  fitReferences: OUTERMOST_VISIBLE_REFERENCES,
+  padding: 0.04
+}});
+```
+
+For a genuinely planar reference, include `atomDisplayMode:"2d"`. This is a
+scene-level flat rendering mode, unlike assigning `material:"unlit"` to a 3D
+sphere.
+
+`displaySupercell` is centered about the base cell and `fit:"displayed"` uses
+those actual negative and positive replica offsets. Do not emulate replication
+with camera zoom. Do not use `set-supercell` unless the user explicitly asks to
+change atom count and cell.
+
+If the reference shows only a bounded subset of a larger existing periodic
+cell, use `fit:"references"` with `fitReferences` (or base-cell
+`fitIndices`). Choose the subset from the visible motif and atom count in the
+reference, not from an arbitrary fractional crop. `targetReferences` may be a
+small central anchor, but `fitReferences` must enumerate the outermost atoms or
+replicas that define all four crop boundaries; fitting only the center causes
+over-zoom and clipped edge atoms. This changes framing only;
+atoms outside the frame remain present and the structure is untouched.
+
+When one visual bond is missing, compare the actual periodic edge set before
+changing a cutoff. Increasing an already enabled cutoff is a no-op when every
+distance in that label pair is already below it. Identify whether the missing
+edge is an omitted label pair or a periodic image, add only that edge class,
+then verify the rendered bond count. Do not compensate by enabling every
+same-element pair.
+For a uniform pair color/material, also clear stale endpoint overrides so a
+previous selected-atom style does not split or recolor the authoritative pair.
+If the reference intentionally draws only a selected chain or motif, use
+`indexPairs` for those exact atom edges instead of enabling the corresponding
+label pair everywhere in the periodic structure. Send the index list alone
+when existing pair cutoffs and appearance must be preserved; do not add an
+empty pair allow-list or disable unrelated label policies.
+
+Render a small proof first. Compare the reference and proof in this order:
+panel aspect ratio, visible motif/atom count, periodic anchor/translation,
+view normal, vertical feature,
+substrate-versus-active layer classification, atom occlusion/radius, bond
+allow-list, crop, then color/material. Change one semantic category at a time.
+For split labels of one element, preserve an explicit role-pair allow-list;
+never replace selected edges with all possible same-element role pairs.
+After each iteration verify unchanged atom count, `chemicalSymbols`, positions,
+cell, PBC, and constraints. A visually close result with altered topology is a
+failed reproduction.
 
 ### Publication Image
 
@@ -354,6 +527,8 @@ intermediate, and expected final structures are generated from
 - `examples/readme_scene_assets/ai_pyridinic_n3_li_graphene.traj`.
 
 ### Build An ASE Bulk Crystal
+
+The matching human control is **+ Add atoms > Build with ASE**.
 
 Use the installed ASE catalog instead of guessing which reference element,
 prototype, or output cell is valid. This example starts from an empty Edit
@@ -1487,7 +1662,7 @@ if (shared.mimeType !== "text/html" || shared.bytes <= 0) {
 ```
 
 Decode `shared.dataUrl` to the requested destination. Reopen the result with
-network access disabled and verify:
+network access disabled and require zero network requests. Verify:
 
 1. `window.v_aseStandalone.ready` resolves;
 2. the canvas is nonblank and uses the saved camera;

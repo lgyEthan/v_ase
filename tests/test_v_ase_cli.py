@@ -14,6 +14,7 @@ import pytest
 
 import v_ase.remote as remote
 from v_ase.cli import (
+    _resolved_api_params,
     _scientific_stack_error,
     build_parser,
     normalize_argv,
@@ -148,6 +149,56 @@ def test_v_ase_api_parser_accepts_structured_live_commands(tmp_path):
         "schema",
     ])
     assert schema_args.method == "schema"
+
+
+def test_v_ase_api_shortcuts_default_to_focused_agent_responses():
+    parser = build_parser()
+    url = "http://127.0.0.1:49152/api/ai/command/session/session"
+
+    schema = parser.parse_args(["api", url, "schema"])
+    assert _resolved_api_params(schema) == {"scope": "summary"}
+
+    capabilities = parser.parse_args(["api", url, "capabilities"])
+    assert _resolved_api_params(capabilities) == {"profile": "summary"}
+
+    operation = parser.parse_args([
+        "api", url, "schema", "--operation-schema", "configure-bonds",
+    ])
+    assert _resolved_api_params(operation) == {"operation": "configure-bonds"}
+
+    operations = parser.parse_args([
+        "api", url, "schema",
+        "--operation-schema", "style-atoms",
+        "--operation-schema", "compose-view",
+    ])
+    assert _resolved_api_params(operations) == {
+        "operations": ["style-atoms", "compose-view"]
+    }
+
+    apply_schema = parser.parse_args([
+        "api", url, "schema", "--schema-method", "apply",
+    ])
+    assert _resolved_api_params(apply_schema) == {"method": "apply"}
+
+    describe = parser.parse_args([
+        "api", url, "describe", "--profile", "bonding", "--include-positions",
+    ])
+    assert _resolved_api_params(describe) == {
+        "profile": "bonding",
+        "includePositions": True,
+    }
+
+    apply = parser.parse_args([
+        "api", url, "apply", "--params",
+        '{"operation":{"name":"wrap"}}',
+    ])
+    assert _resolved_api_params(apply)["responseProfile"] == "summary"
+
+    full_apply = parser.parse_args([
+        "api", url, "apply", "--response-profile", "full", "--params",
+        '{"operation":{"name":"wrap"}}',
+    ])
+    assert _resolved_api_params(full_apply)["responseProfile"] == "full"
 
 
 def test_v_ase_api_saves_binary_data_urls(monkeypatch, tmp_path, capsys):
@@ -658,6 +709,11 @@ def test_cli_mode_prints_one_machine_readable_handshake_and_keeps_session_alive(
     assert handshake["skill_path"].endswith(
         "/skills/visualizing-atomic-structures-with-v-ase/SKILL.md"
     )
+    assert handshake["describe_profiles"] == [
+        "summary", "structure", "appearance", "bonding",
+        "render", "analysis", "full",
+    ]
+    assert any("--operation-schema" in item for item in handshake["agent_quickstart"])
     assert captured["kwargs"]["block"] is False
     assert captured["kwargs"]["open_browser"] is False
     assert captured["kwargs"]["show_bonds"] is True

@@ -29,6 +29,7 @@ The description should trigger for these requests even when v_ase is not named:
 15. `[trigger]` Translate this selected layer rigidly in the periodic (1 0 0) plane and map its geometric score.
 16. `[trigger]` Randomly add 20 Li and 10 H atoms to this triclinic cell and repel only the new atoms from short contacts.
 17. `[trigger]` Build a cubic Cu crystal from ASE defaults, or rocksalt CuO with a specified lattice parameter.
+18. `[trigger]` Reproduce this paper's periodic atomistic figure from the matching structure without editing its coordinates.
 
 It should not trigger for these nearby but unrelated requests:
 
@@ -60,13 +61,27 @@ Before every release:
 7. fail if code has an undocumented capability or the skill documents a
    nonexistent capability.
 
+Also validate the token-efficient path independently from the full audit:
+
+- bare CLI `schema` returns the compact index and one
+  `--operation-schema NAME` response contains no unrelated operation;
+- bare CLI `describe` returns `summary`; every focused profile contains its
+  documented fields and omits inactive all-zero pair tables or full per-index
+  maps unless explicitly requested;
+- CLI `apply` returns summary plus exact `mutation.changedPaths` by default;
+- index-only `configure-bonds` changes manual edges without changing any
+  label-pair cutoff, range, or style path;
+- render state and result identify the same effective camera and its source;
+- Base64 data never appears in ordinary CLI output written with `--save`.
+
 Current operation coverage:
 
-- wrap, translate-all, center-selection-at-origin, set-unit-cell, build-bulk,
+- wrap, translate-all, center-selection-at-origin, compose-view, set-unit-cell, build-bulk,
   set-supercell, make-supercell;
 - add-atom, scatter-atoms, scatter-molecules, update-add-atoms-region,
   scale-add-atoms-regions, relax-added-atoms, stop-added-atoms,
-  finish-add-atoms, cancel-add-atoms, delete-selection, set-identity,
+  finish-add-atoms, cancel-add-atoms, delete-selection, set-visual-label,
+  style-atoms, configure-bonds, set-identity,
   set-constraints;
 - move-selection, rotate-selection, scale-selection, rotate-to-commensurate,
   load-commensurate-guest, remove-commensurate-guest,
@@ -525,6 +540,9 @@ Run all scenarios, not only static document checks:
     - require exact equality among live schema operation/export keys,
       `capabilities()` names, browser operation/export dispatchers, and the
       canonical Skill; an extra or missing name is a release blocker;
+    - measure serialized byte counts for compact schema, each focused state,
+      default mutation output, and their full compatibility equivalents;
+      regressions that restore repeated full-state output are release blockers;
     - run selection, Edit-mode atom motion, camera, axes/cell/grid, render, and
       export through separate `v_ase api` subprocesses, then inspect the same
       GUI controls and semantic revision rather than relying on page-injected
@@ -611,6 +629,33 @@ Run all scenarios, not only static document checks:
       color remains distinguishable over the touching-sphere substrate;
     - play the compressed-C60 FIRE trajectory and verify energy and fmax
       decrease before publishing its relaxation example.
+15. **Blind reference-figure reproduction**
+    - give a fresh agent only the canonical Skill, a matching structure, the
+      reference image, and natural-language intent; do not provide a solved
+      command sequence or structure-specific implementation hint;
+    - require an explicit preflight composition covering periodic motif count,
+      display repetitions, periodic anchor references, view normal,
+      screen-vertical feature, role/layer index groups, final radii, and the
+      complete bond allow-list;
+    - require `set-visual-label`, `style-atoms`, `configure-bonds`, and
+      `compose-view` rather than physical edits, materialized supercells, or
+      trial-and-error camera orbit;
+    - require flat paper diagrams to use the complete 2D scene mode rather than
+      shaded or merely unlit 3D spheres;
+    - after a human accepts orientation, require crop-only refinements to
+      preserve the exact camera direction and roll;
+    - for a missing bond, compare periodic edge sets and prove that the chosen
+      pair/cutoff adds at least one intended edge; reject a numerical cutoff
+      change that leaves the edge set unchanged;
+    - verify negative and positive display replicas are both included by fit,
+      boundary-spanning motif references use `cellOffset`, and the chosen
+      motif rather than the raw cell origin is centered;
+    - after project round-trip, require identical atom count, elements,
+      coordinates, cell, PBC, constraints, visual labels, bond policy,
+      display supercell, translation, and explicit camera basis;
+    - return reference/output comparison sheets to the human for final visual
+      judgment. Automated scores may diagnose regressions but never replace
+      the human acceptance decision.
 
 ## Visual Assertions
 

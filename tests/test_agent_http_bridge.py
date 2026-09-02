@@ -36,6 +36,12 @@ def _post_command(url: str, method: str, params=None, *, expected_status: int = 
 
 
 def _run_cli_command(url: str, method: str, params=None):
+    if method == "capabilities" and params is None:
+        params = {"profile": "full"}
+    if method == "apply" and isinstance(params, dict) and "responseProfile" not in params:
+        # Most bridge regressions predate focused responses and inspect complete
+        # state. Token-efficient CLI defaults are covered separately.
+        params = {**params, "responseProfile": "full"}
     command = [
         sys.executable,
         "-m",
@@ -69,6 +75,142 @@ def _stable_description(url: str, *, timeout: float = 5.0):
         previous_revision = revision
         time.sleep(0.1)
     return latest
+
+
+def test_external_cli_composes_a_periodic_reference_view_without_structure_edits():
+    atoms = Atoms(
+        "Cu4O2",
+        positions=[
+            [0.4, 0.5, 1.0], [2.4, 0.5, 1.0],
+            [1.4, 2.5, 1.0], [3.4, 2.5, 1.0],
+            [0.7, 1.2, 2.0], [2.7, 1.2, 2.0],
+        ],
+        cell=[[4.0, 0.0, 0.0], [1.0, 4.0, 0.0], [0.0, 0.0, 10.0]],
+        pbc=True,
+    )
+    baseline = atoms.copy()
+    port = find_free_port()
+    editor = view(
+        atoms,
+        notebook=False,
+        block=False,
+        port=port,
+        viz_only=True,
+        close_on_disconnect=False,
+        open_browser=False,
+    )
+    handshake = ai_handshake(editor.url)
+    command_url = str(handshake["command_url"])
+    try:
+        with sync_playwright() as playwright:
+            try:
+                browser = playwright.chromium.launch(headless=True)
+            except PlaywrightError as exc:
+                pytest.skip(f"Playwright Chromium is not installed: {exc}")
+            page = browser.new_page(viewport={"width": 1100, "height": 760})
+            page.goto(handshake["human_url"])
+            page.wait_for_function("window.v_aseAI")
+
+            initial = _run_cli_command(command_url, "describe", {"includePositions": True})
+            labelled = _run_cli_command(command_url, "apply", {
+                "expectedRevision": initial["collaboration"]["revision"],
+                "operation": {
+                    "name": "set-visual-label",
+                    "indices": [0, 1],
+                    "label": "Cu_substrate",
+                },
+            })
+            styled = _run_cli_command(command_url, "apply", {
+                "expectedRevision": labelled["collaboration"]["revision"],
+                "operation": {
+                    "name": "style-atoms",
+                    "labels": ["Cu_substrate"],
+                    "color": "#f5f5f2",
+                    "radiusAngstrom": 1.1,
+                    "material": "unlit",
+                    "affectBonds": True,
+                },
+            })
+            bonded = _run_cli_command(command_url, "apply", {
+                "expectedRevision": styled["collaboration"]["revision"],
+                "operation": {
+                    "name": "configure-bonds",
+                    "disableUnspecified": True,
+                    "clearEndpointOverrides": True,
+                    "indexPairs": [[0, 4], [1, 5]],
+                    "pairs": [{
+                        "labels": ["Cu_substrate", "O"],
+                        "maximumAngstrom": 3.0,
+                    }],
+                },
+            })
+            composed = _run_cli_command(command_url, "apply", {
+                "expectedRevision": bonded["collaboration"]["revision"],
+                "operation": {
+                    "name": "compose-view",
+                    "displaySupercell": [3, 3, 1],
+                    "centerMotif": {
+                        "indices": [4, 5],
+                        "targetFractional": [0.5, 0.5, 0.5],
+                        "axes": ["a", "b"],
+                    },
+                    "viewFromCellAxis": "+c",
+                    "verticalReferences": [
+                        {"index": 4, "cellOffset": [0, 0, 0]},
+                        {"index": 5, "cellOffset": [0, 0, 0]},
+                    ],
+                    "targetIndices": [4, 5],
+                    "atomDisplayMode": "2d",
+                    "fit": "references",
+                    "fitReferences": [
+                        {"index": 4, "cellOffset": [0, 0, 0]},
+                        {"index": 5, "cellOffset": [0, 0, 0]},
+                    ],
+                    "padding": 0.08,
+                },
+            })
+
+            assert composed["labels"][:2] == ["Cu_substrate", "Cu_substrate"]
+            assert composed["chemicalSymbols"] == baseline.get_chemical_symbols()
+            assert np.asarray(composed["positions"]) == pytest.approx(baseline.positions)
+            assert np.asarray(composed["cell"]) == pytest.approx(baseline.cell.array)
+            assert composed["pbc"] == baseline.pbc.tolist()
+            assert composed["display"]["supercell"] == [3, 3, 1]
+            assert composed["display"]["atomDisplayMode"] == "2d"
+            assert composed["display"]["atomBondStyles"] == {}
+            assert composed["display"]["bondMode"] == "manual"
+            assert composed["display"]["manualBondPairs"] == [[0, 4], [1, 5]]
+            assert np.linalg.norm(composed["display"]["translation"][:2]) > 0.1
+            assert {
+                key for key, value in composed["display"]["pairwiseBondCutoffs"].items()
+                if float(value) > 0
+            } == {"Cu_substrate-O"}
+
+            accepted_direction = np.asarray(composed["camera"]["position"]) - np.asarray(
+                composed["camera"]["target"]
+            )
+            accepted_direction /= np.linalg.norm(accepted_direction)
+            accepted_up = np.asarray(composed["camera"]["up"])
+            refined = _run_cli_command(command_url, "apply", {
+                "expectedRevision": composed["collaboration"]["revision"],
+                "operation": {
+                    "name": "compose-view",
+                    "preserveOrientation": True,
+                    "targetIndices": [4, 5],
+                    "fit": "references",
+                    "fitIndices": [4, 5],
+                    "padding": 0.04,
+                },
+            })
+            refined_direction = np.asarray(refined["camera"]["position"]) - np.asarray(
+                refined["camera"]["target"]
+            )
+            refined_direction /= np.linalg.norm(refined_direction)
+            assert refined_direction == pytest.approx(accepted_direction, abs=1e-10)
+            assert np.asarray(refined["camera"]["up"]) == pytest.approx(accepted_up, abs=1e-10)
+            browser.close()
+    finally:
+        editor.close()
 
 
 def test_external_cli_agent_repeats_shared_relaxation_and_commits_staged_content():
@@ -590,6 +732,16 @@ def test_http_bridge_controls_the_same_live_workspace_without_page_evaluation(
                 capabilities["exports"]
             )
 
+            compact_capabilities = _post_command(
+                command_url,
+                "capabilities",
+                {"profile": "summary"},
+            )["result"]
+            assert compact_capabilities["profile"] == "summary"
+            assert "operationParameters" not in compact_capabilities
+            assert "exportParameters" not in compact_capabilities
+            assert "bulkBuilder" in compact_capabilities["catalogs"]
+
             initial = _post_command(
                 command_url,
                 "describe",
@@ -684,6 +836,39 @@ def test_http_bridge_controls_the_same_live_workspace_without_page_evaluation(
                 "required"
             ] == ["planeIds"]
 
+            compact_schema = _post_command(
+                command_url,
+                "schema",
+                {"scope": "summary"},
+            )["result"]
+            assert compact_schema["scope"] == "summary"
+            assert "control_schema" not in compact_schema
+            focused_bonds = _post_command(
+                command_url,
+                "schema",
+                {"operation": "configure-bonds"},
+            )["result"]
+            assert focused_bonds["scope"] == "operation"
+            assert focused_bonds["name"] == "configure-bonds"
+            assert focused_bonds["schema"]["properties"]["name"] == {
+                "const": "configure-bonds"
+            }
+            browser_schema = page.evaluate(
+                "window.v_aseAI.schema({method: 'render'})"
+            )
+            assert browser_schema["scope"] == "method"
+            assert browser_schema["name"] == "render"
+
+            compact_state = _post_command(
+                command_url,
+                "describe",
+                {"profile": "summary"},
+            )["result"]
+            assert compact_state["profile"] == "summary"
+            assert compact_state["atomCount"] == 2
+            assert "display" not in compact_state
+            assert len(json.dumps(compact_state)) < 10000
+
             obsolete_apply = _post_command(
                 command_url,
                 "apply",
@@ -692,12 +877,34 @@ def test_http_bridge_controls_the_same_live_workspace_without_page_evaluation(
             )
             assert "unsupported top-level field(s)" in obsolete_apply["detail"]
 
+            nested_parameters = _post_command(
+                command_url,
+                "apply",
+                {"operation": {"name": "wrap", "parameters": {}}},
+                expected_status=422,
+            )
+            assert "directly beside operation.name" in nested_parameters["detail"]
+
             themed = _post_command(
                 command_url,
                 "apply",
                 {"operation": {"name": "set-interface-theme", "theme": "dark"}},
             )["result"]
             assert themed["preferences"]["interfaceTheme"]["preference"] == "dark"
+
+            focused_change = _post_command(
+                command_url,
+                "apply",
+                {
+                    "expectedRevision": themed["collaboration"]["revision"],
+                    "display": {"showGrid": False},
+                    "responseProfile": "summary",
+                },
+            )["result"]
+            assert focused_change["profile"] == "summary"
+            assert focused_change["mutation"]["applied"] is True
+            assert "display.showGrid" in focused_change["mutation"]["changedPaths"]
+            assert "display" not in focused_change
 
             personalized = _post_command(
                 command_url,

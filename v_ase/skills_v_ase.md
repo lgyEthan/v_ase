@@ -8,6 +8,7 @@ Start with:
 
 - [agent setup](skills/visualizing-atomic-structures-with-v-ase/references/agent-setup.md)
 - [live collaboration](skills/visualizing-atomic-structures-with-v-ase/references/collaboration.md)
+- [deterministic rendering](skills/visualizing-atomic-structures-with-v-ase/references/deterministic-rendering.md)
 - [semantic API](skills/visualizing-atomic-structures-with-v-ase/references/semantic-api.md)
 - [verified workflows](skills/visualizing-atomic-structures-with-v-ase/references/workflows-and-examples.md)
 - [safety and errors](skills/visualizing-atomic-structures-with-v-ase/references/safety-and-errors.md)
@@ -33,12 +34,13 @@ natural language to the external agent, which translates it into structured
 verifies the returned semantic state and rendered output without maintaining
 a separate copy. The browser must have `human_url` open, but the agent does not
 need page-main-world JavaScript access.
-The agent calls `v_ase api "$COMMAND_URL" schema` before a broad workflow to
-discover exact operation and export parameters, then uses `capabilities` and
-`describe` for the live document and attached calculator state.
-It must require exact equality between schema parameter-map keys and the
-operation/export names returned by `capabilities`; a mismatch indicates an
-out-of-sync installation. External-agent verification uses separate
+The agent calls the compact `v_ase api "$COMMAND_URL" schema`, requests only
+the needed operation with `--operation-schema`, and reads only the required
+`describe --profile summary|structure|appearance|bonding|render|analysis`
+state. CLI mutations return a compact summary with exact changed paths by
+default. Full schema/capability parity remains a release-time installation
+audit; `--full-schema` still exposes `operation_parameters` and
+`export_parameters` for that check. External-agent verification uses separate
 `v_ase api` processes and confirms each command in the same live GUI, not
 only through page-injected JavaScript.
 The same semantic contract includes VASP/Cube/XSF volumetric grids, signed

@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.2.36
+
+- Added progressive external-agent discovery: compact schema indexes, focused
+  operation/export/method contracts, seven semantic state profiles, and CLI
+  flags that keep full schemas, per-atom arrays, inactive pair tables, and
+  per-index overrides out of context unless explicitly requested.
+- Added generic reference-composition operations for visualization-only role
+  labels, exact atom/label styling, centered periodic motif replication,
+  crystallographic view direction, structural screen-up references, bounded
+  fit references, and explicit flat-2D versus shaded-3D output.
+- Added compact apply results with exact changed paths, before/current
+  revisions, and state fingerprints. The CLI defaults to summary state while
+  direct browser callers retain full-response compatibility.
+- Fixed exact `configure-bonds.indexPairs` updates so selecting a local chain
+  or motif no longer resets unrelated label-pair cutoff, range, or appearance
+  policy.
+- Added explicit render camera-source selection and effective-render reporting
+  so agents can distinguish the viewport, Render Area, retained image profile,
+  and an explicit request before judging output pixels.
+- Made flat 2D atoms use a hard illustration outline and made camera fitting
+  include centered displayed-cell offsets rather than an unfinished
+  positive-only replication window.
+- Reworked the vendor-neutral Agent Skill around a focused deterministic
+  natural-language rendering workflow and added regressions for scoped schema,
+  response size, mutation paths, bond-policy preservation, browser schema
+  discovery, and effective render cameras.
+
 ## 0.2.35
 
 - Added a release-matched Sphinx/MyST manual configured for Read the Docs,

@@ -1,57 +1,53 @@
-# What is new in 0.2.35
+# What is new in 0.2.36
 
-Version 0.2.35 focuses on precise per-atom and bond appearance together with
-more usable dense scientific controls.
+Version 0.2.36 makes external AI control more reliable and substantially more
+context-efficient without removing the complete compatibility API.
 
-## Versioned documentation
+## Progressive CLI discovery
 
-The complete user, integration, semantic-agent, scientific-validation, and
-maintainer manual now builds with Sphinx/MyST on Read the Docs. Its sidebar is
-organized into four task-oriented hubs. The atomistic home-page logo is an
-interactive WebGL scene aligned exactly along +Z, while scientific application
-examples use their exact PNG/GIF captures so isosurfaces, plots, constraints,
-and GUI overlays cannot disappear in a lightweight viewer. HTML, external
-links, PDF, and ePub are validated from the same sources. The repository
-README retains the GIF-rich visual workflow tour, while this versioned guide
-remains the separate searchable reference for detailed workflows and
-reproducible fixtures.
+`v_ase api ... schema` now returns a compact operation/export index by default.
+An agent can request one exact contract with `--operation-schema`,
+`--export-schema`, or `--schema-method`, while `--full-schema` remains available
+for integration audits.
 
-The semantic bridge also rejects unknown top-level apply fields and keeps its
-colorscale, staged-relaxation, registry, export, and workspace/document
-discovery schemas synchronized with the canonical Agent Skill.
+Semantic state is divided into `summary`, `structure`, `appearance`, `bonding`,
+`render`, `analysis`, and `full` profiles. Positions, complete per-atom arrays,
+and per-index visual overrides are opt-in. On the 236-atom ReSe2/graphene
+regression scene, summary state serializes to 1,876 bytes versus 58,659 bytes
+for full state with positions. Focused state is generated directly rather than
+building the complete payload first.
 
-## Atom-index overrides
+## Verifiable mutations
 
-Selected atom indices can now carry persistent overrides for:
+CLI apply calls return compact summary state by default together with the exact
+changed paths, before/current revisions, and state fingerprints. Agents can
+request a different focused result with `--response-profile`. Browser callers
+without a profile retain the complete response for compatibility.
 
-- color;
-- relative radius;
-- opacity; and
-- material.
+Exact `configure-bonds.indexPairs` edits now preserve every independent
+label-pair cutoff, range, and appearance setting. A label-pair allow-list and
+an exact edge list are separate operations, preventing a local highlighted
+chain from resetting unrelated display policy.
 
-Each field has scoped Apply behavior, so changing one property does not erase
-other index-level overrides. Compatible trajectory frames retain the same
-index mapping. Connected bonds can follow the selected atoms' material and
-opacity; this behavior is enabled by default.
+## Deterministic render authority
 
-## Label-pair bond thickness
+The render profile identifies whether output pixels use an explicit request,
+the active Render Area, a retained image-export profile, or the working
+viewport. Render requests can choose that source explicitly and return the
+exact effective camera used.
 
-Each label-pair row can independently set bond thickness in addition to its
-enabled state, distance cutoff, shape, material, color, and opacity. The same
-result is preserved in projects, standalone HTML, Blender, OBJ, and optional
-3DM output.
+Visualization-only role labels, atom styling, bond policy, and `compose-view`
+can now express centered periodic repetition, motif anchoring,
+crystallographic view direction, structural screen-up references, bounded
+framing, and flat 2D versus shaded 3D composition without editing ASE
+coordinates. Flat atoms use a crisp illustration outline, and displayed-cell
+camera fitting includes the complete centered replication window.
 
-## Selection consistency
-
-Shift-click, Shift-box, and `Shift+Ctrl+A` consistently invert membership in
-the existing selection. This replaces the former add-only behavior in affected
-paths and makes click, box, and select-all modifiers agree.
-
-## Dense dialog and appearance layout
-
-Long dialogs now scroll while keeping their action rows visible. The default
-scratch insertion region starts centered, and Appearance uses a single
-horizontal table with a fixed TYPE column instead of wrapping rows.
+The bundled vendor-neutral Skill includes a focused deterministic-rendering
+workflow for turning natural-language or reference-figure requirements into
+periodic composition, role-based styling, exact bonds, camera orientation,
+bounded draft inspection, and final output without repeatedly loading full
+state or Base64 pixels into an agent context.
 
 For changes from earlier versions, read the
 [complete changelog](https://github.com/lgyEthan/v_ase/blob/main/CHANGELOG.md).

@@ -88,4 +88,7 @@ linkcheck_ignore = [
     # bot-protection pages even though the DOI records are valid.
     r"https://doi\.org/10\.1073/pnas\.1108174108",
     r"https://doi\.org/10\.1103/PhysRevB\.86\.155449",
+    # The page returns 200 to direct clients but repeatedly times out through
+    # Sphinx's linkcheck requests on the release runner.
+    r"https://docs\.scipy\.org/doc/scipy/reference/generated/scipy\.ndimage\.gaussian_filter\.html",
 ]

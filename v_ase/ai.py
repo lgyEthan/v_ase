@@ -87,15 +87,31 @@ def ai_handshake(url: str) -> dict[str, object]:
         "accepts_natural_language": False,
         "stdin_commands": False,
         "skill_path": ai_skill_path(),
+        "describe_profiles": [
+            "summary", "structure", "appearance", "bonding",
+            "render", "analysis", "full",
+        ],
+        "agent_quickstart": [
+            f"v_ase api '{command_url}' schema",
+            f"v_ase api '{command_url}' describe --profile summary",
+            (
+                f"v_ase api '{command_url}' schema "
+                "--operation-schema OPERATION_NAME"
+            ),
+            (
+                f"v_ase api '{command_url}' apply --params-file command.json"
+            ),
+        ] if command_url else [],
         "note": (
             "This CLI process launches the session, prints this handshake, "
             "and then emits committed changes as NDJSON. An external agent "
             "opens human_url and controls that same live document by POSTing "
             "{\"method\": ..., \"params\": ...} to command_url. v_ase does "
             "not parse natural language or command messages from stdin. "
-            "After each event, POST method describe for authoritative live "
-            "state. state_url contains backend bootstrap data, not every live "
-            "camera or visual setting."
+            "After each event, use the summary describe profile for authoritative "
+            "live state, then request only the structure, appearance, bonding, "
+            "render, or analysis profile needed. state_url contains backend "
+            "bootstrap data, not every live camera or visual setting."
         ),
     }
 

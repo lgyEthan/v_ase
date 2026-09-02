@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import re
 import tomllib
 from pathlib import Path
@@ -73,7 +74,7 @@ def test_skill_metadata_follows_discovery_contract():
 def test_skill_uses_one_level_progressive_references():
     text = SKILL.read_text(encoding="utf-8")
     linked = re.findall(r"\]\((references/[^)]+\.md)\)", text)
-    assert len(linked) == 7
+    assert len(linked) == 8
     assert len(linked) == len(set(linked))
 
     for relative in linked:
@@ -158,6 +159,86 @@ def test_skill_distinguishes_gui_label_inference_from_agent_element_identity():
     assert "`Cu O O` with counts" in documented
     assert "`O_1`, and `O_2`" in documented
     assert "different POTCARs, magnetic groups, or a core-hole target" in documented
+
+
+def test_reference_figure_reproduction_contract_is_generic_and_discoverable():
+    schema = ai_schema_payload()["operation_parameters"]
+    documented = _documented_skill_text()
+    renderer = (ROOT / "v_ase/static/renderer.js").read_text(encoding="utf-8")
+
+    assert schema["set-visual-label"]["mode"] == "view"
+    assert schema["set-visual-label"]["required"] == ["indices", "label"]
+    assert "radiusAngstrom" in schema["style-atoms"]["optional"]
+    assert schema["configure-bonds"]["required"] == ["pairs-or-indexPairs"]
+    assert "pairs" in schema["configure-bonds"]["optional"]
+    assert "clearEndpointOverrides" in schema["configure-bonds"]["optional"]
+    assert "indexPairs" in schema["configure-bonds"]["optional"]
+    assert {
+        "displaySupercell", "centerMotif", "verticalReferences",
+        "targetReferences", "fitIndices", "fitReferences", "padding",
+        "preserveOrientation", "atomDisplayMode",
+    } <= set(schema["compose-view"]["optional"])
+    for phrase in (
+        "periodic motif",
+        "display replication, never a physical supercell edit",
+        "index-only",
+        "cellOffset",
+        "final rendered radius in Angstrom",
+        "explicit no-bond state",
+        "human acceptance decision",
+        "preserveOrientation:true",
+        'atomDisplayMode:"2d"',
+        "clearEndpointOverrides:true",
+        "indexPairs",
+    ):
+        assert phrase in documented
+    assert "this.supercellAxisOffsets(repetitions[0])" in renderer
+    assert "fitCameraToStructure(bounds = null, { target = null, margin = 1.12 } = {})" in renderer
+
+
+def test_exact_index_pair_guidance_does_not_invent_visual_labels():
+    skill = SKILL.read_text(encoding="utf-8")
+    semantic_api = (REFERENCES / "semantic-api.md").read_text(encoding="utf-8")
+
+    for documented in (skill, semantic_api):
+        assert "exact `indexPairs`" in documented
+        assert "preserves" in documented
+    assert "Do not invent visual labels" in skill
+    assert "Do not fabricate a label pair" in semantic_api
+
+
+def test_focused_agent_schema_is_small_typed_and_progressively_disclosed():
+    summary = ai_schema_payload({"scope": "summary"})
+    operation = ai_schema_payload({"operation": "configure-bonds"})
+    operations = ai_schema_payload({
+        "operations": ["style-atoms", "configure-bonds", "compose-view"]
+    })
+    describe = ai_schema_payload({"method": "describe"})
+    apply_method = ai_schema_payload({"method": "apply"})
+
+    assert summary["scope"] == "summary"
+    assert "control_schema" not in summary
+    assert len(json.dumps(summary)) < 20000
+    assert set(summary["describe_profiles"]) == {
+        "summary", "structure", "appearance", "bonding",
+        "render", "analysis", "full",
+    }
+    assert operation["scope"] == "operation"
+    assert operation["name"] == "configure-bonds"
+    assert operation["schema"]["properties"]["name"] == {
+        "const": "configure-bonds"
+    }
+    assert "compose-view" not in json.dumps(operation)
+    assert operations["scope"] == "operations"
+    assert operations["names"] == [
+        "style-atoms", "configure-bonds", "compose-view"
+    ]
+    assert [item["name"] for item in operations["operations"]] == operations["names"]
+    assert describe["profiles"]["summary"]["default_for_cli"] is True
+    assert apply_method["scope"] == "method"
+    assert apply_method["name"] == "apply"
+    assert apply_method["schema"]["additionalProperties"] is False
+    assert len(json.dumps(apply_method)) < 20000
 
 
 def test_readme_agent_media_uses_the_external_cli_bridge():

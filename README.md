@@ -1290,6 +1290,12 @@ teaches that Agent the exact state queries, edits, validation checks, camera
 commands, and exports. v_ase itself does not contain an LLM or interpret
 natural language.
 
+The CLI exposes compact state profiles and focused operation schemas, so the Agent
+can inspect only the structure, appearance, bonds, render camera, or analysis
+state needed for the next decision. Each mutation reports its exact changed
+paths, and image bytes are written directly to disk instead of being copied
+through the model context.
+
 The figure labels only the interface used on each bidirectional link:
 
 | Link | What crosses it |
@@ -1327,6 +1333,16 @@ and the adsorbate uses `Li_site`, so both the GUI and the Agent refer to the
 same chemical roles.
 
 ![Natural-language pyridinic N3 graphene edit in the shared GUI](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_ai_edit.gif)
+
+For a matching paper figure, the Agent can assign visualization-only roles by
+atom index, define an explicit bond allow-list, repeat the displayed periodic
+cell without changing topology, center a boundary-spanning motif, and align a
+chosen structural feature vertically. Exact-reference framing can match the
+visible motif count, including a deliberate no-bond rendering. Flat figure
+styles use the complete 2D scene mode, while crop-only revisions can lock an
+already accepted camera direction. The 2D mode uses uniform fills and crisp
+illustration outlines; shaded references remain in 3D. Coordinates, ASE elements, cell, and PBC
+remain unchanged while the human judges the rendered comparison in the GUI.
 
 The live schema covers structure edits, constraints, trajectories, cameras,
 appearance, force vectors, volumetric surfaces and planes, colorscales, RDF,
@@ -1374,6 +1390,7 @@ files, provide the following:
 | --- | --- |
 | [`SKILL.md`](v_ase/skills/visualizing-atomic-structures-with-v-ase/SKILL.md) | [`semantic-api.md`](v_ase/skills/visualizing-atomic-structures-with-v-ase/references/semantic-api.md) for live state, edits, camera, render, or export |
 | [`agent-setup.md`](v_ase/skills/visualizing-atomic-structures-with-v-ase/references/agent-setup.md) | [`collaboration.md`](v_ase/skills/visualizing-atomic-structures-with-v-ase/references/collaboration.md) while a human and agent share the live GUI |
+|  | [`deterministic-rendering.md`](v_ase/skills/visualizing-atomic-structures-with-v-ase/references/deterministic-rendering.md) for natural-language or reference-figure composition with focused CLI state |
 |  | [`workflows-and-examples.md`](v_ase/skills/visualizing-atomic-structures-with-v-ase/references/workflows-and-examples.md) for multi-step scientific workflows |
 |  | [`cli-and-environments.md`](v_ase/skills/visualizing-atomic-structures-with-v-ase/references/cli-and-environments.md) for installation, server, WSL, or process handling |
 |  | [`safety-and-errors.md`](v_ase/skills/visualizing-atomic-structures-with-v-ase/references/safety-and-errors.md) before destructive edits, relaxation, or file output |
@@ -1412,8 +1429,22 @@ them readable in the project and include the bootstrap instruction.
 Detailed CLI fields and command examples live in the Skill references rather
 than this user guide:
 
+```bash
+v_ase api "$COMMAND_URL" schema
+v_ase api "$COMMAND_URL" describe --profile summary
+v_ase api "$COMMAND_URL" schema --operation-schema compose-view
+v_ase api "$COMMAND_URL" describe --profile render
+v_ase api "$COMMAND_URL" apply --params-file command.json
+v_ase api "$COMMAND_URL" render --params-file render.json --save result.png
+```
+
+The short calls are the normal agent path. Complete schema/state payloads stay
+available for compatibility audits but are not repeatedly injected into an AI
+conversation.
+
 - [Agent setup](v_ase/skills/visualizing-atomic-structures-with-v-ase/references/agent-setup.md)
 - [Live collaboration](v_ase/skills/visualizing-atomic-structures-with-v-ase/references/collaboration.md)
+- [Deterministic rendering](v_ase/skills/visualizing-atomic-structures-with-v-ase/references/deterministic-rendering.md)
 - [Semantic API](v_ase/skills/visualizing-atomic-structures-with-v-ase/references/semantic-api.md)
 
 ## Documents And File Opening

@@ -1,13 +1,27 @@
 # Safety And Errors
 
+## Degrees Of Freedom
+
+- **Low freedom:** deletion, identity/element changes, constraints,
+  materialized cells, volumetric combinations, relaxation, destructive
+  preference resets, overwrites, and release publishing. Use the exact live
+  schema, obtain required approval, and verify state afterward.
+- **Medium freedom:** camera, bond cutoffs, materials, lighting, colorscale,
+  RDF/displacement parameters, bounded commensurate and translation searches,
+  isovalues, interpolation, and render quality. Start with the focused schema
+  and tested workflow, then tune only requested parameters.
+- **High freedom:** an unspecified viewpoint, palette, or composition. Preserve
+  scientific identity and disclose aesthetic choices.
+
 ## Contents
 
-1. Confirmation Required
-2. Scientific Integrity
-3. Common Errors
-4. Long-Running Work
-5. Verification Failures
-6. Security
+1. Degrees Of Freedom
+2. Confirmation Required
+3. Scientific Integrity
+4. Common Errors
+5. Long-Running Work
+6. Verification Failures
+7. Security
 
 ## Confirmation Required
 

@@ -1111,11 +1111,30 @@ def run_external_ai_apply(command_url: str, command: dict):
     before = run_external_ai_command(
         command_url,
         "describe",
-        {"includePositions": False},
+        {"profile": "summary"},
     )
+    operation = command.get("operation")
+    operation_name = (
+        operation if isinstance(operation, str)
+        else operation.get("name") if isinstance(operation, dict)
+        else None
+    )
+    analysis_operations = {
+        "calculate-registry-map",
+        "load-volumetric",
+        "show-volumetric",
+        "add-volumetric-plane",
+        "update-volumetric-planes",
+        "remove-volumetric-planes",
+        "combine-volumetric",
+        "remove-volumetric",
+        "calculate-rdf",
+        "refresh-displacements",
+    }
     guarded = {
         **command,
         "expectedRevision": before["collaboration"]["revision"],
+        "responseProfile": "analysis" if operation_name in analysis_operations else "summary",
     }
     return run_external_ai_command(command_url, "apply", guarded)
 
@@ -2922,7 +2941,11 @@ def capture_ai_edit_media(browser) -> None:
         final_state = run_external_ai_command(
             command_url,
             "describe",
-            {"includePositions": True},
+            {
+                "profile": "structure",
+                "includePositions": True,
+                "includeProperties": True,
+            },
         )
         if not np.allclose(final_state["positions"], expected_final.positions):
             raise AssertionError("AI README edit did not reproduce the generated final coordinates.")

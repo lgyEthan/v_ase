@@ -10,6 +10,7 @@ import json
 import logging
 import tempfile
 from collections import Counter
+from copy import deepcopy
 from importlib.metadata import PackageNotFoundError, distribution
 from pathlib import Path
 from typing import Dict, Any, List
@@ -428,6 +429,17 @@ AI_CONTROL_SCHEMA = {
                 "when the live collaboration revision has changed."
             ),
         },
+        "responseProfile": {
+            "enum": [
+                "summary", "structure", "appearance", "bonding",
+                "render", "analysis", "full",
+            ],
+            "description": (
+                "Controls the semantic state returned after apply. External CLI "
+                "clients default to summary to avoid returning the complete scene "
+                "after every mutation; browser callers retain full for compatibility."
+            ),
+        },
         "frame": {"type": "integer", "minimum": 0},
         "mode": {"enum": ["view", "edit"]},
         "applyConstraints": {"type": "boolean"},
@@ -491,12 +503,12 @@ AI_CONTROL_SCHEMA = {
         "operation": {
             "description": (
                 "One semantic structure operation. Supported names are wrap, "
-                "translate-all, center-selection-at-origin, set-unit-cell, build-bulk, set-supercell, make-supercell, add-atom, "
+                "translate-all, center-selection-at-origin, compose-view, set-unit-cell, build-bulk, set-supercell, make-supercell, add-atom, "
                 "scatter-atoms, scatter-molecules, update-add-atoms-region, "
                 "scale-add-atoms-regions, "
                 "relax-added-atoms, stop-added-atoms, "
                 "finish-add-atoms, cancel-add-atoms, "
-                "delete-selection, set-identity, set-constraints, "
+                "delete-selection, set-visual-label, style-atoms, configure-bonds, set-identity, set-constraints, "
                 "move-selection, rotate-selection, scale-selection, rotate-to-commensurate, "
                 "load-commensurate-guest, remove-commensurate-guest, "
                 "calculate-commensurate, apply-commensurate-cell, "
@@ -536,13 +548,13 @@ AI_CONTROL_SCHEMA = {
                     "properties": {
                         "name": {
                             "enum": [
-                                "wrap", "translate-all", "center-selection-at-origin", "set-unit-cell", "build-bulk", "set-supercell",
+                                "wrap", "translate-all", "center-selection-at-origin", "compose-view", "set-unit-cell", "build-bulk", "set-supercell",
                                 "make-supercell", "add-atom", "scatter-atoms",
                                 "scatter-molecules",
                                 "update-add-atoms-region", "scale-add-atoms-regions",
                                 "relax-added-atoms", "stop-added-atoms",
                                 "finish-add-atoms", "cancel-add-atoms",
-                                "delete-selection", "set-identity",
+                                "delete-selection", "set-visual-label", "style-atoms", "configure-bonds", "set-identity",
                                 "set-constraints", "move-selection",
                                 "rotate-selection", "scale-selection", "rotate-to-commensurate",
                                 "load-commensurate-guest",
@@ -643,6 +655,271 @@ AI_CONTROL_SCHEMA = {
                                         "items": {"type": "boolean"},
                                         "minItems": 3,
                                         "maxItems": 3,
+                                    },
+                                },
+                            },
+                        },
+                        {
+                            "if": {
+                                "required": ["name"],
+                                "properties": {"name": {"const": "compose-view"}},
+                            },
+                            "then": {
+                                "properties": {
+                                    "displaySupercell": {
+                                        "type": "array",
+                                        "items": {"type": "integer", "minimum": 1, "maximum": 64},
+                                        "minItems": 3,
+                                        "maxItems": 3,
+                                    },
+                                    "translation": {
+                                        "type": "array",
+                                        "items": {"type": "number"},
+                                        "minItems": 3,
+                                        "maxItems": 3,
+                                    },
+                                    "translationMode": {"enum": ["cartesian", "fractional"]},
+                                    "centerMotif": {
+                                        "type": "object",
+                                        "anyOf": [
+                                            {"required": ["indices"]},
+                                            {"required": ["references"]},
+                                        ],
+                                        "properties": {
+                                            "indices": {
+                                                "type": "array",
+                                                "items": {"type": "integer", "minimum": 0},
+                                                "minItems": 1,
+                                                "uniqueItems": True,
+                                            },
+                                            "references": {
+                                                "type": "array",
+                                                "minItems": 1,
+                                                "items": {
+                                                    "type": "object",
+                                                    "required": ["index", "cellOffset"],
+                                                    "properties": {
+                                                        "index": {"type": "integer", "minimum": 0},
+                                                        "cellOffset": {
+                                                            "type": "array",
+                                                            "items": {"type": "integer"},
+                                                            "minItems": 3,
+                                                            "maxItems": 3,
+                                                        },
+                                                    },
+                                                },
+                                            },
+                                            "targetFractional": {
+                                                "type": "array",
+                                                "items": {"type": "number"},
+                                                "minItems": 3,
+                                                "maxItems": 3,
+                                            },
+                                            "axes": {
+                                                "type": "array",
+                                                "items": {"enum": ["a", "b", "c"]},
+                                                "minItems": 1,
+                                                "uniqueItems": True,
+                                            },
+                                        },
+                                    },
+                                    "viewDirection": {
+                                        "type": "array",
+                                        "items": {"type": "number"},
+                                        "minItems": 3,
+                                        "maxItems": 3,
+                                    },
+                                    "viewFromCellAxis": {
+                                        "enum": ["+a", "-a", "+b", "-b", "+c", "-c"],
+                                    },
+                                    "screenUp": {
+                                        "type": "array",
+                                        "items": {"type": "number"},
+                                        "minItems": 3,
+                                        "maxItems": 3,
+                                    },
+                                    "screenUpCellAxis": {
+                                        "enum": ["+a", "-a", "+b", "-b", "+c", "-c"],
+                                    },
+                                    "verticalReferences": {
+                                        "type": "array",
+                                        "minItems": 2,
+                                        "maxItems": 2,
+                                        "items": {
+                                            "type": "object",
+                                            "required": ["index", "cellOffset"],
+                                            "properties": {
+                                                "index": {"type": "integer", "minimum": 0},
+                                                "cellOffset": {
+                                                    "type": "array",
+                                                    "items": {"type": "integer"},
+                                                    "minItems": 3,
+                                                    "maxItems": 3,
+                                                },
+                                            },
+                                        },
+                                    },
+                                    "target": {
+                                        "type": "array",
+                                        "items": {"type": "number"},
+                                        "minItems": 3,
+                                        "maxItems": 3,
+                                    },
+                                    "targetIndices": {
+                                        "type": "array",
+                                        "items": {"type": "integer", "minimum": 0},
+                                        "minItems": 1,
+                                        "uniqueItems": True,
+                                    },
+                                    "targetReferences": {
+                                        "type": "array",
+                                        "minItems": 1,
+                                        "items": {
+                                            "type": "object",
+                                            "required": ["index", "cellOffset"],
+                                            "properties": {
+                                                "index": {"type": "integer", "minimum": 0},
+                                                "cellOffset": {
+                                                    "type": "array",
+                                                    "items": {"type": "integer"},
+                                                    "minItems": 3,
+                                                    "maxItems": 3,
+                                                },
+                                            },
+                                        },
+                                    },
+                                    "fitIndices": {
+                                        "type": "array",
+                                        "items": {"type": "integer", "minimum": 0},
+                                        "minItems": 1,
+                                        "uniqueItems": True,
+                                    },
+                                    "fitReferences": {
+                                        "type": "array",
+                                        "minItems": 1,
+                                        "items": {
+                                            "type": "object",
+                                            "required": ["index", "cellOffset"],
+                                            "properties": {
+                                                "index": {"type": "integer", "minimum": 0},
+                                                "cellOffset": {
+                                                    "type": "array",
+                                                    "items": {"type": "integer"},
+                                                    "minItems": 3,
+                                                    "maxItems": 3,
+                                                },
+                                            },
+                                        },
+                                    },
+                                    "preserveOrientation": {"type": "boolean"},
+                                    "atomDisplayMode": {"enum": ["2d", "3d"]},
+                                    "projection": {"enum": ["orthographic", "perspective"]},
+                                    "fit": {"enum": ["displayed", "references", "none"]},
+                                    "padding": {"type": "number", "minimum": 0, "maximum": 0.4},
+                                },
+                            },
+                        },
+                        {
+                            "if": {
+                                "required": ["name"],
+                                "properties": {"name": {"const": "set-visual-label"}},
+                            },
+                            "then": {
+                                "required": ["indices", "label"],
+                                "properties": {
+                                    "indices": {
+                                        "type": "array",
+                                        "items": {"type": "integer", "minimum": 0},
+                                        "minItems": 1,
+                                        "uniqueItems": True,
+                                    },
+                                    "label": {"type": "string", "minLength": 1},
+                                },
+                            },
+                        },
+                        {
+                            "if": {
+                                "required": ["name"],
+                                "properties": {"name": {"const": "style-atoms"}},
+                            },
+                            "then": {
+                                "anyOf": [
+                                    {"required": ["indices"]},
+                                    {"required": ["labels"]},
+                                    {"required": ["elements"]},
+                                ],
+                                "properties": {
+                                    "indices": {
+                                        "type": "array",
+                                        "items": {"type": "integer", "minimum": 0},
+                                        "minItems": 1,
+                                        "uniqueItems": True,
+                                    },
+                                    "labels": {
+                                        "type": "array",
+                                        "items": {"type": "string", "minLength": 1},
+                                        "minItems": 1,
+                                        "uniqueItems": True,
+                                    },
+                                    "elements": {
+                                        "type": "array",
+                                        "items": {"type": "string", "minLength": 1},
+                                        "minItems": 1,
+                                        "uniqueItems": True,
+                                    },
+                                    "color": {"type": "string", "pattern": "^#[0-9A-Fa-f]{6}$"},
+                                    "material": {"enum": ["standard", "metal", "rubber", "unlit"]},
+                                    "opacity": {"type": "number", "minimum": 0, "maximum": 1},
+                                    "radiusAngstrom": {"type": "number", "exclusiveMinimum": 0},
+                                    "radiusScale": {"type": "number", "exclusiveMinimum": 0},
+                                    "affectBonds": {"type": "boolean"},
+                                },
+                            },
+                        },
+                        {
+                            "if": {
+                                "required": ["name"],
+                                "properties": {"name": {"const": "configure-bonds"}},
+                            },
+                            "then": {
+                                "anyOf": [
+                                    {"required": ["pairs"]},
+                                    {"required": ["indexPairs"]},
+                                ],
+                                "properties": {
+                                    "disableUnspecified": {"type": "boolean"},
+                                    "clearEndpointOverrides": {"type": "boolean"},
+                                    "indexPairs": {
+                                        "type": "array",
+                                        "items": {
+                                            "type": "array",
+                                            "items": {"type": "integer", "minimum": 0},
+                                            "minItems": 2,
+                                            "maxItems": 2,
+                                        },
+                                    },
+                                    "pairs": {
+                                        "type": "array",
+                                        "items": {
+                                            "type": "object",
+                                            "required": ["labels"],
+                                            "properties": {
+                                                "labels": {
+                                                    "type": "array",
+                                                    "items": {"type": "string", "minLength": 1},
+                                                    "minItems": 2,
+                                                    "maxItems": 2,
+                                                },
+                                                "enabled": {"type": "boolean"},
+                                                "maximumAngstrom": {"type": "number", "minimum": 0},
+                                                "style": {"enum": ["cylinder", "flat"]},
+                                                "material": {"enum": ["standard", "metal", "rubber", "unlit"]},
+                                                "thicknessAngstrom": {"type": "number", "exclusiveMinimum": 0},
+                                                "colorMode": {"enum": ["split", "custom"]},
+                                                "color": {"type": "string", "pattern": "^#[0-9A-Fa-f]{6}$"},
+                                                "opacity": {"type": "number", "minimum": 0.05, "maximum": 1},
+                                            },
+                                        },
                                     },
                                 },
                             },
@@ -1480,6 +1757,75 @@ AI_CONTROL_SCHEMA = {
 }
 
 AI_OPERATION_PARAMETERS = {
+    "compose-view": {
+        "mode": "view-or-edit",
+        "required": [],
+        "optional": [
+            "displaySupercell", "translation", "translationMode", "centerMotif",
+            "viewDirection", "viewFromCellAxis", "screenUp", "screenUpCellAxis",
+            "verticalReferences", "target", "targetIndices", "targetReferences",
+            "fitIndices", "fitReferences", "preserveOrientation", "atomDisplayMode",
+            "projection", "fit", "padding",
+        ],
+        "notes": (
+            "Creates a reproducible periodic composition without changing ASE coordinates. "
+            "displaySupercell is visual replication, not set-supercell. centerMotif translates "
+            "the periodic motif to targetFractional along chosen a/b/c axes using atom indices "
+            "or explicit periodic references. viewDirection is the target-to-camera vector; "
+            "viewFromCellAxis accepts +/-a, +/-b, or +/-c. verticalReferences or an explicit "
+            "screen-up vector fixes camera roll. target references may include cellOffset. "
+            "fit=displayed includes the actual centered replicas; fit=references frames only "
+            "fitIndices/fitReferences so visible motif count can match a reference panel. "
+            "preserveOrientation=true keeps the current camera direction and roll while target "
+            "and fit change; it cannot be combined with direction or screen-up fields. "
+            "atomDisplayMode selects the complete flat 2D or material-aware 3D scene. "
+            "padding is the requested fractional border on each image edge."
+        ),
+    },
+    "set-visual-label": {
+        "mode": "view",
+        "required": ["indices", "label"],
+        "optional": [],
+        "notes": (
+            "Assigns a visualization-only label to exact zero-based atom indices while "
+            "preserving ASE elements, coordinates, order, cell, PBC, and constraints. "
+            "A topology-compatible trajectory receives the same index mapping in every frame; "
+            "otherwise only the active frame is relabelled and the GUI shows a scope notice."
+        ),
+    },
+    "style-atoms": {
+        "mode": "view-or-edit",
+        "required": ["indices-or-labels-or-elements"],
+        "optional": [
+            "indices", "labels", "elements", "color", "material", "opacity",
+            "radiusAngstrom", "radiusScale", "affectBonds",
+        ],
+        "notes": (
+            "Applies deterministic visualization overrides to the union of exact indices, "
+            "visual labels, and ASE elements. radiusAngstrom is the final rendered radius in "
+            "Angstrom after the global atom scale; radiusScale is an explicit per-index "
+            "multiplier and is mutually exclusive with radiusAngstrom. Chemical identity and "
+            "coordinates never change. affectBonds copies material and opacity to bonds "
+            "touching the styled indices."
+        ),
+    },
+    "configure-bonds": {
+        "mode": "view-or-edit",
+        "required": ["pairs-or-indexPairs"],
+        "optional": ["pairs", "indexPairs", "disableUnspecified", "clearEndpointOverrides"],
+        "notes": (
+            "Configures visual bonds by unordered visual-label pair. Each pair may set enabled, "
+            "maximumAngstrom, style, material, thicknessAngstrom, colorMode, color, and opacity. "
+            "disableUnspecified=true makes the supplied enabled pairs an authoritative allow-list "
+            "and disables every other current label pair. An empty pairs array with that flag "
+            "means no visual bonds. clearEndpointOverrides=true removes stale atom-level bond "
+            "material/color/opacity overrides before pair appearance is applied. Zero or "
+            "enabled=false removes one pair. indexPairs switches to exact zero-based atom-pair "
+            "selection when a figure highlights only selected edges. An indexPairs-only request "
+            "preserves every label-pair cutoff, range, and appearance setting; "
+            "disableUnspecified affects label policies only when pairs is explicitly present."
+        ),
+    },
     "set-atom-colorscale": {
         "mode": "view-or-edit",
         "required": [],
@@ -2078,8 +2424,282 @@ AI_EXPORT_PARAMETERS = {
 }
 
 
-def ai_schema_payload() -> Dict[str, Any]:
-    """Return the complete live discovery contract for external agents."""
+AI_DESCRIBE_PROFILES = {
+    "summary": {
+        "default_for_cli": True,
+        "description": (
+            "Small document, frame, count, identity-group, selection, calculator, "
+            "relaxation, revision, and fingerprint summary."
+        ),
+        "options": [],
+        "fields": [
+            "protocol", "profile", "units", "document", "mode", "frame",
+            "frameCount", "atomCount", "labelCounts", "elementCounts", "cell",
+            "pbc", "selection", "relaxation", "identityGroups", "calculator",
+            "collaboration", "stateFingerprint", "availableProfiles",
+        ],
+    },
+    "structure": {
+        "description": (
+            "Compressed identity groups, structure metadata, constraints, and optional "
+            "coordinates or complete per-atom arrays."
+        ),
+        "options": ["includePositions", "includeProperties"],
+        "fields": [
+            "summary fields", "identityGroups", "constraints", "addAtoms",
+            "calculator", "measurement", "propertyCounts", "positions when requested",
+            "complete identity/property arrays when requested",
+        ],
+    },
+    "appearance": {
+        "description": (
+            "Rendering and style state without inactive label-pair tables. Per-index "
+            "overrides are summarized unless explicitly requested."
+        ),
+        "options": ["includeOverrides"],
+        "fields": ["summary fields", "identityGroups", "display", "bonding"],
+    },
+    "bonding": {
+        "description": (
+            "Active label-pair policies, exact manual index pairs, default bond style, "
+            "and optional coordinates or endpoint overrides."
+        ),
+        "options": ["includePositions", "includeOverrides"],
+        "fields": ["summary fields", "identityGroups", "bonding", "positions when requested"],
+    },
+    "render": {
+        "description": (
+            "Compact appearance, viewport camera, stored Render Area, image profile, "
+            "and the exact effective render camera source."
+        ),
+        "options": ["includeOverrides"],
+        "fields": [
+            "summary fields", "identityGroups", "display", "camera", "renderArea",
+            "imageExport", "effectiveRender",
+        ],
+    },
+    "analysis": {
+        "description": "Current frame-synchronized analysis state only.",
+        "options": [],
+        "fields": ["summary fields", "analysis"],
+    },
+    "full": {
+        "default_for_browser_compatibility": True,
+        "description": (
+            "Complete legacy state. Use only when a focused profile cannot answer the task."
+        ),
+        "options": ["includePositions"],
+        "fields": ["complete legacy state"],
+    },
+}
+
+AI_RENDER_PARAMETERS = {
+    "required": [],
+    "optional": ["format", "width", "height", "cameraSource", "options"],
+    "cameraSource": {
+        "enum": ["auto", "viewport", "render-area", "image-export", "explicit"],
+        "default": "auto",
+        "notes": (
+            "auto uses an explicit options.camera first, then the stored Render Area/image "
+            "profile camera, then the viewport. The result reports effectiveRender.source "
+            "and the exact camera used. explicit requires options.camera."
+        ),
+    },
+    "formats": ["png", "jpg", "webp", "pdf"],
+    "dimension_range_pixels": [64, 8192],
+    "option_fields": [
+        "transparentBackground", "backgroundColor", "includeGrid", "includeAxes",
+        "includeCell", "scaleMode", "pixelsPerAngstrom", "sphereQuality",
+        "sphereQualityScale", "renderMode", "sunIntensity", "sunPosition",
+        "sunTarget", "camera",
+    ],
+    "result_fields": [
+        "protocol", "mimeType", "format", "filename", "bytes", "width", "height",
+        "camera", "options", "effectiveRender", "dataUrl",
+    ],
+    "notes": (
+        "Use a small draft render while composing and one exact-size final render. "
+        "The CLI omits Base64 unless --print-data-url is requested; use --save instead."
+    ),
+}
+
+
+def _ai_operation_schema(name: str) -> Dict[str, Any]:
+    """Return one operation's live JSON Schema without unrelated operations."""
+    operation = AI_CONTROL_SCHEMA["properties"]["operation"]["oneOf"][1]
+    matches = []
+    for branch in operation.get("allOf", []):
+        condition = branch.get("if", {}).get("properties", {}).get("name", {})
+        applies = condition.get("const") == name or name in condition.get("enum", [])
+        if applies and isinstance(branch.get("then"), dict):
+            matches.append(deepcopy(branch["then"]))
+    return {
+        "$schema": AI_CONTROL_SCHEMA["$schema"],
+        "title": f"v_ase operation: {name}",
+        "type": "object",
+        "required": ["name"],
+        "properties": {"name": {"const": name}},
+        **({"allOf": matches} if matches else {}),
+    }
+
+
+def _ai_schema_summary() -> Dict[str, Any]:
+    return {
+        "protocol": AI_PROTOCOL,
+        "scope": "summary",
+        "command_transport": "http-json-bridge",
+        "accepts_natural_language": False,
+        "stdin_commands": False,
+        "methods": sorted(_AI_COMMAND_METHODS),
+        "operations": sorted(AI_OPERATION_PARAMETERS),
+        "exports": sorted(AI_EXPORT_PARAMETERS),
+        "describe_profiles": AI_DESCRIBE_PROFILES,
+        "apply_response_profiles": list(AI_DESCRIBE_PROFILES),
+        "render_parameters": AI_RENDER_PARAMETERS,
+        "apply_result": {
+            "default_profile": "summary",
+            "mutation_fields": [
+                "applied", "responseProfile", "beforeRevision", "revision",
+                "beforeFingerprint", "stateFingerprint", "changedPaths", "operation",
+            ],
+        },
+        "next": {
+            "operation": (
+                "Request schema with params {\"operation\":\"NAME\"} before using "
+                "an unfamiliar operation."
+            ),
+            "export": "Request schema with params {\"export\":\"FORMAT\"}.",
+            "state": "Use describe profile summary first, then one focused profile.",
+        },
+    }
+
+
+def _ai_apply_method_schema() -> Dict[str, Any]:
+    properties = {
+        key: deepcopy(value)
+        for key, value in AI_CONTROL_SCHEMA["properties"].items()
+        if key != "operation"
+    }
+    operation_names = sorted(AI_OPERATION_PARAMETERS)
+    properties["operation"] = {
+        "description": (
+            "One semantic operation. Request its focused operation schema for "
+            "operation-specific fields."
+        ),
+        "oneOf": [
+            {"type": "string", "enum": operation_names},
+            {
+                "type": "object",
+                "required": ["name"],
+                "properties": {"name": {"enum": operation_names}},
+            },
+        ],
+    }
+    return {
+        "$schema": AI_CONTROL_SCHEMA["$schema"],
+        "title": "v_ase apply command",
+        "type": "object",
+        "additionalProperties": False,
+        "properties": properties,
+    }
+
+
+def ai_schema_payload(options: Dict[str, Any] | None = None) -> Dict[str, Any]:
+    """Return a focused or complete live discovery contract for external agents."""
+    options = options if isinstance(options, dict) else {}
+    operation_names = options.get("operations")
+    if operation_names is not None:
+        if not isinstance(operation_names, list) or not operation_names:
+            raise ValueError("operations must be a non-empty list of operation names.")
+        names = list(dict.fromkeys(str(value).strip() for value in operation_names))
+        if len(names) > 16:
+            raise ValueError("At most 16 focused operation schemas may be requested together.")
+        unknown = [name for name in names if name not in AI_OPERATION_PARAMETERS]
+        if unknown:
+            raise ValueError(f"Unknown v_ase operation(s): {', '.join(unknown)}.")
+        return {
+            "protocol": AI_PROTOCOL,
+            "scope": "operations",
+            "names": names,
+            "operations": [
+                {
+                    "name": name,
+                    "contract": deepcopy(AI_OPERATION_PARAMETERS[name]),
+                    "schema": _ai_operation_schema(name),
+                }
+                for name in names
+            ],
+            "request": {
+                "method": "apply",
+                "params": {
+                    "expectedRevision": "integer from describe",
+                    "operation": {"name": "one requested operation"},
+                    "responseProfile": "summary",
+                },
+            },
+        }
+    operation_name = str(options.get("operation") or "").strip()
+    if operation_name:
+        if operation_name not in AI_OPERATION_PARAMETERS:
+            raise ValueError(f"Unknown v_ase operation '{operation_name}'.")
+        return {
+            "protocol": AI_PROTOCOL,
+            "scope": "operation",
+            "name": operation_name,
+            "contract": deepcopy(AI_OPERATION_PARAMETERS[operation_name]),
+            "schema": _ai_operation_schema(operation_name),
+            "request": {
+                "method": "apply",
+                "params": {
+                    "expectedRevision": "integer from describe",
+                    "operation": {"name": operation_name},
+                    "responseProfile": "summary",
+                },
+            },
+        }
+    export_name = str(options.get("export") or "").strip().lower()
+    if export_name:
+        if export_name not in AI_EXPORT_PARAMETERS:
+            raise ValueError(f"Unknown v_ase export format '{export_name}'.")
+        return {
+            "protocol": AI_PROTOCOL,
+            "scope": "export",
+            "name": export_name,
+            "contract": deepcopy(AI_EXPORT_PARAMETERS[export_name]),
+            "request": {"method": "export", "params": {"format": export_name}},
+        }
+    method_name = str(options.get("method") or "").strip()
+    if method_name == "describe":
+        return {
+            "protocol": AI_PROTOCOL,
+            "scope": "method",
+            "name": "describe",
+            "profiles": deepcopy(AI_DESCRIBE_PROFILES),
+            "request": {"method": "describe", "params": {"profile": "summary"}},
+        }
+    if method_name == "render":
+        return {
+            "protocol": AI_PROTOCOL,
+            "scope": "method",
+            "name": "render",
+            "contract": deepcopy(AI_RENDER_PARAMETERS),
+        }
+    if method_name == "apply":
+        return {
+            "protocol": AI_PROTOCOL,
+            "scope": "method",
+            "name": "apply",
+            "schema": _ai_apply_method_schema(),
+            "response_profiles": deepcopy(AI_DESCRIBE_PROFILES),
+            "result": deepcopy(_ai_schema_summary()["apply_result"]),
+        }
+    if method_name:
+        raise ValueError(
+            f"Unknown focused schema method '{method_name}'. "
+            "Supported methods: apply, describe, render."
+        )
+    if str(options.get("scope") or "").strip().lower() in {"summary", "compact"}:
+        return _ai_schema_summary()
     return {
         "protocol": AI_PROTOCOL,
         "command_transport": "http-json-bridge",
@@ -2100,7 +2720,7 @@ def ai_schema_payload() -> Dict[str, Any]:
             "document": "/api/ai/command/session/{session_id}",
             "request": {
                 "method": "describe",
-                "params": {"includePositions": True},
+                "params": {"profile": "summary"},
                 "timeout_seconds": _AI_COMMAND_DEFAULT_TIMEOUT_SECONDS,
             },
             "methods": sorted(_AI_COMMAND_METHODS),
@@ -2108,10 +2728,13 @@ def ai_schema_payload() -> Dict[str, Any]:
         "control_schema": AI_CONTROL_SCHEMA,
         "operation_parameters": AI_OPERATION_PARAMETERS,
         "export_parameters": AI_EXPORT_PARAMETERS,
+        "describe_profiles": AI_DESCRIBE_PROFILES,
+        "render_parameters": AI_RENDER_PARAMETERS,
         "browser_api": {
             "object": "window.v_aseAI",
             "methods": [
                 "ready()",
+                "schema(options)",
                 "describe()",
                 "capabilities()",
                 "documents() [workspace page]",
@@ -3940,6 +4563,12 @@ def normalize_ai_command(payload: Dict[str, Any]) -> tuple[str, Any, float]:
             detail=f"Unsupported AI command method '{method}'. Supported methods: {supported}.",
         )
     params = payload.get("params", {})
+    if method in {"schema", "describe", "capabilities", "apply", "render", "export", "activate"} \
+            and not isinstance(params, dict):
+        raise HTTPException(
+            status_code=400,
+            detail=f"AI method '{method}' requires params to be a JSON object.",
+        )
     try:
         timeout = float(
             payload.get("timeout_seconds", _AI_COMMAND_DEFAULT_TIMEOUT_SECONDS)
@@ -3991,10 +4620,14 @@ async def dispatch_ai_browser_command(
 ) -> Dict[str, Any]:
     method, params, timeout = normalize_ai_command(payload)
     if method == "schema":
+        try:
+            schema = ai_schema_payload(params)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         return {
             "protocol": AI_PROTOCOL,
             "method": method,
-            "result": ai_schema_payload(),
+            "result": schema,
         }
     await wait_for_ai_browser_connection(
         session_id=session_id,
@@ -4051,6 +4684,14 @@ async def dispatch_ai_browser_command(
 @app.get("/api/ai/schema")
 async def ai_control_schema():
     return ai_schema_payload()
+
+
+@app.post("/api/ai/schema")
+async def ai_control_schema_scoped(options: Dict[str, Any]):
+    try:
+        return ai_schema_payload(options)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.post("/api/ai/command/session/{session_id}")

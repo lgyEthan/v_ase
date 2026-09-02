@@ -10,7 +10,7 @@ over HTTP or stdin. Natural language belongs between the researcher and the
 external agent; v_ase accepts deterministic JSON.
 
 :::{important}
-This page describes the v_ase 0.2.35 contract. At runtime, the installed live
+This page describes the v_ase 0.2.36 contract. At runtime, the installed live
 schema and `capabilities` response are authoritative. Do not copy a command
 name or parameter from an older document when the live release does not
 advertise it.
@@ -49,7 +49,7 @@ The controlling agent needs:
 Install the current release:
 
 ```bash
-python -m pip install "v_ase-gui==0.2.35"
+python -m pip install "v_ase-gui==0.2.36"
 ```
 
 No API key or external service is required. A hosted model without local shell
@@ -108,9 +108,8 @@ Open `human_url` and wait for the viewport. Then use the literal, quoted
 ```bash
 v_ase api "$COMMAND_URL" ready
 v_ase api "$COMMAND_URL" schema
-v_ase api "$COMMAND_URL" capabilities
-v_ase api "$COMMAND_URL" describe \
-  --params '{"includePositions":false}'
+v_ase api "$COMMAND_URL" describe --profile summary
+v_ase api "$COMMAND_URL" schema --operation-schema compose-view
 ```
 
 `schema` is served without a browser document round trip. The other live
@@ -121,11 +120,12 @@ returns HTTP 409.
 
 Use the following trust hierarchy.
 
-1. **Live discovery** defines the installed command surface. Read `schema` and
-   `capabilities` before planning.
-2. **`describe()`** is the authoritative live semantic state. Use it for atom
-   identity, coordinates, cell, PBC, constraints, selection, camera, analysis,
-   and the settled document revision.
+1. **Focused live discovery** defines the installed command surface. Bare
+   `schema` is a compact index; request one operation or export contract only
+   when the task needs it.
+2. **Profiled `describe()`** is the authoritative live semantic state. Begin
+   with `summary`, then request only `structure`, `appearance`, `bonding`,
+   `render`, or `analysis` as needed.
 3. **Collaboration events** are compact notifications. Their `summary` and
    `changed_paths` tell the agent what to inspect; they are not state patches.
 4. **Decoded render/export pixels** are authoritative for visual quality.
@@ -133,24 +133,37 @@ Use the following trust hierarchy.
    result.
 
 `state_url` is useful read-only backend/bootstrap state, but it does not contain
-every live browser camera or display value. Always call `describe` after an
-event or before a mutation.
+every live browser camera or display value. Call compact
+`describe --profile summary` after an event or before a mutation.
 
-### Schema and capability parity
+### Progressive discovery
 
-The `schema` result includes:
+The bare CLI `schema` result is a compact index. Focus it without loading
+unrelated contracts:
+
+```bash
+v_ase api "$COMMAND_URL" schema --operation-schema configure-bonds \
+  --operation-schema compose-view
+v_ase api "$COMMAND_URL" schema --export-schema image
+v_ase api "$COMMAND_URL" schema --schema-method apply
+v_ase api "$COMMAND_URL" schema --schema-method render
+```
+
+`schema --full-schema` includes:
 
 - `control_schema`: the JSON Schema for top-level `apply` commands;
 - `operation_parameters`: live operation names, modes, required fields,
   optional fields, and notes; and
 - `export_parameters`: live export names and their request fields.
 
-`capabilities()` returns the same parameter maps plus runtime catalogs and
-limits. In v_ase 0.2.35 the live contract advertises **55 operations** and
-**13 exports**. The live response, not a copied count or table, is the source
-of truth.
+Direct browser `capabilities()` returns the broad parameter maps plus runtime
+catalogs and limits; bare CLI `capabilities` returns a compact name/catalog
+index. Full capability state is intended for integration diagnostics, not
+mandatory context for every visualization. The live
+focused response, not a copied operation count or table, is the source of
+truth.
 
-Before mutation, require all of the following:
+Release and integration tests should require all of the following:
 
 ```text
 set(capabilities.operations) == set(schema.operation_parameters)
@@ -167,6 +180,48 @@ bulk building, staged atom/molecule placement, ordinary and rigid-translation
 relaxation, trajectories, scalar fields, RDF, commensurate cells, appearance,
 preferences, and history. Query the map for exact names and fields rather than
 calling an unadvertised browser method.
+
+### Matching a reference figure
+
+When the user supplies a matching structure and paper image, the Agent first
+turns the visible composition into semantic constraints rather than orbiting
+the camera by trial and error. It identifies periodic motif count and anchor,
+view normal, one screen-vertical structural feature, role/layer atom indices,
+final atom radii, and a complete bond allow-list.
+
+The structured path is:
+
+1. `set-visual-label` separates substrate, active layer, height group, or site
+   roles by index without changing ASE elements;
+2. `style-atoms` applies final rendered radius, color, material, and opacity;
+3. `configure-bonds` defines either an intentional visual-label policy or an
+   exact atom-index edge list without conflating the two; and
+4. `compose-view` applies centered display replication, periodic motif
+   translation, lattice/feature orientation, target, fit, and padding without
+   materializing a supercell.
+
+Flat reference drawings use `atomDisplayMode:"2d"`, not shaded 3D spheres.
+Once a human accepts camera direction, later crop-only changes use
+`preserveOrientation:true` and omit orientation fields. A bond refinement must
+change the periodic edge set; changing a cutoff that creates no new edge is
+rejected. `clearEndpointOverrides:true` removes stale selected-atom bond styles
+when the requested pair appearance must be authoritative. `indexPairs` is used
+when the reference highlights one exact chain rather than every periodic edge
+of the same visual-label pair. An index-only request preserves all current
+label-pair cutoffs, ranges, and appearance. Use `pairs:[]` with
+`disableUnspecified:true` only for an intentional no-bond composition.
+
+An empty bond-pair array is the explicit no-bond composition. When a paper
+panel shows only part of an already large periodic cell, `fit:"references"`
+frames exact atom/replica references so the visible motif count and aspect
+ratio can be matched without deleting or hiding the remaining structure.
+
+The Agent reads the `render` profile, checks `effectiveRender.source` and the
+exact camera, then renders a small proof and compares motif count, translation,
+orientation, layer classification, occlusion, bonds, and crop in that order.
+The human remains the final judge of similarity. Atom count, coordinates,
+elements, cell, PBC, and constraints must remain identical after project
+round-trip.
 
 The 13 current export names are:
 
@@ -187,12 +242,13 @@ top-level JSON keys. `describe()` uses these paths:
 
 | Capability domain | Authoritative `describe()` fields |
 | --- | --- |
-| atoms, labels, elements, positions | `atomCount`, `labels`, `chemicalSymbols`, `atomicNumbers`, optional `positions` |
+| compact document and identities | `summary`: count maps, compressed `identityGroups`, selection, revision, fingerprint |
+| atoms, labels, elements, positions | `structure`: identity groups, optional `positions` and complete per-atom arrays |
 | cell and periodicity | `cell`, `pbc` |
 | constraints and stored properties | `constraints`, `forces`, `charges`, `tags`, `magneticMoments`, `calculator` |
 | trajectory | `frame`, `frameCount`, `relaxation`, `analysis.frameSynchronization` |
 | selection and measurement | `selection`, `measurement` |
-| camera and display | `camera`, `display`, `imageExport`, `renderArea` |
+| camera and display | `appearance`, `bonding`, or `render`; render includes `effectiveRender` |
 | staged insertion | `addAtoms` |
 | scalar fields and planes | `analysis.volumetricDatasets`, `analysis.volumetricSurface`, `analysis.volumetricPlanes` |
 | RDF and displacement | `analysis.rdf`, `analysis.displacement` |
@@ -200,20 +256,22 @@ top-level JSON keys. `describe()` uses these paths:
 | preferences | `preferences` |
 | collaboration | `collaboration.protocol`, `collaboration.revision`, `collaboration.eventStream` |
 
-Use `{"includePositions":false}` for compact metadata on a large structure.
-Request positions before any coordinate-dependent selection or physical edit.
+Request `structure --include-positions` before any coordinate-dependent
+selection or physical edit. Use `--include-properties` and
+`--include-overrides` only when complete arrays are required.
 
 ## Revision-safe mutation loop
 
 Every agent mutation should follow this loop:
 
 1. consume pending stdout events;
-2. call `describe()` for the intended document;
+2. call `describe --profile summary` for the intended document;
 3. validate document, frame, topology, selection, cell, PBC, constraints, and
    mode;
 4. copy `describe().collaboration.revision` into `expectedRevision`;
 5. send one logically coherent `apply` transaction;
-6. call `describe()` again and verify the semantic result; and
+6. inspect `mutation.changedPaths`; request one focused profile only if the
+   returned summary cannot verify the result; and
 7. render and inspect pixels when visual output matters.
 
 Although `expectedRevision` is optional at the raw protocol level, agents
@@ -295,6 +353,7 @@ document; for a document stream, activate that document and describe it.
 | `renderArea` | Capture or set the persistent export camera |
 | `selection` | Select base indices or periodic references |
 | `operation` | Run one advertised semantic operation |
+| `responseProfile` | Choose the focused state returned after apply; the CLI defaults to `summary` |
 
 Operation parameters belong inside `operation`; there is no top-level
 `name`/`parameters` wrapper. For example, save this as `command.json` after
@@ -322,13 +381,15 @@ Apply it through the external CLI process:
 
 ```bash
 v_ase api "$COMMAND_URL" apply --params-file command.json
-v_ase api "$COMMAND_URL" describe \
-  --params '{"includePositions":true}'
+v_ase api "$COMMAND_URL" describe --profile structure --include-positions
 ```
 
 The CLI returns one JSON envelope; the semantic value is under `result`.
-Verify the returned coordinate, selection, mode, constraints, and newer
-revision. Do not infer the displacement from the viewport.
+Its default result includes compact state plus `mutation.changedPaths`, before
+and after fingerprints, and revisions. Add `--response-profile structure` when
+the changed coordinates must be returned immediately. Verify the coordinate,
+selection, mode, constraints, and newer revision. Do not infer displacement
+from the viewport.
 
 One `apply` may combine compatible fields, and the runtime processes mode and
 selection before the operation. Keep each transaction logically coherent so a

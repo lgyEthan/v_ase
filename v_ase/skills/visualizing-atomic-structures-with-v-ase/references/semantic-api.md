@@ -28,8 +28,8 @@ The supported terminal client is:
 ```bash
 v_ase api "$COMMAND_URL" ready
 v_ase api "$COMMAND_URL" schema
-v_ase api "$COMMAND_URL" capabilities
-v_ase api "$COMMAND_URL" describe --params '{"includePositions":false}'
+v_ase api "$COMMAND_URL" describe --profile summary
+v_ase api "$COMMAND_URL" schema --operation-schema configure-bonds
 ```
 
 Every request sends `{"method":METHOD,"params":VALUE}` and returns one envelope
@@ -44,12 +44,14 @@ with `v_ase api`.
 
 `ready()` returns protocol, readiness, session ID, document name, and current
 collaboration revision.
-`schema` returns the live `apply` JSON Schema plus `operation_parameters` and
-`export_parameters`. `capabilities()` returns supported state fields, command
-groups, operations, exports, `schemaUrl`, and the same parameter maps.
-At connection time, require exact set equality between capability names and
-the parameter-map keys. This detects a stale wheel/static-asset combination
-before an edit is attempted. Do not call unadvertised internal browser methods.
+The terminal client's bare `schema` call returns a compact operation/export
+index. `schema --operation-schema NAME`, `--export-schema FORMAT`, and
+`--schema-method apply|describe|render` return one typed contract. Use
+`schema --full-schema` only for compatibility auditing. Bare CLI
+`capabilities` returns a compact name/catalog index; pass
+`--params '{"profile":"full"}'` only for the broad browser capability catalog.
+Neither call is required for an ordinary rendering task. Do not call
+unadvertised internal browser methods.
 
 Read [Live Human-Agent Collaboration](collaboration.md) before sharing control
 with a human. It defines the NDJSON event fields, multi-tab routing, and
@@ -58,29 +60,34 @@ revision conflict behavior.
 ## State
 
 ```bash
-v_ase api "$COMMAND_URL" describe \
-  --params '{"includePositions":true}'
+v_ase api "$COMMAND_URL" describe --profile summary
+v_ase api "$COMMAND_URL" describe --profile structure --include-positions
 ```
 
-`describe()` returns document name, View/Edit mode, frame and frame count, atom
-count, labels, ASE elements, atomic numbers, positions, cell, PBC, constraints,
-forces, calculator attachment/name/details, charges, tags, magnetic moments,
-selection references, measurements, `relaxation` mode/running/kind/frame
-summary, display settings, camera, image export
-profile, persistent `renderArea`, `preferences.interfaceTheme`,
-`preferences.personalVisualDefaults`, `analysis.volumetricDatasets`, the
-current RDF summary, and `collaboration.revision`.
+`describe()` supports `summary`, `structure`, `appearance`, `bonding`, `render`,
+`analysis`, and `full` profiles. The CLI defaults to `summary`; direct browser
+calls without a profile retain `full` for compatibility. Summary returns
+compressed identity groups with inclusive zero-based index ranges, counts,
+cell/PBC, selection, calculator/relaxation summaries, revision, and a state
+fingerprint. Structure adds constraints and optional positions/per-atom arrays.
+Appearance omits inactive all-zero pair tables and summarizes per-index
+overrides. Bonding reports active pair policy and exact manual edges. Render
+reports the viewport, stored Render Area, image profile, and effective export
+camera. Analysis returns current frame-synchronized analysis state.
 
 Before returning, `describe()` drains pending human, agent, and system change
 events. Its `collaboration.revision` therefore covers the state in that same
 response and can be used immediately as `expectedRevision`.
 
-Use `includePositions: false` for metadata-only inspection of a very large
-frame. Re-enable positions before coordinate-dependent work.
+Use `--include-positions` only with a coordinate-dependent structure or bonding
+query. Use `--include-properties` or `--include-overrides` only when complete
+per-atom arrays or per-index styles are required.
 
-Mutation methods return semantic state after the requested change. `render()`
-and `export()` instead return a data URL with format, MIME type, filename, byte
-count, and render dimensions where applicable.
+CLI mutations return summary state plus `mutation.beforeRevision`, `revision`,
+before/current fingerprints, exact `changedPaths`, and operation name. Select a
+different result with `--response-profile`; browser callers can set top-level
+`responseProfile`. `render()` and `export()` return a data URL with format,
+MIME type, filename, byte count, and render dimensions where applicable.
 
 ## Apply Command
 
@@ -98,9 +105,10 @@ count, and render dimensions where applicable.
 | `renderArea` | Enable, follow, capture, or explicitly set the persistent export camera |
 | `selection` | Replace or extend atom/replica selection |
 | `operation` | One semantic structure or analysis operation |
+| `responseProfile` | Focused state returned after mutation; CLI default is `summary` |
 
-Do not send unknown keys. Use `schema`, `capabilities()`, and `schema_url` as
-the current authority. Read `collaboration.revision` immediately before a mutation and pass
+Do not send unknown keys. Use focused `schema` calls and `schema_url` as the
+current authority. Read `collaboration.revision` immediately before a mutation and pass
 it as `expectedRevision`:
 
 ```javascript
@@ -167,6 +175,14 @@ matching projection fields. `describe().renderArea` reports `enabled`,
 `followViewport`, camera, width, and height. The GUI gray mask and pointer
 projection use that same camera; never infer the crop from a page screenshot.
 
+Use `describe --profile render` before export. `effectiveRender.source` reports
+whether pixels will use an `explicit-request`, active `render-area`, retained
+`image-export-profile`, or `viewport` camera. `render` accepts
+`cameraSource:"auto"|"viewport"|"render-area"|"image-export"|"explicit"`;
+the result returns the exact effective camera used. `explicit` requires
+`options.camera`. Never compare a viewport camera to pixels produced by a
+different stored export camera.
+
 Directions are `left`, `right`, `up`, `down`, `roll-cw`, and `roll-ccw`.
 Camera navigation does not enter undo history. `undo` and `redo` are reserved
 for structure mutations and visualization settings.
@@ -231,6 +247,7 @@ Pass `operation` as a name string or object:
 | `wrap` | none | Wrap current View frame or all Edit frames |
 | `translate-all` | `vector`, `coordinateMode` | Physically move every atom, leave cell fixed |
 | `center-selection-at-origin` | selection/`indices` | Set scene translation so one selected atom or the mass-weighted selected COM lies at Cartesian origin; ASE positions and cell remain unchanged |
+| `compose-view` | optional display repetition/translation, motif center, camera basis or orientation preservation, scene mode, target, fit, padding | Reproduce a periodic composition deterministically without changing ASE coordinates or atom count |
 | `set-unit-cell` | Cartesian 3 x 3 `cell`; optional three-axis `pbc` | Define or replace the ASE cell without moving atoms; creates a usable scratch document when no structure is loaded |
 | `build-bulk` | `formula`; optional `crystalStructure`, `cellMode`, `a`, `b`, `c`, `alpha`, `covera`, `u`, `basis`, `confirmReplace` | Build one periodic frame through installed `ase.build.bulk`; replacing existing content requires prior human approval and `confirmReplace:true` |
 | `set-supercell` | `reps` | Materialize repeated cell in every frame |
@@ -245,6 +262,9 @@ Pass `operation` as a name string or object:
 | `finish-add-atoms` | none | Commit staged atoms after optimization is inactive |
 | `cancel-add-atoms` | none | Restore the exact structure and history from before scattering |
 | `delete-selection` | selection or `indices` | View: hide exact visual references only. Edit: delete unique base atoms and remap constraints |
+| `set-visual-label` | View mode `indices`, `label` | Assign an index-scoped visual role while preserving ASE elements and topology |
+| `style-atoms` | `indices`, `labels`, and/or `elements`; appearance fields | Apply final color/material/opacity/radius overrides to the selector union without changing structure |
+| `configure-bonds` | `pairs` and/or exact `indexPairs`; optional `disableUnspecified`, `clearEndpointOverrides` | Apply an intentional visual-label policy or select exact atom edges without rewriting that policy |
 | `set-identity` | selection/`indices`, `label`, optional `element` | Set visual label and optional ASE element |
 | `set-constraints` | selection/`indices`; `fixAtoms`; `kind` = `fixed_line`/`fixed_plane`; `vector`; `clearDirectional` | Edit supported constraints |
 | `move-selection` | `vector` | Translate selected atoms |
@@ -279,6 +299,53 @@ Pass `operation` as a name string or object:
 | `remove-volumetric` | `datasetId` | Remove one grid from the document |
 | `calculate-rdf` | optional `cutoff`, `bins`, `pairMode`, `activePairs` | Calculate a bulk RDF for full 3D PBC, or an unordered-pair probability density for a finite no-PBC structure |
 | `set-atom-colorscale` | optional `enabled`, `field`, `map`, `customMap`, `reverse`, `scope`, `indices`, `rangeMode`, `minimum`, `maximum`, `gamma` | Lazily color all or selected atoms by a discovered numeric per-atom value with a trajectory-consistent range and preset or custom map; explicit indices freeze a selected subset |
+
+`compose-view` accepts periodic atom references as
+`{"index": I, "cellOffset": [ia, ib, ic]}`. `centerMotif` converts the
+reference centroid to fractional coordinates and applies a visual translation
+toward `targetFractional` only on the requested `axes`. `viewFromCellAxis`
+accepts `+/-a`, `+/-b`, or `+/-c`; an explicit `viewDirection` is the
+target-to-camera vector. `verticalReferences` fixes roll by projecting the
+first-to-second atom vector into the image plane. `fit:"displayed"` includes
+the actual centered display replicas and `padding` is a fractional border per
+edge. `fit:"references"` instead frames `fitReferences`/`fitIndices`, allowing
+the visible atom and motif count to match a bounded reference panel without
+hiding or deleting the rest of the structure. It never materializes a
+supercell.
+
+For a crop-only refinement of an accepted view, send
+`preserveOrientation:true` and omit every direction, cell-axis, screen-up, and
+vertical-reference field. This preserves the current camera direction and roll
+while target and fit change; if no target or fit references are supplied, the
+existing target is retained as well. Use `atomDisplayMode:"2d"` when the reference is a
+flat diagram: this changes the complete scene to unlit flat atoms, bonds,
+vectors, cells, and region guides. Atom interiors are solid and their hard
+outline uses only edge anti-aliasing, not a radial border gradient. An unlit
+material on 3D spheres is not a 2D composition. Conversely, preserve `3d` when
+the reference shows spherical shading.
+
+`style-atoms.radiusAngstrom` is the final visible radius after global scale,
+whereas `radiusScale` is the deterministic per-index multiplier; do not send
+both. `configure-bonds` accepts `pairs`, exact `indexPairs`, or both. Use
+`disableUnspecified:true` only when `pairs` is an intentional complete
+label-pair allow-list. With that flag, `pairs:[]` is the explicit no-bond
+state. Use
+`clearEndpointOverrides:true` when the requested pair style must replace stale
+atom-level bond color/material/opacity overrides from an earlier styling step.
+When a reference highlights selected bonds rather than every equivalent
+label-pair edge, provide `indexPairs:[[i,j], ...]`. This switches visual bonds
+to the exact zero-based atom pairs while retaining label-pair appearance; it
+does not change chemical topology.
+An index-only request preserves every current label-pair cutoff, range, and
+appearance policy. Do not combine it with `pairs:[]` or
+`disableUnspecified:true` merely to select exact edges. Do not fabricate a label pair:
+only send a non-empty `pairs` entry after focused bonding state
+confirms both visual labels and label-specific styling is required. Verify
+`mutation.changedPaths`; an index-only request must not modify any
+`display.pairwiseBond*` path.
+Use
+`set-visual-label`, not `set-identity`, to distinguish substrate/layer/site
+roles solely for visualization.
 
 ### Repulsion Calculator Contract
 
@@ -526,8 +593,8 @@ After scattering, read `describe().addAtoms`. It reports `content_kind`,
 modes, region geometry, seed, shared calculator state, temporary fixed host
 indices, optimizer status, step, and maximum steps. Molecule-containing
 sessions additionally report `molecule_groups`, `molecule_names`, orientation
-mode, and rigid mode. Further `scatter-atoms` or `scatter-molecules` calls may
-append after region edits or completed relaxation. They retain the first
+mode, and rigid mode. In the same session, later `scatter-atoms` or `scatter-molecules` calls append
+after region edits or completed relaxation. They retain the first
 pre-session structure as the immutable host, and all inserted batches remain
 staged/mobile. The highlighted region is an Add Atoms overlay and disappears
 after finish or cancel. Existing atoms are temporarily fixed by default only
@@ -558,7 +625,8 @@ await ai.apply({operation: {
 }});
 ```
 
-The optimizer uses the shared Relaxation definition: independent absolute
+Use the common `start-relaxation` operation for both Structure and staged
+placement. The optimizer uses the shared Relaxation definition: independent absolute
 label-pair contact distances by default, or reference distances times a
 contact multiplier in scaled mode. A pair inside its onset receives a soft
 harmonic repulsion even when its visual bond is hidden. With `mic:true`, periodic
@@ -1040,7 +1108,7 @@ selected-atom appearance. Bonds update per frame and during interactive edits.
 | `sunPosition`, `sunTarget` | finite three-vectors |
 | `sunGizmo` | boolean |
 
-`viewportBackground` changes the live GUI. It does not rewrite
+`viewportBackground` controls the interactive GUI only. It does not rewrite
 `imageExport.options.backgroundColor`; set the export color explicitly when
 the rendered file must match the viewport.
 

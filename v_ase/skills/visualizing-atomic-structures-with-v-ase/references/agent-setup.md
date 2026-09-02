@@ -25,6 +25,8 @@ If the client accepts only individual files, always provide:
 
 Choose task references as follows:
 
+- natural-language visualization or reference-figure composition:
+  `references/deterministic-rendering.md`;
 - live state, selection, edits, camera, materials, volumetric grids,
   isosurfaces, hkl planar sections, RDF,
   render, or export:
@@ -80,12 +82,13 @@ Bootstrap instruction:
 Read SKILL.md and agent-setup.md first. Load only the reference files needed
 for this task, including collaboration.md when the user may refine the GUI.
 Start v_ase with --cli. Parse the first JSON line and keep consuming later
-NDJSON events. Open human_url and wait for the viewport. Use `v_ase api`
-with command_url to call capabilities and describe before editing. Apply
-semantic changes one at a time with expectedRevision, re-synchronize after
-human events, verify state after every physical change, inspect the decoded
-final render, and return human_url. Never infer coordinates from screenshots
-when semantic state is available.
+NDJSON events. Open human_url and wait for the viewport. Use compact
+`v_ase api ... schema` and `describe --profile summary`, then request only the
+operation schema and focused state needed. Apply semantic changes with
+expectedRevision, inspect mutation.changedPaths, re-synchronize after human
+events, verify every physical change, inspect the decoded final render, and
+return human_url. Never infer coordinates from screenshots when semantic
+state is available.
 ```
 
 A hosted model with neither local shell access nor local browser control
@@ -147,9 +150,9 @@ need page-main-world JavaScript access. Use the separate terminal client:
 ```bash
 v_ase api "$COMMAND_URL" ready
 v_ase api "$COMMAND_URL" schema
-v_ase api "$COMMAND_URL" capabilities
-v_ase api "$COMMAND_URL" describe \
-  --params '{"includePositions":true}'
+v_ase api "$COMMAND_URL" describe --profile summary
+v_ase api "$COMMAND_URL" schema --operation-schema move-selection
+v_ase api "$COMMAND_URL" describe --profile structure --include-positions
 v_ase api "$COMMAND_URL" apply --params '{
   "expectedRevision":CURRENT_REVISION,
   "camera":{"axis":"+Z","fit":"structure"}
@@ -158,13 +161,10 @@ v_ase api "$COMMAND_URL" apply --params '{
 
 `COMMAND_URL` is the literal `command_url` value from the handshake. Quote it.
 The command returns one JSON object. Its semantic value is under `result`.
-Call `schema` before planning a broad workflow; it exposes exact operation and
-export parameter maps as `operation_parameters` and `export_parameters`, even
-before a document command is sent to the browser.
-Compare their keys with `capabilities.operations` and
-`capabilities.exports`. Both sets must match exactly. A difference means the
-installed browser assets and Python package are out of sync; do not mutate the
-document until the installation is repaired.
+Bare `schema` returns a compact index before a document command is sent to the
+browser. Use `--operation-schema NAME`, `--export-schema FORMAT`, or
+`--schema-method apply|describe|render` for one exact contract. Reserve
+`--full-schema` plus capability parity for release/integration diagnostics.
 For a complex request, write the parameters to a JSON file and use
 `--params-file`. For render/export results, use `--save OUTPUT`; this decodes
 the returned data URL without printing it. Existing files are protected unless
@@ -173,8 +173,9 @@ the agent uses `--force` after explicit approval.
 Use `apply`, `render`, and `export` only after reading the semantic API
 reference. `state_url` is backend/bootstrap state, not a complete snapshot of
 the live camera and visual settings. The `describe` command is authoritative.
-Prefer `{"includePositions":false}` for initial metadata inspection of large
-structures, then request positions only for coordinate-dependent work.
+Prefer the `summary` profile for initial inspection, then request
+`structure --include-positions` only for coordinate-dependent work. Apply
+responses default to summary and include exact `mutation.changedPaths`.
 Volumetric dataset IDs and RDF summaries are under `describe().analysis`.
 Resolve DFT grid paths inside the GUI launch directory and never derive an
 isosurface or RDF result from screenshot pixels.

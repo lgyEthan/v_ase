@@ -2310,8 +2310,9 @@ def test_browser_add_molecules_homogeneous_transform_rigid_relax_and_finish():
                 np.linalg.norm(reference[:, None, :] - reference[None, :, :], axis=2)
                 for reference in addition.molecule_references
             ]
-            page.evaluate("window.__ASE_APP__.renderer.domElement.focus()")
+            page.locator("#app-viewport canvas").focus()
             page.keyboard.press("r")
+            page.wait_for_function("window.__ASE_APP__.transform.mode === 'ROTATE'")
             page.keyboard.press("z")
             page.keyboard.type("30")
             page.keyboard.press("Enter")

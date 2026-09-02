@@ -1937,6 +1937,7 @@ export class ASERenderer {
             : 'vec3(0.94)';
         material.userData.flatAtomShaderApplied = true;
         material.userData.flatOutlineEnabled = outline;
+        material.userData.flatOutlineProfile = 'hard';
         material.userData.fixedEtchedFlatApplied = Boolean(isFixed);
         const etchedCode = isFixed
             ? `
@@ -1953,8 +1954,12 @@ export class ASERenderer {
         const outlineCode = outline
             ? `
                 float flatFacing = abs(normalize(vFlatViewNormal).z);
-                float flatEdgeAA = max(fwidth(flatFacing) * 1.35, 0.008);
-                float flatInterior = smoothstep(0.30 - flatEdgeAA, 0.42 + flatEdgeAA, flatFacing);
+                float flatEdgeAA = max(fwidth(flatFacing) * 0.25, 0.0015);
+                float flatInterior = smoothstep(
+                    0.40 - flatEdgeAA,
+                    0.40 + flatEdgeAA,
+                    flatFacing
+                );
                 diffuseColor.rgb = mix(${outlineColor}, diffuseColor.rgb, flatInterior);
             `
             : '';
@@ -1997,7 +2002,7 @@ export class ASERenderer {
             );
         };
         material.customProgramCacheKey = () => [
-            'v-ase-flat-atom-v2',
+            'v-ase-flat-atom-v3-hard-outline',
             isFixed ? 'fixed' : 'normal',
             this.viewportBackgroundMode === 'white' ? 'dark-outline' : 'light-outline'
         ].join(':');
@@ -2644,15 +2649,18 @@ export class ASERenderer {
             const cell = this.hasValidCell()
                 ? this.atomsData.cell.map(vector => new THREE.Vector3(...vector))
                 : null;
-            for (let ix = 0; ix <= (cell ? 1 : 0); ix++) {
-                for (let iy = 0; iy <= (cell ? 1 : 0); iy++) {
-                    for (let iz = 0; iz <= (cell ? 1 : 0); iz++) {
+            const offsets = cell
+                ? repetitions.map(value => this.supercellAxisOffsets(value))
+                : [[0], [0], [0]];
+            for (const ix of offsets[0]) {
+                for (const iy of offsets[1]) {
+                    for (const iz of offsets[2]) {
                         const shift = visualTranslation.clone();
                         if (cell) {
                             shift
-                                .addScaledVector(cell[0], ix * Math.max(0, repetitions[0] - 1))
-                                .addScaledVector(cell[1], iy * Math.max(0, repetitions[1] - 1))
-                                .addScaledVector(cell[2], iz * Math.max(0, repetitions[2] - 1));
+                                .addScaledVector(cell[0], ix)
+                                .addScaledVector(cell[1], iy)
+                                .addScaledVector(cell[2], iz);
                         }
                         atomCorners.forEach(corner => box.expandByPoint(corner.clone().add(shift)));
                     }
@@ -2663,30 +2671,40 @@ export class ASERenderer {
 
         if (this.hasValidCell()) {
             const [a, b, c] = this.atomsData.cell.map(v => new THREE.Vector3(...v));
-            const corners = [
-                new THREE.Vector3(0, 0, 0),
-                a.clone().multiplyScalar(repetitions[0]),
-                b.clone().multiplyScalar(repetitions[1]),
-                c.clone().multiplyScalar(repetitions[2]),
-                a.clone().multiplyScalar(repetitions[0]).addScaledVector(b, repetitions[1]),
-                a.clone().multiplyScalar(repetitions[0]).addScaledVector(c, repetitions[2]),
-                b.clone().multiplyScalar(repetitions[1]).addScaledVector(c, repetitions[2]),
-                a.clone().multiplyScalar(repetitions[0])
-                    .addScaledVector(b, repetitions[1])
-                    .addScaledVector(c, repetitions[2])
-            ];
-            corners.forEach(point => box.expandByPoint(point));
+            for (const ix of this.supercellAxisOffsets(repetitions[0])) {
+                for (const iy of this.supercellAxisOffsets(repetitions[1])) {
+                    for (const iz of this.supercellAxisOffsets(repetitions[2])) {
+                        const origin = new THREE.Vector3()
+                            .addScaledVector(a, ix)
+                            .addScaledVector(b, iy)
+                            .addScaledVector(c, iz);
+                        [0, 1].forEach(da => {
+                            [0, 1].forEach(db => {
+                                [0, 1].forEach(dc => {
+                                    box.expandByPoint(
+                                        origin.clone()
+                                            .addScaledVector(a, da)
+                                            .addScaledVector(b, db)
+                                            .addScaledVector(c, dc)
+                                    );
+                                });
+                            });
+                        });
+                    }
+                }
+            }
             hasPoint = true;
         }
 
         return hasPoint && !box.isEmpty() ? box : null;
     }
 
-    fitCameraToStructure(bounds = null) {
+    fitCameraToStructure(bounds = null, { target = null, margin = 1.12 } = {}) {
         const box = bounds || this.structureBounds();
         if (!box) return;
         const center = new THREE.Vector3();
-        box.getCenter(center);
+        if (target?.isVector3) center.copy(target);
+        else box.getCenter(center);
 
         const backward = new THREE.Vector3().subVectors(this.camera.position, this.controls.target);
         if (backward.lengthSq() < 1e-10) {
@@ -2714,7 +2732,10 @@ export class ASERenderer {
         const aspect = this.viewportAspect();
         const verticalFov = THREE.MathUtils.degToRad(this.perspectiveCamera?.fov || 50);
         const horizontalFov = 2 * Math.atan(Math.tan(verticalFov / 2) * Math.max(aspect, 1e-6));
-        const fitMargin = 1.12;
+        const requestedMargin = Number(margin);
+        const fitMargin = Number.isFinite(requestedMargin)
+            ? Math.max(1, Math.min(4, requestedMargin))
+            : 1.12;
         const perspectiveDistance = Math.max(
             halfHeight / Math.max(Math.tan(verticalFov / 2), 1e-6),
             halfWidth / Math.max(Math.tan(horizontalFov / 2), 1e-6)

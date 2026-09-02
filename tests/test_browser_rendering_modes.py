@@ -2021,6 +2021,191 @@ def test_ai_semantic_graphene_defect_edit_matches_documented_cif():
         editor.close()
 
 
+def test_ai_reference_figure_composition_is_periodic_index_scoped_and_reproducible():
+    atoms = Atoms(
+        "Cu4O2",
+        positions=[
+            [0.4, 0.5, 1.0],
+            [2.4, 0.5, 1.0],
+            [1.4, 2.5, 1.0],
+            [3.4, 2.5, 1.0],
+            [0.7, 1.2, 2.0],
+            [2.7, 1.2, 2.0],
+        ],
+        cell=[[4.0, 0.0, 0.0], [1.0, 4.0, 0.0], [0.0, 0.0, 10.0]],
+        pbc=True,
+    )
+    port = find_free_port()
+    editor = view(
+        atoms,
+        notebook=False,
+        block=False,
+        port=port,
+        viz_only=True,
+        close_on_disconnect=False,
+        open_browser=False,
+    )
+    try:
+        with sync_playwright() as playwright:
+            try:
+                browser = playwright.chromium.launch(headless=True)
+            except PlaywrightError as exc:
+                pytest.skip(f"Playwright Chromium is not installed: {exc}")
+            page = browser.new_page(viewport={"width": 1100, "height": 760})
+            page.goto(editor.url)
+            page.wait_for_function("window.v_aseAI")
+
+            state = page.evaluate("""async () => {
+                const ai = window.v_aseAI;
+                await ai.apply({
+                    operation: {
+                        name: 'set-visual-label',
+                        indices: [0, 1],
+                        label: 'Cu_substrate'
+                    }
+                });
+                await ai.apply({
+                    operation: {
+                        name: 'style-atoms',
+                        labels: ['Cu_substrate'],
+                        color: '#f5f5f2',
+                        material: 'unlit',
+                        radiusAngstrom: 1.1,
+                        opacity: 1,
+                        affectBonds: true
+                    }
+                });
+                const noBonds = await ai.apply({
+                    operation: {
+                        name: 'configure-bonds',
+                        disableUnspecified: true,
+                        clearEndpointOverrides: true,
+                        pairs: []
+                    }
+                });
+                if (noBonds.display.showBonds !== false) {
+                    throw new Error('The explicit empty bond allow-list remained visible.');
+                }
+                await ai.apply({
+                    operation: {
+                        name: 'configure-bonds',
+                        disableUnspecified: true,
+                        clearEndpointOverrides: true,
+                        indexPairs: [[0, 4], [1, 5]],
+                        pairs: [{
+                            labels: ['Cu_substrate', 'O'],
+                            enabled: true,
+                            maximumAngstrom: 3.0,
+                            style: 'flat',
+                            thicknessAngstrom: 0.12,
+                            colorMode: 'custom',
+                            color: '#202020'
+                        }]
+                    }
+                });
+                const policyBeforeIndexOnly = JSON.stringify(
+                    (await ai.describe({profile: 'bonding'})).bonding.activeLabelPairs
+                );
+                const indexOnly = await ai.apply({
+                    responseProfile: 'bonding',
+                    operation: {
+                        name: 'configure-bonds',
+                        indexPairs: [[0, 4], [1, 5]]
+                    }
+                });
+                const policyAfterIndexOnly = JSON.stringify(
+                    (await ai.describe({profile: 'bonding'})).bonding.activeLabelPairs
+                );
+                if (policyBeforeIndexOnly !== policyAfterIndexOnly) {
+                    throw new Error('An index-only bond edit changed label-pair policy.');
+                }
+                if (indexOnly.profile !== 'bonding'
+                    || indexOnly.bonding.manualIndexPairs.length !== 2
+                    || indexOnly.mutation.applied !== true) {
+                    throw new Error('The focused bond mutation response is incomplete.');
+                }
+                const composed = await ai.apply({
+                    operation: {
+                        name: 'compose-view',
+                        displaySupercell: [3, 3, 1],
+                        centerMotif: {
+                            indices: [4, 5],
+                            targetFractional: [0.5, 0.5, 0.5],
+                            axes: ['a', 'b']
+                        },
+                        viewFromCellAxis: '+c',
+                        verticalReferences: [
+                            {index: 4, cellOffset: [0, 0, 0]},
+                            {index: 5, cellOffset: [0, 0, 0]}
+                        ],
+                        targetIndices: [4, 5],
+                        atomDisplayMode: '2d',
+                        projection: 'orthographic',
+                        fit: 'displayed',
+                        padding: 0.08
+                    }
+                });
+                return composed;
+            }""")
+            editor_page = next(
+                frame for frame in page.frames
+                if "workspace_child=1" in frame.url
+            )
+            visual = editor_page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                const bounds = app.renderer.structureBounds();
+                const cameraDirection = app.renderer.camera.position.clone()
+                    .sub(app.renderer.controls.target).normalize();
+                const motifCenter = app.aiAverageVector(app.aiReferencePositions([
+                    {index: 4, cellOffset: [0, 0, 0]},
+                    {index: 5, cellOffset: [0, 0, 0]}
+                ]));
+                const motifFractional = app.renderer.cartToFrac(motifCenter);
+                return {
+                    radius: app.renderer.atomVisualRadius(0),
+                    bounds: {min: bounds.min.toArray(), max: bounds.max.toArray()},
+                    cameraDirection: cameraDirection.toArray(),
+                    cameraUp: app.renderer.camera.up.toArray(),
+                    motifFractional: motifFractional.toArray(),
+                    target: app.renderer.controls.target.toArray(),
+                    motifCenter: motifCenter.toArray(),
+                    pairCutoffs: app.state.display.pairwiseBondCutoffs,
+                    atomBondStyles: app.state.display.atomBondStyles,
+                    bondMode: app.state.display.bondMode,
+                    manualBondPairs: app.state.display.manualBondPairs,
+                    atomDisplayMode: app.state.display.atomDisplayMode,
+                    chemicalSymbols: [...app.state.atoms.chemical_symbols]
+                };
+            }""")
+
+            assert state["labels"][:2] == ["Cu_substrate", "Cu_substrate"]
+            assert visual["chemicalSymbols"] == atoms.get_chemical_symbols()
+            assert state["display"]["supercell"] == [3, 3, 1]
+            assert state["display"]["translationMode"] == "cartesian"
+            assert np.linalg.norm(state["display"]["translation"][:2]) > 0.1
+            assert visual["radius"] == pytest.approx(1.1, abs=1e-8)
+            assert visual["atomDisplayMode"] == "2d"
+            assert visual["atomBondStyles"] == {}
+            assert visual["bondMode"] == "manual"
+            assert visual["manualBondPairs"] == [[0, 4], [1, 5]]
+            assert visual["cameraDirection"] == pytest.approx([0, 0, 1], abs=1e-8)
+            assert abs(visual["cameraUp"][2]) < 1e-8
+            assert visual["cameraUp"][0] > 0.999
+            assert visual["motifFractional"][:2] == pytest.approx([0.5, 0.5], abs=1e-8)
+            assert visual["target"] == pytest.approx(visual["motifCenter"], abs=1e-8)
+            assert visual["bounds"]["min"][0] < 0
+            assert visual["bounds"]["max"][0] > 8
+            enabled = {
+                key: value for key, value in visual["pairCutoffs"].items()
+                if float(value) > 0
+            }
+            assert set(enabled) == {"Cu_substrate-O"}
+            assert enabled["Cu_substrate-O"] == pytest.approx(3.0)
+            browser.close()
+    finally:
+        editor.close()
+
+
 def test_human_gui_changes_stream_to_agent_and_revision_guard_prevents_overwrite():
     atoms = Atoms(
         "H2",
@@ -5799,10 +5984,24 @@ def test_render_area_keeps_an_independent_camera_and_maps_selection_to_its_gate(
                     },
                 });
                 const capabilities = await window.v_aseAI.capabilities();
+                const focused = await window.v_aseAI.describe({profile: 'render'});
+                const rendered = await window.v_aseAI.render({
+                    width: 96,
+                    height: 64,
+                    cameraSource: 'render-area',
+                    options: {includeGrid: false}
+                });
                 return {
                     renderArea: result.renderArea,
                     state: capabilities.state,
                     apply: capabilities.apply,
+                    focused,
+                    rendered: {
+                        source: rendered.effectiveRender.source,
+                        camera: rendered.camera,
+                        width: rendered.width,
+                        height: rendered.height
+                    }
                 };
             }""")
             assert ai_render_area["renderArea"]["enabled"] is True
@@ -5810,6 +6009,11 @@ def test_render_area_keeps_an_independent_camera_and_maps_selection_to_its_gate(
             assert len(ai_render_area["renderArea"]["camera"]["position"]) == 3
             assert "render-area" in ai_render_area["state"]
             assert "renderArea" in ai_render_area["apply"]
+            assert ai_render_area["focused"]["profile"] == "render"
+            assert ai_render_area["focused"]["effectiveRender"]["source"] == "render-area"
+            assert ai_render_area["rendered"]["source"] == "render-area"
+            assert ai_render_area["rendered"]["camera"] == ai_render_area["renderArea"]["camera"]
+            assert [ai_render_area["rendered"]["width"], ai_render_area["rendered"]["height"]] == [96, 64]
             browser.close()
     finally:
         editor.close()
@@ -9102,6 +9306,9 @@ def test_camera_toolbar_white_background_and_flat_2d_display():
                     outlineMaterialCount: app.renderer.atomMeshes.children.filter(
                         mesh => mesh.material.userData.flatOutlineEnabled === true
                     ).length,
+                    hardOutlineMaterialCount: app.renderer.atomMeshes.children.filter(
+                        mesh => mesh.material.userData.flatOutlineProfile === 'hard'
+                    ).length,
                     atomMeshCount: app.renderer.atomMeshes.children.length,
                     bondGeometry: app.renderer.bondGroup.children.map(
                         mesh => mesh.geometry.type
@@ -9115,6 +9322,7 @@ def test_camera_toolbar_white_background_and_flat_2d_display():
             assert set(flat_state["atomMaterials"]) == {"MeshBasicMaterial"}
             assert flat_state["fixedFlatMaterialCount"] == 1
             assert flat_state["outlineMaterialCount"] == flat_state["atomMeshCount"]
+            assert flat_state["hardOutlineMaterialCount"] == flat_state["atomMeshCount"]
             assert set(flat_state["bondGeometry"]) == {"PlaneGeometry"}
             assert flat_state["sidebar"] == "2d"
             page.wait_for_timeout(150)
