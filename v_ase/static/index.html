@@ -52,12 +52,12 @@
             });
         })();
     </script>
-    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.2.36">
+    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.3.1">
     <script>
         window.__V_ASE_MOCK__ = new URLSearchParams(window.location.search).has('v_ase_mock');
         const threeModulePath = window.location.protocol === 'file:'
             ? './vendor/three.module.js'
-            : '/static/vendor/three.module.js?v=0.2.36';
+            : '/static/vendor/three.module.js?v=0.3.1';
         const importMap = document.createElement('script');
         importMap.type = 'importmap';
         importMap.textContent = JSON.stringify({
@@ -123,7 +123,7 @@
     <header id="top-bar" class="glass-panel">
         <div class="logo">
             <img class="brand-logo-asset" src="static/v_ase-logo.png" alt="v_ase">
-            <span class="version">0.2.36</span>
+            <span class="version">0.3.1</span>
         </div>
         <div id="runtime-mode-switch" class="runtime-mode-switch" role="group" aria-label="Workspace mode">
             <button type="button" data-runtime-mode="view" aria-pressed="true"
@@ -1464,7 +1464,7 @@
                     </select>
                 </div>
                 <div class="prop-row">
-                    <label for="commensurate-strain">Maximum strain / %</label>
+                    <label for="commensurate-strain" title="Largest absolute deviation of a principal stretch from one; this controls acceptance, including in Paper strain projection.">Maximum strain / %</label>
                     <input type="number" id="commensurate-strain" value="1.0" min="0" max="25" step="0.1">
                 </div>
                 <div class="prop-row">
@@ -1504,6 +1504,7 @@
                 <div id="commensurate-proposal-metrics" class="commensurate-proposal-metrics"></div>
                 <div id="commensurate-proposal-matrices" class="commensurate-proposal-matrices"></div>
                 <p class="commensurate-proposal-note">Host, guest, and suggested common-cell vectors remain distinct while the guest rotates. Preview atoms and their boundary bonds are optional.</p>
+                <button id="btn-fit-commensurate-preview" class="btn-block" type="button">Fit Preview in View</button>
                 <button id="btn-apply-commensurate-cell" class="btn-block" type="button" data-edit-only>
                     Set Suggested Cell as Structure
                 </button>
@@ -2055,7 +2056,7 @@
         }
         const modulePath = (window.location.protocol === 'file:' || window.location.pathname.endsWith('/static/index.html'))
             ? './main.js'
-            : './static/main.js?v=0.2.36';
+            : './static/main.js?v=0.3.1';
         import(modulePath).catch(error => {
             console.error('v_ase failed to initialize:', error?.stack || error);
         });

@@ -1,53 +1,74 @@
-# What is new in 0.2.36
+# What is new in 0.3.1
 
-Version 0.2.36 makes external AI control more reliable and substantially more
-context-efficient without removing the complete compatibility API.
+Version 0.3.1 audits scientific calculations, removes avoidable Python work in
+repulsion, and organizes the guide around individual features.
 
-## Progressive CLI discovery
+## Atomic distributions and repulsion
 
-`v_ase api ... schema` now returns a compact operation/export index by default.
-An agent can request one exact contract with `--operation-schema`,
-`--export-schema`, or `--schema-method`, while `--full-schema` remains available
-for integration audits.
+Mixed species are assigned to a seeded permutation of sites, avoiding grid-order
+segregation and maximin-rank bias. The GUI explains that homogeneous refinement
+applies through 1,024 atoms or molecule anchors; larger batches use a bounded
+low-discrepancy sequence. See [atomic distributions](atomic-distributions.md).
 
-Semantic state is divided into `summary`, `structure`, `appearance`, `bonding`,
-`render`, `analysis`, and `full` profiles. Positions, complete per-atom arrays,
-and per-index visual overrides are opt-in. On the 236-atom ReSe2/graphene
-regression scene, summary state serializes to 1,876 bytes versus 58,659 bytes
-for full state with positions. Focused state is generated directly rather than
-building the complete payload first.
+Default repulsion forces now agree with the reported harmonic energy. Periodic
+self images and periodic copies of rigid molecules contribute correctly. Numeric
+onset distances and radius-basis changes affect the actual pair model. A NumPy
+coincidence-grouping optimization reduced measured kernel time by 1.6–3.2× in
+our documented cases; this is not a GPU or whole-application speed claim.
 
-## Verifiable mutations
+## Commensurate cells
 
-CLI apply calls return compact summary state by default together with the exact
-changed paths, before/current revisions, and state fingerprints. Agents can
-request a different focused result with `--response-profile`. Browser callers
-without a profile retain the complete response for compatibility.
+Tilted periodic planes are rejected before projection can hide out-of-plane
+mismatch. The GUI explains maximum principal strain, and the guide distinguishes
+that acceptance criterion from the basis-dependent paper-style strain display.
+The [periodic-interface guide](periodic-interfaces.md) now gives a complete
+bounded-match procedure and explains the published-method adaptation.
 
-Exact `configure-bonds.indexPairs` edits now preserve every independent
-label-pair cutoff, range, and appearance setting. A label-pair allow-list and
-an exact edge list are separate operations, preventing a local highlighted
-chain from resetting unrelated display policy.
+## RDF and volumetric processing
 
-## Deterministic render authority
+RDF includes its exact final cutoff edge, validates integer bins and finite
+geometry, and has a [dedicated guide](rdf.md) covering finite-N normalization,
+partial curves, bulk versus finite systems, and Python-to-CSV output.
 
-The render profile identifies whether output pixels use an explicit request,
-the active Render Area, a retained image-export profile, or the working
-viewport. Render requests can choose that source explicitly and return the
-exact effective camera used.
+Finite endpoint-inclusive grids now use trapezoidal integration; periodic
+closing planes are still counted once. Field combinations accumulate in FP64
+slabs before final storage conversion, reducing cancellation errors without
+allocating a full additional FP64 grid. Read the [field guide](volumetric-guide.md)
+for units, precision, integral conventions, and the limits of display smoothing.
 
-Visualization-only role labels, atom styling, bond policy, and `compose-view`
-can now express centered periodic repetition, motif anchoring,
-crystallographic view direction, structural screen-up references, bounded
-framing, and flat 2D versus shaded 3D composition without editing ASE
-coordinates. Flat atoms use a crisp illustration outline, and displayed-cell
-camera fitting includes the complete centered replication window.
+## Trajectory properties and project reopening
 
-The bundled vendor-neutral Skill includes a focused deterministic-rendering
-workflow for turning natural-language or reference-figure requirements into
-periodic composition, role-based styling, exact bonds, camera orientation,
-bounded draft inspection, and final output without repeatedly loading full
-state or Base64 pixels into an agent context.
+Stored forces, tags, and charges now follow the displayed source frame even
+when force arrows are hidden. Scalar/vector analysis retains stored calculator
+results without evaluating a calculator. Saved visible field planes are sampled
+before initial readiness, so reopening a project includes its planar raster in
+the first render. Commensurate previews have an explicit **Fit Preview in View**
+control, correct proposal-angle reporting, and CSV area-membership flags.
 
-For changes from earlier versions, read the
-[complete changelog](https://github.com/lgyEthan/v_ase/blob/main/CHANGELOG.md).
+## Reliable automation and readable documentation
+
+`combine-volumetric` uses `resultName` for its output label. Previous examples
+used duplicate `name` keys, which could overwrite the command selector. A CLI
+regression checks the actual output, and documentation JSON now rejects duplicate
+keys. During placement, `calculator.detailsScope` identifies the document
+calculator and `placementDetailsPath` directs agents to `addAtoms` for the
+active temporary optimizer's settings.
+
+Long pages now have local feature navigation. Volumetric JSON examples are
+separate load, surface, plane, style, and combination tasks. The Python API
+starts with a runnable example and keeps its full signature in a reference
+section. README media and the canonical Skill follow the same release.
+
+## Upgrading
+
+```bash
+python -m pip install --upgrade "v_ase-gui==0.3.1"
+```
+
+Seeded mixed placements and default repulsive trajectories can differ from
+older releases because the corrected algorithm changes the result. An explicit
+Python `max_force_norm` retains legacy limiting, with its documented
+nonconservative meaning. Update semantic field naming to `resultName`.
+
+The [scientific validation record](scientific-validation.md) explains the
+independent checks and their interpretation boundaries.

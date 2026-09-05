@@ -87,6 +87,8 @@ def safe_rdf_cutoff(atoms: Atoms) -> float:
 
     if len(atoms) < 1:
         raise ValueError("RDF requires at least one atom.")
+    if not np.all(np.isfinite(atoms.positions)):
+        raise ValueError("RDF requires finite atomic positions.")
     pbc = np.asarray(atoms.pbc, dtype=bool)
     if not np.any(pbc):
         if len(atoms) < 2:
@@ -101,7 +103,7 @@ def safe_rdf_cutoff(atoms: Atoms) -> float:
             "and is not reported as either bulk g(r) or a finite pair distribution."
         )
     cell = np.asarray(atoms.cell.array, dtype=float)
-    if cell.shape != (3, 3) or abs(float(np.linalg.det(cell))) <= 1e-12:
+    if cell.shape != (3, 3) or not np.all(np.isfinite(cell)) or abs(float(np.linalg.det(cell))) <= 1e-12:
         raise ValueError("RDF requires a finite three-dimensional unit cell.")
     return 0.5 * float(np.min(_cell_face_heights(cell)))
 
@@ -289,7 +291,12 @@ def calculate_rdf(
     requested = float(cutoff) if cutoff is not None else safe_cutoff
     if not np.isfinite(requested) or requested <= 0:
         raise ValueError("RDF cutoff must be a positive finite distance.")
-    clean_bins = int(bins)
+    try:
+        clean_bins = int(bins)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError("RDF bins must be an integer.") from exc
+    if isinstance(bins, (bool, np.bool_)) or clean_bins != bins:
+        raise ValueError("RDF bins must be an integer.")
     if clean_bins < 8 or clean_bins > MAX_RDF_BINS:
         raise ValueError(f"RDF bins must be between 8 and {MAX_RDF_BINS}.")
 
@@ -311,12 +318,20 @@ def calculate_rdf(
     # Matscipy enumerates all periodic cell shifts required by the scalar cutoff.
     # With self_interaction=False it removes only the zero-shift i == j pair,
     # while retaining physically distinct copies of the same basis atom.
+    coordinate_scale = max(
+        1.0, effective, float(np.max(np.abs(atoms.positions))),
+        float(np.max(np.abs(atoms.cell.array))),
+    )
+    cutoff_tolerance = 64.0 * np.finfo(float).eps * coordinate_scale
     indices_i, indices_j, shifts, distances = neighbour_list(
         "ijSd",
         atoms,
-        effective,
+        effective + cutoff_tolerance,
         self_interaction=False,
     )
+    inside = distances <= effective + cutoff_tolerance
+    indices_i, indices_j, shifts = indices_i[inside], indices_j[inside], shifts[inside]
+    distances = np.minimum(distances[inside], effective)
     if len(shifts):
         periodic_image_extent_array = np.max(np.abs(shifts), axis=0).astype(int)
     else:

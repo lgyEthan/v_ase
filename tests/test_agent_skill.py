@@ -86,6 +86,27 @@ def test_skill_uses_one_level_progressive_references():
             assert "## Contents" in reference
 
 
+def test_field_combination_name_cannot_overwrite_the_operation_selector():
+    operation = ai_schema_payload()["operation_parameters"]["combine-volumetric"]
+    assert "resultName" in operation["optional"]
+    assert "name" not in operation["optional"]
+    documented = _documented_skill_text()
+    assert 'resultName: "charge-density difference"' in documented
+    assert 'name: "charge-density difference"' not in documented
+
+
+def test_documented_json_requests_have_no_duplicate_object_keys():
+    def unique_object(pairs):
+        result = {}
+        for key, value in pairs:
+            assert key not in result, f"Duplicate JSON key: {key}"
+            result[key] = value
+        return result
+    for page in (ROOT / "docs").glob("*.md"):
+        for source in re.findall(r"```json\n(.*?)\n```", page.read_text(), re.DOTALL):
+            json.loads(source, object_pairs_hook=unique_object)
+
+
 def test_skill_covers_every_live_operation_and_export():
     main_js = (ROOT / "v_ase/static/main.js").read_text(encoding="utf-8")
     documented = _documented_skill_text()
@@ -923,7 +944,9 @@ def test_skill_documents_commensurate_and_registry_end_to_end_contracts():
         "cells-only",
         "shared in-plane origin",
         "candidate validity",
-        "one-primitive-cell boundary shell",
+        "adaptive parent-lattice boundary shell",
+        'camera:{fit:"commensurate"}',
+        "within_area_limit",
         "geometry scores, not energies",
         "mass-weighted COM",
         "space: \"cartesian\"",

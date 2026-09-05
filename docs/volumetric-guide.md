@@ -5,6 +5,11 @@ isosurface meshes, and sampled planar rasters to the browser. This allows large
 DFT fields to remain aligned with their ASE structure without serializing the
 complete 3D array into the page or an AI-agent context.
 
+```{contents} On this page
+:local:
+:depth: 1
+```
+
 ## Supported inputs
 
 Open these directly or add them to an existing document:
@@ -68,6 +73,20 @@ Histogram counts sum to the source voxel count and remain unchanged when
 isosurface, plane, camera, color, or opacity settings change. Select datasets
 by ID rather than list position when automating a multi-grid document.
 
+### Interpret the integral
+
+VASP charge grids are divided by cell volume on import; their integral equals
+the average raw grid value (the electron count for an ordinary total-charge
+grid). LOCPOT values retain eV and are not divided by volume. Cube and XSF
+retain their reported/native scalar units; do not infer an electron count from
+an unlabeled field.
+
+Endpoint-exclusive grids use equal voxel weights. For endpoint-inclusive grids,
+periodic closing planes are excluded once, while finite axes use trapezoidal
+half weights at both endpoints. The determinant of the complete triclinic cell
+supplies the volume Jacobian. `mean` is the arithmetic mean of stored samples;
+it need not equal the integration-weighted mean on an endpoint-inclusive grid.
+
 :::{admonition} Source grids are immutable analysis inputs
 :class: important
 Isovalue changes, Gaussian smearing, mesh smoothing, color, opacity, and
@@ -122,6 +141,9 @@ existing browser mesh without rerunning marching cubes.
 **Field smearing σ (voxels)** accepts `0` through `8`. It applies a Gaussian
 filter to a display copy before surface extraction. Periodic axes wrap and
 nonperiodic axes reflect at their boundaries.
+
+Sigma is measured in grid steps, so equal sigma on differently spaced or skew
+axes is not an isotropic Gaussian in physical Å. Use it as a display filter.
 
 Smearing can merge small features or move an isovalue outside the displayed
 range. Start around `0.3`–`0.5` only when grid artifacts require it, compare
@@ -209,6 +231,11 @@ immediately even if an older high-resolution request is still pending.
 
 ## Combine compatible datasets
 
+Combination accumulates bounded slabs in FP64 and rounds once to the requested
+output precision. FP32 remains the memory-saving default when all inputs are
+FP32; import FP64 before subtraction when small differences matter. Converting
+an already rounded FP32 source later cannot recover lost input digits.
+
 Open **Analysis > Volumetric Data > Combine** and enter finite coefficients.
 A common charge-density-difference form is:
 
@@ -245,6 +272,9 @@ pairing.
 
 ## Save and export volumetric work
 
+Reopening a project restores and samples all visible saved planes before the
+document reports ready, so its first render includes the same planar rasters.
+
 A `.vase` project retains stored datasets, precision, current frame, visual
 settings, and supported analysis state without pickle. A project-embedded HTML
 save contains the complete validated `.vase` plus a browser-ready view.
@@ -256,6 +286,12 @@ or plane visibility, opacity, crop, camera, axes, cell, background, and exact
 render dimensions. Use `.vase` as the editable source of truth.
 
 ## Semantic workflow
+
+These are separate JSON request bodies for `v_ase api ... apply --params-file`.
+They are not a single script. Fetch the current revision and dataset/plane IDs
+with `describe`; the numbers and IDs below illustrate the fields to replace.
+
+### Load a field
 
 Load a grid from a path confined to the directory in which `v_ase gui` was
 launched:
@@ -270,6 +306,8 @@ launched:
   }
 }
 ```
+
+### Display a signed surface
 
 Call `describe`, take the returned stable dataset ID, then create an exact
 surface:
@@ -292,6 +330,8 @@ surface:
 }
 ```
 
+### Add a crystallographic plane
+
 Add a plane:
 
 ```json
@@ -313,6 +353,8 @@ Add a plane:
 }
 ```
 
+### Change plane colors and range
+
 Edit or remove planes only with IDs returned by
 `describe().analysis.volumetricPlanes`:
 
@@ -331,7 +373,9 @@ Edit or remove planes only with IDs returned by
 }
 ```
 
-Combine fields:
+### Subtract fragment fields
+
+Combine fields. `name` selects the command and `resultName` labels the output:
 
 ```json
 {
@@ -340,7 +384,7 @@ Combine fields:
     "name": "combine-volumetric",
     "datasetIds": ["COMBINED", "FRAGMENT_A", "FRAGMENT_B"],
     "coefficients": [1, -1, -1],
-    "name": "charge-density difference",
+    "resultName": "charge-density difference",
     "precision": "fp64"
   }
 }

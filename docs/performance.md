@@ -1,5 +1,10 @@
 # Rendering Performance
 
+```{contents} On this page
+:local:
+:depth: 1
+```
+
 ## Performance Rules
 
 v_ase keeps the lightweight viewer path independent from optional editing and

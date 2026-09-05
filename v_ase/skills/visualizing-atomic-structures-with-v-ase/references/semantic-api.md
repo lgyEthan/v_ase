@@ -155,6 +155,17 @@ await ai.apply({
 
 ### Persistent Render Area
 
+To frame a large active commensurate proposal, send
+`camera:{fit:"commensurate"}` after creating the proposal. This uses the visible
+preview bounds, including parent grids and optional atoms. GUI users have
+**Fit Preview in View**. Creating a proposal preserves the existing camera;
+the halo adapts to the parent-lattice window and is not fixed to one cell.
+`analysis.commensurate.currentAngleDeg` reports the active proposal angle.
+`rotate-to-commensurate` requires a proper selected subset with at least one
+host atom remaining. Commensurate CSV includes plotted reference candidates;
+filter its `within_area_limit` column before treating a row as inside the
+current materialization area bound.
+
 Image, video, and standalone HTML share one independently stored Render Area
 camera. Capture the current viewport and then keep it fixed while the human
 continues editing or orbiting the working view:
@@ -295,7 +306,7 @@ Pass `operation` as a name string or object:
 | `add-volumetric-plane` | `datasetId`, `hkl`, optional plane controls | Add one cell-clipped scalar-field plane |
 | `update-volumetric-planes` | `planeIds`, optional plane controls | Atomically edit one or more scalar-field planes |
 | `remove-volumetric-planes` | `planeIds` | Atomically remove one or more scalar-field planes |
-| `combine-volumetric` | `datasetIds`, `coefficients`, optional `name`, `precision` | Create a linear grid combination |
+| `combine-volumetric` | `datasetIds`, `coefficients`, optional `resultName`, `precision` | Create a linear grid combination |
 | `remove-volumetric` | `datasetId` | Remove one grid from the document |
 | `calculate-rdf` | optional `cutoff`, `bins`, `pairMode`, `activePairs` | Calculate a bulk RDF for full 3D PBC, or an unordered-pair probability density for a finite no-PBC structure |
 | `set-atom-colorscale` | optional `enabled`, `field`, `map`, `customMap`, `reverse`, `scope`, `indices`, `rangeMode`, `minimum`, `maximum`, `gamma` | Lazily color all or selected atoms by a discovered numeric per-atom value with a trajectory-consistent range and preset or custom map; explicit indices freeze a selected subset |
@@ -381,9 +392,14 @@ need one dimensionless contact multiplier. `cutoff_distance` is the global
 absolute fallback when no pair table is supplied. Below either onset,
 `E_pair = 0.5 * k_repulsion * (r_cut - r)^2`; energy and force are exactly zero
 at and beyond `r_cut`. This is not a hard minimum-separation constraint. Read
-`describe().calculator.details` after applying the command and verify
-`cutoff_mode`, `cutoff_basis`, `pair_cutoffs`, the active cutoff field, and
-`k_repulsion` before trusting the run.
+`describe --profile structure` after applying the command. For ordinary
+document relaxation, verify `calculator.details`. During Add Atoms placement,
+verify `addAtoms` instead: its `cutoff_mode`, `cutoff_basis`, `pair_cutoffs`,
+`cutoff_scale`, `cutoff_distance`, `k_repulsion`, `requested_device`,
+`effective_device`, `cpu_threads`, and `calculator_backend` describe the staged
+run. `calculator.detailsScope` is `document`; `placementDetailsPath:"addAtoms"`
+identifies the placement settings. The document's original calculator remains
+attached to preserve host state and need not match the temporary optimizer.
 The required matscipy backend filters enabled label-pair candidates in compiled
 code. Treat this as a performance detail: the semantic cutoff table, MIC
 behavior, harmonic energy, forces, and disabled-pair behavior above remain the
@@ -1125,7 +1141,7 @@ Transform and commensurate settings:
 | `commensurateMaxIndex` | integer search bound |
 | `commensurateMaxAreaRatio` | maximum proposed common-cell area ratio; default `16`, valid range `1..128` |
 | `commensurateSnapRangeDeg` | angular snap window |
-| `commensurateShowAtoms` | include preview atoms and one-cell boundary-bond halo; default false |
+| `commensurateShowAtoms` | include preview atoms and adaptive boundary-bond halo; default false |
 | `commensurateGuestAngleDeg` | selected or loaded guest rotation about global Z |
 | `commensurateGuestOffset` | guest Cartesian display/materialization offset |
 | `registryMetric` | `"short-contact"` or `"bond-strain"` |
@@ -1366,13 +1382,16 @@ await ai.apply({
     name: "combine-volumetric",
     datasetIds: [combinedId, fragmentAId, fragmentBId],
     coefficients: [1, -1, -1],
-    name: "charge-density difference",
+    resultName: "charge-density difference",
     precision: "fp64"
   }
 });
 ```
 
-The source grids must have identical dimensions, cell, origin, PBC, and units.
+`name` is reserved for the operation selector; `resultName` names the resulting
+dataset. Never send duplicate `name` keys.
+The source grids must have identical dimensions, cell, origin, PBC,
+endpoint conventions, and units.
 When `precision` is omitted, the output promotes to FP64 if any input is FP64;
 otherwise it remains FP32. Do not resample or combine mismatched grids
 silently. Use `remove-volumetric` with `datasetId` to discard a dataset.
@@ -1621,3 +1640,49 @@ v_ase api "$COMMAND_URL" newDocument
 
 Each document has independent structure, trajectory, display, camera, history,
 and `.vase` output. Call `documents()` before switching.
+
+## Scientific interpretation (0.3.1)
+
+Trajectory `describe` with the structure/full profile reads stored properties
+for the displayed source frame independently of whether force arrows are on.
+`includeProperties:true` returns exact stored arrays; the compact structure
+profile returns counts only. This never evaluates a calculator. If playback
+changes the frame during the read, pause playback and retry. Saved visible
+volumetric planes are sampled during document initialization before `ready`
+completes, so the first project render includes their rasters.
+
+- **Initial distributions:** random is volume-uniform; homogeneous uses greedy
+  maximin on scrambled Sobol candidates through 1,024 entities and a bounded
+  low-discrepancy sequence above that. It is correlated and supplies neither
+  an ideal-gas ensemble nor a hard separation guarantee. Cartesian and
+  fractional spacing are different metrics. Multiple entry species receive a
+  seeded site permutation without changing label/entry order.
+- **Repulsion:** default forces are the negative gradient of the harmonic
+  overlap energy. Periodic interactions include all images inside the onset,
+  including self images; the legacy `mic` option enables this periodic sum.
+  Rigid molecules exclude reference intramolecular pairs, but interact with
+  periodic copies. Python `max_force_norm` defaults to `None`; an explicit
+  limiter breaks energy/force consistency. Exact overlaps use deterministic
+  symmetry breaking. Inspect pair distances as well as `fmax`, because forces
+  can cancel and a self-image overlap cannot relax at fixed cell. Repulsion is
+  a geometry initializer, not a physical interatomic potential.
+- **Commensurate cells:** host and guest periodic normals must align with
+  global Z within `1 - abs(dot(normal,Z)) <= 1e-10`. Maximum principal stretch
+  controls acceptance; Paper strain projection is a basis-dependent
+  small-strain display descriptor. The bounded HNF/reduced-basis search is a
+  published-method adaptation with a finite orientation set and 0.01° bucket
+  ranking, not an exhaustive energetic interface search.
+- **RDF:** bins must be integers from 8 to 5000. The final cutoff edge is
+  inclusive within floating-point tolerance. All periodic images are counted;
+  partials reconstruct the total by concentration weighting. With the N²/V
+  convention, an independent finite-N random cell has expected (N-1)/N below
+  the unique-image cutoff. A finite no-PBC curve integrates to one only at a
+  full pair cutoff. Partial PBC is rejected; adding vacuum to a fully periodic
+  slab changes bulk normalization and is not a boundary correction.
+- **Fields:** combinations accumulate bounded FP64 slabs then cast once to
+  output precision. Import FP64 before subtracting weak differences. For
+  endpoint-inclusive integration, periodic closing planes are excluded once
+  and finite boundaries have trapezoidal half weights. Gaussian sigma is in
+  voxels, not isotropic physical Å; mesh smoothing is a display approximation.
+  Disable both refinements to inspect the raw-grid surface. Neither changes
+  source arrays, source integrals, or the inputs to a field combination.

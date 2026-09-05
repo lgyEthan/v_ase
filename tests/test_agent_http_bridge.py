@@ -77,6 +77,164 @@ def _stable_description(url: str, *, timeout: float = 5.0):
     return latest
 
 
+def test_cli_combines_fields_with_a_result_name_and_preserves_source_values():
+    from v_ase.volumetric import VolumetricData
+    cell = np.eye(3) * 5
+    atoms = Atoms("He", cell=cell, pbc=True)
+    datasets = [VolumetricData(str(value), np.full((3, 3, 3), value), cell) for value in (1e8, 1, 1e8)]
+    editor = view(atoms, block=False, open_browser=False, close_on_disconnect=False,
+                  volumetric_datasets=datasets, port=find_free_port())
+    handshake = ai_handshake(editor.url)
+    url = handshake["command_url"]
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            page = browser.new_page()
+            page.goto(handshake["human_url"])
+            page.wait_for_function("window.v_aseAI")
+            schema = _run_cli_command(url, "schema", {"profile": "full"})
+            assert "resultName" in schema["operation_parameters"]["combine-volumetric"]["optional"]
+            state = _run_cli_command(url, "describe", {"profile": "analysis"})
+            ids = [grid["id"] for grid in state["analysis"]["volumetricDatasets"]]
+            result = _run_cli_command(url, "apply", {
+                "expectedRevision": state["collaboration"]["revision"],
+                "operation": {"name": "combine-volumetric", "datasetIds": ids,
+                              "coefficients": [1, 1, -1], "resultName": "Cancellation audit"},
+            })
+            grids = result["analysis"]["volumetricDatasets"]
+            assert grids[-1]["name"] == "Cancellation audit"
+            assert grids[-1]["integral"] == pytest.approx(125)
+            assert len(grids) == 4
+            assert [grid["mean"] for grid in grids[:3]] == [1e8, 1, 1e8]
+            browser.close()
+    finally:
+        editor.close()
+
+
+def test_cli_reads_exact_stored_trajectory_properties_with_force_arrows_hidden():
+    from ase.calculators.singlepoint import SinglePointCalculator
+    frames = []
+    for index in range(3):
+        atoms = Atoms("HHe", positions=[[index * 0.1, 0, 0], [1, 1, 1]], cell=[5]*3, pbc=True)
+        atoms.set_tags([index, index + 1])
+        atoms.set_initial_charges([index * 0.25, -index * 0.25])
+        atoms.calc = SinglePointCalculator(atoms, forces=np.full((2, 3), index * 0.123456789012345))
+        frames.append(atoms)
+    editor = view(frames, block=False, open_browser=False, close_on_disconnect=False, port=find_free_port())
+    handshake = ai_handshake(f"http://127.0.0.1:{editor.port}/?session_id={editor.session_id}")
+    url = handshake["command_url"]
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            page = browser.new_page()
+            page.goto(handshake["human_url"])
+            page.wait_for_function("window.v_aseAI")
+            initial = _stable_description(url)
+            _run_cli_command(url, "apply", {"expectedRevision": initial["collaboration"]["revision"], "frame": 2})
+            state = _run_cli_command(url, "describe", {"profile": "structure", "includeProperties": True})
+            assert state["frame"] == 2
+            np.testing.assert_allclose(state["forces"], frames[2].calc.results["forces"], rtol=0, atol=1e-15)
+            assert state["tags"] == [2, 3]
+            assert state["charges"] == [0.5, -0.5]
+            assert state["propertyCounts"]["forces"] == 2
+            assert page.evaluate("window.__ASE_APP__.state.display.showForceVectors") is False
+            # The vector/scalar analysis path must also retain a stored calculator.
+            payload = requests.post(f"http://127.0.0.1:{editor.port}/api/analysis/force-vectors/{editor.session_id}",
+                                    json={"frame_index": 2, "all_frames": True}, timeout=30)
+            assert payload.status_code == 200
+            assert np.isfinite(np.frombuffer(payload.content, dtype=np.float32)).all()
+            browser.close()
+    finally:
+        editor.close()
+
+
+def test_saved_project_renders_its_visible_volumetric_plane_on_initial_load(tmp_path):
+    from v_ase.volumetric import VolumetricData
+    cell = np.eye(3) * 8
+    values = np.broadcast_to(np.linspace(0, 1, 8)[:, None, None], (8, 8, 8)).copy()
+    dataset = VolumetricData("Plane reference", values, cell)
+    editor = view(Atoms("He", positions=[[4, 4, 4]], cell=cell, pbc=True),
+                  volumetric_datasets=[dataset], block=False, open_browser=False,
+                  close_on_disconnect=False, port=find_free_port())
+    restored = None
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            page = browser.new_page()
+            handshake = ai_handshake(f"http://127.0.0.1:{editor.port}/?session_id={editor.session_id}")
+            page.goto(handshake["human_url"])
+            page.wait_for_function("window.v_aseAI")
+            initial = _stable_description(handshake["command_url"])
+            state = _run_cli_command(handshake["command_url"], "apply", {
+                "expectedRevision": initial["collaboration"]["revision"],
+                "operation": {"name": "add-volumetric-plane", "datasetId": dataset.dataset_id,
+                              "hkl": [0, 0, 1], "offsetAngstrom": 4, "resolution": 128},
+            })
+            saved = _post_command(handshake["command_url"], "export", {"format": "project"})["result"]
+            path = tmp_path / "plane.vase"
+            path.write_bytes(base64.b64decode(saved["dataUrl"].split(",", 1)[1]))
+            restored = view(str(path), block=False, open_browser=False, close_on_disconnect=False, port=find_free_port())
+            reopened = browser.new_page()
+            second = ai_handshake(f"http://127.0.0.1:{restored.port}/?session_id={restored.session_id}")
+            reopened.goto(second["human_url"])
+            reopened.wait_for_function("window.v_aseAI")
+            _run_cli_command(second["command_url"], "ready")
+            assert reopened.evaluate("window.__ASE_APP__.renderer.volumetricPlanes.size") == 1
+            assert reopened.evaluate("[...window.__ASE_APP__.renderer.volumetricPlanes.values()][0].group.visible") is True
+            render = _post_command(second["command_url"], "render", {"width": 640, "height": 480})["result"]
+            pixels = Image.open(io.BytesIO(base64.b64decode(render["dataUrl"].split(",", 1)[1]))).convert("RGB")
+            rgb = np.asarray(pixels)
+            assert np.count_nonzero((rgb[:, :, 1] > rgb[:, :, 0] + 20) & (rgb[:, :, 1] > rgb[:, :, 2])) > 500
+            browser.close()
+    finally:
+        if restored is not None:
+            restored.close()
+        editor.close()
+
+
+def test_commensurate_cli_reports_the_proposal_angle_and_can_fit_its_preview():
+    cell = [[2.46, 0, 0], [1.23, 2.46 * np.sqrt(3) / 2, 0], [0, 0, 12]]
+    atoms = Atoms("C4", scaled_positions=[[0, 0, .2], [1/3, 1/3, .2], [0, 0, .5], [1/3, 1/3, .5]],
+                  cell=cell, pbc=[True, True, False])
+    editor = view(atoms, viz_only=False, block=False, open_browser=False,
+                  close_on_disconnect=False, port=find_free_port())
+    handshake = ai_handshake(f"http://127.0.0.1:{editor.port}/?session_id={editor.session_id}")
+    url = handshake["command_url"]
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            page = browser.new_page(viewport={"width": 1000, "height": 800})
+            page.goto(handshake["human_url"])
+            page.wait_for_function("window.v_aseAI")
+            state = _stable_description(url)
+            rotated = _run_cli_command(url, "apply", {
+                "expectedRevision": state["collaboration"]["revision"],
+                "selection": {"indices": [2, 3]},
+                "operation": {"name": "rotate-to-commensurate", "indices": [2, 3],
+                              "angleDeg": 21.2, "maxAreaRatio": 16, "showAtoms": True},
+            })
+            assert rotated["analysis"]["commensurate"]["currentAngleDeg"] == pytest.approx(21.7867893, abs=1e-6), page.evaluate("JSON.stringify(window.__ASE_APP__.state.commensurateProposal?.context)")
+            settled = _stable_description(url)
+            analysis = _run_cli_command(url, "describe", {"profile": "analysis"})
+            assert analysis["analysis"]["commensurate"]["currentAngleDeg"] == pytest.approx(21.7867893, abs=1e-6), page.evaluate("JSON.stringify(window.__ASE_APP__.state.commensurateProposal?.context)")
+            assert page.evaluate("window.__ASE_APP__.state.commensurateProposal.context.positionsIncludeDisplayRotation") is True
+            _run_cli_command(url, "apply", {
+                "expectedRevision": settled["collaboration"]["revision"],
+                "camera": {"fit": "commensurate"},
+            })
+            assert page.evaluate("""() => {
+                const app = window.__ASE_APP__;
+                const box = app.renderer.commensuratePreviewBounds(app.state.commensurateProposal.data.preview);
+                return app.renderer.boxCorners(box).every(point => {
+                    point.project(app.renderer.camera);
+                    return Math.abs(point.x) <= 1.001 && Math.abs(point.y) <= 1.001;
+                });
+            }""")
+            browser.close()
+    finally:
+        editor.close()
+
+
 def test_external_cli_composes_a_periodic_reference_view_without_structure_edits():
     atoms = Atoms(
         "Cu4O2",
@@ -360,6 +518,14 @@ def test_external_cli_agent_repeats_shared_relaxation_and_commits_staged_content
                 )
             assert placed["addAtoms"]["is_relaxing"] is False
             assert placed["addAtoms"]["status"] != "error"
+
+            placement_state = _run_cli_command(command_url, "describe", {"profile": "structure"})
+            assert placement_state["calculator"]["detailsScope"] == "document"
+            assert placement_state["calculator"]["placementDetailsPath"] == "addAtoms"
+            assert placement_state["addAtoms"]["cpu_threads"] == 1
+            assert placement_state["addAtoms"]["cutoff_mode"] == "scaled"
+            assert placement_state["addAtoms"]["cutoff_scale"] == pytest.approx(0.7)
+            assert placement_state["addAtoms"]["k_repulsion"] == pytest.approx(2.0)
 
             placed = _stable_description(command_url)
             appended = _run_cli_command(command_url, "apply", {

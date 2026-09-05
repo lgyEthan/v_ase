@@ -3,6 +3,11 @@
 This document records the equations, acceptance criterion, reference fixtures,
 and performance boundary used by the v_ase commensurate-cell workspace.
 
+```{contents} On this page
+:local:
+:depth: 1
+```
+
 ## Scope
 
 The validated workflow matches two periodic vectors in the global XY plane and
@@ -35,8 +40,19 @@ D_g = (G Q)^-1 H.
 ```
 
 The implementation checks equivalent determinant-one reduced-basis
-orientations. Thus changing an input cell by an equivalent unimodular integer
-basis does not create or remove a physical match.
+orientations. Regression fixtures verify that equivalent unimodular input
+bases recover the same physical matches in the tested cases.
+
+This is an adaptation of the cited methods: HNF enumeration, Gauss reduction,
+and a finite orientation set replace the paper's integer-entry search and
+alignment construction. The graph retains a ranked representative per 0.01°
+bucket. The tests establish the listed analytic cases and agreement with
+unscreened enumeration of this orientation set; they are not a proof of
+completeness over arbitrary deformations or all lattice representations.
+
+Since 0.3.1, plane alignment requires a normal dot product of at least
+`1 − 1e-10`. The former `0.985` bound admitted visibly tilted periodic cells,
+which could hide out-of-plane deformation in a projected match.
 
 ## Two Strain Values
 

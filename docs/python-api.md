@@ -3,35 +3,25 @@
 The primary Python API accepts ASE objects, sequences of frames, and supported
 paths. It copies caller-owned data before creating a document.
 
+```{contents} On this page
+:local:
+:depth: 1
+```
+
 ## `view()`
 
 ```python
-from v_ase.visualize import view
+from ase.build import molecule
+from v_ase import view
 
-result = view(
-    atoms_or_frames_or_path,
-    notebook=None,
-    block=True,
-    port=None,
-    show_cell=True,
-    show_axes=True,
-    show_bonds=True,
-    respect_constraints=True,
-    allow_relax=True,
-    viz_only=True,
-    theme="auto",
-    return_mode="atoms",
-    trajectory_source=None,
-    initial_frame=0,
-    initial_design_settings=None,
-    document_name=None,
-    close_on_disconnect=True,
-    open_browser=True,
-    stream_trajectory=False,
-    volumetric_datasets=None,
-    volumetric_precision="fp32",
-)
+# Open an ASE structure for inspection; close the browser to return.
+view(molecule("H2O"))
 ```
+
+Start with a complete example below. The full signature is collected at the
+end of this page for argument lookup. Most calls need only the structure and,
+for coordinate editing, `viz_only=False`.
+
 
 The same public objects are lazily available from `v_ase`:
 
@@ -210,3 +200,37 @@ interactive conditioning, not as a predictive chemical potential.
 
 For the underlying local HTTP routes and calculator configuration details, see
 [Public API](api.md).
+
+## Complete view signature
+
+This is an argument reference, not a runnable example: replace
+`atoms_or_frames_or_path` with your ASE object or file path. The sections above
+explain the effect of each group of arguments.
+
+```python
+from v_ase.visualize import view
+
+result = view(
+    atoms_or_frames_or_path,
+    notebook=None,
+    block=True,
+    port=None,
+    show_cell=True,
+    show_axes=True,
+    show_bonds=True,
+    respect_constraints=True,
+    allow_relax=True,
+    viz_only=True,
+    theme="auto",
+    return_mode="atoms",
+    trajectory_source=None,
+    initial_frame=0,
+    initial_design_settings=None,
+    document_name=None,
+    close_on_disconnect=True,
+    open_browser=True,
+    stream_trajectory=False,
+    volumetric_datasets=None,
+    volumetric_precision="fp32",
+)
+```

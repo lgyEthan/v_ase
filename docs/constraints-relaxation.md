@@ -4,6 +4,11 @@ v_ase uses ASE as the authority for constrained coordinates and optimizer
 state. Constraint graphics explain permitted motion, but they do not replace
 the underlying ASE constraint or change its force law.
 
+```{contents} On this page
+:local:
+:depth: 1
+```
+
 ## Constraint enforcement
 
 Open **Structure > Constraints** in Edit. **Apply constraints** is enabled by

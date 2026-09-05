@@ -11,6 +11,11 @@ built-in repulsion examples remove short contacts; they are not predictive
 energy calculations.
 :::
 
+```{contents} On this page
+:local:
+:depth: 1
+```
+
 ## Rotate a ligand around an active atom
 
 Open the idealized ferrocene trajectory in Edit:

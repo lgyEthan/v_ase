@@ -66,6 +66,8 @@ TBG_COMMENSURATE_REFERENCE = {
 }
 
 MAX_LATTICE_MATCH_AREA_RATIO = 128
+# A geometric match must not silently flatten a tilted periodic plane.
+_PLANE_ALIGNMENT_MIN = 1.0 - 1e-10
 
 
 ProgressCallback = Callable[[float, str], None]
@@ -504,12 +506,12 @@ def enrich_supercell_candidate(
     target_area = abs(int(round(np.linalg.det(target_2d))))
     supported = bool(
         finite_deformation
-        and axis_alignment >= 0.985
+        and axis_alignment >= _PLANE_ALIGNMENT_MIN
         and source_area > 0
         and source_area == target_area
     )
     reason = None
-    if axis_alignment < 0.985:
+    if axis_alignment < _PLANE_ALIGNMENT_MIN:
         reason = "The locked axis must be normal to the periodic plane before a common cell can be materialized."
     elif source_area <= 0 or source_area != target_area:
         reason = "The source and reference supercells must have the same positive area."
@@ -1443,8 +1445,8 @@ def _lattice_match_candidate(
     ))
     cell_angle = float(np.degrees(np.arccos(np.clip(cosine, -1.0, 1.0))))
     supported = bool(
-        host_projected.axis_alignment >= 0.985
-        and guest_projected.axis_alignment >= 0.985
+        host_projected.axis_alignment >= _PLANE_ALIGNMENT_MIN
+        and guest_projected.axis_alignment >= _PLANE_ALIGNMENT_MIN
         and host_area > 0
         and guest_area > 0
         and np.all(np.isfinite(common_cell))
@@ -1698,7 +1700,7 @@ def find_lattice_matches(
         normal,
         frame,
     )
-    if host_projected.axis_alignment < 0.985 or guest_projected.axis_alignment < 0.985:
+    if host_projected.axis_alignment < _PLANE_ALIGNMENT_MIN or guest_projected.axis_alignment < _PLANE_ALIGNMENT_MIN:
         raise ValueError(
             "Commensurate host/guest matching is restricted to cells whose two "
             "periodic vectors lie in the XY plane."
@@ -1852,6 +1854,7 @@ def commensurate_csv(search: dict) -> bytes:
     writer.writerow(["# axis", str(search.get("axis") or "Z")])
     writer.writerow(["# strain_tolerance", f"{float(search.get('strain_tolerance', 0.0)):.12g}"])
     writer.writerow(["# max_area_ratio", int(search.get("max_area_ratio", 0) or 0)])
+    writer.writerow(["# candidate_scope", "plotted reference series; use within_area_limit to filter materialization bounds"])
     for reference in search.get("references") or COMMENSURATE_REFERENCES:
         citation = str(reference.get("title") or "").strip()
         doi = str(reference.get("doi") or "").strip()
@@ -1877,6 +1880,7 @@ def commensurate_csv(search: dict) -> bytes:
         "host_matrix",
         "guest_matrix",
         "strain_target",
+        "within_area_limit",
     ])
     for candidate in search.get("candidates") or []:
         writer.writerow([
@@ -1899,6 +1903,11 @@ def commensurate_csv(search: dict) -> bytes:
             str(candidate.get("host_matrix", candidate.get("target_matrix", ""))),
             str(candidate.get("guest_matrix", candidate.get("source_matrix", ""))),
             str(candidate.get("strain_target", "guest")),
+            int(
+                not search.get("max_area_ratio")
+                or int(candidate.get("area_ratio", candidate.get("area", 0)))
+                <= int(search["max_area_ratio"])
+            ),
         ])
     return stream.getvalue().encode("utf-8")
 
@@ -2036,7 +2045,7 @@ def find_commensurate_angles(
             "guest_notation": candidate["source_notation"],
         })
     warning = None
-    if projected.axis_alignment < 0.985:
+    if projected.axis_alignment < _PLANE_ALIGNMENT_MIN:
         warning = (
             "The locked global axis is not normal to the selected periodic cell plane; "
             "candidates use its orthogonal projection."

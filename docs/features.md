@@ -1,5 +1,10 @@
 # Architecture And Feature Contracts
 
+```{contents} On this page
+:local:
+:depth: 1
+```
+
 ## Application Model
 
 v_ase is a local FastAPI application with a Three.js frontend. A document maps

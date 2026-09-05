@@ -4,6 +4,11 @@ v_ase can display a lightweight interactive model inside Jupyter, open the full
 workspace in an external browser, or keep file I/O and analysis beside data on
 an SSH host.
 
+```{contents} On this page
+:local:
+:depth: 1
+```
+
 ## Jupyter auto-detection
 
 Inside an active Jupyter kernel, the default `view(atoms)` result is a view-only

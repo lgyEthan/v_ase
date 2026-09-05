@@ -1653,6 +1653,12 @@ class AdditionRepulsionCalculator(VAseRepulsionCalculator):
             pair for pair in pairs
             if self._rigid_group_by_atom.get(int(pair[0]), -1)
             != self._rigid_group_by_atom.get(int(pair[1]), -2)
+            # Only the reference molecule's internal pairs are excluded.
+            # Its periodic copies are distinct molecules and must repel.
+            or not np.allclose(
+                pair[2], atoms.positions[pair[1]] - atoms.positions[pair[0]],
+                rtol=0, atol=1e-10,
+            )
         ]
 
     def _boundary_energy_forces(self, atoms: Atoms):
@@ -1801,6 +1807,7 @@ class AtomAdditionSession:
     molecule_names: list[str] = field(default_factory=list)
     molecule_group_ids: list[int] = field(default_factory=list)
     density: dict[str, Any] | None = None
+
     freeze_existing: bool = True
     is_relaxing: bool = False
     stop_requested: bool = False
@@ -2039,6 +2046,17 @@ def start_atom_addition(session: Any, payload: dict[str, Any]) -> dict[str, Any]
     )
     seed = _random_seed(payload.get("seed"))
     random_orientation = bool(payload.get("random_orientation", True))
+
+    def mix_sites(sites, entries, sampling):
+        # Grid order and greedy maximin rank are spatially correlated. Assign
+        # species to a seeded permutation of sites, retaining entry/atom order
+        # for stable labels and rigid molecule groups.
+        if len(entries) > 1:
+            assignment_seed = seed if seed is not None else (None if placement_mode == "random" else 0)
+            sites = sites[np.random.default_rng(assignment_seed).permutation(len(sites))]
+            sampling["species_assignment"] = "seeded-site-permutation"
+        return sites
+
     rigid_molecules = bool(payload.get("rigid_molecules", True))
     molecule_groups: list[list[int]] = []
     molecule_references: list[np.ndarray] = []
@@ -2070,6 +2088,7 @@ def start_atom_addition(session: Any, payload: dict[str, Any]) -> dict[str, Any]
             seed=seed,
             regular_spacing=regular_spacing,
         )
+        anchors = mix_sites(anchors, entries, sampling)
         expanded = expand_molecules(
             entries,
             anchors,
@@ -2101,6 +2120,7 @@ def start_atom_addition(session: Any, payload: dict[str, Any]) -> dict[str, Any]
             seed=seed,
             regular_spacing=regular_spacing,
         )
+        positions = mix_sites(positions, entries, sampling)
     sampling["entity_count"] = int(entity_count)
     sampling["content_kind"] = content_kind
 
@@ -2503,7 +2523,7 @@ def _temporary_optimizer_atoms(
         cutoff_mode=cutoff_mode,
         cutoff_distance=cutoff_distance,
         cutoff_scale=cutoff_scale,
-        max_force_norm=10.0,
+        max_force_norm=None,
         mic=bool(mic and addition.domain.cell is not None),
         work_on_relax_atoms_too=not addition.freeze_existing,
         cell_region=False,

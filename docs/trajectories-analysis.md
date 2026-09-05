@@ -5,6 +5,11 @@ properties, vectors, volumetric assignments, and plotted analyses synchronized.
 This page covers source and optimizer timelines, displacement, stored forces,
 per-atom property coloring, and radial or finite pair distributions.
 
+```{contents} On this page
+:local:
+:depth: 1
+```
+
 ## Open a trajectory
 
 ```bash
@@ -119,6 +124,11 @@ not the stored displacement.
 
 ## Stored force vectors
 
+Stored SinglePointCalculator forces are retained when frames are copied for
+analysis. Semantic structure/full descriptions read the displayed frame's
+exact stored properties even when force arrows are hidden; compact descriptions
+return property counts, and `includeProperties:true` requests the arrays.
+
 Open **Analysis > Forces** and enable **Show vectors**. Choose 3D/2D style,
 length scale, thickness, and color.
 
@@ -207,6 +217,9 @@ colorscale work.
 
 ## Radial and finite pair distributions
 
+See the dedicated [RDF guide](rdf.md) for equations, finite-size effects,
+cutoff boundaries, and a complete Python-to-CSV example.
+
 Open **Analysis > Radial / Pair Distribution**. v_ase selects the scientifically
 defined quantity from boundary conditions:
 
@@ -219,8 +232,10 @@ periodic images inside the requested sphere and reports the actual image
 extent/span; it is not limited to a fixed `2 x 2 x 2` display supercell.
 
 The Plotly graph includes a dotted `g(r) = 1` bulk reference. A sufficiently
-large homogeneous periodic model should approach that reference at long
-range.
+large independent random periodic model approaches that reference in an
+ensemble average. A finite sample has fluctuations and the conventional
+normalization has a finite-N exclusion effect; homogeneous placement is a
+correlated initialization, not an ideal-gas reference.
 
 ### Finite nonperiodic structures
 

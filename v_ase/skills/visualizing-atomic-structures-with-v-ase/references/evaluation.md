@@ -274,7 +274,7 @@ Run all scenarios, not only static document checks:
    - rotate a selected graphene layer near `21.2` degrees with
      `rotate-to-commensurate`; verify exact `21.786789` degrees, area ratio 7,
      zero boundary strain, positive-determinant source/target matrices,
-     `(√7 × √7)` notation, opaque core, and one-cell shell;
+     `(√7 × √7)` notation, opaque core, and adaptive parent-lattice shell;
    - project the complete proposal bounds through the live camera and verify
      they remain inside the viewport, then dismiss and verify camera restore;
    - set `maxAreaRatio` to 6 and verify the area-7 proposal is rejected;
@@ -310,7 +310,7 @@ Run all scenarios, not only static document checks:
      strain values, and 38 atoms; verify absolute
      and parent-traversal paths are rejected, and compare guest-strain and
      host-strain matches without conflating their integer matrices;
-   - enable atom preview and verify opaque host/guest cores, one-cell shells,
+   - enable atom preview and verify opaque host/guest cores, adaptive parent-lattice shells,
      and boundary bonds while host, guest, and common cells remain visually
      distinct;
    - verify non-Z commensurate rotation is rejected, global-Z rotation updates
@@ -678,7 +678,7 @@ Every browser render test must check:
 - a resolved commensurate common-cell preview shows complete host and guest primitive
   lattices extending at least one primitive cell beyond the highlighted common
   cell, readable grid dimensions and paper-style notation, plus opaque atoms,
-  a one-cell halo, and boundary-crossing bonds when atom preview is enabled;
+  an adaptive parent-lattice halo, and boundary-crossing bonds when atom preview is enabled;
 - an unmatched direct commensurate angle shows no green common cell and keeps
   the black host and orange guest parent lattices visually dominant;
 - the commensurate candidate graph reads as a 3D coordinate system with angle
@@ -746,3 +746,15 @@ Do not release when:
 - clean-wheel installation or `v_ase` entry point fails;
 - GitHub, PyPI, README, skill, and renderer assets would describe different
   versions.
+
+## 0.3.1 scientific regression gate
+
+Run `tests/test_scientific_audit.py` and the CLI field-combination regression.
+Require analytic energy gradients with default settings, periodic replication
+extensivity including self images, intermolecular periodic contacts, seeded
+species assignment, exact RDF cutoff edges and integer validation, finite-axis
+trapezoidal integration, cancellation-aware slab arithmetic, and rejection of
+tilted host/guest planes. Execute the documented `combine-volumetric` request
+with `resultName` through the HTTP bridge and verify its output name, integral,
+and unchanged source fields. Parse documentation JSON with duplicate-key
+rejection so an operation selector cannot be overwritten by a dataset name.

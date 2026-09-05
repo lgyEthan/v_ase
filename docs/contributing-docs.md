@@ -5,6 +5,11 @@ after-release artifact. User documentation, implementation behavior, the
 canonical agent control contract, rendered examples, package metadata, and
 the published Read the Docs version must describe the same tested release.
 
+```{contents} On this page
+:local:
+:depth: 1
+```
+
 ## Documentation stack
 
 The site uses:
@@ -235,7 +240,7 @@ remains mandatory. See [Release checklist](release_checklist.md).
 ## Documentation pull-request checklist
 
 - [ ] The page is in the correct toctree and has one clear audience.
-- [ ] Commands were checked against v_ase 0.2.36 or the version being released.
+- [ ] Commands were checked against v_ase 0.3.1 or the version being released.
 - [ ] Local links, anchors and image paths resolve.
 - [ ] HTML builds with warnings as errors.
 - [ ] Live WebGL demos load, interact, and retain static PDF/ePub fallbacks.

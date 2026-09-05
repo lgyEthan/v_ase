@@ -1691,7 +1691,7 @@ AI_CONTROL_SCHEMA = {
                     "maxItems": 3,
                 },
                 "projection": {"enum": ["orthographic", "perspective"]},
-                "fit": {"enum": ["structure"]},
+                "fit": {"enum": ["structure", "commensurate"]},
                 "orbit": {
                     "type": "object",
                     "required": ["direction"],
@@ -2344,10 +2344,12 @@ AI_OPERATION_PARAMETERS = {
     "combine-volumetric": {
         "mode": "view-or-edit",
         "required": ["datasetIds", "coefficients"],
-        "optional": ["name", "precision"],
+        "optional": ["resultName", "precision"],
         "notes": (
             "All grids must have matching dimensions, cell, origin, PBC, and "
-            "units. Output precision defaults to the highest input precision."
+            "units and endpoint conventions. resultName names the output; name "
+            "is reserved for the operation. Accumulation uses float64 slabs; "
+            "output precision defaults to the highest input precision."
         ),
     },
     "remove-volumetric": {
@@ -6717,9 +6719,15 @@ def _analysis_frame_atoms(session: EditorSession, frame_index: int):
 
 
 def _atom_scalar_frame_atoms(session: EditorSession, frame_index: int):
-    if frame_index == session.current_frame:
-        return session.working_atoms.copy()
-    return _analysis_frame_atoms(session, frame_index)
+    # Atoms.copy() drops SinglePointCalculator results. Read-only scalar and
+    # force analysis must retain stored results, without running a calculator.
+    source = _stored_atom_property_frame_atoms(session, frame_index)
+    copied = source.copy()
+    # Some analyses replace the copy's positions with the displayed frame.
+    # Preserve that isolation while borrowing stored results for read-only
+    # property access; do not reconstruct/reset a repulsion calculator here.
+    copied.calc = source.calc
+    return copied
 
 
 def _stored_atom_property_frame_atoms(session: EditorSession, frame_index: int):
@@ -6929,6 +6937,44 @@ async def per_atom_scalar_catalog(session_id: str, frame_index: int | None = Non
 
     try:
         return await asyncio.to_thread(discover)
+    except (IndexError, TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/analysis/frame-properties/{session_id}")
+async def stored_frame_properties(
+    session_id: str, frame_index: int | None = None, include_arrays: bool = False,
+):
+    """Read exact stored frame properties without evaluating a calculator."""
+    session = get_session(session_id)
+
+    def inspect():
+        with session.mode_transition_lock:
+            index = session.current_frame if frame_index is None else int(frame_index)
+            atoms = _stored_atom_property_frame_atoms(session, index)
+            forces = atom_force_vectors(atoms)
+            arrays = {
+                "tags": atoms.get_tags(),
+                "charges": atoms.get_initial_charges(),
+                "magmoms": atoms.get_initial_magnetic_moments(),
+            }
+            counts = {
+                "tags": len(atoms),
+                "charges": int(np.count_nonzero(np.isfinite(arrays["charges"]))),
+                "magneticMoments": int(np.count_nonzero(np.isfinite(arrays["magmoms"]))),
+                "forces": 0 if forces is None else int(np.count_nonzero(np.all(np.isfinite(forces), axis=1))),
+            }
+            result = {"frame_index": index, "atom_count": len(atoms), "property_counts": counts}
+            if include_arrays:
+                arrays["forces"] = np.full((len(atoms), 3), np.nan) if forces is None else forces
+                result["arrays"] = {
+                    key: np.where(np.isfinite(value), value, None).tolist()
+                    for key, value in arrays.items()
+                }
+            return result
+
+    try:
+        return await asyncio.to_thread(inspect)
     except (IndexError, TypeError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

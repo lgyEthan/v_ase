@@ -1,9 +1,14 @@
 # Supported formats
 
-v_ase 0.2.36 uses one input pipeline for the terminal, Python path API, and
+v_ase 0.3.1 uses one input pipeline for the terminal, Python path API, and
 browser file picker. It adds project, volumetric, indexed-trajectory, and
 LAMMPS handling around ASE's readers. An explicit reader always takes priority
 over filename inference.
+
+```{contents} On this page
+:local:
+:depth: 1
+```
 
 ## Input overview
 

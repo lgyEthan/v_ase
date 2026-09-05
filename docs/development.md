@@ -9,6 +9,7 @@ and the release contract for contributors and maintainers.
 features
 current_progress
 performance
+scientific-validation
 unit_cell_aware_rotate
 commensurate_validation
 contributing-docs

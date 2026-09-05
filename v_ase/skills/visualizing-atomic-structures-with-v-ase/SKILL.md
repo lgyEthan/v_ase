@@ -14,7 +14,7 @@ All lengths are Angstrom and all angles are degrees unless stated otherwise.
 Install the tested release:
 
 ```bash
-python -m pip install "v_ase-gui==0.2.36"
+python -m pip install "v_ase-gui==0.3.1"
 ```
 
 Start the terminal-oriented API session yourself:
@@ -178,6 +178,13 @@ volumetric data, RDF, constraints, relaxation, commensurate cells, and rigid
 translation, request the relevant operation schema and read only the matching
 section of `semantic-api.md` or `workflows-and-examples.md`. Do not load those
 large references for a rendering-only task.
+
+For scientific work in 0.3.1, preserve the distinction between initialization,
+overlap removal, and physical equilibrium. Read the scientific-interpretation
+section of `semantic-api.md`: periodic repulsion includes self images, default
+forces are conservative, homogeneous placement is bounded and correlated, RDF
+depends on PBC, and volumetric combination uses `resultName` (never a second
+`name` key). Reject tilted host/guest planes instead of projecting them flat.
 
 Use `deterministic-rendering.md` for a complete compact render sequence and
 `workflows-and-examples.md` only for the requested scientific workflow.

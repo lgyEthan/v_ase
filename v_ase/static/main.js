@@ -1,13 +1,13 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.2.36';
-import { ASERenderer } from './renderer.js?v=0.2.36';
-import { ASESelection } from './selection.js?v=0.2.36';
-import { ASETransform } from './transform.js?v=0.2.36';
+import { ASEApi } from './api.js?v=0.3.1';
+import { ASERenderer } from './renderer.js?v=0.3.1';
+import { ASESelection } from './selection.js?v=0.3.1';
+import { ASETransform } from './transform.js?v=0.3.1';
 import {
     interpolateTrajectoryFrames,
     interpolatedFrameCount,
     normalizeInterpolationMultiplier
-} from './trajectory.js?v=0.2.36';
+} from './trajectory.js?v=0.3.1';
 
 const CHEMICAL_ELEMENT_SYMBOLS = Object.freeze([
     'H','He','Li','Be','B','C','N','O','F','Ne',
@@ -2810,7 +2810,7 @@ class VAseApp {
             note.textContent = regular
                 ? 'Regular grid uses fixed global Cartesian spacing and clips sites exactly to the insertion domain.'
                 : homogeneous
-                    ? 'Homogeneous maximizes physical separation and minimizes uncovered voids without imposing a crystal lattice.'
+                    ? 'Homogeneous spreads sites using maximin spacing up to 1,024 atoms or molecules; larger batches use a low-discrepancy sequence. Relax overlaps before simulation.'
                     : 'Random samples every accessible volume element with equal probability.';
         }
     }
@@ -4622,6 +4622,7 @@ class VAseApp {
     }
 
     invalidateForceVectorData() {
+        this.aiFramePropertyCounts = null;
         this.forceVectorRuntime.requestToken += 1;
         this.forceVectorRuntime.trajectoryCache = null;
         this.forceVectorRuntime.frameCaches.clear();
@@ -9393,11 +9394,16 @@ class VAseApp {
             this.syncAddAtomsSessionFromData(data);
             this.syncRegistryRelaxationFromData(data);
             this.renderVolumetricControls();
+            const initialFieldRequests = [];
             if (this.state.display.showVolumetric) {
-                this.updateVolumetricSurface().catch(error => {
+                initialFieldRequests.push(this.updateVolumetricSurface().catch(error => {
                     this.setVolumeStatus('warning', 'Isosurface unavailable', error.message);
-                });
+                }));
             }
+            if (this.volumetricPlanes().some(plane => plane.visible)) {
+                initialFieldRequests.push(this.renderAllVolumetricPlanes());
+            }
+            await Promise.all(initialFieldRequests);
             const projectCamera = data.metadata?.config?.initial_design_settings?.camera;
             if (projectCamera) this.applyCameraSettings(projectCamera, { syncScale: false });
             if (projectCamera && hasRequestedAtomicScale) {
@@ -16309,6 +16315,9 @@ class VAseApp {
             attached: Boolean(atoms.metadata?.has_calculator),
             name: atoms.metadata?.calculator || null,
             ...(includeDetails ? {
+                detailsScope: 'document',
+                placementDetailsPath: (this.addAtomsUI?.active || atoms.metadata?.atom_addition)
+                    ? 'addAtoms' : null,
                 details: this.clonePlain(atoms.metadata?.calculator_details || {})
             } : {})
         };
@@ -16403,7 +16412,8 @@ class VAseApp {
                 ),
                 calculator: this.aiCalculatorSnapshot(atoms),
                 measurement: this.getSelectionMeasureText(),
-                propertyCounts: {
+                propertyCounts: this.aiFramePropertyCounts?.frame === Number(atoms.metadata?.current_frame || 0)
+                    ? this.clonePlain(this.aiFramePropertyCounts.counts) : {
                     tags: tags.length,
                     charges: charges.filter(Number.isFinite).length,
                     magneticMoments: magneticMoments.filter(Number.isFinite).length,
@@ -16601,6 +16611,21 @@ class VAseApp {
         );
     }
 
+    async hydrateAIFrameProperties(options = {}) {
+        const profile = options.profile || 'full';
+        if (!['structure', 'full'].includes(profile)
+            || this.loadedFrameCount() <= 1
+            || this.primaryTimelineSource() !== 'loaded') return;
+        const frame = Number(this.state.atoms?.metadata?.current_frame || 0);
+        const includeArrays = profile === 'full' || options.includeProperties === true;
+        const result = await this.api.fetchStoredFrameProperties(frame, includeArrays);
+        if (frame !== Number(this.state.atoms?.metadata?.current_frame || 0)) {
+            throw new Error('Trajectory frame changed while reading properties. Pause playback and retry describe.');
+        }
+        this.aiFramePropertyCounts = { frame, counts: result.property_counts };
+        if (result.arrays) Object.assign(this.state.atoms, result.arrays);
+    }
+
     aiDescribe(options = {}) {
         const profile = String(options.profile || 'full').trim().toLowerCase();
         const supportedProfiles = new Set([
@@ -16664,11 +16689,7 @@ class VAseApp {
             charges: [...(atoms.charges || [])],
             magneticMoments: [...(atoms.magmoms || [])],
             forces: this.clonePlain(atoms.forces || []),
-            calculator: {
-                attached: Boolean(atoms.metadata?.has_calculator),
-                name: atoms.metadata?.calculator || null,
-                details: this.clonePlain(atoms.metadata?.calculator_details || {})
-            },
+            calculator: this.aiCalculatorSnapshot(atoms),
             relaxation: {
                 active: Boolean(
                     atoms.metadata?.relaxation?.active
@@ -16773,7 +16794,8 @@ class VAseApp {
                     mode: this.commensurateMode(),
                     axis: 'Z',
                     guest: this.clonePlain(this.commensurateGuestMetadata()),
-                    currentAngleDeg: Number(this.state.display.commensurateGuestAngleDeg || 0),
+                    currentAngleDeg: Number(this.state.commensurateProposal?.context?.displayAngleDeg
+                        ?? this.state.display.commensurateGuestAngleDeg ?? 0),
                     strainTarget: this.state.display.commensurateStrainTarget || 'guest',
                     strainTolerance: Number(this.state.display.commensurateStrainTolerance || 0.01),
                     maxAreaRatio: Number(this.state.display.commensurateMaxAreaRatio || 16),
@@ -18466,6 +18488,9 @@ class VAseApp {
             }
             const indices = this.aiOperationIndices(operation);
             const current = positions();
+            if (indices.length === 0 || indices.length >= current.length) {
+                throw new Error('Select a proper subset for the rotating guest; at least one host atom must remain.');
+            }
             const pivot = this.aiRotationPivot(operation, indices, current);
             const axisVector = {
                 X: [1, 0, 0],
@@ -18482,7 +18507,8 @@ class VAseApp {
                 commensurateStrainTolerance: strainTolerance,
                 commensurateMaxIndex: maxIndex,
                 commensurateMaxAreaRatio: maxAreaRatio,
-                commensurateShowAtoms: showAtoms
+                commensurateShowAtoms: showAtoms,
+                commensurateGuestAngleDeg: candidate.targetAngleDeg
             });
             const showAtomsControl = document.getElementById('chk-commensurate-show-atoms');
             if (showAtomsControl) showAtomsControl.checked = showAtoms;
@@ -18491,6 +18517,7 @@ class VAseApp {
             this.state.commensurateSnappedCandidate = candidate;
             this.state.commensurateSuggestionArmed = true;
             this.state.commensurateLastAngle = THREE.MathUtils.degToRad(candidate.targetAngleDeg);
+            this.state.commensuratePreviewAngle = candidate.targetAngleDeg;
             await this.prepareCommensurateSupercellProposal({
                 candidate,
                 selectedIndices: indices,
@@ -18909,7 +18936,7 @@ class VAseApp {
             const result = await this.api.createVolumetricDifference({
                 dataset_ids: operation.datasetIds.map(value => String(value)),
                 coefficients: operation.coefficients.map(Number),
-                name: String(operation.name || 'Charge density difference'),
+                name: String(operation.resultName || 'Charge density difference'),
                 precision: operation.precision === 'float64' || operation.precision === 'fp64'
                     ? 'float64'
                     : operation.precision === 'float32' || operation.precision === 'fp32'
@@ -19101,10 +19128,14 @@ class VAseApp {
                 });
             }
             if (cameraCommand.fit !== undefined) {
-                if (cameraCommand.fit !== 'structure') {
-                    throw new Error("camera.fit currently supports only 'structure'.");
+                if (!['structure', 'commensurate'].includes(cameraCommand.fit)) {
+                    throw new Error("camera.fit must be 'structure' or 'commensurate'.");
                 }
-                this.renderer.fitCameraToStructure();
+                if (cameraCommand.fit === 'commensurate') {
+                    this.fitCommensuratePreview();
+                } else {
+                    this.renderer.fitCameraToStructure();
+                }
                 this.completeCameraViewChange('ai-fit');
             }
             if (cameraCommand.orbit) {
@@ -19166,6 +19197,7 @@ class VAseApp {
             await this.aiApplyOperation(command.operation);
         }
         this.renderer.renderNow();
+        await this.hydrateAIFrameProperties({ profile: command.responseProfile || 'full' });
         return this.aiDescribe({
             profile: command.responseProfile || 'full',
             includePositions: command.responseProfile === 'structure'
@@ -19494,6 +19526,7 @@ class VAseApp {
                 await app.ready;
                 app.flushVisualHistoryCommit();
                 await app.flushCollaborationEvents();
+                await app.hydrateAIFrameProperties(options);
                 return app.aiDescribe(options);
             },
             schema: async options => {
@@ -21281,6 +21314,10 @@ class VAseApp {
 
     commensuratePreviewContext(candidate, displayAngleDeg = 0, options = {}) {
         const selectedIndices = this.commensurateSelectedGuestIndices();
+        const existing = this.state.commensurateProposal?.context;
+        const retainsCommittedRotation = existing?.positionsIncludeDisplayRotation === true
+            && Math.abs(Number(existing.displayAngleDeg) - Number(displayAngleDeg)) < 1e-8
+            && JSON.stringify(existing.selectedIndices) === JSON.stringify(selectedIndices);
         const transformAlreadyRotated = (
             this.transform.mode === 'ROTATE'
             && this.state.transformSubject === 'atoms'
@@ -21295,7 +21332,7 @@ class VAseApp {
             axis: 'Z',
             displayAngleDeg,
             positionsIncludeDisplayRotation: options.positionsIncludeDisplayRotation
-                ?? transformAlreadyRotated
+                ?? (transformAlreadyRotated || retainsCommittedRotation)
         };
     }
 
@@ -21600,6 +21637,15 @@ class VAseApp {
         if (Number.isFinite(target)) return Math.abs(target - displayAngle) <= 0.03;
         const delta = Number(candidate.deltaDeg);
         return Number.isFinite(delta) && Math.abs(delta) <= 0.03;
+    }
+
+    fitCommensuratePreview() {
+        const preview = this.state.commensurateProposal?.data?.preview;
+        if (!preview) throw new Error('Create a commensurate proposal before fitting its preview.');
+        const bounds = this.renderer.commensuratePreviewBounds(preview);
+        if (!bounds || bounds.isEmpty()) throw new Error('The commensurate preview has no visible bounds.');
+        this.renderer.fitCameraToStructure(bounds);
+        this.completeCameraViewChange('commensurate-fit');
     }
 
     async prepareCommensurateSupercellProposal(context) {
@@ -25283,6 +25329,13 @@ class VAseApp {
         });
         document.getElementById('btn-dismiss-commensurate')?.addEventListener('click', () => {
             this.clearCommensurateSupercellProposal();
+        });
+        document.getElementById('btn-fit-commensurate-preview')?.addEventListener('click', () => {
+            try {
+                this.fitCommensuratePreview();
+            } catch (error) {
+                this.toast(error.message, 'warning');
+            }
         });
         document.getElementById('btn-apply-commensurate-cell')?.addEventListener('click', () => {
             this.applyCommensurateSupercellProposal();

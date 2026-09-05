@@ -19,6 +19,11 @@ separately loaded guest structure to a candidate. It does not infer strain from
 bonds. To keep the periodic construction unambiguous, commensurate rotation is
 restricted to global Z and the matched lattice vectors must lie in XY.
 
+```{contents} On this page
+:local:
+:depth: 1
+```
+
 ## Screen-Space Rotation Direction
 
 For selected position `r_i`, pivot `p`, unit axis `k`, and angle `theta`, the

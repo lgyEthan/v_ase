@@ -265,7 +265,9 @@ def test_vectorized_kinematics_matches_svd_for_general_oblique_boundaries():
         assert host_strains[0, index] == pytest.approx(host_strain, abs=1e-10)
 
 
-def test_accelerated_host_guest_search_matches_exhaustive_small_search():
+@pytest.mark.parametrize("strain_target", ["guest", "host"])
+@pytest.mark.parametrize("tolerance", [0.0, 0.08, 0.25])
+def test_accelerated_host_guest_search_matches_exhaustive_small_search(strain_target, tolerance):
     host = np.array([
         [3.1, 0.25, 0.0],
         [0.65, 4.05, 0.0],
@@ -278,7 +280,6 @@ def test_accelerated_host_guest_search_matches_exhaustive_small_search():
     ])
     pbc = [True, True, False]
     maximum = 5
-    tolerance = 0.08
 
     accelerated = find_lattice_matches(
         host,
@@ -287,7 +288,7 @@ def test_accelerated_host_guest_search_matches_exhaustive_small_search():
         pbc,
         max_area_ratio=maximum,
         strain_tolerance=tolerance,
-        strain_target="guest",
+        strain_target=strain_target,
     )
 
     frame, normal, host_projected = _plane_frame(host, pbc, "Z")
@@ -305,7 +306,7 @@ def test_accelerated_host_guest_search_matches_exhaustive_small_search():
                     normal=normal,
                     host_record=host_record,
                     guest_record=guest_record,
-                    strain_target="guest",
+                    strain_target=strain_target,
                     guest_orientation_transform=transform,
                 ))
             minimum_strain = min(

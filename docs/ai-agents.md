@@ -10,11 +10,16 @@ over HTTP or stdin. Natural language belongs between the researcher and the
 external agent; v_ase accepts deterministic JSON.
 
 :::{important}
-This page describes the v_ase 0.2.36 contract. At runtime, the installed live
+This page describes the v_ase 0.3.1 contract. At runtime, the installed live
 schema and `capabilities` response are authoritative. Do not copy a command
 name or parameter from an older document when the live release does not
 advertise it.
 :::
+
+```{contents} On this page
+:local:
+:depth: 1
+```
 
 ## Collaboration model
 
@@ -49,7 +54,7 @@ The controlling agent needs:
 Install the current release:
 
 ```bash
-python -m pip install "v_ase-gui==0.2.36"
+python -m pip install "v_ase-gui==0.3.1"
 ```
 
 No API key or external service is required. A hosted model without local shell

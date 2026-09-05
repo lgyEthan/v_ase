@@ -1,5 +1,49 @@
 # Changelog
 
+## 0.3.1
+
+Scientific correctness, bounded performance improvements, and feature-based
+documentation, audited against independent analytic and enumeration references.
+
+- Make default fallback and placement repulsion forces the negative energy
+  gradient; retain the old force limiter only as an explicit Python option.
+  Include periodic self-image energies and intermolecular image contacts,
+  honor scalar onset distances, and synchronize radius-basis reconfiguration.
+- Group potential exact overlaps in NumPy before entering Python, reducing
+  measured NumPy repulsion time by 1.6–3.2× on the recorded 1k–12k atom cases
+  while preserving energy and force values.
+- Assign mixed atoms and molecule anchors by seeded site permutation so
+  regular-grid order and homogeneous maximin rank do not bias chemical mixing.
+  Clarify the 1,024-entity homogeneous refinement limit in the GUI.
+- Include RDF's final cutoff edge, reject noninteger bins and nonfinite
+  geometry, and document finite-N and slab-normalization limitations.
+- Integrate endpoint-inclusive finite grids with trapezoidal boundary weights;
+  retain periodic endpoint de-duplication. Accumulate field combinations in
+  bounded FP64 slabs before casting once to output storage precision.
+- Rename the semantic field-combination output label to `resultName`, keeping
+  `name` exclusively for the operation selector. Test the real CLI path and
+  reject duplicate keys in documentation JSON examples.
+- Reject tilted commensurate periodic planes instead of flattening projected
+  geometry. Explain principal-strain acceptance, the paper-style projection,
+  and the bounded algorithm's relationship to published methods.
+- Preserve exact stored trajectory forces, tags, and charges in semantic
+  descriptions independently of force-arrow visibility, and retain stored
+  SinglePointCalculator data in scalar/vector analysis. Restore saved visible
+  volumetric planes before the initial document becomes ready.
+- Add explicit commensurate preview fitting in the GUI and semantic camera
+  contract, report the active proposal angle, reject a missing host before
+  physical rotation, and mark area-limit membership in reference-series CSVs.
+- Identify document calculator details separately from active Add Atoms
+  placement settings, based on an independent fresh-Skill agent evaluation.
+- Add dedicated atomic-distribution, RDF, and scientific-validation guides;
+  add per-page feature navigation and separate API examples by task. Refresh
+  README images/GIFs and synchronize user documentation and the canonical Skill.
+
+Compatibility: seeded mixed placement coordinates and default repulsive
+trajectories can change. Explicit Python force caps retain their prior behavior.
+Semantic clients must use `resultName` to name combined fields. Existing project
+formats, physical units, and RDF normalization conventions remain supported.
+
 ## 0.2.36
 
 - Added progressive external-agent discovery: compact schema indexes, focused

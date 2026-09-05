@@ -15,8 +15,10 @@ recursive-include docs/_ext *.py
 recursive-include docs/_interactive *.html *.json
 recursive-include docs/_static *
 prune docs/_build
+prune docs/design
 prune docs/assets
 include docs/assets/readme_add_atoms.png
+include docs/assets/readme_scratch_amorphous.png
 include docs/assets/readme_atom_colorscale.png
 include docs/assets/readme_commensurate_host_guest.png
 include docs/assets/readme_constraints.png

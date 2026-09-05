@@ -14,6 +14,19 @@
 [Changelog](https://v-ase.readthedocs.io/en/latest/whats-new.html) ·
 [Issues](https://github.com/lgyEthan/v_ase/issues)
 
+**0.3.1 — scientific validation and workflow clarity.** This release corrects
+default repulsion forces and periodic self-image counting, removes species
+bias from ordered placement sites, fixes RDF cutoff-edge handling and finite
+volumetric integration, and improves precision in field differences. Tilted
+host/guest planes are rejected before commensurate matching. Stored trajectory
+properties now follow the displayed frame, saved field planes render on reopen,
+and **Fit Preview in View** frames large commensurate previews. The new guides
+explain each feature with steps, parameter meanings, runnable examples, and
+result checks: [atomic distributions](https://v-ase.readthedocs.io/en/latest/atomic-distributions.html),
+[RDF](https://v-ase.readthedocs.io/en/latest/rdf.html),
+[volumetric fields](https://v-ase.readthedocs.io/en/latest/volumetric-guide.html),
+and [scientific validation](https://v-ase.readthedocs.io/en/latest/scientific-validation.html).
+
 `v_ase` brings ASE's convenient terminal and Python workflow together with
 direct, Blender-style 3D structure editing. Open a structure or trajectory
 with one command, inspect and measure it in a local browser, edit it manually
@@ -272,6 +285,10 @@ the viewport below the app header, leaving bottom-left notifications visible:
   **Cartesian distance / Å** is the default and maximizes physical
   nearest-neighbor spacing. **Fractional spacing** instead balances normalized
   lattice coordinates. Periodic-aware spacing uses the exact minimum image.
+- Mixed atom and molecule entries receive a seeded permutation of the sampled
+  sites, preserving counts and label order without tying species to grid
+  traversal or maximin rank. Initial positions can therefore differ from
+  earlier releases with the same seed.
 - **Regular grid** places centers on one global Cartesian lattice. Enter an
   exact grid spacing in angstrom or leave it on Auto. Sites are clipped to the
   complete Allow-minus-Reject domain, and periodic boundary duplicates are

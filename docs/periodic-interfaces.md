@@ -62,8 +62,9 @@ target convention.
 
 ## Separate host and guest lattices
 
-Host/guest mode loads a second structure, projects both periodic lattices into
-a compatible plane, and searches a common two-dimensional cell. A candidate
+Host/guest mode loads a second structure and searches a common two-dimensional
+cell. Both periodic planes must align with global XY to numerical tolerance;
+tilted cells are rejected rather than flattened by projection. A candidate
 contains separate host and guest integer matrices, relative rotation, area
 ratio, residual strain, and preview geometry.
 
@@ -75,6 +76,44 @@ Before applying:
    rigid.
 4. Inspect boundary atoms/constraints in the preview.
 5. Materialize only after the common-cell result is acceptable.
+
+### Run a bounded match
+
+Open the host in Edit, then **Structure > Transform & Cell Match**. Enable the
+commensurate workspace and load the guest. Start with area ratio 16 and maximum
+strain 1%; choose which side receives strain and inspect the cells-only preview.
+If no candidate passes, increase the area ceiling or reconsider the physically
+acceptable strain. The maximum interactive area ratio is 128.
+
+Choose a candidate angle, inspect atom count and integer matrices, then enable
+atom preview to check the interface. Interlayer gap is `guest min(z) − host
+max(z)` in Å; it is a placement parameter, not a relaxed separation. Applying
+the common cell creates actual ASE atoms and can be undone.
+
+The camera stays where you put it when a preview appears. Use **Fit Preview in
+View** to frame the complete parent-lattice window and optional atoms; the
+semantic equivalent is `camera: {fit: "commensurate"}`. The surrounding halo
+adapts to the preview window and is not always one primitive cell. For a
+same-lattice twist, select only the guest layer and leave host atoms unselected.
+
+CSV exports include the full plotted reference series, which can exceed the
+current area ceiling. The `within_area_limit` column is 1 for candidates inside
+that ceiling and 0 for larger reference cells. A plotted reference is not
+automatically an admissible materialization candidate.
+
+### Read the two strain measures
+
+**Maximum strain / %** applies to `max(abs(singular_values(D) − 1))`, where
+`D` maps the strained side onto the fixed side after rotation. It is independent
+of a rigid coordinate rotation. The optional **Paper strain projection** shows
+the mean absolute components of `sym(D) − I`; this small-strain descriptor is
+basis-dependent and does not replace the acceptance criterion or estimate energy.
+
+The search implements an HNF/reduced-basis adaptation of published integer-cell
+matching methods, with Procrustes rotation and a finite orientation set. It is
+not a line-by-line reproduction of the Stradi algorithm. It keeps the preferred
+representative in each 0.01° angle bucket, so the plot is not an inventory of
+every possible registry, strain sharing, or unbounded supercell.
 
 The detailed mathematics, notation, and reference series are in
 [Cell-aware rotation and commensurate angle guide](unit_cell_aware_rotate.md).

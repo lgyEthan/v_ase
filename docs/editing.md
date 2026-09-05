@@ -17,6 +17,11 @@ Render Area do not. Check which kind of state a control owns before using an
 exported structure as scientific input.
 :::
 
+```{contents} On this page
+:local:
+:depth: 1
+```
+
 ## Select atoms deliberately
 
 The retained selection controls transforms, measurements, constraint edits,
@@ -196,6 +201,10 @@ A nonempty document is replaced only after confirmation, and the whole change
 is one Undo entry.
 
 ## Batch insertion workspace
+
+For a complete feature walkthrough, including distribution choice, mixing,
+repulsion equations, and a runnable Python example, see
+[Atomic and molecular distributions](atomic-distributions.md).
 
 Open **+ Add atoms > Batch**. Choose **Atoms** or **Molecules**, add one or more
 composition rows, then define placement and domain settings before selecting

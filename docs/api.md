@@ -1,5 +1,10 @@
 # Public API
 
+```{contents} On this page
+:local:
+:depth: 1
+```
+
 ## Python
 
 ### `view`

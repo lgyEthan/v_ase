@@ -1120,7 +1120,7 @@ await applyCurrent({
     name: "combine-volumetric",
     datasetIds: grids.map(grid => grid.id),
     coefficients: [1, -1, -1],
-    name: "charge-density difference",
+    resultName: "charge-density difference",
     precision: "fp64"
   }
 });
@@ -1407,7 +1407,7 @@ Use `strainTarget: "guest"` unless the user explicitly asks to deform the host.
 Verify the distinct host and guest parent-lattice outlines and both integer
 matrices. Require the common-cell outline only after the direct angle resolves
 the selected candidate. With `showAtoms: true`, require opaque core atoms, a
-one-primitive-cell boundary shell, and all preview bonds across the proposed
+adaptive parent-lattice boundary shell, and all preview bonds across the proposed
 supercell. Remove a guest with `remove-commensurate-guest`.
 
 For the visual different-lattice check, launch

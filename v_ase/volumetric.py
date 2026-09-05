@@ -339,11 +339,25 @@ class VolumetricData:
             absolute_maximum,
             absolute=True,
         )
+        # Integrate in fractional coordinates, reducing one axis at a time.
+        # A periodic closing plane is redundant; a finite endpoint is real
+        # data and needs trapezoidal half weights at BOTH boundaries.
         integral_values = self.values
-        if self.endpoint_inclusive:
-            integral_values = integral_values[:-1, :-1, :-1]
-        voxel_volume = abs(float(np.linalg.det(self.cell))) / float(np.prod(integral_values.shape))
-        self._integral = float(np.sum(integral_values, dtype=np.float64) * voxel_volume)
+        for axis in (2, 1, 0):
+            size = integral_values.shape[axis]
+            if self.endpoint_inclusive:
+                if self.pbc[axis]:
+                    slices = [slice(None)] * integral_values.ndim
+                    slices[axis] = slice(None, -1)
+                    integral_values = np.mean(integral_values[tuple(slices)], axis=axis, dtype=np.float64)
+                else:
+                    summed = np.sum(integral_values, axis=axis, dtype=np.float64)
+                    ends = (np.take(integral_values, 0, axis=axis).astype(np.float64)
+                            + np.take(integral_values, -1, axis=axis)) * 0.5
+                    integral_values = (summed - ends) / (size - 1)
+            else:
+                integral_values = np.mean(integral_values, axis=axis, dtype=np.float64)
+        self._integral = float(integral_values * abs(np.linalg.det(self.cell)))
 
     @property
     def minimum(self) -> float:
@@ -1304,22 +1318,22 @@ def combine_volumetric_datasets(
     output_dtype = VOLUMETRIC_PRECISION_DTYPES[output_precision]
     result = np.zeros(reference.values.shape, dtype=output_dtype)
     clean_coefficients = []
-    for coefficient, dataset in zip(coefficients, datasets):
+    for coefficient in coefficients:
         value = float(coefficient)
         if not np.isfinite(value):
             raise ValueError("Volumetric combination coefficients must be finite.")
         clean_coefficients.append(value)
-        # Work in bounded slabs. A full-grid expression temporarily doubles
-        # memory for large CHGCAR/PARCHG differences.
-        plane_size = int(np.prod(reference.values.shape[1:]))
-        slab_depth = max(1, min(reference.values.shape[0], 1_048_576 // max(1, plane_size)))
-        coefficient_value = output_dtype.type(value)
-        for start in range(0, reference.values.shape[0], slab_depth):
-            stop = min(reference.values.shape[0], start + slab_depth)
-            result[start:stop] += (
-                np.asarray(dataset.values[start:stop], dtype=output_dtype)
-                * coefficient_value
-            )
+    # Accumulate each bounded slab in float64 before rounding once to the
+    # requested storage dtype. Float32 accumulation loses small differences
+    # between large fields even when that difference is representable.
+    plane_size = int(np.prod(reference.values.shape[1:]))
+    slab_depth = max(1, min(reference.values.shape[0], 1_048_576 // max(1, plane_size)))
+    for start in range(0, reference.values.shape[0], slab_depth):
+        stop = min(reference.values.shape[0], start + slab_depth)
+        accumulator = np.zeros(result[start:stop].shape, dtype=np.float64)
+        for value, dataset in zip(clean_coefficients, datasets):
+            accumulator += np.asarray(dataset.values[start:stop], dtype=np.float64) * value
+        result[start:stop] = accumulator
     return VolumetricData(
         name=name,
         values=result,

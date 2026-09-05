@@ -929,6 +929,10 @@ export class ASEApi {
         return await this.request(`/api/atoms/{session_id}`);
     }
 
+    async fetchStoredFrameProperties(frameIndex, includeArrays = false) {
+        return await this.request(`/api/analysis/frame-properties/{session_id}?frame_index=${frameIndex}&include_arrays=${includeArrays}`);
+    }
+
     async updateSessionMode(vizOnly, identities = {}) {
         return await this.jsonPost(`/api/mode/{session_id}`, this.framePayload({
             viz_only: Boolean(vizOnly),

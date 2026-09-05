@@ -5,6 +5,11 @@ label-level settings style scientific groups, atom-index overrides handle
 exceptions, and an optional scalar colorscale maps numeric per-atom data.
 Projects and supported exports preserve the resolved result.
 
+```{contents} On this page
+:local:
+:depth: 1
+```
+
 ## Label and atom identity
 
 The Appearance table separates two concepts:

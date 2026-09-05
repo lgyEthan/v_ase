@@ -207,7 +207,7 @@ class VAseRepulsionCalculator(Calculator):
         cutoff_distance: float | None = None,
         cutoff_scale: float = 1.0,
         pair_cutoffs: dict[str, float] | None = None,
-        max_force_norm: float | None = 10.0,
+        max_force_norm: float | None = None,
         mic: bool = True,
         work_on_relax_atoms_too: bool = True,
         device: str = "cpu",
@@ -231,6 +231,8 @@ class VAseRepulsionCalculator(Calculator):
         ):
             requested_minimums = "vdw"
         self.min_bondinfo = requested_minimums
+        if isinstance(requested_minimums, str):
+            self.cutoff_basis = _valid_cutoff_basis(requested_minimums)
         self._absolute_global_override = (
             cutoff_distance is not None
             and not isinstance(requested_minimums, dict)
@@ -245,6 +247,10 @@ class VAseRepulsionCalculator(Calculator):
         self.cutoff_distance = _valid_cutoff_distance(cutoff_distance)
         self.cutoff_scale = _valid_cutoff_scale(cutoff_scale)
         self.max_force_norm = None if max_force_norm is None else float(max_force_norm)
+        if self.max_force_norm is not None and (
+            not np.isfinite(self.max_force_norm) or self.max_force_norm <= 0
+        ):
+            raise ValueError("max_force_norm must be positive and finite, or None.")
         self.mic = bool(mic)
         self.work_on_relax_atoms_too = bool(work_on_relax_atoms_too)
         self.device_requested = _normalized_device(device)
@@ -273,6 +279,8 @@ class VAseRepulsionCalculator(Calculator):
             self.cutoff_mode = _valid_cutoff_mode(cutoff_mode)
         if cutoff_basis is not None:
             self.cutoff_basis = _valid_cutoff_basis(cutoff_basis)
+            if isinstance(self.min_bondinfo, str):
+                self.min_bondinfo = "vdw" if self.cutoff_basis == "vdw" else "cov"
         if cutoff_distance is not None:
             self.cutoff_distance = _valid_cutoff_distance(cutoff_distance)
         if cutoff_scale is not None:
@@ -309,6 +317,7 @@ class VAseRepulsionCalculator(Calculator):
                 else None
             ),
             "k_repulsion": self.k_repulsion,
+            "max_force_norm": self.max_force_norm,
         }
 
     def _min_bondinfo_for_atoms(self, atoms: Atoms):
@@ -359,11 +368,11 @@ class VAseRepulsionCalculator(Calculator):
                 return self.cutoff_distance if self._absolute_global_override else float(value)
             return float(value) * self.cutoff_scale
         if self.cutoff_mode == "absolute":
-            return self.cutoff_distance
+            return self.cutoff_distance if self._absolute_global_override else float(min_bondinfo)
         return float(min_bondinfo) * self.cutoff_scale
 
     def _neighbor_pairs(self, atoms: Atoms, min_bondinfo):
-        if len(atoms) < 2:
+        if len(atoms) == 0:
             return []
 
         symbols = np.asarray(atoms.get_chemical_symbols(), dtype=str)
@@ -419,7 +428,17 @@ class VAseRepulsionCalculator(Calculator):
         vecs = np.asarray(vecs, dtype=float)
         dists = np.asarray(dists, dtype=float)
         thresholds = threshold_matrix[type_ids[is_], type_ids[js]]
-        active = (is_ < js) & (thresholds > 0) & (dists < thresholds)
+        # Count one orientation of each periodic pair, including nonzero
+        # images of the same basis atom. Omitting i == j made energy depend
+        # on whether the identical crystal was supplied as a supercell.
+        positive_image = np.zeros(len(vecs), dtype=bool)
+        undecided = np.ones(len(vecs), dtype=bool)
+        for axis in range(3):
+            nonzero = np.abs(vecs[:, axis]) > _EPS
+            positive_image |= undecided & nonzero & (vecs[:, axis] > 0)
+            undecided &= ~nonzero
+        unique = (is_ < js) | ((is_ == js) & positive_image)
+        active = unique & (thresholds > 0) & (dists < thresholds)
         is_ = is_[active]
         js = js[active]
         vecs = vecs[active]
@@ -432,7 +451,6 @@ class VAseRepulsionCalculator(Calculator):
                 vec = _coincident_pair_vector(int(i), int(j)) * _EPS
                 dist = _EPS
             pairs.append((int(i), int(j), vec, float(dist), float(threshold)))
-        seen = set(zip(is_.tolist(), js.tolist()))
 
         # Some neighbor-list backends omit exact overlaps.  Hash wrapped
         # Cartesian positions first so only plausible coincidences require an
@@ -448,10 +466,21 @@ class VAseRepulsionCalculator(Calculator):
             hash_positions = scaled @ np.asarray(atoms.cell.array, dtype=float)
         else:
             hash_positions = positions
-        buckets: dict[tuple[float, float, float], list[int]] = {}
+        # Group in NumPy before entering Python: almost every optimizer step
+        # has no coincidences, so neither a Python atom loop nor a pair set
+        # is needed on that hot path.
+        _, inverse_groups, group_counts = np.unique(
+            np.round(hash_positions, decimals=12), axis=0,
+            return_inverse=True, return_counts=True,
+        )
+        duplicate_indices = np.flatnonzero(group_counts[inverse_groups] > 1)
+        if not len(duplicate_indices):
+            return pairs
+        seen = set(zip(is_.tolist(), js.tolist()))
+        buckets: dict[int, list[int]] = {}
         coincident_candidates: list[tuple[int, int, float, np.ndarray]] = []
-        for index, point in enumerate(hash_positions):
-            key = tuple(np.round(point, decimals=12))
+        for index in duplicate_indices:
+            key = int(inverse_groups[index])
             for other in buckets.get(key, []):
                 i, j = (other, index) if other < index else (index, other)
                 if (i, j) in seen:
