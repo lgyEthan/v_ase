@@ -222,7 +222,10 @@ def test_3dm_export_round_trips_as_editable_angstrom_scene():
         assert response.filename == "v_ase_scene.3dm"
         assert model.Settings.ModelUnitSystem == rhino3dm.UnitSystem.Angstroms
         assert [layer.Name for layer in model.Layers] == ["Atoms", "Bonds", "Unit Cell"]
-        assert len(model.InstanceDefinitions) == 3
+        # The fixture overrides one endpoint's material and opacity, so its
+        # two split bond appearances require distinct reusable definitions,
+        # alongside the shared atom sphere and cell-edge primitive.
+        assert len(model.InstanceDefinitions) == 4
         assert len(model.Views) == 1
         assert len(model.NamedViews) == 1
         assert model.Views[0].Name == "v_ase View"
@@ -281,7 +284,7 @@ def test_3dm_export_round_trips_as_editable_angstrom_scene():
         bond_xform = bond_objects[0].Geometry.Xform
         bond_diameter = (bond_xform.M00 ** 2 + bond_xform.M10 ** 2 + bond_xform.M20 ** 2) ** 0.5
         bond_length = (bond_xform.M02 ** 2 + bond_xform.M12 ** 2 + bond_xform.M22 ** 2) ** 0.5
-        assert bond_diameter == pytest.approx(0.12)
+        assert bond_diameter == pytest.approx(0.18)
         assert bond_length == pytest.approx(0.96)
         assert cell_objects[0].Attributes.GetUserString("v_ase.thickness") == "0.04"
         assert cell_objects[0].Attributes.GetUserString("v_ase.material") == "unlit"
