@@ -379,6 +379,9 @@ v_ase api "$COMMAND_URL" export --save rdf.csv --params '{
 For automation, use `describe().analysis.frameSynchronization` to verify that
 the displayed frame, RDF, colors, forces, displacements, and volumetric data
 all identify the same frame.
+
+Rapidly visiting another frame and returning also refreshes invalidated field
+meshes. A hidden isosurface or plane is not treated as a completed cached render.
 The example revisions are illustrative. Re-run `describe` after each mutation
 and use its current `collaboration.revision`.
 
@@ -394,3 +397,18 @@ and use its current `collaboration.revision`.
 - decode video frame count and duration; and
 - never accept a stale frame-specific buffer because its colors or shape look
   plausible.
+
+## Deterministic video frames
+
+MOV and AVI exports encode one indexed raster per source or interpolated frame.
+Frame timestamps come from the chosen FPS, not the time taken to render. With
+N source frames and interpolation factor k, the output contains (N−1)k+1 frames,
+including both endpoints. Native dimensions must be even integers in 64..8192;
+FPS is 1..60, and interpolation is an integer from 1 through 64. The GUI retains
+its 256-pixel minimum input controls. Encoding never pads a typed request or
+invents a missing scientific frame. PNG uploads apply encoder backpressure so
+only one raster needs to be staged at a time. Video is opaque.
+
+The original GUI frame is restored after export. Semantic edits and another
+capture wait until the video is complete. Closing the page aborts its encoder;
+failed sequences do not return a partial movie as a successful export.

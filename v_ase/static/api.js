@@ -1598,6 +1598,25 @@ export class ASEApi {
         }, { expect: 'blob' });
     }
 
+    async beginVideoFrames(options) {
+        return await this.jsonPost('/api/export/video-frames/{session_id}/start', options, { emitMutation: false });
+    }
+
+    async appendVideoFrame(exportId, index, png) {
+        return await this.request(`/api/export/video-frames/{session_id}/${encodeURIComponent(exportId)}/frame/${index}`, {
+            method: 'POST', headers: { 'Content-Type': 'image/png' }, body: png
+        }, { emitMutation: false });
+    }
+
+    async finishVideoFrames(exportId) {
+        return await this.request(`/api/export/video-frames/{session_id}/${encodeURIComponent(exportId)}/finish`,
+            { method: 'POST' }, { expect: 'blob', emitMutation: false });
+    }
+
+    async abortVideoFrames(exportId) {
+        return await this.jsonPost(`/api/export/video-frames/{session_id}/${encodeURIComponent(exportId)}/abort`, {}, { emitMutation: false });
+    }
+
     async transcodeVideo(
         recording,
         format = 'mov',
@@ -1912,13 +1931,14 @@ export class ASEApi {
         inputFormat = '',
         index = ':',
         volumetricPrecision = 'float32',
-        { emitMutation = true } = {}
+        { emitMutation = true, expectedSourceKind = null } = {}
     ) {
         return await this.jsonPost(`/api/file/append-path/{session_id}`, {
             path,
             input_format: inputFormat || null,
             index: index || ':',
-            volumetric_precision: volumetricPrecision || 'float32'
+            volumetric_precision: volumetricPrecision || 'float32',
+            expected_source_kind: expectedSourceKind
         }, { emitMutation });
     }
 

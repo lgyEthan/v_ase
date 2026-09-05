@@ -14,13 +14,13 @@
 Install the tested release into the active Python environment:
 
 ```bash
-python -m pip install "v_ase-gui==0.3.1"
+python -m pip install "v_ase-gui==0.3.2"
 ```
 
 Optional Rhino export:
 
 ```bash
-python -m pip install "v_ase-gui[rhino]==0.3.1"
+python -m pip install "v_ase-gui[rhino]==0.3.2"
 ```
 
 Runtime dependencies are ASE, matscipy, FastAPI, Uvicorn, NumPy, SciPy,
@@ -37,7 +37,7 @@ the complete environment with the same interpreter instead of replacing NumPy
 alone:
 
 ```bash
-python -m pip install --upgrade --force-reinstall "v_ase-gui==0.3.1"
+python -m pip install --upgrade --force-reinstall "v_ase-gui==0.3.2"
 ```
 
 v_ase uses the `AGPL-3.0-or-later` license. Preserve the license and source
@@ -373,8 +373,8 @@ to an untrusted network.
   but cannot operate v_ase directly.
 - A sandbox without package installation must already contain v_ase and its
   dependencies.
-- Browser-native video capture requires a Chromium-family browser with
-  `MediaRecorder`.
+- Video export requires a browser with canvas PNG capture and the installed
+  imageio-ffmpeg encoder.
 - 3DM export requires the optional `rhino3dm` dependency.
 - Volumetric input is bounded by `V_ASE_MAX_VOLUMETRIC_POINTS`. Keep the
   default safety limit unless the machine has enough memory for the complete
@@ -386,3 +386,75 @@ to an untrusted network.
 - Per-atom colorscale catalogs include finite numeric LAMMPS atom columns.
   Full-trajectory range fitting uses one bounded scalar cache when eligible
   and otherwise computes extrema in the backend.
+
+## Compatibility connection sequence
+
+### Start the CLI bridge
+
+Install the tested release:
+
+```bash
+python -m pip install "v_ase-gui==0.3.2"
+```
+
+Start the terminal-oriented API session yourself:
+
+```bash
+v_ase gui --cli
+v_ase gui STRUCTURE --cli
+v_ase gui STRUCTURE --interactive --cli
+```
+
+The filename-free form opens a scratch document directly in Edit. Use the combined file form for physical atom edits while retaining the structured CLI/API bridge and the same human GUI.
+
+This is a persistent server/event-stream process, not a finite command. Start
+it with the agent runtime's long-running process facility. As soon as the
+runner yields the first output or a process/session handle, read the first
+stdout line and continue with separate `v_ase api` commands; do **not** wait
+for `v_ase gui ... --cli` to exit. Keep its handle so stdout events can be
+polled and terminate it only after verification and handoff are complete.
+
+The user gives natural-language instructions to the external agent, not to
+v_ase. `--cli` does not contain an LLM, parse natural language, or accept
+commands from stdin. It launches the normal local v_ase application without
+opening a browser and exposes a structured loopback API.
+
+Read the first stdout line as JSON. It identifies `human_url`, `command_url`,
+schema/skill/state/event URLs, supported methods, protocol, scope, and installed
+skill path. It also states `accepts_natural_language:false` and
+`stdin_commands:false`. Keep reading later stdout as revisioned NDJSON.
+
+Open `human_url` in a browser and wait for the viewport to load. Then call the
+live API from another terminal:
+
+```bash
+v_ase api "$COMMAND_URL" ready
+v_ase api "$COMMAND_URL" schema
+v_ase api "$COMMAND_URL" describe --profile summary
+v_ase api "$COMMAND_URL" schema --operation-schema OPERATION_NAME
+```
+
+No API key or external service is required. The loopback URL contains a session
+identifier; do not publish it while a private structure is open.
+The `v_ase api` command accepts structured JSON only. It is not an LLM and does
+not accept natural-language instructions.
+
+The shared document has three required bidirectional links:
+
+```text
+user <-> external agent       natural-language request and feedback
+external agent <-> v_ase CLI structured operations, exact state, revisions
+user <-> v_ase GUI           live inspection and direct visual refinement
+```
+
+Treat all three links as a required feedback cycle, not a one-way handoff.
+Every Agent command must become visible in `human_url`. Every later human GUI
+edit must be consumed as a revision event, followed by a fresh `describe`
+before the Agent sends another mutation.
+
+The bare CLI `schema` and `describe` calls are deliberately compact. Repeat
+`--operation-schema` for related operations, and request one state profile with
+`--profile structure|appearance|bonding|render|analysis` only when needed.
+Use `--include-positions` only for coordinate-dependent work. Do not repeatedly
+load the complete schema, capabilities payload, or `full` state. Rendered pixels
+remain the final authority for visual-quality checks.

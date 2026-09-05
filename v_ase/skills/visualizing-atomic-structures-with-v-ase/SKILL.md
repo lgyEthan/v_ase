@@ -1,6 +1,6 @@
 ---
 name: visualizing-atomic-structures-with-v-ase
-description: Controls v_ase to inspect, edit, analyze, style, animate, and export ASE-compatible structures, trajectories, volumetric fields, isosurfaces, and RDF data through its CLI and live HTTP JSON API. Use when a user needs atomistic visualization, DFT grid analysis, structure measurement, periodic-cell operations, constraints, trajectory movies, publication rendering, reusable 3D export, or a human-editable GUI, even when v_ase is not explicitly named.
+description: Controls v_ase to inspect, edit, analyze, style, animate, and export ASE-compatible structures, trajectories, volumetric fields, isosurfaces, and RDF data through typed MCP/function tools and its compatible CLI/HTTP JSON API. Use when a user needs atomistic visualization, DFT grid analysis, structure measurement, periodic-cell operations, constraints, trajectory movies, publication rendering, reusable 3D export, or a human-editable GUI, even when v_ase is not explicitly named.
 ---
 
 # Visualizing Atomic Structures With v_ase
@@ -11,81 +11,45 @@ All lengths are Angstrom and all angles are degrees unless stated otherwise.
 
 ## Quick Start
 
-Install the tested release:
+Use the configured v_ase MCP tools when available. No model API key is needed
+by v_ase. Install the core with `python -m pip install "v_ase-gui==0.3.2"`;
+install `v_ase-gui[mcp]==0.3.2` for the optional official MCP server.
 
-```bash
-python -m pip install "v_ase-gui==0.3.1"
-```
+An MCP host can launch `v_ase mcp --discovery progressive` to open a shared GUI,
+or use `v_ase mcp --connect COMMAND_URL` for an existing GUI. Read
+`references/native-tools.md` only when setup or transport recovery
+is needed. The skill is scientific workflow guidance; exact parameter schemas
+come from the tools.
 
-Start the terminal-oriented API session yourself:
+1. Call `vase_describe(profile="summary")`.
+2. In progressive mode, use `vase_search_tools` with feature keywords or an
+   exact tool name; otherwise use the already advertised tools.
+3. Read only the focused structure, appearance, bonding, render, or analysis
+   state required for the next decision.
+4. Supply `documentId` as `expected_document_id` and the latest
+   `collaboration.revision` as `expected_revision` to editing tools.
+5. Consume `vase_events`, review human changes, and inspect final render artifacts.
 
-```bash
-v_ase gui --cli
-v_ase gui STRUCTURE --cli
-v_ase gui STRUCTURE --interactive --cli
-```
+Tool inputs use snake_case, including nested declared fields. State and raw
+HTTP/JavaScript inputs retain camelCase. User-defined labels and map keys never
+change. For example, `vase_configure_bonds(index_pairs=...)` maps to the exact
+`indexPairs` semantic operation without shell quoting.
 
-The filename-free form opens a scratch document directly in Edit. Use the combined file form for physical atom edits while retaining the structured CLI/API bridge and the same human GUI.
-
-This is a persistent server/event-stream process, not a finite command. Start
-it with the agent runtime's long-running process facility. As soon as the
-runner yields the first output or a process/session handle, read the first
-stdout line and continue with separate `v_ase api` commands; do **not** wait
-for `v_ase gui ... --cli` to exit. Keep its handle so stdout events can be
-polled and terminate it only after verification and handoff are complete.
-
-The user gives natural-language instructions to the external agent, not to
-v_ase. `--cli` does not contain an LLM, parse natural language, or accept
-commands from stdin. It launches the normal local v_ase application without
-opening a browser and exposes a structured loopback API.
-
-Read the first stdout line as JSON. It identifies `human_url`, `command_url`,
-schema/skill/state/event URLs, supported methods, protocol, scope, and installed
-skill path. It also states `accepts_natural_language:false` and
-`stdin_commands:false`. Keep reading later stdout as revisioned NDJSON.
-
-Open `human_url` in a browser and wait for the viewport to load. Then call the
-live API from another terminal:
-
-```bash
-v_ase api "$COMMAND_URL" ready
-v_ase api "$COMMAND_URL" schema
-v_ase api "$COMMAND_URL" describe --profile summary
-v_ase api "$COMMAND_URL" schema --operation-schema OPERATION_NAME
-```
-
-No API key or external service is required. The loopback URL contains a session
-identifier; do not publish it while a private structure is open.
-The `v_ase api` command accepts structured JSON only. It is not an LLM and does
-not accept natural-language instructions.
-
-The shared document has three required bidirectional links:
-
-```text
-user <-> external agent       natural-language request and feedback
-external agent <-> v_ase CLI structured operations, exact state, revisions
-user <-> v_ase GUI           live inspection and direct visual refinement
-```
-
-Treat all three links as a required feedback cycle, not a one-way handoff.
-Every Agent command must become visible in `human_url`. Every later human GUI
-edit must be consumed as a revision event, followed by a fresh `describe`
-before the Agent sends another mutation.
-
-The bare CLI `schema` and `describe` calls are deliberately compact. Repeat
-`--operation-schema` for related operations, and request one state profile with
-`--profile structure|appearance|bonding|render|analysis` only when needed.
-Use `--include-positions` only for coordinate-dependent work. Do not repeatedly
-load the complete schema, capabilities payload, or `full` state. Rendered pixels
-remain the final authority for visual-quality checks.
+If no MCP or native function tools are available, use the CLI workflow in
+`references/cli-and-environments.md`. `v_ase gui ... --cli`
+is a persistent process: read the first stdout handshake and do **not** wait
+for process exit. Open `human_url` and send structured commands through
+`v_ase api`; the process does not accept natural language or stdin commands.
+Keep its handle and later revision events available for human collaboration.
 
 ## Required Workflow
 
 Use this sequence for every task:
 
-1. **Connect**: parse the handshake, keep consuming later NDJSON events, and
-   open `human_url` so the human and agent share one live document.
-2. **Plan**: call compact `schema` and `describe --profile summary`. Request only
+1. **Connect**: use MCP/function tools or the CLI handshake and open the shared
+   GUI. Keep consuming collaboration events while the human refines the document.
+2. **Plan**: use compact describe and tool discovery (CLI: `schema` and
+   `describe --profile summary`). Request only
    the schema for operations that will actually be used and only the focused
    state needed to identify atom indices, labels, elements, cell, PBC,
    constraints, appearance, bonds, or render camera. Preserve ordered VASP
@@ -94,17 +58,18 @@ Use this sequence for every task:
    Edit mode before physical changes.
 4. **Execute**: apply one semantic change at a time with the latest
    settled `collaboration.revision` returned by `describe` as
-   `expectedRevision`.
+   `expected_revision` plus `expected_document_id` (raw API: `expectedRevision`
+   and `expectedDocumentId`).
 5. **Synchronize**: on a human event, pause mutations, activate its document,
    call `describe`, and preserve the newer human change.
 6. **Verify**: inspect the compact apply response's `mutation.changedPaths`.
    Request a focused `describe` only when the returned summary cannot prove the
    result or after a human collaboration event.
 7. **Render**: inspect `describe --profile render`, then call `render` at draft
-   dimensions with `--save`. Verify `effectiveRender.source`, exact camera,
+   dimensions. Native tools save a resource automatically; CLI uses `--save`. Verify `effectiveRender.source`, exact camera,
    dimensions, options, byte count, and decoded image before one final render.
 8. **Export**: call `export` only after state and camera verification. Use
-   `--save OUTPUT` for results containing a `dataUrl`.
+   the returned artifact resource; CLI uses `--save OUTPUT` for a `dataUrl`.
 9. **Collaborate**: keep `human_url` and the event stream active while the user
    wants to watch or refine the result.
 
@@ -115,6 +80,12 @@ The CLI omits render/export `dataUrl` strings from stdout by default so Base64
 does not consume the Agent context. Use `--save OUTPUT` for normal work.
 `--print-data-url` is an explicit opt-in for callers that truly require the
 raw payload.
+
+Use `vase_pause_playback` before reading an animated frame. Stop controls for
+playback and optimization require document identity but allow revision omission
+because the running process continuously advances it. This exception never
+applies to ordinary edits. On a timeout, inspect state before repeating a command:
+its outcome may be unknown.
 
 ## Semantic Command Map
 
@@ -235,6 +206,7 @@ work around a stale skill silently.
 
 Read only the references needed for the current task:
 
+- [Native tools](references/native-tools.md): MCP setup, native functions, discovery, resources, and typed errors.
 - [Agent setup](references/agent-setup.md): files for agents and clients without native skill loaders.
 - [Live collaboration](references/collaboration.md): human/agent events, revisions, tabs, and recovery.
 - [CLI and environments](references/cli-and-environments.md): install, input, local/remote use, and lifecycle.

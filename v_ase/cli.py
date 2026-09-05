@@ -47,6 +47,18 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     subparsers = parser.add_subparsers(dest="command")
 
+    mcp = subparsers.add_parser("mcp", help="serve typed AI tools over MCP (stdio or loopback HTTP)")
+    mcp.add_argument("--connect", help="command_url from an existing live GUI handshake")
+    mcp.add_argument("--file", help="structure/project to open when starting an owned GUI")
+    mcp.add_argument("--interactive", action="store_true", help="open the input in Edit mode")
+    mcp.add_argument("--no-browser", action="store_true", help="print the human GUI URL to stderr without opening it")
+    mcp.add_argument("--transport", choices=("stdio", "streamable-http"), default="stdio")
+    mcp.add_argument("--port", type=int, default=8766, help="loopback MCP HTTP port (default: 8766)")
+    mcp.add_argument("--discovery", choices=("all", "progressive"), default="all")
+    mcp.add_argument("--artifact-dir", type=Path, default=Path("v_ase-artifacts"))
+    mcp.add_argument("--timeout", type=float, default=300)
+    mcp.set_defaults(func=run_mcp)
+
     gui = subparsers.add_parser(
         "gui",
         help="open the v_ase GUI, optionally with a structure, trajectory, or project",
@@ -215,6 +227,7 @@ def build_parser() -> argparse.ArgumentParser:
         choices=[
             "ready",
             "schema",
+            "query",
             "describe",
             "capabilities",
             "documents",
@@ -326,7 +339,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def normalize_argv(argv: list[str] | None) -> list[str]:
     args = list(sys.argv[1:] if argv is None else argv)
-    if args and args[0] not in {"gui", "api", "remote", "-h", "--help", "--version"} and not args[0].startswith("-"):
+    if args and args[0] not in {"gui", "api", "mcp", "remote", "-h", "--help", "--version"} and not args[0].startswith("-"):
         return ["gui", *args]
     return args
 
@@ -349,7 +362,7 @@ def _load_api_params(args: argparse.Namespace):
 def _resolved_api_params(args: argparse.Namespace):
     """Merge token-efficient method shortcuts into one JSON parameter object."""
     params = _load_api_params(args)
-    if args.method in {"schema", "describe", "apply", "render", "export", "activate"} \
+    if args.method in {"schema", "query", "describe", "apply", "render", "export", "activate"} \
             and not isinstance(params, dict):
         raise SystemExit(f"v_ase api: {args.method} parameters must be a JSON object.")
     shortcut_values = (
@@ -780,6 +793,13 @@ def run_gui(args: argparse.Namespace) -> int:
         write(args.output, result, **write_kwargs)
 
     return 0
+
+
+def run_mcp(args):
+    if args.connect and (args.file or args.interactive):
+        raise SystemExit("v_ase mcp: --connect cannot be combined with --file or --interactive.")
+    from .mcp_server import run_mcp_command
+    return run_mcp_command(args)
 
 
 def main(argv: list[str] | None = None) -> int:

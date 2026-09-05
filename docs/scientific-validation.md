@@ -152,3 +152,15 @@ actually run rather than being counted as successful skips. Optional external
 applications are reported separately when unavailable. Follow the complete
 [release checklist](release_checklist.md) for documentation builds, publication,
 and a clean installation of the published wheel.
+
+## 0.3.2 interface checks
+
+`tests/test_ai_tools.py` verifies that native tools rotate mixed C/H atoms about
+their independently calculated mass-weighted center, preserve atomic coordinates
+while restoring visual settings, and retain planar-field settings through a
+complete display roundtrip. A non-volumetric file passed to `load-volumetric`
+is rejected before any trajectory frames are appended. The same suite verifies
+local typed validation, revision/document guards and MCP resource contents.
+These checks extend the 0.3.1 scientific audit without claiming a new physical
+model. [Transport measurements](ai-tools.md#local-transport-measurements) are
+reported separately from scientific computation and model performance.

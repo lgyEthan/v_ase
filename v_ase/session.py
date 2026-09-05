@@ -78,6 +78,7 @@ class EditorSession:
     websockets: List[Any] = field(default_factory=list)
     config: Dict[str, Any] = field(default_factory=dict)
     temporary_files: Set[str] = field(default_factory=set, repr=False)
+    video_exports: Dict[str, Any] = field(default_factory=dict, repr=False)
     mode_transition_lock: threading.RLock = field(
         default_factory=threading.RLock,
         repr=False,
@@ -473,6 +474,9 @@ class EditorSession:
 
     def stop_background_operations(self) -> None:
         """Invalidate all workers without waiting on daemon-thread teardown."""
+        for encoder in list(self.video_exports.values()):
+            encoder.abort()
+        self.video_exports.clear()
         self.stop_relax = True
         self.relax_restart_requested = False
         self.relax_run_id += 1
@@ -644,7 +648,7 @@ def create_workspace_session(
     *,
     source_session_id: str | None = None,
 ) -> EditorSession:
-    """Create a blank document with the workspace's operating mode."""
+    """Create a blank editable document while inheriting visual preferences."""
     with workspace.lock:
         source = sessions.get(source_session_id or "") or workspace.host_session
         source_config = source.config or {}
@@ -664,6 +668,7 @@ def create_workspace_session(
         }
         config.update({
             "initial_design_settings": None,
+            "viz_only": False,
             "empty_workspace": True,
             "auto_close_on_disconnect": False,
             "workspace_id": workspace.workspace_id,

@@ -13,6 +13,7 @@ from v_ase.notebook import register_notebook_magic
 register_notebook_magic()
 
 _LAZY_EXPORTS = {
+    "FunctionTools": ("v_ase.ai_tools", "FunctionTools"),
     "ASEEditor": ("v_ase.viewer", "ASEEditor"),
     "view": ("v_ase.viewer", "view"),
     "view_edit": ("v_ase.viewer", "view_edit"),
@@ -33,6 +34,7 @@ def __getattr__(name):
     return value
 
 __all__ = [
+    "FunctionTools",
     "ASEEditor",
     "view",
     "view_edit",

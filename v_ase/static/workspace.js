@@ -489,6 +489,10 @@ class VAseWorkspace {
                 await workspace.ready;
                 return await (await workspace.waitForActiveAIBridge()).schema(options);
             },
+            query: async request => {
+                await workspace.ready;
+                return await (await workspace.waitForActiveAIBridge()).query(request);
+            },
             capabilities: async options => {
                 await workspace.ready;
                 return await (await workspace.waitForActiveAIBridge()).capabilities(options);

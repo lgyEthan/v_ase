@@ -1,7 +1,7 @@
 # Troubleshooting
 
 This guide covers the failure modes most often confused with a structure-file
-problem in v_ase 0.3.1. Start with the short environment check, then use the
+problem in v_ase 0.3.2. Start with the short environment check, then use the
 section matching the visible error.
 
 ```{contents} On this page
@@ -82,7 +82,7 @@ Reinstall the stack with the Python that owns v_ase:
 python -m pip install --upgrade --force-reinstall v_ase-gui
 ```
 
-For v_ase 0.3.1, Python 3.10-3.12 resolve the NumPy 1.x/matscipy 1.1.x family;
+For v_ase 0.3.2, Python 3.10-3.12 resolve the NumPy 1.x/matscipy 1.1.x family;
 Python 3.13 resolves the NumPy 2.x/matscipy 1.2+ family. Avoid upgrading NumPy
 alone in a shared Conda base environment. A dedicated environment is the most
 reliable repair when unrelated compiled packages require incompatible ABIs.
@@ -261,7 +261,10 @@ v_ase does not interpolate incompatible scientific grids implicitly.
 
 ## Video export is unavailable or slow
 
-Video requires at least two frames and browser `MediaRecorder` support.
+Video requires at least two loaded frames and a working imageio-ffmpeg encoder.
+Frames are sent in index order as PNG images; no browser recorder is required.
+Use even dimensions in 64..8192 for typed exports. A missing or repeated frame
+is rejected instead of silently shortening the trajectory.
 MOV/AVI conversion uses bundled `imageio-ffmpeg`. Interpolation renders extra
 frames and requires stable atom count, element, label and ordering between
 adjacent source frames.
@@ -293,7 +296,7 @@ For the smallest editable source of truth, save `.vase` directly.
 
 ## Before opening an issue
 
-Confirm the problem on v_ase 0.3.1, reduce it to the smallest safe input, and
+Confirm the problem on v_ase 0.3.2, reduce it to the smallest safe input, and
 record the exact steps and expected result. Include terminal output as text,
 not only a screenshot. For rendering defects, include the viewport and exported
 file dimensions and say whether the issue affects the live viewport, Render

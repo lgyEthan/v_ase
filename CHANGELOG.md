@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.3.2
+
+Typed AI interfaces over the same human-editable scientific document.
+
+- Add an official-SDK MCP server with stdio and loopback Streamable HTTP,
+  complete or progressive tool discovery, modern subscriptions and legacy
+  protocol negotiation, workflow resources and unique artifact links.
+- Add vendor-neutral native function definitions and execution. Strict schemas
+  preserve optional/null distinctions and typed dynamic maps; the dispatcher
+  validates the complete scientific contract before execution.
+- Share lightweight canonical schemas across adapters; complete missing
+  operation parameter types and display settings, verify live contract
+  fingerprints, and generate a feature-oriented tool reference.
+- Expose GUI file opening/appending, atom duplication, repulsion configuration,
+  playback controls, catalogs, previews and stored property/field queries.
+- Guard ordinary edits with document identity and revision, serialize competing
+  agent edits, and reject ambiguous duplicate browser connections before dispatch.
+  Interrupt controls can stop continuously evolving playback/optimization.
+- Start new blank tabs in Edit with a default calculator; preserve a clear
+  POSCAR error for directional constraints that ASE cannot represent, and reject
+  non-volumetric inputs before a field-loading request could append frames.
+- Correct mass-weighted COM pivots for mixed-element semantic rotation/scaling.
+- Invalidate cleared field meshes during rapid trajectory scrubbing so returning
+  to a frame rebuilds its isosurface and planes instead of accepting a stale cache.
+- Replace timed browser video sampling with indexed PNG-to-encoder delivery,
+  preserving exact even dimensions, every trajectory/interpolated frame and
+  the original displayed frame, with bounded raster staging and cleanup.
+- Retain CLI, HTTP and JavaScript compatibility; reorganize AI documentation
+  into setup, feature reference, workflows and compatibility sections, and
+  wrap long inline paths on narrow screens.
+
 ## 0.3.1
 
 Scientific correctness, bounded performance improvements, and feature-based

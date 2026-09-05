@@ -229,3 +229,16 @@ commands and exports.
 - HTTP 409 or browser disconnected: keep the CLI alive, open or reconnect
   `human_url`, wait for the viewport, then retry. Do not substitute
   screenshot-derived coordinates.
+
+## Typed-tool document guards
+
+In 0.3.2, describe returns `documentId` as well as a title. Native tools require
+`expected_document_id` and `expected_revision` for ordinary edits. The raw
+HTTP/JavaScript equivalents are `expectedDocumentId` and `expectedRevision`.
+A document mismatch is rejected even when revisions are equal. Agent mutations
+are serialized before guard checking. Stop controls are the documented
+exception: a continuously advancing optimizer/movie can be interrupted using
+its document ID without a revision. After stopping, describe before editing.
+Use `vase_events` for cursor-based polling under MCP/native tools; CLI NDJSON
+remains available. A network timeout has an unknown outcome, so inspect before
+retrying.

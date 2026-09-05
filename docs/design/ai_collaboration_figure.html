@@ -90,9 +90,9 @@
     color: #263f44;
   }
   .label-cli {
-    left: 725px;
+    left: 702px;
     top: 704px;
-    width: 104px;
+    width: 150px;
     color: #006f62;
   }
   .node {
@@ -449,7 +449,7 @@
     </svg>
     <div class="channel-label label-gui">GUI</div>
     <div class="channel-label label-natural">Natural language</div>
-    <div class="channel-label label-cli">CLI</div>
+    <div class="channel-label label-cli">MCP / CLI</div>
 
     <section class="node human active" data-stage="human">
       <div class="identity">
@@ -465,13 +465,13 @@
         <span class="agent-mark" aria-hidden="true">AI</span>
         <div><div class="actor-kicker">Interprets the request</div><h2>AI Agent</h2></div>
       </div>
-      <div class="translation-heading"><span>Natural-language intent</span><span class="arrow">→</span><span class="to-cli">CLI operations</span></div>
-      <div class="translation" aria-label="Natural-language intent translated into CLI operations">
+      <div class="translation-heading"><span>Natural-language intent</span><span class="arrow">→</span><span class="to-cli">Semantic tools</span></div>
+      <div class="translation" aria-label="Natural-language intent translated into Semantic tools">
         <div class="translation-row" data-command="vacancy"><span class="intent">N<sub>3</sub> vacancy</span><span class="cli-command">delete 42 · 29,41,30 → N</span></div>
         <div class="translation-row" data-command="lithium"><span class="intent">Li 2.15 Å above</span><span class="cli-command">add Li · z = center + 2.15 Å</span></div>
         <div class="translation-row" data-command="camera"><span class="intent">+Z · +Y up</span><span class="cli-command">view +Z · screen up +Y</span></div>
       </div>
-      <div class="agent-status operation" id="operation">Reads the current structure through CLI</div>
+      <div class="agent-status operation" id="operation">Reads the current structure through typed tools / CLI</div>
       <div class="agent-status agent-reply" id="agent-reply">GUI revision received · radius 0.64 · bond 0.20 Å</div>
     </section>
 
@@ -486,7 +486,7 @@
         <div class="result-badges"><span class="result-badge">+Z VIEW</span><span class="result-badge">+Y UP</span><span class="result-badge">Li +2.15 Å</span></div>
         <img id="gui-image" src="../assets/readme_ai_collaboration_live.png" alt="Live v_ase result">
       </div>
-      <div class="gui-result">Inspect the result immediately. The GUI and CLI share the same document.</div>
+      <div class="gui-result">Inspect the result immediately. The GUI and tools share the same document.</div>
       <div class="human-edit" id="human-edit">
         <span class="edit-heading">You refine the result directly in the GUI</span>
         <span class="edit-controls"><b>Radius</b><i class="edit-track"></i><b>0.64</b><b>Bond</b><i class="edit-track" style="--edit-stop:55%"></i><b>0.20 Å</b></span>
@@ -500,7 +500,7 @@
     document.querySelectorAll('.node').forEach(element => {
       element.classList.toggle('active', element.dataset.stage === stage);
     });
-    const normalized = (operation || 'Reads the current structure through CLI')
+    const normalized = (operation || 'Reads the current structure through typed tools / CLI')
       .replace(/^CLI:\s*/i, '')
       .replace(/^Applied:\s*/i, 'Applied: ');
     let activeCommand = '';

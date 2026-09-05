@@ -583,6 +583,22 @@ def test_active_trajectory_frame_updates_rdf_volume_colors_and_displacements():
             assert initial["rdfCacheSize"] == 3
             assert initial["rdfCacheComplete"] is True
 
+            restored = page.evaluate("""async () => {
+                const app = window.__ASE_APP__;
+                await app.refreshVolumetricDataForCurrentFrame();
+                // A brief frame visit can invalidate the mesh before its
+                // debounced refresh runs. Returning must rebuild that mesh.
+                app.state.atoms.metadata.current_frame = 1;
+                app.hideStaleVolumetricDataForCurrentFrame();
+                if (app.state.volumetricSurfaceSummary !== null) {
+                    throw new Error('The stale field was not hidden.');
+                }
+                app.state.atoms.metadata.current_frame = 0;
+                await app.refreshVolumetricDataForCurrentFrame();
+                return app.state.volumetricSurfaceSummary?.datasetId || null;
+            }""")
+            assert restored == first_field.dataset_id
+
             page.evaluate("window.__ASE_APP__.startPlayback()")
             page.wait_for_function("""() => {
                 const app = window.__ASE_APP__;

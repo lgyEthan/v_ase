@@ -5,6 +5,20 @@
 :depth: 1
 ```
 
+## Typed AI tools
+
+`from v_ase import FunctionTools` provides model-independent tool definitions
+and execution. Use `FunctionTools(command_url, artifact_dir="figures", timeout=300)`
+as a context manager. `definitions(names=None)` returns MCP-shaped schemas;
+`function_tools(names=None, strict=True)` returns native function definitions.
+Execute with `call(name, arguments)` or
+`call_function(name, arguments, strict=True)`, respectively.
+
+See [MCP/native setup](ai-tools.md) for lifecycle, strict optional/map semantics,
+resources and recovery, and [tools by feature](ai-tools-reference.md) for the
+complete generated catalog. The CLI fallback is documented separately in
+[CLI/HTTP collaboration](ai-cli.md).
+
 ## Python
 
 ### `view`

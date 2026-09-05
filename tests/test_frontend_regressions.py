@@ -1049,11 +1049,12 @@ def test_frontend_reset_video_and_visual_settings_controls_are_wired():
     assert "Relaxation" in index_html
     assert "Export Video is available for loaded trajectory files only" in main_js
     assert "exportTrajectoryVideo" in main_js
-    assert "canvas.captureStream" in main_js
-    assert "MediaRecorder" in main_js
+    assert "appendVideoFrame" in main_js
+    assert "beginVideoFrames" in main_js
+    assert "captureMode: 'indexed-png'" in main_js
     assert "MOV (H.264)" in main_js
     assert "AVI (MPEG-4)" in main_js
-    assert "video/mp4;codecs=avc1.42E01E" in main_js
+    assert "finishVideoFrames" in main_js
     assert "backgroundColor: '#ffffff'" in main_js
     assert 'id="video-interpolation-multiplier"' in main_js
     assert 'id="video-interpolation-mic"' in main_js

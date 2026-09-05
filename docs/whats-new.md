@@ -1,74 +1,69 @@
-# What is new in 0.3.1
+# What is new in 0.3.2
 
-Version 0.3.1 audits scientific calculations, removes avoidable Python work in
-repulsion, and organizes the guide around individual features.
+Version 0.3.2 adds typed MCP and native function interfaces to the shared
+scientific GUI. The existing CLI, HTTP JSON bridge and JavaScript interface
+remain available.
 
-## Atomic distributions and repulsion
+## MCP setup and discovery
 
-Mixed species are assigned to a seeded permutation of sites, avoiding grid-order
-segregation and maximin-rank bias. The GUI explains that homogeneous refinement
-applies through 1,024 atoms or molecule anchors; larger batches use a bounded
-low-discrepancy sequence. See [atomic distributions](atomic-distributions.md).
+Install `v_ase-gui[mcp]==0.3.2` and configure a host to run `v_ase mcp`.
+The server can open a GUI or connect to one already running. stdio and local
+Streamable HTTP are supported. Progressive discovery loads feature tools on
+request and supplies change notifications; default discovery advertises all
+tools for compatibility. [Connect an MCP host](ai-tools.md).
 
-Default repulsion forces now agree with the reported harmonic energy. Periodic
-self images and periodic copies of rigid molecules contribute correctly. Numeric
-onset distances and radius-basis changes affect the actual pair model. A NumPy
-coincidence-grouping optimization reduced measured kernel time by 1.6–3.2× in
-our documented cases; this is not a GPU or whole-application speed claim.
+## Native functions and complete schemas
 
-## Commensurate cells
+`FunctionTools` supplies strict function definitions and a local dispatcher
+without a model SDK. Arguments never pass through a shell string. The canonical
+schemas now include previously missing movement, constraint, RDF and field
+parameters, plus the GUI display settings. Dynamic maps and explicit nulls
+survive strict-provider conversion. [Read the function guide](ai-tools.md#use-native-function-calling).
 
-Tilted periodic planes are rejected before projection can hide out-of-plane
-mismatch. The GUI explains maximum principal strain, and the guide distinguishes
-that acceptance criterion from the basis-dependent paper-style strain display.
-The [periodic-interface guide](periodic-interfaces.md) now gives a complete
-bounded-match procedure and explains the published-method adaptation.
+## More GUI features available to agents
 
-## RDF and volumetric processing
+Tools cover file opening and trajectory appending, exact atom duplication,
+repulsion configuration without starting relaxation, movie control, input file
+browsing, bulk/molecule catalogs and previews, stored atomic properties,
+scalar/force arrays and colormaps. [Browse tools by feature](ai-tools-reference.md).
 
-RDF includes its exact final cutoff edge, validates integer bins and finite
-geometry, and has a [dedicated guide](rdf.md) covering finite-N normalization,
-partial curves, bulk versus finite systems, and Python-to-CSV output.
+## Collaboration and scientific correctness
 
-Finite endpoint-inclusive grids now use trapezoidal integration; periodic
-closing planes are still counted once. Field combinations accumulate in FP64
-slabs before final storage conversion, reducing cancellation errors without
-allocating a full additional FP64 grid. Read the [field guide](volumetric-guide.md)
-for units, precision, integral conventions, and the limits of display smoothing.
+Ordinary edits check both document ID and revision; different tabs cannot be
+confused because their revision numbers happen to match. Concurrent agent
+commands are serialized. Duplicate GUI connections are rejected before an
+operation could be broadcast and executed twice. Stop controls can interrupt a
+running movie or optimizer whose revision keeps advancing.
 
-## Trajectory properties and project reopening
+The semantic `com` pivot for rotation and scaling now uses atomic masses,
+correcting mixed-element behavior. Other physical models and their interpretation
+follow the [scientific validation guide](scientific-validation.md).
 
-Stored forces, tags, and charges now follow the displayed source frame even
-when force arrows are hidden. Scalar/vector analysis retains stored calculator
-results without evaluating a calculator. Saved visible field planes are sampled
-before initial readiness, so reopening a project includes its planar raster in
-the first render. Commensurate previews have an explicit **Fit Preview in View**
-control, correct proposal-angle reporting, and CSV area-membership flags.
+## Exact trajectory movies
 
-## Reliable automation and readable documentation
+Video export now sends indexed PNG frames directly to the encoder. This fixes
+an observed eight-frame movie that previously contained seven frames and a
+320×240 request that became 320×256. Even dimensions are preserved exactly and
+both interpolation endpoints are retained. The pipeline holds one raster at a
+time, applies encoder backpressure and restores the original GUI frame.
 
-`combine-volumetric` uses `resultName` for its output label. Previous examples
-used duplicate `name` keys, which could overwrite the command selector. A CLI
-regression checks the actual output, and documentation JSON now rejects duplicate
-keys. During placement, `calculator.detailsScope` identifies the document
-calculator and `placementDetailsPath` directs agents to `addAtoms` for the
-active temporary optimizer's settings.
+## Artifacts and readable guidance
 
-Long pages now have local feature navigation. Volumetric JSON examples are
-separate load, surface, plane, style, and combination tasks. The Python API
-starts with a runnable example and keeps its full signature in a reference
-section. README media and the canonical Skill follow the same release.
+MCP/native render and export tools write unique files and return resource links
+with MIME type, size and SHA-256. The Skill focuses on scientific workflows and
+recovery, while tool schemas supply parameters. AI documentation is split into
+connection setup, feature sections, and CLI compatibility.
 
-## Upgrading
+## Upgrade
 
 ```bash
-python -m pip install --upgrade "v_ase-gui==0.3.1"
+python -m pip install --upgrade "v_ase-gui[mcp]==0.3.2"
 ```
 
-Seeded mixed placements and default repulsive trajectories can differ from
-older releases because the corrected algorithm changes the result. An explicit
-Python `max_force_norm` retains legacy limiting, with its documented
-nonconservative meaning. Update semantic field naming to `resultName`.
+Restart the GUI and adapter together; mismatched tool contracts are rejected.
+For core-only use, install `v_ase-gui==0.3.2`. Existing CLI scripts remain valid;
+new typed tool arguments use snake_case while raw HTTP/JavaScript retains
+camelCase. No model API key is required by v_ase.
 
-The [scientific validation record](scientific-validation.md) explains the
-independent checks and their interpretation boundaries.
+The previous scientific audit is preserved in the
+[validation record](scientific-validation.md) and [changelog](https://github.com/lgyEthan/v_ase/blob/main/CHANGELOG.md).

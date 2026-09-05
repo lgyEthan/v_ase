@@ -120,3 +120,41 @@ def test_video_transcode_reports_monotonic_encoding_progress(tmp_path):
     finally:
         if os.path.exists(target):
             os.unlink(target)
+
+
+@pytest.mark.parametrize('container',['mov','avi'])
+def test_indexed_png_video_preserves_exact_rasters_count_and_fps(tmp_path,container):
+    import io
+    import numpy as np
+    from PIL import Image
+    from v_ase.video_frames import VideoFrameEncoder
+    import imageio_ffmpeg
+    encoder=VideoFrameEncoder(320,240,8,8,container)
+    try:
+        for index in range(8):
+            image=Image.new('RGB',(320,240),(20+index*25,40,60))
+            stream=io.BytesIO();image.save(stream,format='PNG')
+            if index==0:
+                with pytest.raises(ValueError,match='Expected video frame'):encoder.append(1,stream.getvalue())
+            encoder.append(index,stream.getvalue())
+        path,_,_=encoder.finish()
+        decoded=imageio_ffmpeg.read_frames(path,pix_fmt='rgb24');metadata=next(decoded)
+        frames=list(decoded)
+        assert metadata['size']==(320,240)
+        assert metadata['fps']==pytest.approx(8)
+        assert len(frames)==8
+        means=[np.frombuffer(frame,dtype=np.uint8).reshape(240,320,3).mean(axis=(0,1))[0] for frame in frames]
+        np.testing.assert_allclose(means,[20+25*i for i in range(8)],atol=5)
+    finally:encoder.abort()
+
+
+def test_indexed_video_rejects_incomplete_sequence_and_cleans_abort(tmp_path):
+    from v_ase.video_frames import VideoFrameEncoder
+    from pathlib import Path
+    with pytest.raises(ValueError,match='even integers'):VideoFrameEncoder(321,240,8,8,'mov')
+    encoder=VideoFrameEncoder(320,240,8,8,'mov')
+    path=Path(encoder.path)
+    with pytest.raises(ValueError,match='incomplete'):encoder.finish()
+    encoder.abort()
+    assert not path.exists()
+    assert encoder.process.poll() is not None

@@ -459,7 +459,18 @@ def export_poscar_response(session, payload: Dict[str, Any]):
     atoms = _apply_payload_positions(session, payload)
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".vasp")
     tmp.close()
-    write(tmp.name, _atoms_for_vasp_export(atoms), format="vasp")
+    try:
+        write(tmp.name, _atoms_for_vasp_export(atoms), format="vasp")
+    except (RuntimeError, ValueError) as exc:
+        os.unlink(tmp.name)
+        if "constraint" in str(exc).lower():
+            raise ValueError(
+                "POSCAR cannot represent these Cartesian directional constraints for "
+                "the current cell through ASE's VASP writer. No constraints were discarded. "
+                "Export a .vase project or ASE Pickle to preserve them, or explicitly "
+                "choose a compatible constraint representation. " + str(exc)
+            ) from exc
+        raise ValueError(f"POSCAR export failed: {exc}") from exc
     return FileResponse(tmp.name, filename="POSCAR", media_type="application/octet-stream")
 
 

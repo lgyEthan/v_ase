@@ -48,6 +48,11 @@ def ai_handshake(url: str) -> dict[str, object]:
         "human_url": url,
         "session_id": session_id,
         "workspace_id": workspace_id,
+        "typed_tools": {
+            "mcp": {"command": "v_ase", "args": ["mcp", "--connect", command_url]},
+            "python": "v_ase.ai_tools.FunctionTools",
+            "documentation": "https://v-ase.readthedocs.io/en/latest/ai-tools.html",
+        },
         "schema_url": f"{base_url}/api/ai/schema",
         "skill_url": f"{base_url}/api/ai/skill",
         "state_url": (
@@ -68,6 +73,7 @@ def ai_handshake(url: str) -> dict[str, object]:
         "command_methods": [
             "ready",
             "schema",
+            "query",
             "describe",
             "capabilities",
             *(

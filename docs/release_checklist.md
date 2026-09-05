@@ -44,7 +44,10 @@ and rendered examples in sync.
    payload at `docs/_interactive/scenes/logo.json`.
    Open the logo, constraint images, animation frames, and interactive logo
    to verify actual geometry, camera, lighting, clipping, and visibility.
-8. Run the complete browser AI workflows listed in the skill evaluation
+8. Generate and check the typed feature reference with
+   `python scripts/generate_ai_tool_reference.py --check`. Install the MCP
+   extra and run native function, stdio, Streamable HTTP, legacy negotiation,
+   progressive discovery, artifact-resource and schema parity tests. Run the complete browser AI workflows listed in the skill evaluation
    reference. Verify state, selection, edits, constraints, trajectory, camera
    directions, nonblank exact-size renders, exports, GUI-to-CLI collaboration
    events, multi-tab routing, and stale-revision rejection.
@@ -57,7 +60,7 @@ and rendered examples in sync.
    not move. Exercise `%v_ase inline`, `%v_ase browser`, and `%v_ase auto` in a
    real notebook kernel.
    Run a fresh zero-context agent with only the canonical Skill and require it
-   to use the HTTP JSON bridge rather than page-main-world evaluation. Require
+   to use MCP/native tools and the HTTP JSON bridge rather than page-main-world evaluation. Require
    it to use compact `schema`, grouped focused operation schemas, and only the
    needed state profiles; inspect calculator state, exercise every operation
    and export, verify output contents, and run alone in its own document

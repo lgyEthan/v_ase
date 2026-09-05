@@ -66,6 +66,8 @@ def test_workspace_documents_have_independent_structure_and_configuration():
 
         assert len(host.working_atoms) == 3
         assert len(child_b.working_atoms) == 0
+        assert child_b.config["viz_only"] is False
+        assert child_b.working_atoms.calc is not None
         assert child_b.config["document_name"] == "Untitled"
         assert child_b.config["initial_design_settings"] is None
         assert child_b.config["launch_directory"] == "/tmp/v_ase-workspace-launch"

@@ -14,18 +14,17 @@
 [Changelog](https://v-ase.readthedocs.io/en/latest/whats-new.html) ·
 [Issues](https://github.com/lgyEthan/v_ase/issues)
 
-**0.3.1 — scientific validation and workflow clarity.** This release corrects
-default repulsion forces and periodic self-image counting, removes species
-bias from ordered placement sites, fixes RDF cutoff-edge handling and finite
-volumetric integration, and improves precision in field differences. Tilted
-host/guest planes are rejected before commensurate matching. Stored trajectory
-properties now follow the displayed frame, saved field planes render on reopen,
-and **Fit Preview in View** frames large commensurate previews. The new guides
-explain each feature with steps, parameter meanings, runnable examples, and
-result checks: [atomic distributions](https://v-ase.readthedocs.io/en/latest/atomic-distributions.html),
-[RDF](https://v-ase.readthedocs.io/en/latest/rdf.html),
-[volumetric fields](https://v-ase.readthedocs.io/en/latest/volumetric-guide.html),
-and [scientific validation](https://v-ase.readthedocs.io/en/latest/scientific-validation.html).
+**0.3.2 — typed AI tools in the shared GUI.** MCP and native function tools now
+expose scientific editing, analysis, display settings and exports with typed
+arguments, document/revision guards, progressive discovery and file artifacts.
+CLI, HTTP and JavaScript remain available. Mixed-element transforms use the
+mass-weighted center of mass, and movie exports preserve every indexed frame.
+Frame-specific fields also recover correctly after rapid trajectory scrubbing.
+Start with [MCP and native tools](https://v-ase.readthedocs.io/en/latest/ai-tools.html)
+or the [feature reference](https://v-ase.readthedocs.io/en/latest/ai-tools-reference.html).
+The reorganized guides include setup, workflows and compatibility sections;
+long inline paths wrap on narrow screens. Scientific assumptions and checks
+remain in the [validation guide](https://v-ase.readthedocs.io/en/latest/scientific-validation.html).
 
 `v_ase` brings ASE's convenient terminal and Python workflow together with
 direct, Blender-style 3D structure editing. Open a structure or trajectory
@@ -143,7 +142,7 @@ URL or copy it into any local browser.
 | Save the whole session | Use **Export > v_ase Project** and choose compact `.vase` or browser-ready HTML |
 | Move a visual preset to another computer | Use **Export Preset**, then **Import Preset** |
 | Share an offline 3D view | Use **Export > Rendered media > HTML View**; the lightweight view-only file is the default |
-| Hand the scene to an AI | Provide the bundled agent skill; the agent starts the CLI/API session itself |
+| Hand the scene to an AI | Connect MCP tools or provide the bundled Skill for CLI compatibility |
 
 > **Viewport tip:** after selecting atoms, press `Esc` to close the control
 > panel before using `G`, `R`, or `S`. The selection is preserved and keyboard focus
@@ -169,7 +168,7 @@ The guide is organized by task:
 - [Style and render](#style-atoms-bonds-and-rendering): appearance, bonds,
   lighting, media, projects, and reusable visual settings.
 - [Work with an AI Agent](#work-with-an-ai-agent): share one revisioned GUI
-  document through the bundled semantic CLI Skill.
+  document through typed MCP/function tools and the bundled workflow Skill.
 
 ## Edit Structures
 
@@ -213,7 +212,8 @@ be returned to the original view by applying `(0, 0, 0)`.
 
 ![Building an amorphous structure from an empty v_ase document](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_scratch_amorphous.gif)
 
-Run `v_ase gui` to start in an empty Edit document. A complete structure can be
+Run `v_ase gui` to start in an empty Edit document. A new blank tab also starts
+in Edit, even when the previous tab was a View-only trajectory. A complete structure can be
 built without loading an input file:
 
 1. Enter the Cartesian `3 x 3` matrix under **Structure > Cell & Replication**,
@@ -1297,36 +1297,36 @@ OBJ export has no optional Python dependency.
 ![A natural-language request passing through an external AI Agent into the same live revisioned v_ase GUI](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_ai_collaboration.gif)
 
 You describe the scientific result to an external AI Agent in ordinary
-language. The Agent translates that request into exact **CLI** operations;
+language. The Agent translates that request into typed **MCP/function tool** calls;
 v_ase renders those operations immediately, and you inspect or refine the same
 document through the **GUI**. The same document stays open in one live GUI, so
 the Agent's changes and your direct refinements never split into separate
 copies. The bundled
 [v_ase Skill](v_ase/skills/visualizing-atomic-structures-with-v-ase/SKILL.md)
-teaches that Agent the exact state queries, edits, validation checks, camera
-commands, and exports. v_ase itself does not contain an LLM or interpret
+teaches scientific workflows, validation and recovery; the tools supply exact
+parameter schemas for state, edits, camera commands and exports. v_ase itself does not contain an LLM or interpret
 natural language.
 
-The CLI exposes compact state profiles and focused operation schemas, so the Agent
+The adapters expose compact state profiles and focused operation schemas, so the Agent
 can inspect only the structure, appearance, bonds, render camera, or analysis
 state needed for the next decision. Each mutation reports its exact changed
 paths, and image bytes are written directly to disk instead of being copied
 through the model context.
 
-The figure labels only the interface used on each bidirectional link:
+The collaboration figure illustrates the shared semantic workflow:
 
 | Link | What crosses it |
 | --- | --- |
 | **Natural language** | Your requested result, clarification, and the Agent's completion report |
-| **CLI** | Revision-checked operations to v_ase; exact state and newer revisions back to the Agent |
+| **MCP / function tools / CLI** | Revision-checked operations to v_ase; exact state and newer revisions back to the Agent |
 | **GUI** | The live rendered result to you; your direct visual refinements back to the same document |
 
 1. **You ↔ AI Agent:** request the scientific result in natural language; the
    Agent can ask for clarification and report what it changed.
-2. **AI Agent ↔ v_ase CLI:** the Agent sends structured, revision-checked
+2. **AI Agent ↔ v_ase tools:** the Agent sends structured, revision-checked
    operations and receives exact atomistic state plus every newer revision.
 3. **You ↔ v_ase GUI:** watch the same live result and fine-tune it directly.
-   Each committed GUI edit returns through the CLI event stream, so the Agent
+   Each committed GUI edit returns through the shared event stream, so the Agent
    reads that human change before continuing.
 
 The animation shows the complete cycle: your request, its structured operation
@@ -1376,27 +1376,38 @@ The example is generated locally from `ase.build.graphene`:
 
 ### Agent Setup
 
-The AI Agent runs separately from v_ase. Give it the complete
-[v_ase Skill directory](https://github.com/lgyEthan/v_ase/tree/main/v_ase/skills/visualizing-atomic-structures-with-v-ase),
-then describe the result you want. The agent starts the machine-readable v_ase
-session, gives you the live GUI URL, and performs verified changes in that same
-document.
+Install the MCP adapter in the environment containing v_ase:
 
-The Skill is vendor-neutral and can be used by Codex, Claude Code, ChatGPT
-desktop agents, Gemini-based agents, agentic IDEs, or another agent that can
-run local commands.
-
-```text
-You <-> AI Agent       natural-language request and feedback
-AI Agent <-> v_ase CLI structured operations, exact state, and revisions
-You <-> v_ase GUI      live inspection and direct visual refinement
+```bash
+python -m pip install "v_ase-gui[mcp]==0.3.2"
 ```
 
-`--cli` is not an embedded AI model. It is the structured connection the
-external agent launches for itself. It exposes atomistic state and safe
-operations, and reports committed GUI changes back to the agent. Revision
-checks prevent an older agent command from silently replacing a newer human
-edit.
+Configure your MCP host to run `v_ase mcp --discovery progressive`. It opens a
+shared editable GUI. Use `--file STRUCTURE` to load a file, or
+`--connect COMMAND_URL` to share an existing CLI-launched GUI. Default discovery
+advertises all tools for hosts without dynamic tool refresh. Streamable HTTP is
+also available on loopback through `--transport streamable-http`.
+
+Named tools such as `vase_configure_bonds`, `vase_scatter_atoms`,
+`vase_calculate_rdf` and `vase_render` take typed arguments directly. Every
+ordinary edit checks both the inspected revision and document ID. New tools
+also cover file opening/appending, duplication, calculator configuration,
+playback, catalogs, previews and stored per-atom analysis. Physical rotation
+and scaling with a `com` pivot now use atomic masses correctly.
+
+For a local model application, `v_ase.ai_tools.FunctionTools` supplies strict
+function definitions and a dispatcher without a model SDK. A local comparison measured 348.48 ms per CLI summary
+read, 2.17 ms through native functions, and 2.72 ms through MCP stdio; this
+is warm adapter/process overhead, not a model-token or rendering-speed claim.
+[Measurement scope and reproduction](docs/ai-tools.md#local-transport-measurements).
+Render/export tools
+save unique files and return artifact resources with size and SHA-256; Base64
+is kept out of ordinary text responses.
+
+Read [MCP and native tool setup](docs/ai-tools.md),
+[tools by feature](docs/ai-tools-reference.md), or
+[CLI/HTTP compatibility](docs/ai-cli.md). The CLI remains useful for shell and
+HPC automation. All paths operate the same live document.
 
 ### What To Give The AI
 
@@ -1416,7 +1427,7 @@ files, provide the following:
 For an AI client without a native skill loader, attach the files above and use:
 
 ```text
-Read SKILL.md and agent-setup.md. Use v_ase's structured CLI to inspect and
+Read SKILL.md and agent-setup.md. Use v_ase's typed tools (or CLI fallback) to inspect and
 edit the structure, give me the live GUI URL so I can watch or refine it, honor
 newer GUI changes before continuing, and verify both scientific state and the
 final rendered output.
@@ -1886,7 +1897,10 @@ ASE atom in a larger physical cell.
 <details>
 <summary>Video export is unavailable or slow</summary>
 
-Video export requires at least two frames and browser `MediaRecorder` support.
+Video export requires at least two loaded frames. Each frame is captured as PNG
+and encoded in index order, so rendering speed cannot drop or duplicate frames.
+Native video sizes are exact even dimensions from 64 through 8192; odd dimensions
+are rejected rather than padded.
 MOV/AVI conversion uses the bundled `imageio-ffmpeg`. Interpolation renders
 additional frames and requires stable atom count, element, label, and ordering
 between adjacent source frames. The selected FPS controls playback time:

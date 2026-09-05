@@ -17,5 +17,6 @@ matplotlib>=3.7
 imageio-ffmpeg>=0.5
 Pillow>=10
 requests>=2.31
+jsonschema>=4.23
 setuptools>=77
 wheel>=0.40

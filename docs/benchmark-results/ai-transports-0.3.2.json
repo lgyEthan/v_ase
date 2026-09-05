@@ -1,0 +1,339 @@
+{
+  "environment": {
+    "python": "3.13.5",
+    "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O"
+  },
+  "version": "0.3.2",
+  "iterations_per_transport": 20,
+  "atoms": 108,
+  "scope": "Warm local adapter/CLI process overhead for identical summary reads; no model calls.",
+  "provider_tokens": null,
+  "model_success_rate": null,
+  "semantic_results_equal": true,
+  "schema_json_bytes": {
+    "mcp_all_tools": 157226,
+    "mcp_progressive_initial": 2908,
+    "native_one_function": 718
+  },
+  "summary": {
+    "cli": {
+      "median_ms": 348.47704198909923,
+      "p95_ms": 355.2760839811526,
+      "median_result_json_bytes": 1003.0
+    },
+    "native_function": {
+      "median_ms": 2.1668130066245794,
+      "p95_ms": 2.2583749960176647,
+      "median_result_json_bytes": 894.0
+    },
+    "mcp_stdio": {
+      "median_ms": 2.7210624975850806,
+      "p95_ms": 3.3905840246006846,
+      "median_result_json_bytes": 2100.0
+    }
+  },
+  "samples": [
+    {
+      "transport": "cli",
+      "seconds": 0.3552760839811526,
+      "result_json_bytes": 1003
+    },
+    {
+      "transport": "native_function",
+      "seconds": 0.003802624996751547,
+      "result_json_bytes": 894
+    },
+    {
+      "transport": "mcp_stdio",
+      "seconds": 0.003657708002720028,
+      "result_json_bytes": 2100
+    },
+    {
+      "transport": "native_function",
+      "seconds": 0.0016788329812698066,
+      "result_json_bytes": 894
+    },
+    {
+      "transport": "mcp_stdio",
+      "seconds": 0.002228999976068735,
+      "result_json_bytes": 2100
+    },
+    {
+      "transport": "cli",
+      "seconds": 0.34772037499351427,
+      "result_json_bytes": 1003
+    },
+    {
+      "transport": "mcp_stdio",
+      "seconds": 0.0033905840246006846,
+      "result_json_bytes": 2100
+    },
+    {
+      "transport": "cli",
+      "seconds": 0.35188241698779166,
+      "result_json_bytes": 1003
+    },
+    {
+      "transport": "native_function",
+      "seconds": 0.0022583749960176647,
+      "result_json_bytes": 894
+    },
+    {
+      "transport": "cli",
+      "seconds": 0.3515308750211261,
+      "result_json_bytes": 1003
+    },
+    {
+      "transport": "native_function",
+      "seconds": 0.0021805829892400652,
+      "result_json_bytes": 894
+    },
+    {
+      "transport": "mcp_stdio",
+      "seconds": 0.0029284170013852417,
+      "result_json_bytes": 2100
+    },
+    {
+      "transport": "native_function",
+      "seconds": 0.0013623339764308184,
+      "result_json_bytes": 894
+    },
+    {
+      "transport": "mcp_stdio",
+      "seconds": 0.002061500010313466,
+      "result_json_bytes": 2100
+    },
+    {
+      "transport": "cli",
+      "seconds": 0.3516913749917876,
+      "result_json_bytes": 1003
+    },
+    {
+      "transport": "mcp_stdio",
+      "seconds": 0.0030764589901082218,
+      "result_json_bytes": 2100
+    },
+    {
+      "transport": "cli",
+      "seconds": 0.3374640840047505,
+      "result_json_bytes": 1003
+    },
+    {
+      "transport": "native_function",
+      "seconds": 0.0021922079904470593,
+      "result_json_bytes": 894
+    },
+    {
+      "transport": "cli",
+      "seconds": 0.3440458750119433,
+      "result_json_bytes": 1003
+    },
+    {
+      "transport": "native_function",
+      "seconds": 0.00218695800867863,
+      "result_json_bytes": 894
+    },
+    {
+      "transport": "mcp_stdio",
+      "seconds": 0.0027734999894164503,
+      "result_json_bytes": 2100
+    },
+    {
+      "transport": "native_function",
+      "seconds": 0.0014038749795872718,
+      "result_json_bytes": 894
+    },
+    {
+      "transport": "mcp_stdio",
+      "seconds": 0.0021607090020552278,
+      "result_json_bytes": 2100
+    },
+    {
+      "transport": "cli",
+      "seconds": 0.34806270798435435,
+      "result_json_bytes": 1003
+    },
+    {
+      "transport": "mcp_stdio",
+      "seconds": 0.0031942499917931855,
+      "result_json_bytes": 2100
+    },
+    {
+      "transport": "cli",
+      "seconds": 0.34983462499803863,
+      "result_json_bytes": 1003
+    },
+    {
+      "transport": "native_function",
+      "seconds": 0.0021776249923277646,
+      "result_json_bytes": 894
+    },
+    {
+      "transport": "cli",
+      "seconds": 0.35118637498817407,
+      "result_json_bytes": 1003
+    },
+    {
+      "transport": "native_function",
+      "seconds": 0.0022561669757124037,
+      "result_json_bytes": 894
+    },
+    {
+      "transport": "mcp_stdio",
+      "seconds": 0.002605124987894669,
+      "result_json_bytes": 2100
+    },
+    {
+      "transport": "native_function",
+      "seconds": 0.001406499999575317,
+      "result_json_bytes": 894
+    },
+    {
+      "transport": "mcp_stdio",
+      "seconds": 0.002161499985959381,
+      "result_json_bytes": 2100
+    },
+    {
+      "transport": "cli",
+      "seconds": 0.3477004169835709,
+      "result_json_bytes": 1003
+    },
+    {
+      "transport": "mcp_stdio",
+      "seconds": 0.003044208016945049,
+      "result_json_bytes": 2100
+    },
+    {
+      "transport": "cli",
+      "seconds": 0.3486049589992035,
+      "result_json_bytes": 1003
+    },
+    {
+      "transport": "native_function",
+      "seconds": 0.0021737500210292637,
+      "result_json_bytes": 894
+    },
+    {
+      "transport": "cli",
+      "seconds": 0.34610208301455714,
+      "result_json_bytes": 1003
+    },
+    {
+      "transport": "native_function",
+      "seconds": 0.0021644590015057474,
+      "result_json_bytes": 894
+    },
+    {
+      "transport": "mcp_stdio",
+      "seconds": 0.002733291999902576,
+      "result_json_bytes": 2100
+    },
+    {
+      "transport": "native_function",
+      "seconds": 0.0013270000054035336,
+      "result_json_bytes": 894
+    },
+    {
+      "transport": "mcp_stdio",
+      "seconds": 0.0020840420038439333,
+      "result_json_bytes": 2100
+    },
+    {
+      "transport": "cli",
+      "seconds": 0.34834912497899495,
+      "result_json_bytes": 1003
+    },
+    {
+      "transport": "mcp_stdio",
+      "seconds": 0.003298957977676764,
+      "result_json_bytes": 2100
+    },
+    {
+      "transport": "cli",
+      "seconds": 0.34298816599766724,
+      "result_json_bytes": 1003
+    },
+    {
+      "transport": "native_function",
+      "seconds": 0.002137667004717514,
+      "result_json_bytes": 894
+    },
+    {
+      "transport": "cli",
+      "seconds": 0.3586963329871651,
+      "result_json_bytes": 1003
+    },
+    {
+      "transport": "native_function",
+      "seconds": 0.0021137090225238353,
+      "result_json_bytes": 894
+    },
+    {
+      "transport": "mcp_stdio",
+      "seconds": 0.002708832995267585,
+      "result_json_bytes": 2100
+    },
+    {
+      "transport": "native_function",
+      "seconds": 0.0013223749992903322,
+      "result_json_bytes": 894
+    },
+    {
+      "transport": "mcp_stdio",
+      "seconds": 0.0020043750118929893,
+      "result_json_bytes": 2100
+    },
+    {
+      "transport": "cli",
+      "seconds": 0.35495999999693595,
+      "result_json_bytes": 1003
+    },
+    {
+      "transport": "mcp_stdio",
+      "seconds": 0.003172625001752749,
+      "result_json_bytes": 2100
+    },
+    {
+      "transport": "cli",
+      "seconds": 0.35137058299733326,
+      "result_json_bytes": 1003
+    },
+    {
+      "transport": "native_function",
+      "seconds": 0.002237707987660542,
+      "result_json_bytes": 894
+    },
+    {
+      "transport": "cli",
+      "seconds": 0.33927649998804554,
+      "result_json_bytes": 1003
+    },
+    {
+      "transport": "native_function",
+      "seconds": 0.0021691670117434114,
+      "result_json_bytes": 894
+    },
+    {
+      "transport": "mcp_stdio",
+      "seconds": 0.0026617079856805503,
+      "result_json_bytes": 2100
+    },
+    {
+      "transport": "native_function",
+      "seconds": 0.0013404999917838722,
+      "result_json_bytes": 894
+    },
+    {
+      "transport": "mcp_stdio",
+      "seconds": 0.001979583001229912,
+      "result_json_bytes": 2100
+    },
+    {
+      "transport": "cli",
+      "seconds": 0.34662716698949225,
+      "result_json_bytes": 1003
+    }
+  ],
+  "byte_metric": "Serialized result/envelope JSON, excluding HTTP headers and protocol framing. MCP includes its text and structured representations.",
+  "limitations": "Not an agent comparison. Startup/discovery is excluded from warm latency. No token, SOTA, or whole-application speed claim."
+}

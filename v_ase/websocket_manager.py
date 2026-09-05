@@ -33,6 +33,17 @@ class WebSocketManager:
             for connection_session in self.active_connections.values()
         )
 
+    def command_connection(self, *, session_id=None, session_prefix=None):
+        """Choose one unambiguous command consumer; never broadcast mutations."""
+        matches = [connection for connection, scope in list(self.active_connections.items())
+                   if (session_id is None or scope == session_id)
+                   and (session_prefix is None or isinstance(scope, str) and scope.startswith(session_prefix))]
+        if not matches:
+            raise ValueError("No live v_ase browser is connected. Open human_url and retry.")
+        if len(matches) != 1:
+            raise ValueError("Multiple live browsers are connected for this document/workspace. Close duplicate windows before issuing semantic commands.")
+        return matches[0]
+
     def broadcast_sync(
         self,
         message: dict,

@@ -1686,3 +1686,15 @@ completes, so the first project render includes their rasters.
   voxels, not isotropic physical Å; mesh smoothing is a display approximation.
   Disable both refinements to inspect the raw-grid surface. Neither changes
   source arrays, source integrals, or the inputs to a field combination.
+
+## 0.3.2 deterministic video contract
+
+`video` exports use indexed PNG frames and a raw frame encoder, not timed browser
+recording. Every loaded/interpolated frame is encoded once; N source frames and
+factor k produce (N−1)k+1 frames. Native width/height must be even integers in
+64..8192; fps is 1..60 and interpolationMultiplier is 1..64. Output is opaque.
+The result reports width, height, fps, frameCount, sourceFrameCount and
+captureMode="indexed-png". Decode the file to check these values and both
+trajectory endpoints. Do not accept an HTTP success response as frame-count
+proof. A missing, duplicate, wrong-sized or out-of-order raster fails the
+sequence. The original displayed frame is restored when export ends.

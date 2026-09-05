@@ -74,7 +74,7 @@ def test_skill_metadata_follows_discovery_contract():
 def test_skill_uses_one_level_progressive_references():
     text = SKILL.read_text(encoding="utf-8")
     linked = re.findall(r"\]\((references/[^)]+\.md)\)", text)
-    assert len(linked) == 8
+    assert len(linked) == 9
     assert len(linked) == len(set(linked))
 
     for relative in linked:

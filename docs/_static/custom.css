@@ -31,6 +31,7 @@
 .rst-content code.literal,
 .rst-content tt.literal {
   color: #9d2f59;
+  overflow-wrap: anywhere;
 }
 
 .rst-content .admonition.tip,

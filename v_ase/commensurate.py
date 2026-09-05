@@ -17,6 +17,8 @@ import numpy as np
 from ase.build.supercells import lattice_points_in_supercell
 
 
+from .limits import MAX_LATTICE_MATCH_AREA_RATIO
+
 _AXES = {
     "X": np.array([1.0, 0.0, 0.0]),
     "Y": np.array([0.0, 1.0, 0.0]),
@@ -65,7 +67,6 @@ TBG_COMMENSURATE_REFERENCE = {
     "doi": "10.1103/PhysRevB.86.155449",
 }
 
-MAX_LATTICE_MATCH_AREA_RATIO = 128
 # A geometric match must not silently flatten a tilted periodic plane.
 _PLANE_ALIGNMENT_MIN = 1.0 - 1e-10
 

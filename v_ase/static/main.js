@@ -1,13 +1,13 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.3.1';
-import { ASERenderer } from './renderer.js?v=0.3.1';
-import { ASESelection } from './selection.js?v=0.3.1';
-import { ASETransform } from './transform.js?v=0.3.1';
+import { ASEApi } from './api.js?v=0.3.2';
+import { ASERenderer } from './renderer.js?v=0.3.2';
+import { ASESelection } from './selection.js?v=0.3.2';
+import { ASETransform } from './transform.js?v=0.3.2';
 import {
     interpolateTrajectoryFrames,
     interpolatedFrameCount,
     normalizeInterpolationMultiplier
-} from './trajectory.js?v=0.3.1';
+} from './trajectory.js?v=0.3.2';
 
 const CHEMICAL_ELEMENT_SYMBOLS = Object.freeze([
     'H','He','Li','Be','B','C','N','O','F','Ne',
@@ -4857,6 +4857,7 @@ class VAseApp {
         const selected = this.selectedVolumetricDataset();
         const selectedFrame = assignments.get(selected?.id);
         if (selectedFrame !== null && selectedFrame !== undefined && selectedFrame !== frameIndex) {
+            this.state.volumetricFrameSignature = null;
             this.state.volumetricRequestToken += 1;
             this.renderer.clearVolumetricSurfaces();
             this.state.volumetricSurfaceSummary = null;
@@ -4865,6 +4866,7 @@ class VAseApp {
         this.volumetricPlanes().forEach(plane => {
             const planeFrame = assignments.get(plane.datasetId);
             if (planeFrame !== null && planeFrame !== undefined && planeFrame !== frameIndex) {
+                this.state.volumetricFrameSignature = null;
                 hidden.add(plane.id);
                 const record = this.renderer.volumetricPlanes.get(plane.id);
                 if (record) record.group.visible = false;
@@ -16323,6 +16325,15 @@ class VAseApp {
         };
     }
 
+    aiPlaybackSnapshot() {
+        return {
+            playing: Boolean(this.state.trajectoryTimer || this.state.trajectoryPlaybackTask),
+            source: this.primaryTimelineSource(), frame: this.timelineFrameIndex(),
+            frameCount: this.timelineFrameCount(), fps: this.currentPlaybackFps(),
+            skip: this.currentPlaybackSkip()
+        };
+    }
+
     aiFocusedBaseSnapshot(profile, atoms = this.state.atoms || {}, {
         includeSelectionPositions = false
     } = {}) {
@@ -16348,9 +16359,11 @@ class VAseApp {
             profile,
             units: { length: 'angstrom', angle: 'degree' },
             document,
+            documentId: this.sessionId,
             mode,
             frame,
             frameCount: Number(atoms.metadata?.frame_count || 1),
+            playback: this.aiPlaybackSnapshot(),
             atomCount,
             labelCounts,
             elementCounts,
@@ -16514,9 +16527,11 @@ class VAseApp {
             profile,
             units: full.units,
             document: full.document,
+            documentId: full.documentId,
             mode: full.mode,
             frame: full.frame,
             frameCount: full.frameCount,
+            playback: full.playback,
             atomCount: full.atomCount,
             labelCounts: full.labelCounts,
             elementCounts: full.elementCounts,
@@ -16672,9 +16687,11 @@ class VAseApp {
             protocol: 'v_ase.ai.v1',
             units: { length: 'angstrom', angle: 'degree' },
             document: this.workspaceDocumentTitle(),
+            documentId: this.sessionId,
             mode: this.state.vizOnly ? 'view' : 'edit',
             frame: Number(atoms.metadata?.current_frame || 0),
             frameCount: Number(atoms.metadata?.frame_count || 1),
+            playback: this.aiPlaybackSnapshot(),
             atomCount: Number(atoms.metadata?.natoms || atoms.positions?.length || 0),
             labels: [...(atoms.symbols || [])],
             chemicalSymbols: [...(atoms.chemical_symbols || [])],
@@ -17419,7 +17436,9 @@ class VAseApp {
             'remove-volumetric-planes',
             'combine-volumetric', 'remove-volumetric', 'calculate-rdf',
             'set-interface-theme', 'set-personal-visual-default',
-            'restore-app-visual-defaults', 'set-atom-colorscale'
+            'restore-app-visual-defaults', 'set-atom-colorscale',
+            'load-structure', 'append-structure', 'duplicate-selection',
+            'configure-calculator', 'set-playback', 'load-settings'
         ];
         const fallbackExports = [
             'image', 'video', 'poscar', 'pickle', 'blender', '3dm', 'obj',
@@ -17433,7 +17452,7 @@ class VAseApp {
             state: [
                 'atoms', 'labels', 'elements', 'positions', 'cell', 'pbc',
                 'constraints', 'forces', 'charges', 'tags', 'magnetic-moments',
-                'selection', 'measurement', 'trajectory', 'camera', 'display',
+                'selection', 'measurement', 'trajectory', 'playback', 'camera', 'display',
                 'render-area', 'add-atoms', 'relaxation',
                 'volumetric-data', 'volumetric-planes', 'rdf', 'commensurate',
                 'commensurate-proposal',
@@ -17441,10 +17460,11 @@ class VAseApp {
                 'preferences', 'collaboration'
             ],
             apply: [
-                'expectedRevision', 'frame', 'mode', 'display', 'quality',
+                'expectedDocumentId', 'expectedRevision', 'frame', 'mode', 'display', 'quality',
                 'applyConstraints', 'camera', 'renderArea', 'selection', 'operation',
                 'responseProfile'
             ],
+            queries: Object.keys(discovery.query_schemas || discovery.queries || {}),
             describeProfiles: this.clonePlain(discovery.describe_profiles || {}),
             render: this.clonePlain(discovery.render_parameters || {}),
             operations: Object.keys(operationParameters).length
@@ -17695,8 +17715,15 @@ class VAseApp {
             return pivot;
         }
         const pivot = new THREE.Vector3();
-        indices.forEach(index => pivot.add(new THREE.Vector3(...positions[index])));
-        return pivot.multiplyScalar(1 / indices.length);
+        const masses = this.state.atoms?.masses || [];
+        let totalMass = 0;
+        indices.forEach(index => {
+            const value = Number(masses[index]);
+            const mass = Number.isFinite(value) && value > 0 ? value : 1;
+            pivot.add(new THREE.Vector3(...positions[index]).multiplyScalar(mass));
+            totalMass += mass;
+        });
+        return pivot.multiplyScalar(1 / totalMass);
     }
 
     aiRotatedPositions(positions, indices, axis, angleDeg, pivot) {
@@ -17770,6 +17797,49 @@ class VAseApp {
             return data;
         };
 
+        if (name === 'load-settings') {
+            const path = String(operation.path || '').trim();
+            if (!path) throw new Error('load-settings requires path.');
+            const result = await this.api.request(`/api/settings/read-path/{session_id}?path=${encodeURIComponent(path)}`);
+            this.applyDesignSettings(result.settings);
+            return;
+        }
+        if (name === 'load-structure' || name === 'append-structure') {
+            const path = String(operation.path || '').trim();
+            if (!path) throw new Error(`${name} requires path.`);
+            if (name === 'load-structure' && this.hasLoadedAtoms() && operation.confirmReplace !== true) {
+                throw new Error('load-structure replaces this tab. Review the user intent and set confirmReplace:true.');
+            }
+            const file = { name: path.split(/[\\/]/).pop() };
+            const args = [file, operation.format || '', operation.index || ':', operation.runtimeMode || null, { path, throwErrors: true }];
+            if (name === 'load-structure') await this.loadStructureFile(...args);
+            else await this.appendStructureFile(...args);
+            return;
+        }
+        if (name === 'duplicate-selection') {
+            this.aiRequireEdit(name);
+            this.aiSelectIndices(this.aiOperationIndices(operation));
+            this.copySelection();
+            await this.pasteSelection({ throwErrors: true });
+            return;
+        }
+        if (name === 'configure-calculator') {
+            this.aiRequireEdit(name);
+            setData(await this.api.updateCalculatorConfig(operation.calculator || {}));
+            return;
+        }
+        if (name === 'set-playback') {
+            await this.stopPlayback();
+            if (operation.source !== undefined) {
+                if (!['loaded', 'relax'].includes(operation.source) || !this.timelineSourceAvailable(operation.source)) throw new Error('Requested timeline source is unavailable.');
+                await this.setTimelineSource(operation.source);
+            }
+            if (operation.fps !== undefined) document.getElementById('movie-fps').value = `${operation.fps}`;
+            if (operation.skip !== undefined) document.getElementById('movie-skip').value = `${operation.skip}`;
+            this.updateTrajectoryUI();
+            if (operation.playing === true) await this.togglePlayback();
+            return;
+        }
         if (name === 'set-interface-theme') {
             const theme = String(operation.theme || '').trim().toLowerCase();
             if (!['system', 'light', 'dark'].includes(theme)) {
@@ -18739,7 +18809,7 @@ class VAseApp {
                 String(operation.format || ''),
                 ':',
                 requestedPrecision,
-                { emitMutation: false }
+                { emitMutation: false, expectedSourceKind: 'volumetric' }
             );
             if (data.loaded_file?.source_kind !== 'volumetric') {
                 throw new Error('The requested path did not contain supported volumetric data.');
@@ -19009,11 +19079,12 @@ class VAseApp {
     }
 
     async aiApply(command = {}) {
+        if (this.state.videoExportId) throw new Error('Wait for the active video export before editing the document.');
         if (!command || typeof command !== 'object' || Array.isArray(command)) {
             throw new Error('AI control command must be an object.');
         }
         const supportedFields = new Set([
-            'expectedRevision', 'frame', 'mode', 'display', 'quality',
+            'expectedDocumentId', 'expectedRevision', 'frame', 'mode', 'display', 'quality',
             'applyConstraints', 'camera', 'renderArea', 'selection', 'operation',
             'responseProfile'
         ]);
@@ -19037,6 +19108,9 @@ class VAseApp {
                     + 'render, analysis, or full.'
                 );
             }
+        }
+        if (command.expectedDocumentId !== undefined && command.expectedDocumentId !== this.sessionId) {
+            throw new Error('Active document changed. Call describe() and review the current document before retrying.');
         }
         if (command.expectedRevision !== undefined) {
             const expected = Number(command.expectedRevision);
@@ -19204,7 +19278,44 @@ class VAseApp {
         });
     }
 
+    async aiQuery(request = {}) {
+        const frame = request.frame ?? Number(this.state.atoms?.metadata?.current_frame || 0);
+        if (!Number.isInteger(frame) || frame < 0 || frame >= this.loadedFrameCount()) {
+            throw new Error('query frame is outside the loaded trajectory.');
+        }
+        const queries = {
+            files: () => this.api.request(`/api/files/{session_id}?directory=${encodeURIComponent(request.directory || "")}`),
+            'bulk-catalog': () => this.api.fetchBulkBuilderCatalog(),
+            'bulk-preview': () => {
+                const {name, frame: ignoredFrame, crystalStructure, cellMode, ...values} = request;
+                return this.api.previewBulkStructure({...values, crystalstructure: crystalStructure, cell_mode: cellMode});
+            },
+            'insertion-domain': () => this.api.atomAdditionDomain({
+                regions: request.regions, region_mode: request.regions ? 'regions' : request.regionMode,
+                bounds: request.bounds, region_mic: request.regionMic, region_role: request.regionRole,
+                content_kind: request.molecules ? 'molecules' : 'atoms', molecules: request.molecules,
+                molecule_quantity_mode: request.quantityMode, target_density_g_cm3: request.targetDensityGcm3
+            }),
+            'molecule-catalog': () => this.api.atomAdditionMoleculeCatalog(),
+            'atom-scalar-catalog': () => this.api.fetchAtomScalarCatalog(frame),
+            'atom-properties': () => this.api.fetchAtomProperties(request.index, frame),
+            'frame-properties': () => this.api.fetchStoredFrameProperties(frame, request.includeArrays === true),
+            'atom-scalar-values': () => this.api.fetchAtomScalarValues(request.field, frame, request.allFrames === true),
+            'atom-scalar-range': () => this.api.fetchAtomScalarRange(request.field, frame, request.allFrames === true, request.indices),
+            'force-vectors': () => this.api.fetchForceVectors(frame, request.allFrames === true),
+            'colormap-catalog': () => this.api.fetchColormapCatalog(),
+            'colormap-lut': () => this.api.fetchColormapLut(request.map, request.reverse, request.samples),
+            'insertion-pair-cutoffs': () => this.api.atomAdditionPairCutoffs(request.elements, request.basis, request.scale, request.molecules)
+        };
+        const run = queries[request.name];
+        if (!run) throw new Error(`Unknown query '${request.name}'.`);
+        const result = await run();
+        return { documentId: this.sessionId, frame, query: request.name,
+            result: JSON.parse(JSON.stringify(result, (_, value) => ArrayBuffer.isView(value) ? Array.from(value) : value)) };
+    }
+
     async aiRender(request = {}) {
+        if (this.state.videoExportId) throw new Error('Wait for the active video export before starting another capture.');
         const width = Math.max(64, Math.min(8192, Math.round(Number(request.width) || 1920)));
         const height = Math.max(64, Math.min(8192, Math.round(Number(request.height) || 1080)));
         const format = this.normalizedImageFormat(request.format);
@@ -19240,6 +19351,7 @@ class VAseApp {
     }
 
     async aiExport(request = {}) {
+        if (this.state.videoExportId) throw new Error('Wait for the active video export before starting another export.');
         const format = String(request.format || '').trim().toLowerCase();
         if (format === 'image') {
             const imageFormat = this.normalizedImageFormat(request.imageFormat);
@@ -19269,6 +19381,7 @@ class VAseApp {
                 filename: `v_ase-trajectory.${container}`,
                 mimeType: blob.type || (container === 'avi' ? 'video/x-msvideo' : 'video/quicktime'),
                 bytes: blob.size,
+                ...blob.vaseMetadata,
                 dataUrl: await this.blobToDataUrl(blob)
             };
         }
@@ -19548,13 +19661,21 @@ class VAseApp {
                 }
                 return await response.json();
             },
+            query: async request => {
+                await app.ready;
+                return await app.aiQuery(request);
+            },
             capabilities: async options => {
                 await app.ready;
                 return await app.aiCapabilities(options);
             },
             apply: async command => {
                 await app.ready;
-                return await app.aiApplyCollaboratively(command);
+                // Serialize competing agents before checking the live revision.
+                const pending = (app.aiMutationQueue || Promise.resolve())
+                    .catch(() => {}).then(() => app.aiApplyCollaboratively(command));
+                app.aiMutationQueue = pending;
+                return await pending;
             },
             render: async request => {
                 await app.ready;
@@ -20909,7 +21030,7 @@ class VAseApp {
         this.toast(`Copied ${indices.length} atom${indices.length > 1 ? 's' : ''}.`, 'success');
     }
 
-    async pasteSelection() {
+    async pasteSelection({ throwErrors = false } = {}) {
         if (!this.canEditAtoms()) {
             this.editOnlyToast();
             return;
@@ -20941,6 +21062,7 @@ class VAseApp {
             this.toast(`Pasted ${newIndices.length} atom${newIndices.length > 1 ? 's' : ''} at the copied coordinates.`, 'success');
         } catch (err) {
             this.toast(`Paste failed: ${err.message}`, 'error');
+            if (throwErrors) throw err;
         }
     }
 
@@ -22949,7 +23071,7 @@ class VAseApp {
         }, { once: true });
     }
 
-    async loadStructureFile(file, inputFormat = '', index = ':', runtimeMode = null) {
+    async loadStructureFile(file, inputFormat = '', index = ':', runtimeMode = null, { path = null, throwErrors = false } = {}) {
         try {
             this.stopPlayback();
             if (this.transform.mode !== 'IDLE') this.cancelTransform();
@@ -22967,7 +23089,10 @@ class VAseApp {
             }
             const data = await this.withBusy(
                 `Reading ${file.name}...`,
-                () => this.api.loadStructureFile(
+                () => path ? this.api.jsonPost('/api/file/load-path/{session_id}', {
+                    path, input_format: inputFormat || null, index,
+                    volumetric_precision: this.volumetricImportPrecision(), runtime_mode: runtimeMode
+                }) : this.api.loadStructureFile(
                     file,
                     inputFormat,
                     index,
@@ -23023,10 +23148,11 @@ class VAseApp {
             this.notifyWorkspaceDocument();
         } catch (err) {
             this.toast(`Open file failed: ${err.message}`, 'error');
+            if (throwErrors) throw err;
         }
     }
 
-    async appendStructureFile(file, inputFormat = '', index = ':', runtimeMode = null) {
+    async appendStructureFile(file, inputFormat = '', index = ':', runtimeMode = null, { path = null, throwErrors = false } = {}) {
         try {
             this.stopPlayback();
             if (this.transform.mode !== 'IDLE') this.cancelTransform();
@@ -23038,7 +23164,9 @@ class VAseApp {
             }
             const data = await this.withBusy(
                 `Adding ${file.name} to trajectory...`,
-                () => this.api.appendStructureFile(
+                () => path ? this.api.appendStructurePath(
+                    path, inputFormat, index, this.volumetricImportPrecision(), { emitMutation: false }
+                ) : this.api.appendStructureFile(
                     file,
                     inputFormat,
                     index,
@@ -23107,6 +23235,7 @@ class VAseApp {
             this.notifyWorkspaceDocument();
         } catch (err) {
             this.toast(`Add to trajectory failed: ${err.message}`, 'error');
+            if (throwErrors) throw err;
         }
     }
 
@@ -23968,251 +24097,142 @@ class VAseApp {
         });
     }
 
-    async captureCurrentVideoFrame(
-        capture,
-        videoTrack,
-        outputIndex,
-        outputCount,
-        outputFps,
-        startedAt
-    ) {
-        this.renderer.renderExportCaptureFrame(capture);
-        videoTrack?.requestFrame?.();
-        const elapsedSeconds = Math.max(0.001, (performance.now() - startedAt) / 1000);
-        const secondsPerFrame = elapsedSeconds / Math.max(1, outputIndex);
-        const etaSeconds = secondsPerFrame * Math.max(0, outputCount - outputIndex);
-        this.setBusyProgress(3 + (outputIndex / outputCount) * 72, {
-            message: `Rendering frame ${outputIndex} of ${outputCount}...`,
-            etaSeconds
-        });
-        await new Promise(resolve => setTimeout(resolve, 1000 / outputFps));
+    async synchronizeVideoAnalysis(sample = null) {
+        if (this.state.frameAnalysisRefreshTimer !== null) {
+            clearTimeout(this.state.frameAnalysisRefreshTimer);
+            this.state.frameAnalysisRefreshTimer = null;
+        }
+        this.state.frameAnalysisRequestToken += 1;
+        await this.synchronizeVideoDisplacements(sample);
+        await this.refreshVolumetricDataForCurrentFrame();
     }
 
-    async renderVideoCaptureSample(
-        capture,
-        videoTrack,
-        sample,
-        outputIndex,
-        outputCount,
-        outputFps,
-        startedAt
-    ) {
+    async captureCurrentVideoFrame(capture, sequence, outputIndex, outputCount, outputFps, startedAt) {
+        this.renderer.renderExportCaptureFrame(capture);
+        const png = await new Promise((resolve, reject) => {
+            this.renderer.domElement.toBlob(blob => blob ? resolve(blob) : reject(new Error('Could not capture a PNG video frame.')), 'image/png');
+        });
+        await this.api.appendVideoFrame(sequence.export_id, outputIndex - 1, png);
+        const elapsedSeconds = Math.max(0.001, (performance.now() - startedAt) / 1000);
+        const secondsPerFrame = elapsedSeconds / Math.max(1, outputIndex);
+        this.setBusyProgress(3 + (outputIndex / outputCount) * 90, {
+            message: `Encoding frame ${outputIndex} of ${outputCount}...`,
+            etaSeconds: secondsPerFrame * Math.max(0, outputCount - outputIndex)
+        });
+    }
+
+    async renderVideoCaptureSample(capture, sequence, sample, outputIndex, outputCount, outputFps, startedAt) {
         this.applyFrameLattice(sample.cell, sample.pbc);
         this.renderer.updatePositionsFlat(sample.positions, 0, sample.count);
-        await this.synchronizeVideoDisplacements(sample);
-        await this.captureCurrentVideoFrame(
-            capture, videoTrack, outputIndex, outputCount, outputFps, startedAt
-        );
+        await this.synchronizeVideoAnalysis(sample);
+        await this.captureCurrentVideoFrame(capture, sequence, outputIndex, outputCount, outputFps, startedAt);
     }
 
     async exportTrajectoryVideo({
-        width,
-        height,
-        fps,
-        format,
-        interpolationMultiplier = 1,
-        interpolationMic = true,
-        ...renderOptions
+        width, height, fps, format, interpolationMultiplier = 1,
+        interpolationMic = true, ...renderOptions
     }, destination, { returnBlob = false } = {}) {
+        if (this.state.videoExportId) throw new Error('A video export is already active.');
+        const outputWidth = Number(width ?? 1920);
+        const outputHeight = Number(height ?? 1080);
+        if (![outputWidth, outputHeight].every(value => Number.isInteger(value) && value >= 64 && value <= 8192 && value % 2 === 0)) {
+            throw new Error('Video width and height must be even integers from 64 through 8192.');
+        }
+        const outputFps = Number(fps ?? 12);
+        if (!Number.isFinite(outputFps) || outputFps < 1 || outputFps > 60) throw new Error('Video fps must be between 1 and 60.');
+        const requestedFactor = Number(interpolationMultiplier);
+        if (!Number.isInteger(requestedFactor) || requestedFactor < 1 || requestedFactor > 64) throw new Error('Video interpolation multiplier must be an integer from 1 through 64.');
+        const interpolationFactor = normalizeInterpolationMultiplier(requestedFactor);
+        const outputFormat = String(format || 'mov').toLowerCase();
+        if (!['mov', 'avi'].includes(outputFormat)) throw new Error('Video format must be mov or avi.');
+        await this.stopPlayback();
         const meta = this.state.atoms?.metadata || {};
         const frameCount = meta.frame_count || 1;
         if (frameCount <= 1) throw new Error('A trajectory with at least two frames is required.');
-        const canvas = this.renderer.domElement;
-        if (!canvas.captureStream || !window.MediaRecorder) {
-            throw new Error('This browser does not support canvas video recording.');
-        }
-        const outputWidth = Math.ceil(Math.max(256, Number(width) || 1920) / 2) * 2;
-        const outputHeight = Math.ceil(Math.max(256, Number(height) || 1080) / 2) * 2;
-        const outputFps = Math.min(60, Math.max(1, Number(fps) || 12));
-        const interpolationFactor = normalizeInterpolationMultiplier(interpolationMultiplier);
         const outputFrameCount = interpolatedFrameCount(frameCount, interpolationFactor);
-        const outputFormat = format === 'avi' ? 'avi' : 'mov';
         const filename = `v_ase-trajectory.${outputFormat}`;
         const outputMime = outputFormat === 'avi' ? 'video/x-msvideo' : 'video/quicktime';
-        const selectedDestination = returnBlob
-            ? null
-            : (destination || await this.chooseSaveDestination(filename, outputMime));
+        const selectedDestination = returnBlob ? null : (destination || await this.chooseSaveDestination(filename, outputMime));
         if (!returnBlob && !selectedDestination) return false;
+        if (this.state.videoExportId) throw new Error('A video export is already active.');
         const originalFrame = meta.current_frame || 0;
-        const exportId = globalThis.crypto?.randomUUID?.()
-            || `video-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-        const renderingStartedAt = performance.now();
-        this.state.videoExportId = exportId;
-        this.state.videoExportStartedAt = renderingStartedAt;
-        if (this.state.trajectoryTimer) {
-            clearTimeout(this.state.trajectoryTimer);
-            this.state.trajectoryTimer = null;
-            this.state.trajectoryPlaybackSource = null;
-            this.updateTrajectoryUI();
-        }
-        const chunks = [];
-        let capture = this.renderer.beginExportCapture(outputWidth, outputHeight, renderOptions);
-        let stream = canvas.captureStream(0);
-        let videoTrack = stream.getVideoTracks()[0];
-        if (typeof videoTrack?.requestFrame !== 'function') {
-            stream.getTracks().forEach(track => track.stop());
-            stream = canvas.captureStream(outputFps);
-            videoTrack = stream.getVideoTracks()[0];
-        }
-        const mimeType = [
-            'video/webm;codecs=vp9',
-            'video/webm;codecs=vp8',
-            'video/webm',
-            'video/mp4;codecs=avc1.42E01E',
-            'video/mp4'
-        ].find(candidate => MediaRecorder.isTypeSupported?.(candidate)) || '';
-        const recorderOptions = {
-            videoBitsPerSecond: Math.max(8_000_000, outputWidth * outputHeight * outputFps * 0.18)
+        const startedAt = performance.now();
+        this.state.videoExportId = 'starting';
+        this.state.videoExportStartedAt = startedAt;
+        let capture = null;
+        let sequence = null;
+        const abortOnPageHide = () => {
+            if (sequence?.export_id) {
+                navigator.sendBeacon(`/api/export/video-frames/${encodeURIComponent(this.sessionId)}/${encodeURIComponent(sequence.export_id)}/abort`, '');
+            }
         };
-        if (mimeType) recorderOptions.mimeType = mimeType;
-        const recorder = new MediaRecorder(stream, recorderOptions);
-        const finished = new Promise((resolve, reject) => {
-            recorder.ondataavailable = event => {
-                if (event.data && event.data.size) chunks.push(event.data);
-            };
-            recorder.onerror = () => reject(recorder.error || new Error('MediaRecorder failed.'));
-            recorder.onstop = () => resolve();
-        });
-
+        window.addEventListener('pagehide', abortOnPageHide);
+        let micFallback = false;
         this.closeModal();
-        this.setBusy(`Preparing ${outputFrameCount} video frames...`, {
-            title: 'Exporting video',
-            progress: 1
-        });
-        recorder.start(100);
+        this.setBusy(`Preparing ${outputFrameCount} video frames...`, { title: 'Exporting video', progress: 1 });
         try {
-            await new Promise(resolve => setTimeout(resolve, 80));
+            sequence = await this.api.beginVideoFrames({width: outputWidth, height: outputHeight, fps: outputFps, frames: outputFrameCount, format: outputFormat});
+            this.state.videoExportId = sequence.export_id;
+            capture = this.renderer.beginExportCapture(outputWidth, outputHeight, renderOptions);
             let outputIndex = 0;
-            let micFallback = false;
             if (interpolationFactor <= 1) {
                 for (let frame = 0; frame < frameCount; frame++) {
                     await this.loadFrame(frame);
-                    await this.synchronizeVideoDisplacements(this.videoFrameSnapshot());
-                    outputIndex += 1;
-                    await this.captureCurrentVideoFrame(
-                        capture,
-                        videoTrack,
-                        outputIndex,
-                        outputFrameCount,
-                        outputFps,
-                        renderingStartedAt
-                    );
+                    await this.synchronizeVideoAnalysis(this.videoFrameSnapshot());
+                    await this.captureCurrentVideoFrame(capture, sequence, ++outputIndex, outputFrameCount, outputFps, startedAt);
                 }
             } else {
                 await this.loadFrame(0);
                 let first = this.videoFrameSnapshot();
-                await this.synchronizeVideoDisplacements(first);
-                outputIndex += 1;
-                await this.captureCurrentVideoFrame(
-                    capture,
-                    videoTrack,
-                    outputIndex,
-                    outputFrameCount,
-                    outputFps,
-                    renderingStartedAt
-                );
+                await this.synchronizeVideoAnalysis(first);
+                await this.captureCurrentVideoFrame(capture, sequence, ++outputIndex, outputFrameCount, outputFps, startedAt);
                 for (let frame = 1; frame < frameCount; frame++) {
                     await this.loadFrame(frame);
                     const second = this.videoFrameSnapshot();
                     this.videoFramesAreInterpolable(first, second);
                     for (let subframe = 1; subframe < interpolationFactor; subframe++) {
-                        const sample = interpolateTrajectoryFrames(
-                            first,
-                            second,
-                            subframe / interpolationFactor,
-                            { useMic: interpolationMic }
-                        );
+                        const sample = interpolateTrajectoryFrames(first, second, subframe / interpolationFactor, {useMic: interpolationMic});
                         if (interpolationMic && !sample.micApplied) micFallback = true;
-                        outputIndex += 1;
-                        await this.renderVideoCaptureSample(
-                            capture,
-                            videoTrack,
-                            sample,
-                            outputIndex,
-                            outputFrameCount,
-                            outputFps,
-                            renderingStartedAt
-                        );
+                        await this.renderVideoCaptureSample(capture, sequence, sample, ++outputIndex, outputFrameCount, outputFps, startedAt);
                     }
-                    outputIndex += 1;
-                    await this.renderVideoCaptureSample(
-                        capture,
-                        videoTrack,
-                        second,
-                        outputIndex,
-                        outputFrameCount,
-                        outputFps,
-                        renderingStartedAt
-                    );
+                    await this.renderVideoCaptureSample(capture, sequence, second, ++outputIndex, outputFrameCount, outputFps, startedAt);
                     first = second;
                 }
             }
-            recorder.stop();
-            await finished;
-            stream.getTracks().forEach(track => track.stop());
-            this.renderer.endExportCapture(capture);
-            capture = null;
-            const recording = new Blob(chunks, {
-                type: recorder.mimeType || mimeType || 'application/octet-stream'
-            });
-            this.setBusyProgress(77, {
-                message: `Uploading frames for ${outputFormat.toUpperCase()} encoding...`
-            });
-            const video = await this.api.transcodeVideo(
-                recording,
-                outputFormat,
-                outputFps,
-                outputFrameCount,
-                exportId
-            );
-            this.setBusyProgress(98, {
-                message: 'Finalizing encoded video...',
-                etaSeconds: 1
-            });
+            this.setBusyProgress(95, { message: 'Finalizing encoded video...', etaSeconds: 1 });
+            const video = await this.api.finishVideoFrames(sequence.export_id);
+            sequence = null;
+            video.vaseMetadata = {width: outputWidth, height: outputHeight, fps: outputFps,
+                frameCount: outputFrameCount, sourceFrameCount: frameCount,
+                interpolationMultiplier: interpolationFactor, interpolationMic,
+                captureMode: 'indexed-png'};
             if (returnBlob) {
-                this.setBusyProgress(100, {
-                    message: 'Video export complete.',
-                    etaSeconds: 0,
-                    complete: true
-                });
+                this.setBusyProgress(100, {message: 'Video export complete.', etaSeconds: 0, complete: true});
                 await new Promise(resolve => setTimeout(resolve, 160));
                 return video;
             }
-            this.setBusyProgress(99, {
-                message: 'Writing the selected output file...',
-                etaSeconds: 1
-            });
-            const saved = await this.savePreparedBlob(
-                video,
-                filename,
-                outputMime,
-                selectedDestination
-            );
+            const saved = await this.savePreparedBlob(video, filename, outputMime, selectedDestination);
             if (saved) {
-                this.setBusyProgress(100, {
-                    message: 'Video export complete.',
-                    etaSeconds: 0,
-                    complete: true
-                });
+                this.setBusyProgress(100, {message: 'Video export complete.', etaSeconds: 0, complete: true});
                 await new Promise(resolve => setTimeout(resolve, 220));
                 this.toast(`${outputFormat.toUpperCase()} video saved.`, 'success');
             }
-            if (micFallback) {
-                this.toast(
-                    'MIC was unavailable for one or more transitions; direct interpolation was used there.',
-                    'warning'
-                );
-            }
+            if (micFallback) this.toast('MIC was unavailable for one or more transitions; direct interpolation was used there.', 'warning');
+            return saved;
         } finally {
-            stream.getTracks().forEach(track => track.stop());
-            if (recorder.state !== 'inactive') recorder.stop();
+            window.removeEventListener('pagehide', abortOnPageHide);
+            if (sequence) await this.api.abortVideoFrames(sequence.export_id).catch(error => console.warn(error));
             if (capture) this.renderer.endExportCapture(capture);
-            await this.loadFrame(originalFrame);
-            this.state.videoExportId = null;
-            this.state.videoExportStartedAt = null;
-            this.state.exportPreviewProfile = null;
-            if (this.state.exportPreviewEnabled) this.syncImageExportPreview();
-            this.clearBusy();
+            try {
+                await this.loadFrame(originalFrame);
+                await this.synchronizeVideoAnalysis(this.videoFrameSnapshot());
+            } finally {
+                this.state.videoExportId = null;
+                this.state.videoExportStartedAt = null;
+                this.state.exportPreviewProfile = null;
+                if (this.state.exportPreviewEnabled) this.syncImageExportPreview();
+                this.clearBusy();
+            }
         }
     }
 

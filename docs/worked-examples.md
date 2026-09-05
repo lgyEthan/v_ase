@@ -206,7 +206,7 @@ and calculator definitions.
 ## Reproduce an AI-assisted defect edit
 
 The complete revision-safe workflow is in
-[AI-agent integration](ai-agents.md#worked-physical-edit-scenario). It starts
+[AI-agent integration](ai-cli.md#worked-physical-edit-scenario). It starts
 from pristine 6 × 6 graphene, creates a pyridinic N3 vacancy, labels the three
 nitrogens `N_pyridinic`, adds `Li_site` 2.15 Å above the vacancy, and renders a
 4K +Z view with +Y up.

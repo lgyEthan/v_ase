@@ -12,6 +12,12 @@
 
 ## Required Context
 
+For a configured MCP host, prefer the native tools and their schemas. Use
+`references/native-tools.md` for connection setup, progressive discovery,
+resources, and local function integrations. The CLI instructions below are the
+compatibility path for hosts without native tools. Native MCP resources expose
+the canonical skill and its individual references for selective reading.
+
 Prefer giving the agent the complete
 `visualizing-atomic-structures-with-v-ase/` directory. It contains one
 canonical `SKILL.md` and one-level references. Do not provide an outdated copy

@@ -758,3 +758,15 @@ tilted host/guest planes. Execute the documented `combine-volumetric` request
 with `resultName` through the HTTP bridge and verify its output name, integral,
 and unchanged source fields. Parse documentation JSON with duplicate-key
 rejection so an operation selector cannot be overwritten by a dataset name.
+
+## 0.3.2 typed-tool regression gate
+
+Run `tests/test_ai_tools.py` with the MCP extra installed. Verify modern and
+legacy protocol negotiation, stdio and Streamable HTTP, progressive discovery,
+exact parameter coverage, strict function schemas, null versus omission,
+unique dynamic-map keys, same-document rendering, artifact bytes/resources,
+quoted input filenames, scientific mass-weighted pivots, typed catalogs,
+concurrent edits, stale revisions, and tab-identity rejection. Run the legacy
+HTTP/CLI matrix as well. Record provider-reported tokens only when available;
+serialized byte counts do not stand in for tokens. A fresh agent should use
+native tools as its primary path and test CLI parity separately.

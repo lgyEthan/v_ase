@@ -190,7 +190,7 @@ test edit and a new filename for output.
 | repulsion atoms cross the requested cutoff | The cutoff is a zero-force onset, not a minimum-distance constraint; optimizer tolerance or other forces can stop elsewhere | Verify `cutoff_mode`, `cutoff_basis`, the independent label-pair contact table, optional contact multiplier, `k_repulsion`, and final pair distances; use a true ASE constraint when a separation must be enforced |
 | No relaxation trajectory is available to clear | The mode has no optimizer frames or they were already removed | Keep working in the active mode, or start a new relaxation before clearing again |
 | optional 3DM export fails | `rhino3dm` is absent | Install `v_ase-gui[rhino]` |
-| video capture unavailable | Browser lacks `MediaRecorder` | Use Chromium-family browser |
+| video capture unavailable | PNG capture or the imageio-ffmpeg encoder failed | Check the encoder dependency and retry a short sequence; never accept a partial frame count |
 | Chrome says the site can view saved-file changes | File System Access permission notice | This is expected after selecting a destination; access is limited to that file and cannot be suppressed while preselecting it |
 | WSL browser does not open or `gio` is unsupported | Browser/interop launch failed or returned a false success; the server is still running | Ctrl+click or paste the always-printed loopback URL and keep the terminal alive |
 | remote `unrecognized arguments: --no-browser --stream-frames` | Local launcher predates remote capability negotiation while the remote v_ase is older | Upgrade the local installation to `v_ase-gui>=0.2.14`; upgrade the remote installation too before large trajectory or FP64 volumetric work |
@@ -313,3 +313,11 @@ When visual verification fails:
 - Do not upload a structure, `.vase`, render, or project without user approval.
 - Do not hardcode PyPI, GitHub, SSH, or cluster credentials in this skill,
   scripts, source, tests, or logs.
+
+## POSCAR constraint representation
+
+ASE's VASP writer cannot encode every Cartesian FixedPlane or FixedLine
+constraint for a skew cell. A POSCAR export reports this limit instead of
+silently discarding constraints. Preserve the exact model through `.vase` or
+ASE Pickle; change constraints only with explicit user intent. Do not rotate
+or remove them merely to force a POSCAR export.

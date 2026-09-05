@@ -1350,10 +1350,13 @@ const analyzed = await applyCurrent({
 });
 ```
 
-Validate `analyzed.analysis.commensurate`: it must contain the candidate table,
-positive-determinant host/guest integer matrices, area ratios, max principal
-strain, mean absolute strain, actual atom counts, the current-angle marker, and
-the candidate selected by the explicit request. **3D overview** uses angle, area ratio, and max
+Validate `analyzed.analysis.commensurate` as a compact summary: it reports the
+mode, current angle, bounds, references, and candidateCount. It does not contain
+the full candidate table. Export `commensurate-csv` (native tool:
+`vase_export_commensurate_csv`) and read the artifact to verify host/guest
+integer matrices, area ratios, residual strains and atom counts. Inspect
+`analysis.commensurateProposal` for the currently selected common-cell proposal.
+Do not repeatedly request a fuller state expecting the complete CSV table. **3D overview** uses angle, area ratio, and max
 principal strain. **Paper strain projection** uses mean absolute strain on x,
 actual host-plus-guest atom count on y, and angle as marker color. Both views
 must use the same accepted candidate set. The moving angle plane and current

@@ -1,6 +1,6 @@
 # Supported formats
 
-v_ase 0.3.1 uses one input pipeline for the terminal, Python path API, and
+v_ase 0.3.2 uses one input pipeline for the terminal, Python path API, and
 browser file picker. It adds project, volumetric, indexed-trajectory, and
 LAMMPS handling around ASE's readers. An explicit reader always takes priority
 over filename inference.
@@ -155,7 +155,11 @@ v_ase gui input.cif -o edited.data --output-format lammps-data
 
 The GUI POSCAR exporter centers a cell-free or rank-deficient finite structure
 in a nonperiodic box with 8 Å vacuum so that ASE's VASP writer can produce a
-valid file.
+valid file. Directional Cartesian constraints in a skew cell may not be
+representable by ASE's VASP selective-dynamics writer. The exporter reports
+this scientific limitation without discarding constraints. Save a `.vase`
+project or ASE Pickle to preserve the exact constraint geometry, or explicitly
+choose a compatible representation before exporting POSCAR.
 
 ASE Pickle is Python-specific and uses pickle; load only files from a trusted
 source. In contrast, `.vase` is a validated ZIP-based project format and does
