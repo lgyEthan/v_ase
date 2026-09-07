@@ -2326,8 +2326,12 @@ def test_browser_add_molecules_homogeneous_transform_rigid_relax_and_finish():
             np.testing.assert_array_equal(backend.working_atoms.positions[:len(host)], host.positions)
             assert not np.allclose(backend.working_atoms.positions[len(host):], before[len(host):])
 
+            # The backend changes before the response is applied to the GUI.
+            # Wait for that response so it cannot reset the next transform.
+            page.evaluate("() => window.__ASE_APP__.pendingApply")
             after_rotation = backend.working_atoms.positions.copy()
             page.keyboard.press("g")
+            page.wait_for_function("window.__ASE_APP__.transform.mode === 'MOVE'")
             page.keyboard.press("x")
             page.keyboard.type("0.4")
             page.keyboard.press("Enter")

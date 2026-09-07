@@ -29,7 +29,7 @@ def test_catalog_covers_every_operation_control_and_export_with_typed_parameters
             assert 'expected_revision' in spec.input_schema['required']
         assert spec.operation == name
     assert {s.export_format for s in catalog.values() if s.export_format} == set(AI_EXPORT_PARAMETERS)
-    assert {s.field for s in catalog.values() if s.field} == set(AI_CONTROL_SCHEMA['properties']) - {'operation', 'expectedRevision', 'expectedDocumentId', 'responseProfile'}
+    assert {s.field for s in catalog.values() if s.field} == set(AI_CONTROL_SCHEMA['properties']) - {'operation', 'expectedRevision', 'expectedDocumentId', 'responseProfile', 'requestId'}
     for spec in catalog.values():
         Draft202012Validator.check_schema(spec.input_schema)
 
@@ -83,7 +83,7 @@ def test_mcp_controls_same_gui_and_preserves_revision_guards(tmp_path, transport
     editor=view(Atoms('Cu2',positions=[[0,0,0],[2,0,0]],cell=[8,8,8],pbc=True), block=False, open_browser=False, close_on_disconnect=False, port=find_free_port())
     handshake=ai_handshake(editor.url)
     adapter=FunctionTools(handshake['command_url'], artifact_dir=tmp_path)
-    server=create_mcp_server(adapter)
+    server=create_mcp_server(adapter, discovery='all')
     http_server=None
     try:
         with sync_playwright() as pw:
@@ -94,7 +94,7 @@ def test_mcp_controls_same_gui_and_preserves_revision_guards(tmp_path, transport
             if transport in {'memory','legacy'}: target=server
             elif transport=='stdio':
                 from mcp import StdioServerParameters
-                target=StdioServerParameters(command=sys.executable, args=['-m','v_ase.cli','mcp','--connect',handshake['command_url'],'--artifact-dir',str(tmp_path)],env={'PYTHONPATH':os.environ.get('PYTHONPATH','')})
+                target=StdioServerParameters(command=sys.executable, args=['-m','v_ase.cli','mcp','--connect',handshake['command_url'],'--discovery','all','--artifact-dir',str(tmp_path)],env={'PYTHONPATH':os.environ.get('PYTHONPATH','')})
             else:
                 port=find_free_port()
                 http_server=uvicorn.Server(uvicorn.Config(server.streamable_http_app(json_response=True),host='127.0.0.1',port=port,log_level='error'))
@@ -107,7 +107,7 @@ def test_mcp_controls_same_gui_and_preserves_revision_guards(tmp_path, transport
             async def exercise():
                 async with mcp.Client(target, mode='legacy' if transport=='legacy' else 'auto') as client:
                     listing=await client.list_tools()
-                    assert len(listing.tools)==len(adapter.catalog)+1
+                    assert len(listing.tools)==len(adapter.catalog)
                     initial=(await client.call_tool('vase_describe',{'profile':'summary'})).structured_content
                     assert initial['documentId']
                     guard={'expected_revision': initial['collaboration']['revision'],'expected_document_id':initial['documentId']}
@@ -163,17 +163,33 @@ def test_strict_function_schemas_cover_all_tools_and_preserve_nullable_omission(
         with pytest.raises(ValueError):decode_strict({'ranges':wire['ranges']*2},schema)
 
 
+def test_default_mcp_registers_advanced_tools_before_a_client_freezes_bindings():
+    mcp = pytest.importorskip('mcp')
+    from v_ase.mcp_server import create_mcp_server
+    from v_ase.cli import build_parser
+    assert build_parser().parse_args(['mcp']).discovery == 'all'
+    async def exercise():
+        with FunctionTools(URL) as adapter:
+            async with mcp.Client(create_mcp_server(adapter)) as client:
+                names = {tool.name for tool in (await client.list_tools()).tools}
+                assert names == set(adapter.catalog)
+                assert {'vase_configure_bonds', 'vase_apply_scene', 'vase_scene_snapshot'} <= names
+                bad = await client.call_tool('vase_configure_bonds', {})
+                assert bad.structured_content['error']['code'] == 'invalid_arguments'
+    asyncio.run(exercise())
+
+
 def test_progressive_mcp_discovers_then_calls_loaded_tools():
     mcp=pytest.importorskip('mcp')
     from v_ase.mcp_server import create_mcp_server, CORE_TOOLS
     async def exercise():
         with FunctionTools(URL) as adapter:
             async with mcp.Client(create_mcp_server(adapter,discovery='progressive')) as client:
-                assert len((await client.list_tools()).tools)==len(CORE_TOOLS.intersection(adapter.catalog))+1
+                assert len((await client.list_tools()).tools)==len(CORE_TOOLS.intersection(adapter.catalog))
                 found=await client.call_tool('vase_search_tools',{'query':'configure_bonds','limit':1})
                 assert not found.is_error
                 assert found.structured_content['tools'][0]['name']=='vase_configure_bonds'
-                assert len((await client.list_tools()).tools)==len(CORE_TOOLS.intersection(adapter.catalog))+2
+                assert len((await client.list_tools()).tools)==len(CORE_TOOLS.intersection(adapter.catalog))+1
                 bad=await client.call_tool('vase_configure_bonds',{})
                 assert bad.is_error and bad.structured_content['error']['code']=='invalid_arguments'
     asyncio.run(exercise())

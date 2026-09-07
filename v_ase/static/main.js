@@ -1,13 +1,14 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.3.2';
-import { ASERenderer } from './renderer.js?v=0.3.2';
-import { ASESelection } from './selection.js?v=0.3.2';
-import { ASETransform } from './transform.js?v=0.3.2';
+import { ASEApi } from './api.js?v=0.3.3';
+import { ASERenderer } from './renderer.js?v=0.3.3';
+import { ASESelection } from './selection.js?v=0.3.3';
+import { ASETransform } from './transform.js?v=0.3.3';
+import { installAIScene } from './ai_scene.js?v=0.3.3';
 import {
     interpolateTrajectoryFrames,
     interpolatedFrameCount,
     normalizeInterpolationMultiplier
-} from './trajectory.js?v=0.3.2';
+} from './trajectory.js?v=0.3.3';
 
 const CHEMICAL_ELEMENT_SYMBOLS = Object.freeze([
     'H','He','Li','Be','B','C','N','O','F','Ne',
@@ -5846,6 +5847,9 @@ class VAseApp {
     } = {}) {
         const planes = this.normalizeVolumetricPlanes();
         const validIds = new Set(planes.map(plane => plane.id));
+        for (const [id, token] of this.state.volumetricPlaneRequestTokens) {
+            if (!validIds.has(id)) this.state.volumetricPlaneRequestTokens.set(id, token + 1);
+        }
         const stale = [...this.renderer.volumetricPlanes.keys()].filter(id => !validIds.has(id));
         if (stale.length) this.renderer.clearVolumetricPlanes(stale);
         const visible = planes.filter(plane => (
@@ -9075,7 +9079,10 @@ class VAseApp {
             return;
         }
         try {
-            if (action.kind === 'visual') {
+            if (action.kind === 'scene') {
+                await this.aiRestoreSceneState(action.before);
+                this.toast('Scene change undone.', 'success');
+            } else if (action.kind === 'visual') {
                 this.applyVisualHistorySnapshot(action.before);
                 this.toast('Visual setting undone.', 'success');
             } else {
@@ -9098,8 +9105,8 @@ class VAseApp {
             this.redoTimeline.push(action);
             this.scheduleCollaborationEvent({
                 source: this.currentCollaborationActor(),
-                categories: action.kind === 'visual' ? ['display'] : ['structure'],
-                changedPaths: [action.kind === 'visual' ? 'display' : 'structure'],
+                categories: ['visual', 'scene'].includes(action.kind) ? ['display', 'selection'] : ['structure'],
+                changedPaths: [action.kind === 'scene' ? 'scene' : action.kind === 'visual' ? 'display' : 'structure'],
                 summary: `The last ${action.kind} change was undone.`
             });
         } catch (err) {
@@ -9130,7 +9137,10 @@ class VAseApp {
             return;
         }
         try {
-            if (action.kind === 'visual') {
+            if (action.kind === 'scene') {
+                await this.aiRestoreSceneState(action.after);
+                this.toast('Scene change redone.', 'success');
+            } else if (action.kind === 'visual') {
                 this.applyVisualHistorySnapshot(action.after);
                 this.toast('Visual setting redone.', 'success');
             } else {
@@ -9150,8 +9160,8 @@ class VAseApp {
             this.undoTimeline.push(action);
             this.scheduleCollaborationEvent({
                 source: this.currentCollaborationActor(),
-                categories: action.kind === 'visual' ? ['display'] : ['structure'],
-                changedPaths: [action.kind === 'visual' ? 'display' : 'structure'],
+                categories: ['visual', 'scene'].includes(action.kind) ? ['display', 'selection'] : ['structure'],
+                changedPaths: [action.kind === 'scene' ? 'scene' : action.kind === 'visual' ? 'display' : 'structure'],
                 summary: `The last ${action.kind} change was redone.`
             });
         } catch (err) {
@@ -16036,7 +16046,12 @@ class VAseApp {
             const operation = typeof command.operation === 'string'
                 ? command.operation
                 : command.operation?.name;
-            if (operation === 'set-constraints') categories.add('constraints');
+            if (['apply-scene', 'select-volumetric-planes'].includes(operation)) {
+                categories.add('display');
+                categories.add('selection');
+                if (command.operation?.patch?.frame !== undefined) categories.add('trajectory');
+            }
+            else if (operation === 'set-constraints') categories.add('constraints');
             else if ([
                 'refresh-displacements',
                 'load-volumetric',
@@ -16227,11 +16242,13 @@ class VAseApp {
         cameraSource = 'auto'
     } = {}) {
         const profile = this.currentImageExportProfile();
-        const sourceOptions = requestOptions && typeof requestOptions === 'object'
-            ? requestOptions
-            : profile.options;
+        const sourceOptions = {
+            ...this.defaultImageExportOptions(),
+            ...this.clonePlain(profile.options || {}),
+            ...this.clonePlain(requestOptions || {})
+        };
         const requestedSource = String(cameraSource || 'auto').trim().toLowerCase();
-        const explicitCamera = this.normalizedCameraSettings(sourceOptions?.camera);
+        const explicitCamera = this.normalizedCameraSettings(requestOptions?.camera);
         const renderAreaCamera = this.normalizedCameraSettings(this.state.exportPreviewCamera);
         const profileCamera = this.normalizedCameraSettings(profile.options?.camera);
         const viewportCamera = this.normalizedCameraSettings(this.currentCameraForExport());
@@ -16276,13 +16293,15 @@ class VAseApp {
         }
         const outputWidth = Math.max(64, Math.round(Number(width) || profile.width || 1920));
         const outputHeight = Math.max(64, Math.round(Number(height) || profile.height || 1080));
+        const effectiveOptions = {...sourceOptions, camera: this.clonePlain(camera)};
         return {
             source,
             width: outputWidth,
             height: outputHeight,
             aspect: outputWidth / outputHeight,
             camera,
-            options: this.clonePlain(sourceOptions || {}),
+            options: effectiveOptions,
+            outputCamera: this.renderer.exportCompositionSnapshot(outputWidth, outputHeight, effectiveOptions).camera,
             renderAreaEnabled: Boolean(this.state.exportPreviewEnabled),
             renderAreaFollowsViewport: Boolean(this.state.exportPreviewFollowViewport)
         };
@@ -16370,6 +16389,7 @@ class VAseApp {
             cell: this.clonePlain(atoms.cell || []),
             pbc: [...(atoms.pbc || [])],
             selection,
+            interaction: this.aiInteractionSnapshot(),
             relaxation: this.aiRelaxationSnapshot(atoms),
             collaboration: {
                 protocol: 'v_ase.collaboration.v1',
@@ -16538,6 +16558,7 @@ class VAseApp {
             cell: full.cell,
             pbc: full.pbc,
             selection,
+            interaction: full.interaction,
             relaxation: full.relaxation,
             collaboration: full.collaboration,
             stateFingerprint: full.stateFingerprint
@@ -16719,6 +16740,7 @@ class VAseApp {
                 finished: Boolean(this.state.relaxTrajectory?.finished)
             },
             selection: this.aiSelectionSnapshot(),
+            interaction: this.aiInteractionSnapshot(),
             measurement: this.getSelectionMeasureText(),
             display: this.clonePlain(this.state.display),
             camera: this.cameraSettingsSnapshot(),
@@ -17438,7 +17460,8 @@ class VAseApp {
             'set-interface-theme', 'set-personal-visual-default',
             'restore-app-visual-defaults', 'set-atom-colorscale',
             'load-structure', 'append-structure', 'duplicate-selection',
-            'configure-calculator', 'set-playback', 'load-settings'
+            'configure-calculator', 'set-playback', 'load-settings',
+            'apply-scene', 'select-volumetric-planes'
         ];
         const fallbackExports = [
             'image', 'video', 'poscar', 'pickle', 'blender', '3dm', 'obj',
@@ -17765,6 +17788,10 @@ class VAseApp {
             );
         }
         const name = String(operation.name || '').trim().toLowerCase();
+        if (name === 'select-volumetric-planes') {
+            this.aiSelectVolumetricPlanes(operation);
+            return;
+        }
         const addAtomsControls = new Set([
             'scatter-atoms', 'scatter-molecules',
             'relax-added-atoms', 'stop-added-atoms',
@@ -18984,6 +19011,7 @@ class VAseApp {
             this.state.display.volumetricPlanes = this.volumetricPlanes()
                 .filter(plane => !ids.has(plane.id));
             ids.forEach(id => {
+                this.state.volumetricPlaneRequestTokens.set(id, (this.state.volumetricPlaneRequestTokens.get(id) || 0) + 1);
                 this.state.volumetricPlanePayloads.delete(id);
                 this.state.selectedVolumetricPlanes.delete(id);
             });
@@ -19086,7 +19114,7 @@ class VAseApp {
         const supportedFields = new Set([
             'expectedDocumentId', 'expectedRevision', 'frame', 'mode', 'display', 'quality',
             'applyConstraints', 'camera', 'renderArea', 'selection', 'operation',
-            'responseProfile'
+            'responseProfile', 'requestId'
         ]);
         const unsupportedFields = Object.keys(command).filter(
             field => !supportedFields.has(field)
@@ -19124,6 +19152,17 @@ class VAseApp {
                     + 'and review the human change before retrying.'
                 );
             }
+        }
+        if (command.operation?.name === 'apply-scene') {
+            const extra = Object.keys(command).filter(key => ![
+                'expectedDocumentId', 'expectedRevision', 'requestId', 'responseProfile', 'operation'
+            ].includes(key));
+            if (extra.length) throw new Error('Put every visual/frame change inside apply-scene.patch.');
+            await this.aiApplyScene(command.operation, {
+                expectedDocumentId: command.expectedDocumentId,
+                expectedRevision: command.expectedRevision
+            });
+            return this.aiDescribe({profile: 'summary'});
         }
         if (command.frame !== undefined) {
             const frame = Number(command.frame);
@@ -19279,6 +19318,9 @@ class VAseApp {
     }
 
     async aiQuery(request = {}) {
+        if (request.name === 'scene-snapshot') return await this.aiSceneSnapshot(request);
+        if (request.name === 'scene-readiness') return {documentId: this.sessionId,
+            revision: this.collaborationRevision, ...(await this.aiWaitForScene(request))};
         const frame = request.frame ?? Number(this.state.atoms?.metadata?.current_frame || 0);
         if (!Number.isInteger(frame) || frame < 0 || frame >= this.loadedFrameCount()) {
             throw new Error('query frame is outside the loaded trajectory.');
@@ -19316,8 +19358,16 @@ class VAseApp {
 
     async aiRender(request = {}) {
         if (this.state.videoExportId) throw new Error('Wait for the active video export before starting another capture.');
-        const width = Math.max(64, Math.min(8192, Math.round(Number(request.width) || 1920)));
-        const height = Math.max(64, Math.min(8192, Math.round(Number(request.height) || 1080)));
+        const readiness = await this.aiWaitForScene();
+        if (!readiness.ready) {
+            const error = new Error('The scene is not ready to render. Inspect scene-readiness and pause playback or resolve the reported work.');
+            error.code = 'scene_not_ready';
+            error.outcome = 'not_applied';
+            throw error;
+        }
+        const storedProfile = this.currentImageExportProfile();
+        const width = Math.max(64, Math.min(8192, Math.round(Number(request.width) || storedProfile.width || 1920)));
+        const height = Math.max(64, Math.min(8192, Math.round(Number(request.height) || storedProfile.height || 1080)));
         const format = this.normalizedImageFormat(request.format);
         const requestOptions = this.clonePlain(request.options || {});
         const effectiveRender = this.aiEffectiveRenderSnapshot({
@@ -19328,6 +19378,7 @@ class VAseApp {
         });
         const options = {
             ...this.defaultImageExportOptions(),
+            ...this.clonePlain(effectiveRender.options || {}),
             ...requestOptions,
             camera: this.clonePlain(effectiveRender.camera)
         };
@@ -19618,6 +19669,11 @@ class VAseApp {
                 ? command.operation
                 : (command.operation?.name || null)
         };
+        if (command.operation?.name === 'apply-scene') {
+            return {protocol: 'v_ase.scene.v1', documentId: this.sessionId,
+                revision: this.collaborationRevision, frame: state.frame,
+                mutation: state.mutation, ...this.aiLastSceneReceipt};
+        }
         return state;
     }
 
@@ -19637,6 +19693,7 @@ class VAseApp {
             },
             describe: async options => {
                 await app.ready;
+                await (app.aiMutationQueue || Promise.resolve()).catch(() => {});
                 app.flushVisualHistoryCommit();
                 await app.flushCollaborationEvents();
                 await app.hydrateAIFrameProperties(options);
@@ -19663,6 +19720,9 @@ class VAseApp {
             },
             query: async request => {
                 await app.ready;
+                if (request?.name !== 'scene-readiness') {
+                    await (app.aiMutationQueue || Promise.resolve()).catch(() => {});
+                }
                 return await app.aiQuery(request);
             },
             capabilities: async options => {
@@ -19673,17 +19733,24 @@ class VAseApp {
                 await app.ready;
                 // Serialize competing agents before checking the live revision.
                 const pending = (app.aiMutationQueue || Promise.resolve())
-                    .catch(() => {}).then(() => app.aiApplyCollaboratively(command));
+                    .catch(() => {}).then(() => app.aiWithRetryReceipt(command,
+                        () => app.aiApplyCollaboratively(command)));
                 app.aiMutationQueue = pending;
                 return await pending;
             },
             render: async request => {
                 await app.ready;
-                return await app.aiRender(request);
+                const pending = (app.aiMutationQueue || Promise.resolve())
+                    .catch(() => {}).then(() => app.aiRender(request));
+                app.aiMutationQueue = pending;
+                return await pending;
             },
             export: async request => {
                 await app.ready;
-                return await app.aiExport(request);
+                const pending = (app.aiMutationQueue || Promise.resolve())
+                    .catch(() => {}).then(() => app.aiExport(request));
+                app.aiMutationQueue = pending;
+                return await pending;
             }
         });
     }
@@ -19737,7 +19804,8 @@ class VAseApp {
                 ok: false,
                 error: {
                     name: String(error?.name || 'Error'),
-                    message: String(error?.message || error || 'AI command failed.')
+                    message: String(error?.message || error || 'AI command failed.'),
+                    ...(error?.code ? {code: error.code, outcome: error.outcome || 'unknown'} : {})
                 }
             };
         }
@@ -23372,6 +23440,8 @@ class VAseApp {
             includeGrid: false,
             includeAxes: true,
             includeCell: true,
+            selectionAppearance: 'publication',
+            includePlaneBorders: true,
             scaleMode: display.imageFramingMode === 'physical' ? 'physical' : 'viewport',
             pixelsPerAngstrom,
             sphereQuality: display.imageSphereQuality || 'viewport',
@@ -23421,6 +23491,8 @@ class VAseApp {
                 includeGrid: source.includeGrid ?? fallback.includeGrid,
                 includeAxes: source.includeAxes ?? fallback.includeAxes,
                 includeCell: source.includeCell ?? fallback.includeCell,
+                selectionAppearance: source.selectionAppearance === 'interactive' ? 'interactive' : 'publication',
+                includePlaneBorders: source.includePlaneBorders !== false,
                 scaleMode: source.scaleMode === 'physical' ? 'physical' : 'viewport',
                 pixelsPerAngstrom: Math.max(0.1, Math.min(5000,
                     Number(source.pixelsPerAngstrom) || fallback.pixelsPerAngstrom)),
@@ -25839,6 +25911,7 @@ class VAseApp {
     }
 }
 
+installAIScene(VAseApp);
 window.__V_ASE_APP__ = new VAseApp();
 window.__ASE_APP__ = window.__V_ASE_APP__;
 window.v_aseAI = window.__V_ASE_APP__.createAIBridge();

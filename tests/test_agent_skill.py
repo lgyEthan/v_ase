@@ -12,6 +12,7 @@ from ase.io import read
 
 from v_ase import __version__
 from v_ase.ai import ai_skill_path
+from v_ase.ai_discovery import GUIDE_TOPICS
 from v_ase.server import ai_control_schema, ai_schema_payload, ai_skill
 
 
@@ -66,15 +67,15 @@ def test_skill_metadata_follows_discovery_contract():
     assert "anthropic" not in name and "claude" not in name
     assert 1 <= len(description) <= 1024
     assert "<" not in description and ">" not in description
-    assert description.startswith("Controls ")
-    assert "Use when " in description
+    assert "MCP" in description
+    assert "Use for " in description
     assert len(text.splitlines()) <= 500
 
 
 def test_skill_uses_one_level_progressive_references():
     text = SKILL.read_text(encoding="utf-8")
     linked = re.findall(r"\]\((references/[^)]+\.md)\)", text)
-    assert len(linked) == 9
+    assert set(linked) == {f"references/{name}" for name in GUIDE_TOPICS.values() if name}
     assert len(linked) == len(set(linked))
 
     for relative in linked:
@@ -120,6 +121,9 @@ def test_skill_covers_every_live_operation_and_export():
         "async aiExport(request", 1
     )[1].split("async aiApplyCollaboratively", 1)[0]
     operation_handlers = set(re.findall(r"name === '([^']+)'", operation_dispatch))
+    # Scene transactions are dispatched before the legacy per-operation path.
+    apply_dispatch = main_js.split("async aiApply(command", 1)[1].split("async aiQuery", 1)[0]
+    operation_handlers.update(re.findall(r"command\.operation\?\.name === '([^']+)'", apply_dispatch))
     export_handlers = set(re.findall(r"if \(format === '([^']+)'\)", export_dispatch))
     export_handlers.update(
         re.findall(r"else if \(format === '([^']+)'\)", export_dispatch)
@@ -148,8 +152,8 @@ def test_ase_bulk_builder_schema_skill_and_capabilities_are_synchronized():
         "crystalStructure", "cellMode", "a", "b", "c", "alpha",
         "covera", "u", "basis", "confirmReplace",
     } <= set(operation["optional"])
-    assert "capabilities().bulkBuilder.catalogUrl" in documented
-    assert "previewUrl" in documented
+    assert "vase_bulk_catalog" in documented
+    assert "vase_bulk_preview" in documented
     assert "confirmReplace:true" in documented
     assert "bulkBuilder:" in main_js
     assert "/api/build/bulk/catalog/" in main_js
@@ -205,7 +209,7 @@ def test_reference_figure_reproduction_contract_is_generic_and_discoverable():
         "index-only",
         "cellOffset",
         "final rendered radius in Angstrom",
-        "explicit no-bond state",
+        "show_bonds=false",
         "human acceptance decision",
         "preserveOrientation:true",
         'atomDisplayMode:"2d"',
@@ -312,7 +316,9 @@ def test_add_session_collaboration_messages_cover_atoms_and_molecules():
 def test_skill_version_install_and_environment_contract_are_current():
     skill_text = SKILL.read_text(encoding="utf-8")
     cli_text = (REFERENCES / "cli-and-environments.md").read_text(encoding="utf-8")
-    assert f'v_ase-gui=={__version__}' in skill_text
+    setup_text = (REFERENCES / "native-tools.md").read_text(encoding="utf-8")
+    assert 'unreleased source' not in setup_text
+    assert f'v_ase-gui[mcp]=={__version__}' in setup_text
     assert f'v_ase-gui=={__version__}' in cli_text
     for required in (
         "v_ase gui STRUCTURE --cli",
@@ -330,7 +336,7 @@ def test_skill_version_install_and_environment_contract_are_current():
         "qe-cube",
         "always prints the complete",
     ):
-        assert required in skill_text + cli_text
+        assert required in _documented_skill_text()
 
 
 def test_skill_and_live_schema_document_label_and_index_appearance_layers():
@@ -401,8 +407,8 @@ def test_skill_explains_vendor_neutral_agent_handoff():
     assert "CAD-ready" not in readme
     assert "--for-ai" not in setup + readme + compatibility
     assert "You describe the scientific result to an external AI Agent" in readable_readme
-    assert "the Agent uses the Skill and structured CLI/API" in readable_readme
-    assert "the result appears in the same live GUI" in readable_readme
+    assert "the Agent uses typed MCP tools" in readable_readme
+    assert "The result appears in the same live GUI" in readable_readme
     assert "A manual GUI edit becomes the next document revision" in readable_readme
     assert "There is no natural-language endpoint and no command loop on stdin." in setup
     assert "`viewportBackground` controls the interactive GUI only" in documented
@@ -434,8 +440,8 @@ def test_skill_documents_bidirectional_same_document_collaboration():
             collaboration + readme + evaluation
         ).lower(), required
 
-    assert "pristine 6 x 6 graphene" in collaboration
-    assert "preserve PBC" not in collaboration
+    assert "request_id" in collaboration
+    assert "Scene snapshots expose `revision`" in collaboration
 
 
 def test_skill_documents_offline_html_handoff_contract():
@@ -463,7 +469,7 @@ def test_skill_documents_offline_html_handoff_contract():
 def test_skill_defines_auto_notebook_mode_and_revision_discovery():
     skill = SKILL.read_text(encoding="utf-8")
     environments = (REFERENCES / "cli-and-environments.md").read_text(encoding="utf-8")
-    assert "%v_ase auto" in skill
+    assert "%v_ase auto" in environments
     assert "restores automatic active-kernel" in (skill + environments)
     source = (ROOT / "v_ase" / "static" / "main.js").read_text(encoding="utf-8")
     assert "'expectedRevision', 'frame'" in source

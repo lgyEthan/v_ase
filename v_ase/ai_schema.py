@@ -2108,7 +2108,7 @@ AI_DESCRIBE_PROFILES = {
             "protocol", "profile", "units", "document", "documentId", "mode", "frame",
             "frameCount", "playback", "atomCount", "labelCounts", "elementCounts", "cell",
             "pbc", "selection", "relaxation", "identityGroups", "calculator",
-            "collaboration", "stateFingerprint", "availableProfiles",
+            "collaboration", "stateFingerprint", "availableProfiles", "interaction",
         ],
     },
     "structure": {
@@ -2190,7 +2190,8 @@ AI_RENDER_PARAMETERS = {
         "camera", "options", "effectiveRender", "dataUrl",
     ],
     "notes": (
-        "Use a small draft render while composing and one exact-size final render. "
+        "Use one exact-size final render when semantic state establishes the result; "
+        "add a small draft only when visual composition needs it. "
         "The CLI omits Base64 unless --print-data-url is requested; use --save instead."
     ),
 }
@@ -2324,6 +2325,10 @@ AI_QUERY_SCHEMAS["bulk-preview"] = {"description": "Preview ASE bulk geometry, c
 AI_QUERY_SCHEMAS["insertion-domain"] = {"description": "Preview exact accessible insertion volume and optional realized molecular density without adding atoms.", "properties": {k: deepcopy(_molecule_properties[k]) for k in ["regions", "regionMode", "bounds", "regionMic", "regionRole", "molecules", "quantityMode", "targetDensityGcm3"]}}
 _AI_COMMAND_METHODS = _AI_COMMAND_METHODS | {"query"}
 
+from .ai_scene_schema import install_scene_contracts
+install_scene_contracts(AI_CONTROL_SCHEMA, AI_OPERATION_PARAMETERS,
+                        AI_QUERY_SCHEMAS, AI_RENDER_PARAMETERS)
+
 
 def _ai_operation_schema(name: str) -> Dict[str, Any]:
     """Return one operation's live JSON Schema without unrelated operations."""
@@ -2355,7 +2360,8 @@ def _ai_schema_summary() -> Dict[str, Any]:
         "stdin_commands": False,
         "methods": sorted(_AI_COMMAND_METHODS),
         "operations": sorted(AI_OPERATION_PARAMETERS),
-        "queries": deepcopy(AI_QUERY_SCHEMAS),
+        "queries": {name: {"description": contract["description"]}
+                    for name, contract in AI_QUERY_SCHEMAS.items()},
         "exports": sorted(AI_EXPORT_PARAMETERS),
         "describe_profiles": AI_DESCRIBE_PROFILES,
         "apply_response_profiles": list(AI_DESCRIBE_PROFILES),
@@ -2373,7 +2379,8 @@ def _ai_schema_summary() -> Dict[str, Any]:
                 "an unfamiliar operation."
             ),
             "export": "Request schema with params {\"export\":\"FORMAT\"}.",
-            "state": "Use describe profile summary first, then one focused profile.",
+            "query": "Request schema with params {\"query\":\"NAME\"} for one exact query contract.",
+            "state": "For figures use query scene-snapshot first; for scientific work use a focused describe profile.",
         },
     }
 
@@ -2411,6 +2418,17 @@ def _ai_apply_method_schema() -> Dict[str, Any]:
 def ai_schema_payload(options: Dict[str, Any] | None = None) -> Dict[str, Any]:
     """Return a focused or complete live discovery contract for external agents."""
     options = options if isinstance(options, dict) else {}
+    query_name = str(options.get("query") or "").strip()
+    if query_name:
+        if query_name not in AI_QUERY_SCHEMAS:
+            raise ValueError(f"Unknown v_ase query '{query_name}'.")
+        contract = deepcopy(AI_QUERY_SCHEMAS[query_name])
+        return {"protocol": AI_PROTOCOL, "scope": "query", "name": query_name,
+                "contract": contract,
+                "schema": {"type": "object", "additionalProperties": False,
+                           "properties": {"name": {"const": query_name}, **contract["properties"]},
+                           "required": ["name", *contract.get("required", [])]},
+                "request": {"method": "query", "params": {"name": query_name}}}
     operation_names = options.get("operations")
     if operation_names is not None:
         if not isinstance(operation_names, list) or not operation_names:

@@ -1,5 +1,9 @@
 # Semantic API
 
+For current MCP tasks use the short workflow guides in SKILL.md. Scene inspection,
+transactions, bounded guide reads and publication selection are documented in
+`scene-workflow.md`; this long reference is retained for legacy lookup.
+
 ## Contents
 
 1. Transport And Connection
@@ -339,8 +343,9 @@ the reference shows spherical shading.
 whereas `radiusScale` is the deterministic per-index multiplier; do not send
 both. `configure-bonds` accepts `pairs`, exact `indexPairs`, or both. Use
 `disableUnspecified:true` only when `pairs` is an intentional complete
-label-pair allow-list. With that flag, `pairs:[]` is the explicit no-bond
-state. Use
+label-pair allow-list. With that flag, `pairs:[]` disables the label-pair policies.
+For a figure that merely hides bonds, use `display:{showBonds:false}` and preserve
+those policies. Use
 `clearEndpointOverrides:true` when the requested pair style must replace stale
 atom-level bond color/material/opacity overrides from an earlier styling step.
 When a reference highlights selected bonds rather than every equivalent

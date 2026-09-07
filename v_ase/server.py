@@ -2278,6 +2278,9 @@ async def dispatch_ai_browser_command(
             if isinstance(error, dict)
             else error
         ).strip() or f"AI method '{method}' failed in the live browser."
+        if isinstance(error, dict) and error.get("code"):
+            raise HTTPException(status_code=422, detail={"message": message,
+                "code": error["code"], "outcome": error.get("outcome", "unknown")})
         raise HTTPException(status_code=422, detail=message)
     return {
         "protocol": AI_PROTOCOL,
@@ -2290,6 +2293,20 @@ async def dispatch_ai_browser_command(
 @app.get("/api/ai/schema")
 async def ai_control_schema():
     return ai_schema_payload()
+
+
+@app.post("/api/ai/validate-scene-patch")
+async def validate_ai_scene_patch(payload: Dict[str, Any]):
+    """Validate the direct browser mirror before it changes visual state."""
+    from jsonschema import Draft202012Validator
+    from .ai_scene_schema import scene_validation_schema
+    errors = sorted(Draft202012Validator(scene_validation_schema(AI_CONTROL_SCHEMA)).iter_errors(payload),
+                    key=lambda error: str(list(error.absolute_path)))
+    if errors:
+        error = errors[0]
+        path = ".".join(map(str, error.absolute_path)) or "patch"
+        raise HTTPException(status_code=422, detail=f"{path}: {error.message}")
+    return {"valid": True}
 
 
 @app.post("/api/ai/schema")

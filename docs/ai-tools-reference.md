@@ -1,5 +1,8 @@
 # Tools by feature
 
+This reference describes the v_ase 0.3.3 tool catalog.
+See [scene workflows](ai-scene.md) for compact inspection and visual edits.
+
 The catalog below is generated from the same schemas used by MCP and native
 function tools. Inputs use snake_case. Scientific units are Angstrom and
 degrees; atom and frame indices are zero-based. Tool discovery provides
@@ -11,9 +14,47 @@ complete nested types, bounds and conditions.
 ```
 
 Ordinary editing tools also require `expected_document_id` and
-`expected_revision`; these guards and optional `response_profile` are
+`expected_revision`; these guards, optional `request_id` and `response_profile` are
 omitted from the tables for readability. Interrupt controls may omit the
 revision. See [connection and recovery](ai-tools.md#read-edit-verify).
+
+## Discovery, guides and image inspection
+
+```{list-table}
+:header-rows: 1
+:widths: 45 55
+
+* - Tool
+  - Purpose
+* - `vase_search_tools`
+  - Find a bounded set of tools by feature or exact name. Returns short matches, not the full catalog or duplicate schemas.
+* - `vase_tool_schema`
+  - Read the exact typed schemas for at most four named tools. Use only when the host has not already supplied them.
+* - `vase_read_guide`
+  - Read one short scientific workflow or an exact section, with bounded paging. Parameter schemas come from tools.
+* - `vase_inspect_image`
+  - Inspect an image artifact produced by this connection. MCP returns image content directly; native hosts embed the validated artifact bytes as an image, never as text.
+```
+
+## Rendered scene and visual transactions
+
+```{list-table}
+:header-rows: 1
+:widths: 45 55
+
+* - Tool
+  - Purpose
+* - `vase_style_scene`
+  - Change common figure settings in one visual transaction. For flat atoms and hidden bonds set atom_display_mode='2d' and show_bonds=false. Preserves camera, pair policies and every unmentioned setting. No geometry lookup is needed for…
+* - `vase_scene_snapshot`
+  - Inspect the actual rendered scene: camera/crop, interaction state and readiness. Add bounded geometry sections for renderer-resolved atom positions, periodic references and per-edge appearance. Start with the default summary for…
+* - `vase_scene_readiness`
+  - Wait for frame, surface, plane, scalar-color and vector rendering to settle; reports pending work and errors without images.
+* - `vase_apply_scene`
+  - Apply one visual/frame transaction without changing stored scientific data. Requires document and revision guards. Unmentioned fields survive; background rendering settles before success. On failure restore the previous visual/frame…
+* - `vase_select_volumetric_planes`
+  - Select the exact plane IDs, or [] to clear plane selection. Optional clearAtoms/clearGizmos clear the other selection types. This changes interaction state only, never plane geometry or scientific arrays.
+```
 
 ## Connection and collaboration
 

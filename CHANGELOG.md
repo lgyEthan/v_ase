@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.3.3
+
+- Add compact rendered-scene snapshots, effective camera/style inspection,
+  readiness checks and guarded visual transactions with rollback.
+- Register all MCP tools by default with bounded discovery, exact schema reads,
+  focused guides and native image inspection; retain opt-in progressive mode.
+- Preserve live selection while neutralizing its appearance in publication
+  exports, and support retained receipts for safe retries after uncertain replies.
+- Reorganize the canonical Skill into focused scientific and rendering workflows.
+- Publish aggregate methods and results from 60 fresh Luna/max GUI-only versus
+  SKILL+MCP runs across three materials. Strict success was 24/30 versus 30/30;
+  successful-run median total tokens decreased by 46–70%. Distinguish exploratory
+  matching-picture success (28/30 versus 30/30), incomplete timeout accounting
+  and task-specific limitations. Private research logs are not distributed.
+
 ## 0.3.2
 
 Typed AI interfaces over the same human-editable scientific document.

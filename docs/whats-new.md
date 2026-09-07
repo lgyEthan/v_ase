@@ -1,69 +1,44 @@
-# What is new in 0.3.2
+# What is new in 0.3.3
 
-Version 0.3.2 adds typed MCP and native function interfaces to the shared
-scientific GUI. The existing CLI, HTTP JSON bridge and JavaScript interface
-remain available.
+## Focused MCP scene workflows
 
-## MCP setup and discovery
+Scene snapshots expose the current effective camera, appearance and rendering
+readiness without loading an image. Common style edits and complete visual/frame
+transactions use document/revision guards, verification and rollback. Scientific
+editing, analysis and exports remain available through focused tools.
+[Follow the scene workflow](ai-scene.md).
 
-Install `v_ase-gui[mcp]==0.3.2` and configure a host to run `v_ase mcp`.
-The server can open a GUI or connect to one already running. stdio and local
-Streamable HTTP are supported. Progressive discovery loads feature tools on
-request and supplies change notifications; default discovery advertises all
-tools for compatibility. [Connect an MCP host](ai-tools.md).
+## Discovery and focused guidance
 
-## Native functions and complete schemas
+MCP registers all callable tools by default so hosts can keep stable bindings.
+Bounded search, exact schemas and focused guides reduce unnecessary context.
+Progressive registration remains opt-in for hosts that support live tool-list
+changes. The canonical Skill covers workflow and verification; tool schemas
+supply parameters. [Connect MCP or native tools](ai-tools.md).
 
-`FunctionTools` supplies strict function definitions and a local dispatcher
-without a model SDK. Arguments never pass through a shell string. The canonical
-schemas now include previously missing movement, constraint, RDF and field
-parameters, plus the GUI display settings. Dynamic maps and explicit nulls
-survive strict-provider conversion. [Read the function guide](ai-tools.md#use-native-function-calling).
+## Publication images and recovery
 
-## More GUI features available to agents
+Publication rendering neutralizes selection outlines and selected plane-border
+appearance without clearing live selection. Image inspection returns image
+content, while ordinary responses carry artifact paths and metadata. Retained
+request receipts support retries after an uncertain response; inspect the live
+revision before starting a different mutation.
 
-Tools cover file opening and trajectory appending, exact atom duplication,
-repulsion configuration without starting relaxation, movie control, input file
-browsing, bulk/molecule catalogs and previews, stored atomic properties,
-scalar/force arrays and colormaps. [Browse tools by feature](ai-tools-reference.md).
+## Material evaluation
 
-## Collaboration and scientific correctness
-
-Ordinary edits check both document ID and revision; different tabs cannot be
-confused because their revision numbers happen to match. Concurrent agent
-commands are serialized. Duplicate GUI connections are rejected before an
-operation could be broadcast and executed twice. Stop controls can interrupt a
-running movie or optimizer whose revision keeps advancing.
-
-The semantic `com` pivot for rotation and scaling now uses atomic masses,
-correcting mixed-element behavior. Other physical models and their interpretation
-follow the [scientific validation guide](scientific-validation.md).
-
-## Exact trajectory movies
-
-Video export now sends indexed PNG frames directly to the encoder. This fixes
-an observed eight-frame movie that previously contained seven frames and a
-320×240 request that became 320×256. Even dimensions are preserved exactly and
-both interpolation endpoints are retained. The pipeline holds one raster at a
-time, applies encoder backpressure and restores the original GUI frame.
-
-## Artifacts and readable guidance
-
-MCP/native render and export tools write unique files and return resource links
-with MIME type, size and SHA-256. The Skill focuses on scientific workflows and
-recovery, while tool schemas supply parameters. AI documentation is split into
-connection setup, feature sections, and CLI compatibility.
+Sixty fresh Luna/max participants compared GUI-only and SKILL+MCP across three
+prepared material scenes. Strict success was 24/30 and 30/30, respectively.
+Successful-run median total tokens decreased by 46–70% with MCP; an exploratory
+matching-picture audit found 28/30 and 30/30. These are workflow-specific results,
+not a universal interface ranking. [Methods and detailed results](agent-material-evaluation.md).
 
 ## Upgrade
 
 ```bash
-python -m pip install --upgrade "v_ase-gui[mcp]==0.3.2"
+python -m pip install --upgrade "v_ase-gui[mcp]==0.3.3"
 ```
 
-Restart the GUI and adapter together; mismatched tool contracts are rejected.
-For core-only use, install `v_ase-gui==0.3.2`. Existing CLI scripts remain valid;
-new typed tool arguments use snake_case while raw HTTP/JavaScript retains
-camelCase. No model API key is required by v_ase.
-
-The previous scientific audit is preserved in the
-[validation record](scientific-validation.md) and [changelog](https://github.com/lgyEthan/v_ase/blob/main/CHANGELOG.md).
+Restart the GUI and adapter together. CLI, HTTP and JavaScript compatibility
+remain available; no model API key is required by v_ase itself. See the
+[changelog](https://github.com/lgyEthan/v_ase/blob/main/CHANGELOG.md) for earlier
+releases and the [scientific validation guide](scientific-validation.md).

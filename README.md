@@ -14,17 +14,17 @@
 [Changelog](https://v-ase.readthedocs.io/en/latest/whats-new.html) ·
 [Issues](https://github.com/lgyEthan/v_ase/issues)
 
-**0.3.2 — typed AI tools in the shared GUI.** MCP and native function tools now
-expose scientific editing, analysis, display settings and exports with typed
-arguments, document/revision guards, progressive discovery and file artifacts.
-CLI, HTTP and JavaScript remain available. Mixed-element transforms use the
-mass-weighted center of mass, and movie exports preserve every indexed frame.
-Frame-specific fields also recover correctly after rapid trajectory scrubbing.
-Start with [MCP and native tools](https://v-ase.readthedocs.io/en/latest/ai-tools.html)
-or the [feature reference](https://v-ase.readthedocs.io/en/latest/ai-tools-reference.html).
-The reorganized guides include setup, workflows and compatibility sections;
-long inline paths wrap on narrow screens. Scientific assumptions and checks
-remain in the [validation guide](https://v-ase.readthedocs.io/en/latest/scientific-validation.html).
+**0.3.3 — scene inspection and reproducible MCP figures.** Compact snapshots,
+transactional visual edits, bounded discovery and focused workflow guides now
+ship together. [Set up MCP](docs/ai-tools.md) or follow the
+[scene workflow](docs/ai-scene.md).
+
+In 60 fresh Luna/max runs (three materials × two interfaces × ten runs),
+SKILL+MCP reduced **successful-run median total tokens by 46%, 70% and 69%**
+for Cu₅O₄/Cu(111), ReSe₂/graphene and Pt₃O₄/CeO₂, respectively. Strict success
+was **30/30 for MCP and 24/30 for GUI**; an exploratory matching-picture audit
+found 30/30 and 28/30. Token medians exclude timeouts; GUI was cheaper in two Cu
+blocks. [Methods, results and limitations](docs/agent-material-evaluation.md).
 
 `v_ase` brings ASE's convenient terminal and Python workflow together with
 direct, Blender-style 3D structure editing. Open a structure or trajectory
@@ -62,10 +62,11 @@ embedded structure or trajectory and all saved visualization settings.
 
 ![Human and external AI agent working in one live v_ase document](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_ai_collaboration.png)
 
-Human instructions remain natural language, while the Agent uses the Skill and structured CLI/API for exact atom identities,
-camera settings, validation, and export; the result appears in the same live GUI,
-refine it directly when needed, and v_ase returns that edit to the Agent as a
-new revision. v_ase does not embed an LLM.
+Human instructions remain natural language, while the Agent uses typed MCP tools
+and the workflow Skill for exact atom identities, camera settings, validation,
+and export. The result appears in the same live GUI, where the researcher can
+refine it directly. v_ase returns that edit to the Agent as a new revision.
+The CLI/API remain available for automation. v_ase does not embed an LLM.
 
 ## Installation And Launch
 
@@ -1379,13 +1380,15 @@ The example is generated locally from `ase.build.graphene`:
 Install the MCP adapter in the environment containing v_ase:
 
 ```bash
-python -m pip install "v_ase-gui[mcp]==0.3.2"
+python -m pip install "v_ase-gui[mcp]==0.3.3"
 ```
 
-Configure your MCP host to run `v_ase mcp --discovery progressive`. It opens a
+Configure your MCP host to run `v_ase mcp --discovery all`. It opens a
 shared editable GUI. Use `--file STRUCTURE` to load a file, or
-`--connect COMMAND_URL` to share an existing CLI-launched GUI. Default discovery
-advertises all tools for hosts without dynamic tool refresh. Streamable HTTP is
+`--connect COMMAND_URL` to share an existing CLI-launched GUI. All tools are registered by default, while bounded search and
+exact-schema retrieval keep model-facing reads small. Use `--discovery progressive`
+only with clients verified to add callable tools during an active turn; the
+current Codex code host requires the stable initial list. Streamable HTTP is
 also available on loopback through `--transport streamable-http`.
 
 Named tools such as `vase_configure_bonds`, `vase_scatter_atoms`,
@@ -1405,6 +1408,7 @@ save unique files and return artifact resources with size and SHA-256; Base64
 is kept out of ordinary text responses.
 
 Read [MCP and native tool setup](docs/ai-tools.md),
+[scene snapshots and visual transactions](docs/ai-scene.md),
 [tools by feature](docs/ai-tools-reference.md), or
 [CLI/HTTP compatibility](docs/ai-cli.md). The CLI remains useful for shell and
 HPC automation. All paths operate the same live document.

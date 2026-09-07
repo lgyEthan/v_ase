@@ -14,6 +14,11 @@ as a context manager. `definitions(names=None)` returns MCP-shaped schemas;
 Execute with `call(name, arguments)` or
 `call_function(name, arguments, strict=True)`, respectively.
 
+Version 0.3.3 adds `initial_definitions()` for a small starting catalog
+and `deferred_function_tools(namespace="vase", strict=True)` for a host with
+deferred tool search. See [scene workflows](ai-scene.md) for the new snapshot,
+transaction, guide and image-inspection tools.
+
 See [MCP/native setup](ai-tools.md) for lifecycle, strict optional/map semantics,
 resources and recovery, and [tools by feature](ai-tools-reference.md) for the
 complete generated catalog. The CLI fallback is documented separately in

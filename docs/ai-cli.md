@@ -10,7 +10,8 @@ over HTTP or stdin. Natural language belongs between the researcher and the
 external agent; v_ase accepts deterministic JSON.
 
 :::{important}
-This page describes the v_ase 0.3.2 compatibility contract. At runtime, the installed live
+The scene workflow below is included in 0.3.3 alongside the existing CLI
+compatibility contract. At runtime, the installed live
 schema and `capabilities` response are authoritative. Do not copy a command
 name or parameter from an older document when the live release does not
 advertise it.
@@ -36,10 +37,53 @@ in the researcher's GUI. A later GUI edit must return to the agent as a new
 revision before the agent mutates the document again. A detached renderer or a
 one-way request-to-image pipeline does not satisfy this contract.
 
-The supported control path is the terminal client, `v_ase api`, talking to a
-loopback HTTP JSON bridge. `window.v_aseAI` mirrors document operations for
+The primary agent interface is [MCP](ai-tools.md). The terminal client,
+`v_ase api`, retains the same semantic backend through a loopback HTTP JSON bridge.
+`window.v_aseAI` mirrors document operations for
 specialized browser controllers, but it is an optional fallback rather than a
 requirement.
+
+## Current scene through the shared backend
+
+The scene interface is available through `query` and `apply` as well
+as typed MCP tools. CLI/HTTP uses camelCase:
+
+```bash
+v_ase api "$COMMAND_URL" query --params '{"name":"scene-snapshot"}'
+v_ase api "$COMMAND_URL" schema --params '{"query":"scene-snapshot"}'
+v_ase api "$COMMAND_URL" schema --operation-schema apply-scene
+```
+
+Use the returned `documentId` and `revision` in a parameter file, then pass it
+to `v_ase api "$COMMAND_URL" apply --params-file scene-change.json`:
+
+```json
+{
+  "expectedDocumentId": "DOCUMENT_ID_FROM_SNAPSHOT",
+  "expectedRevision": 12,
+  "operation": {
+    "name": "apply-scene",
+    "patch": {"display": {"atomDisplayMode": "2d", "showBonds": false}}
+  }
+}
+```
+
+The revision is illustrative. Unmentioned settings and scientific data survive;
+override maps merge unless explicitly replaced. Read the [scene guide](ai-scene.md)
+for rollback, readiness, selections, exact projected geometry and receipt limits.
+MCP's shorter `vase_style_scene` uses this same transaction internally.
+
+Stored trajectory field discovery also stays within the command connection:
+
+```bash
+v_ase api "$COMMAND_URL" schema --params '{"query":"atom-scalar-catalog"}'
+v_ase api "$COMMAND_URL" query --params '{"name":"atom-scalar-catalog","frame":0}'
+```
+
+This returns the catalog data; an agent does not need to fetch a secondary URL.
+The compact schema index gives query descriptions; `schema` with `query:NAME`
+returns one closed query schema. `--schema-method query` returns the query family
+when an integration actually needs it.
 
 ## Requirements
 
@@ -54,7 +98,7 @@ The controlling agent needs:
 Install the current release:
 
 ```bash
-python -m pip install "v_ase-gui==0.3.2"
+python -m pip install "v_ase-gui==0.3.3"
 ```
 
 No API key or external service is required. A hosted model without local shell

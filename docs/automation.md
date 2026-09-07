@@ -10,4 +10,6 @@ python-api
 cli-reference
 notebooks-remote
 ai-agents
+ai-scene
+agent-material-evaluation
 ```

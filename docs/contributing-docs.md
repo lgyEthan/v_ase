@@ -240,7 +240,7 @@ remains mandatory. See [Release checklist](release_checklist.md).
 ## Documentation pull-request checklist
 
 - [ ] The page is in the correct toctree and has one clear audience.
-- [ ] Commands were checked against v_ase 0.3.2 or the version being released.
+- [ ] Commands were checked against v_ase 0.3.3 or the version being released.
 - [ ] Local links, anchors and image paths resolve.
 - [ ] HTML builds with warnings as errors.
 - [ ] Live WebGL demos load, interact, and retain static PDF/ePub fallbacks.

@@ -10,24 +10,35 @@ import sys
 from ._version import __version__
 from .ai import ai_skill_path
 from .ai_tools import FunctionTools, ToolError
+from .ai_discovery import CORE_TOOL_NAMES
 
-INSTRUCTIONS = """Control the same v_ase document visible to the human. Start with
-vase_describe(profile='summary'); read focused state only as needed. All lengths
-are Angstrom, angles degrees, and indices zero-based. Ordinary editing tools require
-the latest expected_revision and expected_document_id. Stop controls require
-document identity but may omit a continuously changing revision. Review human changes on
-conflict, then plan again. Scientific structure is authoritative in semantic
-state; inspect a final render for visual quality. Render/export return resource
-links, not inline Base64. Tools do not interpret natural language or run a model.
-Use vase_events to consume collaboration changes. Never infer equilibrium from
-repulsive overlap removal. Tool schemas describe parameters; the workflow skill
-is available as vase://skill. In progressive discovery mode use vase_search_tools
-to load a small set of named tools before calling them."""
-CORE_TOOLS = {"vase_describe", "vase_ready", "vase_documents", "vase_activate", "vase_new_document", "vase_events"}
+INSTRUCTIONS = """Control the same live document as the human. For figure work start
+with vase_scene_snapshot: its default summary includes the actual render camera,
+display mode, bond visibility, selections and readiness. Request filtered geometry
+only to identify atoms/edges. Use vase_search_tools for a feature or exact name;
+never dump a full tool catalog. Search returns short matches. Read vase_read_guide
+only for the scientific workflow you need; schemas are supplied by the tools.
+Use vase_style_scene for simple display toggles, or a minimal vase_apply_scene
+patch for related visual/frame changes. Hiding bonds
+means show_bonds=false, not clearing pair policies. Keep document/revision guards,
+preserve unmentioned fields, and reuse a request_id only for an identical uncertain
+retry. Physical edits and analysis use their dedicated discovered tools. Ordinary
+mutation replies and structuredContent should be consumed once, without dumping
+unchanged state. Publication rendering suppresses transient selection appearance
+without changing the GUI selection; interactive mode preserves it. Inspect the
+final image. Artifacts are resource links, never Base64 text. Review human events
+and conflicts before further edits. Lengths are Angstrom, angles degrees, indices
+zero-based; visual bonds and repulsive placement do not establish equilibrium."""
+CORE_TOOLS = CORE_TOOL_NAMES
 
 
 def create_mcp_server(client: FunctionTools, *, discovery="all"):
-    """Create an SDK server; the caller owns the live client and its lifetime."""
+    """Create an SDK server; register a stable callable catalog by default.
+
+    Schema disclosure belongs at the model host. Some clients do not rebuild
+    callable bindings after list-change notifications during an active turn.
+    Progressive server registration remains opt-in for verified clients.
+    """
     try:
         from mcp.server import Server
         from mcp.server.lowlevel import NotificationOptions
@@ -39,17 +50,10 @@ def create_mcp_server(client: FunctionTools, *, discovery="all"):
     if discovery not in {"all", "progressive"}:
         raise ValueError("discovery must be all or progressive")
     subscriptions = InMemorySubscriptionBus()
-    enabled = set(client.catalog) if discovery == "all" else CORE_TOOLS.intersection(client.catalog)
-    search_schema = {"type": "object", "properties": {
-        "query": {"type": "string", "description": "Feature keywords or exact tool name."},
-        "limit": {"type": "integer", "minimum": 1, "maximum": 16, "default": 6},
-    }, "required": ["query"], "additionalProperties": False}
-    search_tool = types.Tool(name="vase_search_tools", description="Find tools by feature or name. In progressive mode, matching tools become available through tools/list and a list-changed notification.", input_schema=search_schema,
-                             annotations=types.ToolAnnotations(read_only_hint=True, open_world_hint=False))
-
+    enabled = set(client.catalog) if discovery == "all" else set(CORE_TOOLS.intersection(client.catalog))
     async def list_tools(ctx, params):
         definitions = client.definitions(sorted(enabled))
-        return types.ListToolsResult(tools=[search_tool, *[types.Tool.model_validate(d) for d in definitions]])
+        return types.ListToolsResult(tools=[types.Tool.model_validate(d) for d in definitions])
 
     def response(value, *, error=False):
         structured = value if isinstance(value, dict) else {"result": value}
@@ -61,31 +65,25 @@ def create_mcp_server(client: FunctionTools, *, discovery="all"):
 
     async def call_tool(ctx, params):
         try:
-            if params.name == "vase_search_tools":
-                from jsonschema import Draft202012Validator
-                args = params.arguments or {}
-                errors = list(Draft202012Validator(search_schema).iter_errors(args))
-                if errors:
-                    raise ToolError(errors[0].message)
-                words = args["query"].lower().replace("-", "_").split()
-                scored = []
-                for name, spec in client.catalog.items():
-                    title = name.lower()
-                    description = spec.description.lower()
-                    score = sum(10 if word in title else 1 if word in description else 0 for word in words)
-                    if score:
-                        scored.append((-score, name))
-                names = [name for _, name in sorted(scored)[:args.get("limit", 6)]]
+            if params.name in {"vase_search_tools", "vase_tool_schema"}:
+                value = client.call(params.name, params.arguments or {})
+                names = [item["name"] for item in value["tools"]]
                 changed = set(names) - enabled
                 enabled.update(names)
                 if changed:
                     await subscriptions.publish(ToolsListChanged())
                     if ctx.protocol_version not in MODERN_PROTOCOL_VERSIONS:
                         await ctx.session.send_tool_list_changed()
-                return response({"tools": client.definitions(names), "total_matches": len(scored), "discovery": discovery})
+                return response({**value, "loaded": names, "discovery": discovery})
             if params.name not in enabled:
                 raise ToolError("Tool is not loaded. Use vase_search_tools first.", code="unknown_tool")
             value = await asyncio.to_thread(client.call, params.name, params.arguments)
+            if params.name == "vase_inspect_image":
+                metadata, data = client.read_artifact(value["artifact"]["uri"])
+                return types.CallToolResult(
+                    content=[types.ImageContent(type="image", data=base64.b64encode(data).decode("ascii"),
+                                               mime_type=metadata["mimeType"])],
+                    structured_content={"artifact": metadata}, is_error=False)
             return response(value)
         except ToolError as exc:
             return response(exc.as_dict(), error=True)

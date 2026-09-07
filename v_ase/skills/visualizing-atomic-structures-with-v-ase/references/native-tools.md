@@ -1,76 +1,66 @@
-# Native MCP and function tools
+# MCP and native setup
 
-After trajectory scrubbing, verify `analysis.frameSynchronization` before an
-export. Frame-specific fields are rebuilt when their previous meshes were
-invalidated, including a rapid visit to another frame and return.
+## Current source and connection
 
-## Connection and discovery
+Install `v_ase-gui[mcp]==0.3.3` for the scene transaction and discovery tools.
+Restart the GUI and adapter together after upgrading; their contracts must match.
+No model or model API key is required by v_ase itself.
 
-Install `v_ase-gui[mcp]==0.3.2` for the optional official MCP SDK. An MCP host
-launches `v_ase mcp --discovery progressive`; the server opens a scratch GUI.
-Use `--file FILE` and optionally `--interactive` to start with a structure.
-`--connect COMMAND_URL` shares an existing GUI. `--transport streamable-http`
-serves loopback `http://127.0.0.1:8766/mcp`; the default is stdio.
+A local MCP host runs `v_ase mcp`. All callable tools are registered by default. Add
+`--file FILE`, `--connect COMMAND_URL`, `--artifact-dir DIRECTORY` or `--no-browser`
+as needed. An owned GUI closes when its MCP process stops; a connected existing
+GUI remains owned by the original launcher. `--transport streamable-http` exposes
+the local server; remote model services cannot directly reach loopback without
+an appropriately configured host/tunnel. Keep stdout for MCP protocol messages.
 
-Default discovery advertises all tools. Progressive discovery starts with
-connection/state/event tools and `vase_search_tools`; search enables matching
-tools and emits a list-change notification. Hosts that cannot refresh tool
-lists should use the default. Prefer feature tools over broad display patches.
+Use bounded search and exact-schema reads instead of printing the catalog.
+`--discovery progressive` is opt-in: the host must rebuild callable bindings
+after notifications during an active turn. Codex 0.153.4 did not do this in
+the observed code-host path; use the default `all` mode there. Initialization or
+a successful search alone does not establish late-tool usability. Schemas and
+GUI must share the same contract; restart both after changing source.
 
-v_ase does not call a model. No API key is required by this adapter. Cloud
-model services cannot directly reach a local loopback URL; use a local native
-function runner or a separately authenticated integration.
+## Bounded discovery and guides
 
-## Scientific control
+Scene inspection, search/schema/guide access, rendering, document state and
+scientific operations are callable from startup. `vase_search_tools` returns
+default 4 matches, maximum 8; the host can defer detailed schema disclosure.
+It searches names and individual descriptions, not duplicated namespace boilerplate.
+Results are short and do not repeat full schemas. `vase_tool_schema` reads at most
+four exact definitions when the host has not already supplied them.
 
-Every existing operation is a named `vase_` tool with hyphens changed to
-underscores. Declared input fields use snake_case; returned state retains
-camelCase. The catalog also covers each display/control field, all exports,
-file discovery, bulk/molecule catalogs and previews, stored properties, scalar
-and force arrays, and colormap lookup.
+`vase_read_guide` returns a topic or exact heading section with at most 5,000
+characters by default. Follow `nextOffset` only if the excerpt is incomplete and
+needed. Keep `expected_sha256` when paging. Do not read every guide at startup.
+All original structure, insertion, constraints, interface, analysis and export
+tools remain available through the same catalog.
 
-New shared operations are `load-structure`, `append-structure`,
-`duplicate-selection`, `configure-calculator`, `set-playback`, and `load-settings`.
-`load-settings` restores a saved visual JSON file without replacing coordinates
-and accepts files up to 64 MiB.
-Use `vase_files` to discover paths relative to the GUI launch directory.
-Absolute paths and path escapes are rejected. Replacing a populated tab needs
-user intent and `confirm_replace=true`; projects restore their visual settings.
-Appending a project contributes frames without its visual settings.
-`duplicate-selection` preserves the same data and appearance as GUI copy/paste.
-`configure-calculator` changes default repulsion settings without starting it.
+## Native function integration
 
-`pivot="com"` uses atomic masses for physical rotation and scaling. Explicit
-Cartesian, cell, origin and active-atom pivots remain available.
+`FunctionTools.initial_definitions()` supplies the small starting catalog.
+When a host manages discovery explicitly, install returned `vase_tool_schema`
+definitions before the next model call. `deferred_function_tools()` instead
+returns the core functions plus feature namespaces of at most eight deferred
+functions each. The host must add its `tool_search` capability; namespace
+descriptions are short and specific to their feature. `definitions()` and `function_tools()`
+remain complete-catalog compatibility methods; pass names to restrict them.
 
-Editing tools require the latest `expected_revision` and
-`expected_document_id` from `describe`. The latter is the returned `documentId`,
-not the human-readable `document` title. Preserve both guards after a tab switch.
-Stop controls require document identity but allow revision omission to interrupt
-an evolving trajectory or optimizer. Use `vase_pause_playback` before reads.
+`call(name, arguments)` accepts canonical schemas. `call_function(..., strict=True)`
+uses the provider codec: null omits optional fields, dynamic maps become typed
+key/value entries, and nullable optional values can use {value:null}. The codec
+restores canonical dictionaries and applies their validation. Do not mix strict
+encoded arguments with the canonical MCP call.
 
-## Native functions
+MCP image inspection returns an image content block. A native-function host must
+recognize `delivery="image"`, read the validated artifact bytes and embed image
+input using its model API. Never serialize those bytes/Base64 as text. Consume
+structuredContent or its text fallback once, not both as duplicate context.
 
-`v_ase.ai_tools.FunctionTools(command_url)` exposes `function_tools(names)` and
-`call_function(name, arguments)` without an MCP or model SDK. Supply the selected
-definitions to a local model runner and pass its structured function arguments
-to the dispatcher. `strict=True` is the default. Optional non-null fields use
-null for omission; nullable optional fields use null for omission or
-`{value:null}` to explicitly clear. Dynamic maps use typed key/value entries.
-The dispatcher restores dictionaries and applies the full semantic validation.
-`strict=False` preserves the complete original schemas and still validates locally.
+## Scientific and collaboration guarantees
 
-## Resources and recovery
-
-Render/export tools save unique artifacts in `v_ase-artifacts` (override with
-`--artifact-dir`). Results include URI, path, MIME type, byte size and SHA-256.
-MCP returns resource links; only produced artifacts are readable. Inspect one
-final image, and reopen scientific/project exports when relevant.
-
-`invalid_arguments` means nothing was dispatched. `conflict` means the revision
-or active document no longer matches. `contract_mismatch` means the adapter and
-GUI need the same installed version. `transport_error` and other bridge errors
-can have unknown outcomes: inspect state before retrying a mutation.
-
-The server owns a GUI it launched; keep it alive for human refinement. A
-`--connect` adapter does not own or close its existing GUI. Export files persist.
+Use exact discovered IDs, document/revision guards and explicit units. Visual
+scene transactions do not edit stored scientific arrays. Physical operations
+remain dedicated typed tools. Retry receipts are bounded to the live document,
+not durable across restarts. Follow the scene and recovery guides for rollback,
+readiness and idempotency outcomes. Do not infer tested performance from the
+presence of an MCP transport; runtime and scientific regressions are separate.

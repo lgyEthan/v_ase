@@ -10,6 +10,8 @@ from v_ase.ai_tools import tool_catalog
 
 def section(spec):
     name = spec.name
+    if spec.method == 'local': return 'Discovery, guides and image inspection'
+    if 'scene' in name or name == 'vase_select_volumetric_planes': return 'Rendered scene and visual transactions'
     if spec.export_format or spec.method == 'render': return 'Render and export'
     if any(word in name for word in ('commensurate', 'registry')): return 'Periodic interfaces'
     if any(word in name for word in ('volumetric', 'insertion_domain')) and 'insertion' not in name: return 'Volumetric fields'
@@ -29,13 +31,15 @@ def render():
     for spec in tool_catalog().values():
         groups.setdefault(section(spec), []).append(spec)
     lines = ['# Tools by feature', '',
+             'This reference describes the v_ase 0.3.3 tool catalog.',
+             'See [scene workflows](ai-scene.md) for compact inspection and visual edits.', '',
              'The catalog below is generated from the same schemas used by MCP and native',
              'function tools. Inputs use snake_case. Scientific units are Angstrom and',
              'degrees; atom and frame indices are zero-based. Tool discovery provides',
              'complete nested types, bounds and conditions.', '',
              '```{contents} On this page', ':local:', ':depth: 1', '```', '',
              'Ordinary editing tools also require `expected_document_id` and',
-             '`expected_revision`; these guards and optional `response_profile` are',
+             '`expected_revision`; these guards, optional `request_id` and `response_profile` are',
              'omitted from the tables for readability. Interrupt controls may omit the',
              'revision. See [connection and recovery](ai-tools.md#read-edit-verify).', '']
     for group, specs in groups.items():

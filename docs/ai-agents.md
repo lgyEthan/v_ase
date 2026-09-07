@@ -1,6 +1,6 @@
 # AI-agent integration
 
-v_ase 0.3.2 gives an external AI agent typed access to the same document that a
+v_ase 0.3.3 gives an external AI agent typed access to the same document that a
 researcher sees and edits. MCP is the primary integration for tool-capable
 hosts. Native function tools serve application developers. The CLI, HTTP JSON
 bridge and JavaScript interface remain supported adapters.

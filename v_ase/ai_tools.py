@@ -22,6 +22,9 @@ import uuid
 import requests
 from jsonschema import Draft202012Validator
 
+from .ai_discovery import (SEARCH_PROPERTIES, TOOL_SCHEMA_PROPERTIES, GUIDE_PROPERTIES, CORE_TOOL_NAMES,
+                           GROUP_DESCRIPTIONS, tool_group, search_catalog, read_guide)
+
 from .ai_schema import (
     AI_CONTROL_SCHEMA, AI_DESCRIBE_PROFILES, AI_EXPORT_PARAMETERS, AI_QUERY_SCHEMAS,
     AI_OPERATION_PARAMETERS, AI_RENDER_PARAMETERS, BOOLEAN, INDEX, INDICES,
@@ -137,12 +140,14 @@ GUARDS = {
     "expectedDocumentId": {**AI_CONTROL_SCHEMA["properties"]["expectedDocumentId"],
                            "description": "Required documentId from describe. Protects against a human switching tabs."},
     "responseProfile": AI_CONTROL_SCHEMA["properties"]["responseProfile"],
+    "requestId": AI_CONTROL_SCHEMA["properties"]["requestId"],
 }
 GUARD_REQUIRED = ["expectedRevision", "expectedDocumentId"]
 INTERRUPT_OPERATIONS = {"stop-relaxation", "stop-added-atoms", "stop-registry-relaxation"}
 CAMERA_SCHEMA = AI_CONTROL_SCHEMA["properties"]["renderArea"]["properties"]["camera"]
 RENDER_OPTIONS = _object({
-    **{k: BOOLEAN for k in ("transparentBackground", "includeGrid", "includeAxes", "includeCell")},
+    **{k: BOOLEAN for k in ("transparentBackground", "includeGrid", "includeAxes", "includeCell", "includePlaneBorders")},
+    "selectionAppearance": {"enum": ["publication", "interactive"], "default": "publication"},
     "backgroundColor": STRING, "scaleMode": {"enum": ["viewport", "physical"]},
     "pixelsPerAngstrom": {"type": "number", "exclusiveMinimum": 0},
     "sphereQuality": {"enum": ["viewport", "auto", "low", "medium", "high", "ultra"]},
@@ -167,6 +172,22 @@ def tool_catalog() -> dict[str, ToolSpec]:
             raise ValueError(f"Duplicate tool {spec.name}")
         Draft202012Validator.check_schema(spec.input_schema)
         result[spec.name] = spec
+
+    add(ToolSpec("vase_search_tools", "Find a bounded set of tools by feature or exact name. Returns short matches, not the full catalog or duplicate schemas.",
+                 _object(SEARCH_PROPERTIES, ["query"]), "local"))
+    add(ToolSpec("vase_tool_schema", "Read the exact typed schemas for at most four named tools. Use only when the host has not already supplied them.",
+                 _object(TOOL_SCHEMA_PROPERTIES, ["names"]), "local"))
+    add(ToolSpec("vase_read_guide", "Read one short scientific workflow or an exact section, with bounded paging. Parameter schemas come from tools.",
+                 _object(GUIDE_PROPERTIES, ["topic"]), "local"))
+    add(ToolSpec("vase_inspect_image", "Inspect an image artifact produced by this connection. MCP returns image content directly; native hosts embed the validated artifact bytes as an image, never as text.",
+                 _object({"uri": {"type": "string", "minLength": 1}}, ["uri"]), "local"))
+    common_display = {key: AI_CONTROL_SCHEMA["properties"]["display"]["properties"][key]
+                      for key in ("atomDisplayMode", "showBonds", "showCell", "showAxes", "showGrid",
+                                  "showOverlays", "viewportBackground", "atomRadiusScale")}
+    style_schema = _object({**common_display, **GUARDS}, GUARD_REQUIRED)
+    style_schema["anyOf"] = [{"required": [key]} for key in common_display]
+    add(ToolSpec("vase_style_scene", "Change common figure settings in one visual transaction. For flat atoms and hidden bonds set atom_display_mode='2d' and show_bonds=false. Preserves camera, pair policies and every unmentioned setting. No geometry lookup is needed for these toggles.",
+                 style_schema, "apply", operation="apply-scene", mutates=True))
 
     add(ToolSpec("vase_describe", "Read the live GUI document. Start with summary; use a focused profile only when needed. Lengths are Angstrom, angles degrees, indices zero-based.",
                  _object({"profile": {"enum": list(AI_DESCRIBE_PROFILES)}, **{k: BOOLEAN for k in ("includePositions", "includeProperties", "includeOverrides")}}), "describe"))
@@ -279,6 +300,37 @@ class FunctionTools:
     def definitions(self, names=None):
         return [self.catalog[name].definition() for name in (self.catalog if names is None else names)]
 
+    def initial_definitions(self):
+        """Small starting catalog for hosts that explicitly load schemas later."""
+        return self.definitions(sorted(CORE_TOOL_NAMES.intersection(self.catalog)))
+
+    def deferred_function_tools(self, *, namespace="vase", strict=True):
+        """Responses-style core plus small namespaces of deferred functions.
+
+        The consuming host must provide its tool-search facility. Hosts without
+        deferred loading can use initial_definitions plus vase_tool_schema and
+        install the returned definitions before the next model request.
+        """
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", namespace):
+            raise ValueError("namespace must be a simple tool namespace identifier")
+        result = []
+        groups = {}
+        for definition in self.function_tools(strict=strict):
+            name = definition["name"]
+            definition["defer_loading"] = name not in CORE_TOOL_NAMES
+            if name in CORE_TOOL_NAMES:
+                result.append(definition)
+            else:
+                groups.setdefault(tool_group(self.catalog[name]), []).append(definition)
+        for group in sorted(groups):
+            definitions = groups[group]
+            for offset in range(0, len(definitions), 8):
+                suffix = f"_{offset // 8 + 1}" if len(definitions) > 8 else ""
+                result.append({"type": "namespace", "name": f"{namespace}_{group}{suffix}",
+                               "description": GROUP_DESCRIPTIONS[group],
+                               "tools": definitions[offset:offset + 8]})
+        return result
+
     def function_tools(self, names=None, *, strict=True):
         """Responses-style definitions; load only names relevant to the task.
 
@@ -345,6 +397,30 @@ class FunctionTools:
         if error is not None:
             path = ".".join(str(p) for p in error.absolute_path) or "arguments"
             raise ToolError(f"{path}: {error.message}")
+        if spec.method == "local":
+            params = _backend_arguments(arguments, spec.schema)
+            if name == "vase_inspect_image":
+                metadata, _ = self.read_artifact(params["uri"])
+                if metadata["mimeType"] not in {"image/png", "image/jpeg", "image/webp"}:
+                    raise ToolError("Only PNG/JPEG/WebP artifacts can be inspected as images.")
+                return {"artifact": metadata, "delivery": "image",
+                        "nativeHostAction": "Embed read_artifact(uri) bytes as image input. Do not print binary or Base64 text."}
+            if name == "vase_search_tools":
+                return search_catalog(self.catalog, params["query"], params.get("limit", 4))
+            if name == "vase_tool_schema":
+                unknown = [value for value in params["names"] if value not in self.catalog]
+                if unknown:
+                    raise ToolError("Unknown tools: " + ", ".join(unknown), code="unknown_tool")
+                return {"tools": self.definitions(params["names"])}
+            if name == "vase_read_guide":
+                from .ai import ai_skill_path
+                try:
+                    return read_guide(ai_skill_path(), params["topic"], section=params.get("section"),
+                                      offset=params.get("offset", 0), max_characters=params.get("maxCharacters", 5000),
+                                      expected_sha256=params.get("expectedSha256"))
+                except (OSError, ValueError) as exc:
+                    raise ToolError(str(exc), code="guide_error") from exc
+            raise ToolError("Unknown local tool.", code="unknown_tool")
         self._verify_contract()
         started = time.perf_counter()
         params = _backend_arguments(arguments, spec.schema)
@@ -353,6 +429,10 @@ class FunctionTools:
                 if spec.name == "vase_pause_playback":
                     params["playing"] = False
                 guards = {k: params.pop(k) for k in GUARDS if k in params}
+                if spec.name == "vase_style_scene":
+                    if not params:
+                        raise ToolError("Supply at least one figure setting.")
+                    params = {"patch": {"display": params}}
                 params = {**guards, "operation": {"name": spec.operation, **params}}
             params.setdefault("responseProfile", "summary")
         elif spec.method == "query":
@@ -380,6 +460,10 @@ class FunctionTools:
         except ValueError as exc:
             raise ToolError("The bridge returned non-JSON data.", code="invalid_response", outcome="unknown") from exc
         if not response.ok or response.is_redirect:
+            structured = payload.get("detail")
+            if isinstance(structured, dict) and structured.get("code"):
+                raise ToolError(str(structured.get("message", "Scene command failed."))[:2000],
+                                code=structured["code"], outcome=structured.get("outcome", "unknown"))
             detail = str(payload.get("detail", response.reason))[:2000]
             conflict = "revision conflict" in detail.lower() or "active document changed" in detail.lower()
             ambiguous = "multiple live browsers" in detail.lower()

@@ -3191,6 +3191,13 @@ export class ASERenderer {
     }
 
     beginExportScene(options = {}) {
+        const publication = options.selectionAppearance !== 'interactive';
+        const selectionGroups = [this.selectionOutlines, this.replicaSelectionOutlines]
+            .filter(Boolean).map(group => ({group, visible: group.visible}));
+        const planeBorders = [...this.volumetricPlanes.values()].map(record => ({
+            record, color: record.perimeterMaterial.color.clone(),
+            opacity: record.perimeterMaterial.opacity, visible: record.perimeter.visible
+        }));
         const oldLighting = {
             ...this.lightingOptions,
             sunPosition: [...(this.lightingOptions?.sunPosition || [8, -10, 14])],
@@ -3247,8 +3254,17 @@ export class ASERenderer {
         const includeCell = options.includeCell !== false;
         if (this.cellGroup) this.cellGroup.visible = includeCell;
         supercellCellPreviews.forEach(({ child }) => { child.visible = includeCell; });
+        if (publication) selectionGroups.forEach(({group}) => { group.visible = false; });
+        planeBorders.forEach(({record}) => {
+            if (publication) {
+                record.perimeterMaterial.color.set('#89d9cc');
+                record.perimeterMaterial.opacity = 0.72;
+                record.perimeterMaterial.needsUpdate = true;
+            }
+            if (options.includePlaneBorders === false) record.perimeter.visible = false;
+        });
         return {
-            requestedMode,
+            requestedMode, publication,
             restore: () => {
                 restoreSphereQuality();
                 this.setLightingOptions(oldLighting, { requestRender: false });
@@ -3261,6 +3277,13 @@ export class ASERenderer {
                     this.renderAreaGizmoGroup.visible = oldRenderAreaGizmoVisible;
                 }
                 supercellCellPreviews.forEach(({ child, visible }) => { child.visible = visible; });
+                selectionGroups.forEach(({group, visible}) => { group.visible = visible; });
+                planeBorders.forEach(({record, color, opacity, visible}) => {
+                    record.perimeterMaterial.color.copy(color);
+                    record.perimeterMaterial.opacity = opacity;
+                    record.perimeterMaterial.needsUpdate = true;
+                    record.perimeter.visible = visible;
+                });
             }
         };
     }
@@ -3274,6 +3297,10 @@ export class ASERenderer {
             this.updateForceVectorMatrices(true);
             this.updateFlatCellEdgeMatrices(true);
             this.syncSelectionOutlines();
+            if (sceneState.publication) {
+                this.selectionOutlines.visible = false;
+                this.replicaSelectionOutlines.visible = false;
+            }
             this.updateHookeanPositions();
             this.updateViewLighting(exportView.camera, exportView.target);
             this.renderer.render(this.scene, exportView.camera);

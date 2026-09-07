@@ -759,6 +759,23 @@ with `resultName` through the HTTP bridge and verify its output name, integral,
 and unchanged source fields. Parse documentation JSON with duplicate-key
 rejection so an operation selector cannot be overwritten by a dataset name.
 
+## 0.3.3 scene-workflow regression gate
+
+Run `tests/test_ai_scene_tools.py` with the MCP extra and a working browser,
+alongside the complete typed-tool and agent-Skill suites. Check bounded guide
+and schema reads, stable default tool registration, exact image-content
+inspection, minimal display toggles, map-preserving patches, atomic rollback,
+effective camera/style reporting, readiness, retry conflicts and publication
+selection appearance. Inspect a final image and verify that scientific data and
+the live selection survive a visual-only workflow.
+
+Keep model evaluation distinct from implementation regression checks. Report
+success criteria, time horizon, complete provider token accounting and excluded
+diagnostics. A matching image and exact project-state preservation are different
+endpoints; do not turn timeout lower bounds into tokens-to-success. The public
+documentation includes aggregate results for the three-material GUI/Skill+MCP
+study; private study logs are not release artifacts.
+
 ## 0.3.2 typed-tool regression gate
 
 Run `tests/test_ai_tools.py` with the MCP extra installed. Verify modern and

@@ -235,15 +235,15 @@ await applyCurrent({operation: {
 ```
 
 When the reference draws no bonds, do not invent a chemically reasonable
-network. Send the explicit empty allow-list:
+network. Hide bonds while preserving the existing cutoff/range/style policies:
 
 ```javascript
-await applyCurrent({operation: {
-  name: "configure-bonds",
-  disableUnspecified: true,
-  pairs: []
-}});
+await applyCurrent({display: {showBonds: false}});
 ```
+
+For MCP, `vase_style_scene(show_bonds=false, ...)` performs the same minimal edit.
+An empty policy allow-list is appropriate only when resetting the policy itself
+is intended, not for hiding its visual representation.
 
 Compose periodic translation, replication, camera roll, target, and framing in
 one `compose-view` transaction. The example below moves a boundary-spanning

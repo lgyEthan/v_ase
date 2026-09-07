@@ -597,7 +597,8 @@ class VAseWorkspace {
                 ok: false,
                 error: {
                     name: String(error?.name || 'Error'),
-                    message: String(error?.message || error || 'AI command failed.')
+                    message: String(error?.message || error || 'AI command failed.'),
+                    ...(error?.code ? {code: error.code, outcome: error.outcome || 'unknown'} : {})
                 }
             };
         }

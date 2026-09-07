@@ -14,13 +14,13 @@
 Install the tested release into the active Python environment:
 
 ```bash
-python -m pip install "v_ase-gui==0.3.2"
+python -m pip install "v_ase-gui==0.3.3"
 ```
 
 Optional Rhino export:
 
 ```bash
-python -m pip install "v_ase-gui[rhino]==0.3.2"
+python -m pip install "v_ase-gui[rhino]==0.3.3"
 ```
 
 Runtime dependencies are ASE, matscipy, FastAPI, Uvicorn, NumPy, SciPy,
@@ -37,7 +37,7 @@ the complete environment with the same interpreter instead of replacing NumPy
 alone:
 
 ```bash
-python -m pip install --upgrade --force-reinstall "v_ase-gui==0.3.2"
+python -m pip install --upgrade --force-reinstall "v_ase-gui==0.3.3"
 ```
 
 v_ase uses the `AGPL-3.0-or-later` license. Preserve the license and source
@@ -139,6 +139,8 @@ through the handshake's `command_url`:
 v_ase api "$COMMAND_URL" schema
 v_ase api "$COMMAND_URL" describe --profile summary
 v_ase api "$COMMAND_URL" schema --operation-schema compose-view
+v_ase api "$COMMAND_URL" schema --params '{"query":"scene-snapshot"}'
+v_ase api "$COMMAND_URL" query --params '{"name":"scene-snapshot"}'
 v_ase api "$COMMAND_URL" apply --params-file command.json
 v_ase api "$COMMAND_URL" render --params-file render.json --save preview.png
 ```
@@ -394,7 +396,7 @@ to an untrusted network.
 Install the tested release:
 
 ```bash
-python -m pip install "v_ase-gui==0.3.2"
+python -m pip install "v_ase-gui==0.3.3"
 ```
 
 Start the terminal-oriented API session yourself:

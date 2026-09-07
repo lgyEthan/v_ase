@@ -292,7 +292,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     api.add_argument(
         "--schema-method",
-        choices=("apply", "describe", "render"),
+        choices=("apply", "describe", "query", "render"),
         help="with schema, return only the selected method contract",
     )
     api.add_argument(

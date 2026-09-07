@@ -15,10 +15,14 @@ portable projects, and an exact semantic interface for external AI agents.
 
 :::{admonition} Current release
 :class: note
-This manual describes **v_ase 0.3.2**. Behavior is documented from the source,
+This manual describes **v_ase 0.3.3**. Behavior is documented from the source,
 live semantic schema, and regression suite in this release rather than from a
 future roadmap.
 :::
+
+The [MCP scene workflow](ai-scene.md) supports compact inspection and guarded
+visual transactions. See the [material evaluation](agent-material-evaluation.md)
+for a 60-run GUI/Skill+MCP comparison and its limitations.
 
 ## Start here
 

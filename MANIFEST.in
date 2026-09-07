@@ -47,3 +47,6 @@ exclude scripts/create_gui_skill_cli_token_report.py
 exclude scripts/run_end_to_end_gui_skill_cli_evaluation.py
 exclude scripts/run_gui_skill_cli_token_evaluation.py
 prune tests
+prune paper
+prune output
+prune tmp
