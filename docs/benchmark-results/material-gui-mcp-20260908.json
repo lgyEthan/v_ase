@@ -1,0 +1,147 @@
+{
+  "date": "2026-09-08",
+  "model": "gpt-5.6-luna",
+  "reasoning_effort": "max",
+  "runs_per_cell": 10,
+  "time_limit_s": 900,
+  "scope": "Prepared-scene reproduction; descriptive system comparison, not transport-only or held-out SOTA evidence.",
+  "token_population": "Strict successes with complete reconciled provider usage; timeout usage excluded.",
+  "picture_population": "All runs; post hoc audit permits internal atom-label representation differences.",
+  "materials": [
+    {
+      "id": "cu5o4",
+      "name": "Cu₅O₄/Cu(111)",
+      "target_sha256": "85f272efdafba7e441a9c32b75da39172a4c0402360b1103c0e5956c2bb34384",
+      "target_kind": "Fixed v_ase target render, not a selected participant result",
+      "arms": {
+        "gui": {
+          "strict_successes": 10,
+          "runs": 10,
+          "picture_matches": 10,
+          "total_tokens": {
+            "n": 10,
+            "median": 327244.0,
+            "q1": 228784.5,
+            "q3": 418877.5
+          },
+          "uncached_input_median": 43445.5,
+          "acceptance_seconds": {
+            "n": 10,
+            "median": 130.38181929150596,
+            "q1": 106.86167227049009,
+            "q3": 202.64369962499768
+          }
+        },
+        "mcp": {
+          "strict_successes": 10,
+          "runs": 10,
+          "picture_matches": 10,
+          "total_tokens": {
+            "n": 10,
+            "median": 177289.5,
+            "q1": 146852.0,
+            "q3": 252354.0
+          },
+          "uncached_input_median": 33142.0,
+          "acceptance_seconds": {
+            "n": 10,
+            "median": 73.98055658303201,
+            "q1": 63.606983698002296,
+            "q3": 86.65169068776595
+          }
+        }
+      },
+      "median_token_reduction_percent": 45.82345283641565
+    },
+    {
+      "id": "rese2",
+      "name": "ReSe₂/graphene",
+      "target_sha256": "e69609cb16a7b09706e21ca75ddde23a9b9eef25c25b2efb74f5e2b865291a50",
+      "target_kind": "Fixed v_ase target render, not a selected participant result",
+      "arms": {
+        "gui": {
+          "strict_successes": 8,
+          "runs": 10,
+          "picture_matches": 9,
+          "total_tokens": {
+            "n": 8,
+            "median": 1277757.5,
+            "q1": 970509.75,
+            "q3": 3308052.25
+          },
+          "uncached_input_median": 99980.5,
+          "acceptance_seconds": {
+            "n": 8,
+            "median": 221.64531689550495,
+            "q1": 210.79447633278323,
+            "q3": 449.1291256150289
+          }
+        },
+        "mcp": {
+          "strict_successes": 10,
+          "runs": 10,
+          "picture_matches": 10,
+          "total_tokens": {
+            "n": 10,
+            "median": 385335.0,
+            "q1": 274407.5,
+            "q3": 428912.25
+          },
+          "uncached_input_median": 62217.0,
+          "acceptance_seconds": {
+            "n": 10,
+            "median": 105.12096758346888,
+            "q1": 92.59287897948525,
+            "q3": 122.71966421848629
+          }
+        }
+      },
+      "median_token_reduction_percent": 69.84286924553368
+    },
+    {
+      "id": "pt3o4",
+      "name": "Pt₃O₄/CeO₂",
+      "target_sha256": "a911db03fe738e28c885f873fdfaeb87498d02056fca44cd4651d6ffd8bdf265",
+      "target_kind": "Fixed v_ase target render, not a selected participant result",
+      "arms": {
+        "gui": {
+          "strict_successes": 6,
+          "runs": 10,
+          "picture_matches": 9,
+          "total_tokens": {
+            "n": 6,
+            "median": 1428543.5,
+            "q1": 861398.0,
+            "q3": 1879129.25
+          },
+          "uncached_input_median": 94554.0,
+          "acceptance_seconds": {
+            "n": 6,
+            "median": 322.8200091244944,
+            "q1": 224.98455364575784,
+            "q3": 348.2655491034966
+          }
+        },
+        "mcp": {
+          "strict_successes": 10,
+          "runs": 10,
+          "picture_matches": 10,
+          "total_tokens": {
+            "n": 10,
+            "median": 447886.5,
+            "q1": 406537.0,
+            "q3": 497407.5
+          },
+          "uncached_input_median": 64494.5,
+          "acceptance_seconds": {
+            "n": 10,
+            "median": 128.53973162549664,
+            "q1": 121.57650238528731,
+            "q3": 148.7593921040243
+          }
+        }
+      },
+      "median_token_reduction_percent": 68.64733205534168
+    }
+  ]
+}

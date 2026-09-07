@@ -24,6 +24,12 @@ between the human and the external agent; v_ase executes structured requests.
 
 ## Share one document
 
+```{figure} assets/readme_ai_collaboration.png
+:alt: Human instructions, typed AI operations and manual refinement in one shared v_ase GUI.
+
+One live document connects the human, agent and exported result.
+```
+
 ```text
 Human <-------------- natural language -------------> AI agent
   |                                                       |

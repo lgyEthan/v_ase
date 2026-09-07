@@ -1,0 +1,129 @@
+<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
+  "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg xmlns:xlink="http://www.w3.org/1999/xlink" width="374.4pt" height="180pt" viewBox="0 0 374.4 180" xmlns="http://www.w3.org/2000/svg" version="1.1">
+ <metadata>
+  <rdf:RDF xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:cc="http://creativecommons.org/ns#" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+   <cc:Work>
+    <dc:type rdf:resource="http://purl.org/dc/dcmitype/StillImage"/>
+    <dc:format>image/svg+xml</dc:format>
+    <dc:creator>
+     <cc:Agent>
+      <dc:title>v_ase aggregate evaluation</dc:title>
+     </cc:Agent>
+    </dc:creator>
+   </cc:Work>
+  </rdf:RDF>
+ </metadata>
+ <defs>
+  <style type="text/css">*{stroke-linejoin: round; stroke-linecap: butt}</style>
+ </defs>
+ <g id="figure_1">
+  <g id="patch_1">
+   <path d="M 0 180
+L 374.4 180
+L 374.4 0
+L 0 0
+z
+" style="fill: #ffffff"/>
+  </g>
+  <g id="axes_1">
+   <g id="patch_2">
+    <path d="M 93.6 127.8
+L 363.168 127.8
+L 363.168 10.8
+L 93.6 10.8
+z
+" style="fill: #ffffff"/>
+   </g>
+   <g id="patch_3">
+    <path d="M 93.6 52.585714
+L 128.885804 52.585714
+L 128.885804 30.3
+L 93.6 30.3
+z
+" clip-path="url(#p15e2119baa)" style="fill: #66788b"/>
+   </g>
+   <g id="patch_4">
+    <path d="M 93.6 108.3
+L 112.71663 108.3
+L 112.71663 86.014286
+L 93.6 86.014286
+z
+" clip-path="url(#p15e2119baa)" style="fill: #087f74"/>
+   </g>
+   <g id="matplotlib.axis_1">
+    <g id="xtick_1">
+     <g id="line2d_1">
+      <defs>
+       <path id="mf4301eff39" d="M 0 0
+L 0 3.5
+" style="stroke: #52616e; stroke-width: 0.8"/>
+      </defs>
+      <g>
+       <use xlink:href="#mf4301eff39" x="93.6" y="127.8" style="fill: #52616e; stroke: #52616e; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_1">
+      <text style="font-size: 13px; font-family: 'DejaVu Sans'; text-anchor: middle; fill: #52616e" x="93.6" y="144.676953" transform="rotate(-0 93.6 144.676953)">0</text>
+     </g>
+    </g>
+    <g id="xtick_2">
+     <g id="line2d_2">
+      <g>
+       <use xlink:href="#mf4301eff39" x="174.4704" y="127.8" style="fill: #52616e; stroke: #52616e; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_2">
+      <text style="font-size: 13px; font-family: 'DejaVu Sans'; text-anchor: middle; fill: #52616e" x="174.4704" y="144.676953" transform="rotate(-0 174.4704 144.676953)">0.75M</text>
+     </g>
+    </g>
+    <g id="xtick_3">
+     <g id="line2d_3">
+      <g>
+       <use xlink:href="#mf4301eff39" x="255.3408" y="127.8" style="fill: #52616e; stroke: #52616e; stroke-width: 0.8"/>
+      </g>
+     </g>
+     <g id="text_3">
+      <text style="font-size: 13px; font-family: 'DejaVu Sans'; text-anchor: middle; fill: #52616e" x="255.3408" y="144.676953" transform="rotate(-0 255.3408 144.676953)">1.5M</text>
+     </g>
+    </g>
+    <g id="text_4">
+     <text style="font-size: 14px; font-family: 'DejaVu Sans'; text-anchor: middle" x="228.384" y="167.437813" transform="rotate(-0 228.384 167.437813)">Median total tokens</text>
+    </g>
+   </g>
+   <g id="matplotlib.axis_2">
+    <g id="ytick_1">
+     <g id="line2d_4"/>
+     <g id="text_5">
+      <text style="font-size: 16px; font-family: 'DejaVu Sans'" transform="translate(55.7725 38.720201)">GUI</text>
+      <text style="font-size: 16px; font-family: 'DejaVu Sans'" transform="translate(30.5225 57.923326)">n = 10</text>
+     </g>
+    </g>
+    <g id="ytick_2">
+     <g id="line2d_5"/>
+     <g id="text_6">
+      <text style="font-size: 16px; font-family: 'DejaVu Sans'" transform="translate(49.975 94.434487)">MCP</text>
+      <text style="font-size: 16px; font-family: 'DejaVu Sans'" transform="translate(30.5225 113.637612)">n = 10</text>
+     </g>
+    </g>
+   </g>
+   <g id="patch_5">
+    <path d="M 93.6 127.8
+L 363.168 127.8
+" style="fill: none; stroke: #c4cdd4; stroke-width: 0.8; stroke-linejoin: miter; stroke-linecap: square"/>
+   </g>
+   <g id="text_7">
+    <text style="font-size: 16px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #172734" x="132.12062" y="45.599107" transform="rotate(-0 132.12062 45.599107)">327,244</text>
+   </g>
+   <g id="text_8">
+    <text style="font-size: 16px; font-family: 'DejaVu Sans'; text-anchor: start; fill: #172734" x="115.951446" y="101.313393" transform="rotate(-0 115.951446 101.313393)">177,289.5</text>
+   </g>
+  </g>
+ </g>
+ <defs>
+  <clipPath id="p15e2119baa">
+   <rect x="93.6" y="10.8" width="269.568" height="117"/>
+  </clipPath>
+ </defs>
+</svg>

@@ -403,17 +403,19 @@ def test_skill_explains_vendor_neutral_agent_handoff():
         "standalone `html` export",
     ):
         assert required in setup + readme + compatibility
-    readable_readme = " ".join(readme.split())
+    handoff_guide = " ".join((ROOT / "docs/ai-agents.md").read_text(encoding="utf-8").split())
     assert "CAD-ready" not in readme
     assert "--for-ai" not in setup + readme + compatibility
-    assert "You describe the scientific result to an external AI Agent" in readable_readme
-    assert "the Agent uses typed MCP tools" in readable_readme
-    assert "The result appears in the same live GUI" in readable_readme
-    assert "A manual GUI edit becomes the next document revision" in readable_readme
+    # README is a short entry point; the linked guide owns the detailed contract.
+    assert "ai-agents.html#share-one-document" in readme
+    assert "ai-tools.html#install-and-connect-an-mcp-client" in readme
+    assert "external AI agent typed access" in handoff_guide
+    assert "same live GUI" in handoff_guide
+    assert "a later human edit becomes a new revision" in handoff_guide
     assert "There is no natural-language endpoint and no command loop on stdin." in setup
     assert "`viewportBackground` controls the interactive GUI only" in documented
     assert "terminate the persistent CLI process while the human GUI is still open" in documented
-    assert "can reduce token use" in readme
+    assert "agent-material-evaluation.html" in readme
 
 
 def test_skill_documents_bidirectional_same_document_collaboration():
@@ -463,7 +465,9 @@ def test_skill_documents_offline_html_handoff_contract():
     assert 'embedProject: true' in workflows
     assert "a nonzero `.vase` download" in workflows
     assert "Export HTML View" in readme
-    assert "without v_ase, Python, a server, or a CDN" in readme
+    assert "projects-export.html#html-view" in readme
+    export_guide = (ROOT / "docs/projects-export.md").read_text(encoding="utf-8")
+    assert "self-contained\noffline, view-only document" in export_guide
 
 
 def test_skill_defines_auto_notebook_mode_and_revision_discovery():

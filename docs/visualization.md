@@ -25,6 +25,12 @@ that is not a valid chemical symbol.
 
 ## Label-level appearance
 
+```{figure} assets/readme_cu5o4_view_appearance.png
+:alt: Cu5O4 atoms styled by label in the Appearance panel.
+
+Different appearance groups can share the same chemical element.
+```
+
 Each label row can control:
 
 - visibility;
@@ -85,6 +91,12 @@ range, and playback behavior are stored in projects and standalone HTML.
 
 ## Bonds
 
+```{figure} assets/readme_bonds.png
+:alt: Pair-specific bond settings on a copper oxide film over copper.
+
+Inspect the exact pairs and effective style in the Bonding panel.
+```
+
 Bond visibility and bond appearance are separate from physical constraints or
 calculator connectivity.
 
@@ -115,6 +127,12 @@ Visual bond cutoffs and repulsive-calculator contact distances are configured
 separately; a drawn bond is not an energy model.
 
 ## 3D and flat 2D rendering
+
+```{figure} assets/readme_materials.png
+:alt: The same atom layout rendered with Standard, Metal and Rubber materials.
+
+Standard, Metal and Rubber change appearance, not atomic coordinates.
+```
 
 **3D** draws spheres, bond geometry, lighting, materials, and depth. **2D flat**
 turns atoms, bonds, vectors, cell edges, and constraint guides into a

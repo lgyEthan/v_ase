@@ -33,6 +33,11 @@ include docs/assets/readme_relaxation.png
 include docs/assets/readme_volumetric.png
 include docs/assets/readme_volumetric_plane.png
 include docs/assets/v_ase-logo.png
+include docs/assets/readme_ai_collaboration.png
+include docs/assets/readme_cu5o4_view_appearance.png
+include docs/assets/readme_bonds.png
+include docs/assets/readme_materials.png
+recursive-include docs/assets/agent-evaluation *.png *.svg
 exclude docs/design/ai_collaboration_concepts.html
 exclude docs/design/ai_collaboration_recording.html
 recursive-include examples *.py *.traj *.extxyz *.json *.md
