@@ -166,12 +166,26 @@ class VaseAnimationDirective(Directive):
         return [figure]
 
 
+def _reread_for_builder(app, env, added, changed, removed):
+    """Read the Docs shares doctrees across HTML, PDF and ePub builders.
+
+    Directives resolve media for their output format during parsing. Reparse
+    on a builder switch, rather than exporting an HTML-cached GIF into LaTeX.
+    """
+    previous = getattr(env, '_vase_media_builder', None)
+    env._vase_media_builder = app.builder.name
+    if previous != app.builder.name:
+        return sorted(env.found_docs - set(removed))
+    return []
+
+
 def setup(app):
     app.add_directive("vase-demo", VaseDemoDirective)
     app.add_directive("vase-animation", VaseAnimationDirective)
     app.connect("build-finished", _copy_interactive_runtime)
+    app.connect("env-get-outdated", _reread_for_builder)
     return {
-        "version": "1.0",
+        "version": "1.1",
         "parallel_read_safe": True,
         "parallel_write_safe": True,
     }

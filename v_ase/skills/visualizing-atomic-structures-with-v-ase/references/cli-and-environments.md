@@ -14,13 +14,13 @@
 Install the tested release into the active Python environment:
 
 ```bash
-python -m pip install "v_ase-gui==0.3.5"
+python -m pip install "v_ase-gui==0.3.6"
 ```
 
 Optional Rhino export:
 
 ```bash
-python -m pip install "v_ase-gui[rhino]==0.3.5"
+python -m pip install "v_ase-gui[rhino]==0.3.6"
 ```
 
 Runtime dependencies are ASE, matscipy, FastAPI, Uvicorn, NumPy, SciPy,
@@ -37,7 +37,7 @@ the complete environment with the same interpreter instead of replacing NumPy
 alone:
 
 ```bash
-python -m pip install --upgrade --force-reinstall "v_ase-gui==0.3.5"
+python -m pip install --upgrade --force-reinstall "v_ase-gui==0.3.6"
 ```
 
 v_ase uses the `AGPL-3.0-or-later` license. Preserve the license and source
@@ -396,7 +396,7 @@ to an untrusted network.
 Install the tested release:
 
 ```bash
-python -m pip install "v_ase-gui==0.3.5"
+python -m pip install "v_ase-gui==0.3.6"
 ```
 
 Start the terminal-oriented API session yourself:

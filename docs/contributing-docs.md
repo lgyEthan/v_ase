@@ -259,3 +259,7 @@ GitHub and online documentation retain the original animations. Source packages
 include the static scientific previews and extracted steps instead of duplicating
 large GIFs; this keeps PyPI downloads small and the source-manual build complete.
 PDF/ePub also use the stills. Always check both checkout and sdist documentation.
+
+When builders share a doctree directory, `vase_demo` reparses documents on a
+builder change. This prevents HTML GIFs or iframe markup from leaking into
+PDF/ePub output. The shared-cache regression must pass before a docs release.

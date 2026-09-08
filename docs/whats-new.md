@@ -1,12 +1,12 @@
-# What is new in 0.3.5
+# What is new in 0.3.6
 
-**Coordination polyhedra:** independent colors, opacity and edge styles in GUI and MCP.
+**PDF documentation fix.** Coordination polyhedra, colors and opacity were added in 0.3.5.
 
 [Illustrated examples](polyhedra.md) · [MCP tools](ai-tools-reference.md) ·
 [Complete changelog](https://github.com/lgyEthan/v_ase/blob/main/CHANGELOG.md)
 
 ```bash
-python -m pip install --upgrade "v_ase-gui[mcp]==0.3.5"
+python -m pip install --upgrade "v_ase-gui[mcp]==0.3.6"
 ```
 
 Restart running GUI/MCP servers after upgrading. Existing tunnel IDs and keys remain

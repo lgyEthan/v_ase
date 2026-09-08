@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.6
+
+- Fix shared HTML/PDF/ePub documentation caches so static previews are used in offline manuals.
+
 ## 0.3.5
 
 - Add coordination polyhedra with explicit center/ligand selectors, distance bounds,

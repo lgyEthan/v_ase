@@ -46,11 +46,11 @@ Download the two small installer files from this release. These files use
 Python's standard library; the installer obtains v_ase and its dependencies from PyPI.
 
 ```bash
-curl -fL https://raw.githubusercontent.com/lgyEthan/v_ase/v0.3.5/v_ase/chatgpt_bootstrap.py -o chatgpt_bootstrap.py
+curl -fL https://raw.githubusercontent.com/lgyEthan/v_ase/v0.3.6/v_ase/chatgpt_bootstrap.py -o chatgpt_bootstrap.py
 ```
 
 ```bash
-curl -fL https://raw.githubusercontent.com/lgyEthan/v_ase/v0.3.5/v_ase/chatgpt.py -o chatgpt.py
+curl -fL https://raw.githubusercontent.com/lgyEthan/v_ase/v0.3.6/v_ase/chatgpt.py -o chatgpt.py
 ```
 
 Install v_ase and MCP into a dedicated environment:

@@ -10,7 +10,7 @@
 
 ## Current source and connection
 
-Install `v_ase-gui[mcp]==0.3.5` for the scene transaction and discovery tools.
+Install `v_ase-gui[mcp]==0.3.6` for the scene transaction and discovery tools.
 Restart the GUI and adapter together after upgrading; their contracts must match.
 No model or model API key is required by v_ase itself.
 

@@ -146,3 +146,27 @@ def test_connection_diagram_has_a_pdf_compatible_fallback():
     with Image.open(DOCS / 'assets/chatgpt-local.png') as image:
         assert image.width >= 920 and image.height >= 294
     assert 'include docs/assets/chatgpt-local.png' in (ROOT / 'MANIFEST.in').read_text()
+
+
+def test_shared_html_latex_doctrees_use_static_fallbacks(tmp_path):
+    pytest.importorskip('sphinx')
+    import subprocess
+    import sys
+    import shutil
+    from PIL import Image
+    source=tmp_path/'source';source.mkdir()
+    shutil.copy2(DOCS/'_ext/vase_demo.py',source/'vase_demo.py')
+    (source/'conf.py').write_text("import sys,os\nsys.path.insert(0,os.path.dirname(os.path.abspath(__file__)))\nextensions=['vase_demo']\nmaster_doc='index'\n")
+    (source/'index.rst').write_text('Media\n=====\n\n.. vase-animation:: scene.gif\n   :fallback: scene.png\n   :alt: Scientific example\n')
+    Image.new('RGB',(20,20),'blue').save(source/'scene.png')
+    Image.new('RGB',(20,20),'blue').save(source/'scene.gif')
+    # The production copy hook expects the bundled renderer; copying it is
+    # unnecessary for this minimal directive fixture, so disable only that hook.
+    with (source/'conf.py').open('a') as stream:
+        stream.write("\ndef setup(app):\n    app.setup_extension('vase_demo')\n    from vase_demo import _copy_interactive_runtime\n    for event in app.events.listeners['build-finished'][:]:\n        if event.handler is _copy_interactive_runtime: app.disconnect(event.id)\n")
+    for builder in ('html','latex'):
+        subprocess.run([sys.executable,'-m','sphinx','-W','-b',builder,'-d',str(tmp_path/'shared'),
+                        str(source),str(tmp_path/builder)],check=True,capture_output=True,text=True)
+    assert 'scene.gif' in (tmp_path/'html/index.html').read_text()
+    tex=next((tmp_path/'latex').glob('*.tex')).read_text()
+    assert 'scene}.png' in tex and 'scene}.gif' not in tex
