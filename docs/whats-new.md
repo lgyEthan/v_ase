@@ -1,19 +1,13 @@
-# What is new in 0.3.4
+# What is new in 0.3.5
 
-Scientific fixes, personal ChatGPT connections and illustrated feature guides.
+**Coordination polyhedra:** independent colors, opacity and edge styles in GUI and MCP.
 
-| Change | Details |
-| --- | --- |
-| Numerical correctness and performance | [Scientific audit](scientific-source-audit.md) |
-| Personal ChatGPT tunnel | [Step-by-step setup](chatgpt-local.md) |
-| Independent feature pages and example downloads | [Feature guides](index.md#find-a-feature) |
-| Move, rotate and constraint walkthroughs | [Move](move.md) · [Rotate](rotate.md) · [Constraints](constraints.md) |
+[Illustrated examples](polyhedra.md) · [MCP tools](ai-tools-reference.md) ·
+[Complete changelog](https://github.com/lgyEthan/v_ase/blob/main/CHANGELOG.md)
 
 ```bash
-python -m pip install --upgrade "v_ase-gui[mcp]==0.3.4"
+python -m pip install --upgrade "v_ase-gui[mcp]==0.3.5"
 ```
 
-Prior releases and complete changes are in the
-[Changelog](https://github.com/lgyEthan/v_ase/blob/main/CHANGELOG.md).
-The [GUI/MCP material comparison](agent-material-evaluation.md) retains its
-original tested version; these changes do not re-label earlier measurements.
+Restart running GUI/MCP servers after upgrading. Existing tunnel IDs and keys remain
+usable; refresh the ChatGPT connection's discovered tools if needed.

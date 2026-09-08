@@ -8,7 +8,7 @@ def object_schema(properties, required=()):
 
 
 SCENE_SNAPSHOT_PROPERTIES = {
-    "sections": {"type": "array", "items": {"enum": ["atoms", "bonds", "planes", "analysis", "preview"]},
+    "sections": {"type": "array", "items": {"enum": ["atoms", "bonds", "planes", "analysis", "preview", "polyhedra"]},
                  "uniqueItems": True, "default": [],
                  "description": "Summary is always returned. Request geometry only to identify atoms/edges; no voxel or trajectory arrays are returned."},
     "elements": {"type": "array", "items": {"type": "string"}, "uniqueItems": True},
@@ -19,6 +19,7 @@ SCENE_SNAPSHOT_PROPERTIES = {
     "limit": {"type": "integer", "minimum": 1, "maximum": 256, "default": 64},
     "atomOffset": {"type": "integer", "minimum": 0, "default": 0},
     "bondOffset": {"type": "integer", "minimum": 0, "default": 0},
+    "polyhedronOffset": {"type": "integer", "minimum": 0, "default": 0},
     "planeOffset": {"type": "integer", "minimum": 0, "default": 0},
     "previewOffset": {"type": "integer", "minimum": 0, "default": 0},
     "previewBondOffset": {"type": "integer", "minimum": 0, "default": 0},

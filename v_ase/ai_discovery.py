@@ -10,6 +10,7 @@ GUIDE_TOPICS = {
     "scene": "scene-workflow.md",
     "rendering": "deterministic-rendering.md",
     "structures": "structures.md",
+    "polyhedra": "polyhedra.md",
     "trajectories": "trajectories.md",
     "volumetric": "volumetric.md",
     "rdf": "rdf.md",
@@ -57,6 +58,7 @@ _SYNONYMS = {
     "repulsion": {"scatter", "calculator", "insertion"},
     "random": {"scatter"}, "homogeneous": {"scatter"},
     "rdf": {"rdf"}, "commensurate": {"commensurate", "registry"},
+    "polyhedra": {"polyhedra", "coordination"}, "octahedron": {"polyhedra"},
     "constraint": {"constraints"}, "save": {"export"},
 }
 

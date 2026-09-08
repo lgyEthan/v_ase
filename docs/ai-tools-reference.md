@@ -148,6 +148,8 @@ revision. See [connection and recovery](ai-tools.md#read-edit-verify).
   - Load saved visual settings from a relative JSON path below the GUI launch directory. Restores appearance, camera and render profile without replacing atom coordinates.
 * - `vase_duplicate_selection`
   - Duplicate selected base atoms in Edit mode, preserving per-atom arrays, constraints, and appearance. Newly inserted atoms become selected.
+* - `vase_configure_polyhedra`
+  - Configure coordination hulls without changing atoms or bonds. Rules explicitly select centers and ligands with cutoff distances or exact periodic vertex references. Read scene-snapshot section polyhedra to verify membership and…
 ```
 
 ## Constraints and relaxation
@@ -216,6 +218,8 @@ revision. See [connection and recovery](ai-tools.md#read-edit-verify).
   - Persists the current reusable visual settings for this OS user. Coordinates, trajectory data, absolute camera placement, and per-atom appearance overrides are excluded.
 * - `vase_restore_app_visual_defaults`
   - Destructively deletes the saved personal visual default and applies the built-in v_ase visual settings to the active tab. confirm must be true and an agent must obtain human approval first.
+* - `vase_style_polyhedra`
+  - Change only face color/opacity or edge appearance of existing coordination rule IDs. Preserves centers, ligands, distances and every other rule; uses cached geometry. Set color=null to inherit center atom colors.
 ```
 
 ## File input

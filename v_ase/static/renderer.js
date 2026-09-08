@@ -3192,7 +3192,7 @@ export class ASERenderer {
 
     beginExportScene(options = {}) {
         const publication = options.selectionAppearance !== 'interactive';
-        const selectionGroups = [this.selectionOutlines, this.replicaSelectionOutlines]
+        const selectionGroups = [this.selectionOutlines, this.replicaSelectionOutlines, this.polyhedraSelectionGroup]
             .filter(Boolean).map(group => ({group, visible: group.visible}));
         const planeBorders = [...this.volumetricPlanes.values()].map(record => ({
             record, color: record.perimeterMaterial.color.clone(),
@@ -3300,6 +3300,7 @@ export class ASERenderer {
             if (sceneState.publication) {
                 this.selectionOutlines.visible = false;
                 this.replicaSelectionOutlines.visible = false;
+                if(this.polyhedraSelectionGroup)this.polyhedraSelectionGroup.visible=false;
             }
             this.updateHookeanPositions();
             this.updateViewLighting(exportView.camera, exportView.target);
@@ -9248,4 +9249,252 @@ export class ASERenderer {
         this.onCameraChange = null;
         this.onLightingChange = null;
     }
+}
+
+// Coordination geometry is supplied by the scientific backend, or embedded in
+// standalone frames. Its site/image identities never depend on visible bonds.
+ASERenderer.prototype.clearPolyhedra = function () {
+    if (this.polyhedraGroup) this.clearGroup(this.polyhedraGroup);
+    if (this.polyhedraSelectionGroup) {
+        this.clearGroup(this.polyhedraSelectionGroup);
+        this.polyhedraSelectionGroup.visible = false;
+    }
+    this.polyhedraData = null;
+    this.polyhedraDataValid = false;
+    this.polyhedraRendered = [];
+    this.polyhedraCenters = new Set();
+};
+ASERenderer.prototype.setPolyhedraData = function (data) {
+    this.validatePolyhedraDisplay(data);
+    this.polyhedraData = data;
+    this.polyhedraDataValid = Boolean(data);
+    this.polyhedraCenters = new Set([
+        ...(data?.polyhedra || []).map(p => p.center),
+        ...(data?.diagnostics || []).map(p => p.center)
+    ]);
+    this.drawPolyhedra();
+    this.applyAtomVisibility();
+    this.applyPolyhedraBondVisibility();
+    this.syncPolyhedraSelection();
+};
+ASERenderer.prototype.applyPolyhedraBondVisibility = function () {
+    const d=this.displayOptions;
+    const blocked=Boolean(d.showPolyhedra && ['none','centers'].includes(d.polyhedraAtomMode));
+    if(!blocked && !this.polyhedraBondMask)return;
+    this.polyhedraBondMask=blocked;
+    const visible=Boolean(d.showBonds && !blocked);
+    this.bondGroup.visible=visible;
+    for(const child of this.supercellGroup.children) if(child.userData?.supercellBonds) child.visible=visible;
+};
+ASERenderer.prototype.drawPolyhedra = function () {
+    this.validatePolyhedraDisplay(this.polyhedraData);
+    if (!this.polyhedraGroup) {
+        this.polyhedraGroup = new THREE.Group();
+        this.polyhedraGroup.name = 'coordination-polyhedra';
+        this.scene.add(this.polyhedraGroup);
+    }
+    this.clearGroup(this.polyhedraGroup);
+    this.polyhedraRendered = [];
+    const d = this.displayOptions;
+    this.polyhedraGroup.visible = Boolean(d.showPolyhedra && this.polyhedraData && this.polyhedraDataValid);
+    if (!this.polyhedraGroup.visible) return;
+    const counts = this.hasValidCell() ? (d.supercell || [1,1,1]) : [1,1,1];
+    const offsets = counts.map(n => this.supercellAxisOffsets(n));
+    const records = this.polyhedraData.polyhedra || [];
+    const cell = this.atomsData?.cell || [[0,0,0],[0,0,0],[0,0,0]];
+    const translation = this.visualTranslationVector();
+    this.polyhedraGroup.position.copy(translation);
+    const hidden = new Set(d.hiddenAtomReferences || []);
+    const ruleMap = new Map((d.polyhedraRules || []).map(rule => [rule.id,rule]));
+    const batches = new Map();
+    for (const record of records) {
+        const configured = ruleMap.get(record.ruleId);
+        if (configured?.enabled === false) continue;
+        const style = {...record.style, ...configured};
+        const color = style.color || this.atomVisualColor(record.center);
+        const key = record.ruleId;
+        if (!batches.has(key)) batches.set(key,{style,positions:[],colors:[],faces:[],segments:[]});
+        const batch = batches.get(key);
+        const faceColor = new THREE.Color(color);
+        for (const x of offsets[0]) for (const y of offsets[1]) for (const z of offsets[2]) {
+            const offset = [x,y,z];
+            const base = x===0 && y===0 && z===0;
+            if (d.polyhedraRespectVisibility !== false && (
+                !this.atomLabelVisible(record.center)
+                || hidden.has(this.atomReferenceKey(record.center,base ? null : offset))
+            )) continue;
+            const shift = new THREE.Vector3(...cell[0]).multiplyScalar(x)
+                .addScaledVector(new THREE.Vector3(...cell[1]),y)
+                .addScaledVector(new THREE.Vector3(...cell[2]),z);
+            const vertices = record.vertices.map(v => new THREE.Vector3(...v.position).add(shift));
+            const item = {record,cellOffset:offset,vertices:vertices.map(v=>v.clone().add(translation)),
+                center:new THREE.Vector3(...record.centerPosition).add(shift).add(translation)};
+            item.appearance={color,opacity:style.opacity,showFaces:style.showFaces!==false && style.opacity>0,
+                showEdges:style.showEdges!==false,edgeColor:style.edgeColor,edgeRadius:style.edgeRadius};
+            if(item.appearance.showFaces || item.appearance.showEdges)this.polyhedraRendered.push(item);
+            if (style.showFaces !== false && style.opacity > 0) {
+                for (const face of record.triangles) {
+                    for (const i of face) {
+                        batch.positions.push(...vertices[i].toArray());
+                        batch.colors.push(faceColor.r,faceColor.g,faceColor.b);
+                    }
+                    batch.faces.push({index:record.center,cellOffset:base ? null : offset});
+                }
+            }
+            if (style.showEdges !== false) for (const [a,b] of record.edges) batch.segments.push([vertices[a],vertices[b]]);
+        }
+    }
+    for (const batch of batches.values()) {
+        const {style} = batch;
+        if (batch.positions.length) {
+            const geometry = new THREE.BufferGeometry();
+            geometry.setAttribute('position',new THREE.Float32BufferAttribute(batch.positions,3));
+            geometry.setAttribute('color',new THREE.Float32BufferAttribute(batch.colors,3));
+            geometry.computeVertexNormals();
+            const Material = this.atomDisplayMode()==='2d' ? THREE.MeshBasicMaterial : THREE.MeshStandardMaterial;
+            const material = new Material({color:'#ffffff',vertexColors:true,opacity:style.opacity,transparent:style.opacity<1,
+                side:THREE.DoubleSide,depthWrite:style.opacity>=1,polygonOffset:true,
+                polygonOffsetFactor:1,polygonOffsetUnits:1});
+            const mesh = new THREE.Mesh(geometry,material);
+            mesh.name = 'coordination-polyhedra-faces';
+            mesh.userData.polyhedraFaces = batch.faces;
+            mesh.renderOrder = 2;
+            this.polyhedraGroup.add(mesh);
+        }
+        if (batch.segments.length) {
+            const geometry = new THREE.CylinderGeometry(1,1,1,8,1);
+            const material = new THREE.MeshBasicMaterial({color:style.edgeColor});
+            const mesh = new THREE.InstancedMesh(geometry,material,batch.segments.length);
+            const matrix = new THREE.Matrix4(), quaternion = new THREE.Quaternion(), up = new THREE.Vector3(0,1,0);
+            batch.segments.forEach(([a,b],i) => {
+                const delta = b.clone().sub(a);const length=delta.length();
+                quaternion.setFromUnitVectors(up,delta.normalize());
+                matrix.compose(a.clone().add(b).multiplyScalar(.5),quaternion,
+                    new THREE.Vector3(style.edgeRadius,length,style.edgeRadius));
+                mesh.setMatrixAt(i,matrix);
+            });
+            mesh.instanceMatrix.needsUpdate=true;
+            mesh.name='coordination-polyhedra-edges';mesh.renderOrder=3;
+            this.polyhedraGroup.add(mesh);
+        }
+    }
+    this.domElement.dataset.polyhedronCount=String(this.polyhedraRendered.length);
+    this.syncPolyhedraSelection();
+    this.requestRender();
+};
+ASERenderer.prototype.validatePolyhedraDisplay = function (data, d=this.displayOptions) {
+    if (!d.showPolyhedra || !data) return;
+    const counts=this.hasValidCell() ? (d.supercell || [1,1,1]) : [1,1,1];
+    const instances=counts.reduce((n,count)=>n*this.supercellAxisOffsets(count).length,1);
+    const rules=new Map((d.polyhedraRules || []).map(rule=>[rule.id,rule]));
+    let edges=0,triangles=0;
+    for(const p of data.polyhedra || []) {
+        const style={...p.style,...rules.get(p.ruleId)};
+        if(style.enabled===false)continue;
+        if(style.showEdges!==false)edges+=p.edges.length*instances;
+        if(style.showFaces!==false && style.opacity>0)triangles+=p.triangles.length*instances;
+    }
+    if(edges>400000 || triangles>400000)throw new Error('Polyhedra display exceeds 400000 edges or triangles. Reduce repetitions or center selection.');
+};
+{
+    const original = ASERenderer.prototype.atomReferenceVisible;
+    ASERenderer.prototype.atomReferenceVisible = function (index,offset=null) {
+        const mode=this.displayOptions?.polyhedraAtomMode || 'all';
+        if (this.displayOptions?.showPolyhedra && mode==='none') return false;
+        if (this.displayOptions?.showPolyhedra && mode==='centers' && !this.polyhedraCenters?.has(index)) return false;
+        return original.call(this,index,offset);
+    };
+    const rebuild = ASERenderer.prototype.rebuildAtoms;
+    ASERenderer.prototype.rebuildAtoms = function (atoms,...args) {
+        this.clearPolyhedra();
+        const result=rebuild.call(this,atoms,...args);
+        if (atoms.metadata?.polyhedra) this.setPolyhedraData(atoms.metadata.polyhedra);
+        this.onPolyhedraChange?.('geometry');
+        return result;
+    };
+    for (const name of ['updatePositions','updatePositionsFlat']) {
+        const original=ASERenderer.prototype[name];
+        ASERenderer.prototype[name]=function(...args) {
+            const result=original.apply(this,args);
+            this.applyPolyhedraBondVisibility();
+            if (this.polyhedraGroup) this.polyhedraGroup.visible=false;
+            if(this.polyhedraSelectionGroup)this.polyhedraSelectionGroup.visible=false;
+            this.polyhedraDataValid=false;
+            this.polyhedraRendered=[];
+            this.onPolyhedraChange?.('geometry');
+            return result;
+        };
+    }
+    const display=ASERenderer.prototype.setDisplayOptions;
+    ASERenderer.prototype.setDisplayOptions=function(...args) {
+        this.validatePolyhedraDisplay(this.polyhedraData,{...this.displayOptions,...args[0]});
+        const result=display.apply(this,args);
+        this.applyPolyhedraBondVisibility();
+        if (this.polyhedraData && this.polyhedraDataValid) this.drawPolyhedra();
+        this.onPolyhedraChange?.('display');
+        this.syncPolyhedraSelection();
+        return result;
+    };
+}
+{
+    const original=ASERenderer.prototype.exportPNGBlob;
+    ASERenderer.prototype.exportPNGBlob=async function(...args) {
+        await this.preparePolyhedraCapture?.();
+        return await original.apply(this,args);
+    };
+    const colors=ASERenderer.prototype.setAtomColorScaleColors;
+    ASERenderer.prototype.setAtomColorScaleColors=function(...args) {
+        const result=colors.apply(this,args);
+        if(this.polyhedraGroup?.visible)this.drawPolyhedra();
+        return result;
+    };
+}
+{
+    const bounds=ASERenderer.prototype.structureBounds;
+    ASERenderer.prototype.structureBounds=function(...args) {
+        let box=bounds.apply(this,args);
+        if(this.displayOptions?.showPolyhedra && this.polyhedraGroup?.visible) {
+            box ||= new THREE.Box3();
+            for(const poly of this.polyhedraRendered || [])for(const vertex of poly.vertices)box.expandByPoint(vertex);
+        }
+        return box;
+    };
+}
+// A face selects its owning atom; use a separate transient edge highlight so
+// publication captures can suppress it without altering the scientific style.
+ASERenderer.prototype.syncPolyhedraSelection = function () {
+    const selected=this.polyhedraSelected || new Set();
+    const replicas=this.polyhedraReplicaSelected || new Set();
+    const active=this.displayOptions.showPolyhedra && this.polyhedraDataValid && this.displayOptions.showOverlays!==false;
+    if(this.polyhedraSelectionGroup)this.clearGroup(this.polyhedraSelectionGroup);
+    const items=active ? (this.polyhedraRendered || []).filter(p=>
+        (!p.cellOffset.some(Boolean) && selected.has(p.record.center))
+        || replicas.has(this.supercellReferenceKey(p.record.center,p.cellOffset))) : [];
+    if(!items.length){if(this.polyhedraSelectionGroup)this.polyhedraSelectionGroup.visible=false;return;}
+    if(!this.polyhedraSelectionGroup){
+        this.polyhedraSelectionGroup=new THREE.Group();this.scene.add(this.polyhedraSelectionGroup);
+    }
+    this.polyhedraSelectionGroup.visible=true;
+    const edges=items.flatMap(p=>p.record.edges.map(([a,b])=>[p.vertices[a],p.vertices[b],Math.max(.035,p.appearance.edgeRadius*1.7)]));
+    const mesh=new THREE.InstancedMesh(new THREE.CylinderGeometry(1,1,1,8),new THREE.MeshBasicMaterial({color:'#ffc83d'}),edges.length);
+    const matrix=new THREE.Matrix4(),up=new THREE.Vector3(0,1,0),q=new THREE.Quaternion();
+    edges.forEach(([a,b,radius],i)=>{
+        const delta=b.clone().sub(a),length=delta.length();q.setFromUnitVectors(up,delta.normalize());
+        matrix.compose(a.clone().add(b).multiplyScalar(.5),q,new THREE.Vector3(radius,length,radius));mesh.setMatrixAt(i,matrix);
+    });
+    mesh.instanceMatrix.needsUpdate=true;mesh.renderOrder=10;this.polyhedraSelectionGroup.add(mesh);
+    this.requestRender();
+};
+{
+    const select=ASERenderer.prototype.setSelection;
+    ASERenderer.prototype.setSelection=function(indices){
+        this.polyhedraSelected=new Set(indices || []);
+        const result=select.call(this,indices);this.syncPolyhedraSelection();return result;
+    };
+    const replicas=ASERenderer.prototype.setReplicaSelection;
+    ASERenderer.prototype.setReplicaSelection=function(references=[],...args){
+        const refs=[...references];
+        this.polyhedraReplicaSelected=new Set(refs.map(ref=>this.supercellReferenceKey(ref.index,ref.cellOffset)));
+        const result=replicas.call(this,refs,...args);this.syncPolyhedraSelection();return result;
+    };
 }

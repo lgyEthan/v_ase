@@ -37,6 +37,7 @@ include docs/assets/readme_volumetric_plane.png
 include docs/assets/v_ase-logo.png
 include docs/assets/readme_ai_collaboration.png
 include docs/assets/chatgpt-local.svg
+include docs/assets/chatgpt-local.png
 include docs/assets/readme_cu5o4_view_appearance.png
 include docs/assets/readme_bonds.png
 include docs/assets/readme_materials.png
@@ -64,3 +65,6 @@ recursive-include docs/assets/steps *.png *.json
 recursive-include docs/assets/examples *.traj *.cif *.vasp *.extxyz *.cube *.json *.txt
 include docs/assets/readme_commensurate.png
 include docs/assets/readme_rotate.png
+
+include docs/assets/readme_polyhedra.png
+include docs/assets/readme_polyhedra_srtio3.png

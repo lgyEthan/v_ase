@@ -6,7 +6,9 @@ GUI stays available for your own edits.
 
 **Personal connection · macOS/Linux**
 
-![ChatGPT connects through a private tunnel to the local v_ase MCP adapter and shared GUI](assets/chatgpt-local.svg)
+```{figure} assets/chatgpt-local.*
+:alt: ChatGPT connects through a private tunnel to the local v_ase MCP adapter and shared GUI.
+```
 
 [Install](#1-install-a-private-local-runtime) · [Account setup](#3-create-and-associate-your-tunnel) · [Daily use](#daily-use-one-launcher) · [Another computer](#a-second-computer-or-another-person)
 
@@ -44,11 +46,11 @@ Download the two small installer files from this release. These files use
 Python's standard library; the installer obtains v_ase and its dependencies from PyPI.
 
 ```bash
-curl -fL https://raw.githubusercontent.com/lgyEthan/v_ase/v0.3.4/v_ase/chatgpt_bootstrap.py -o chatgpt_bootstrap.py
+curl -fL https://raw.githubusercontent.com/lgyEthan/v_ase/v0.3.5/v_ase/chatgpt_bootstrap.py -o chatgpt_bootstrap.py
 ```
 
 ```bash
-curl -fL https://raw.githubusercontent.com/lgyEthan/v_ase/v0.3.4/v_ase/chatgpt.py -o chatgpt.py
+curl -fL https://raw.githubusercontent.com/lgyEthan/v_ase/v0.3.5/v_ase/chatgpt.py -o chatgpt.py
 ```
 
 Install v_ase and MCP into a dedicated environment:
@@ -314,3 +316,10 @@ Secure MCP Tunnels support private development connections, not public
 plugin-directory distribution. Share the generic installer so each person can
 configure their own account; a public plugin needs an appropriate publicly
 reachable HTTPS MCP service. [Official tunnel scope](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels).
+
+## Upgrading tools
+
+After upgrading v_ase, restart the local GUI/MCP process and refresh the
+connection's discovered tools in ChatGPT if new tools are not listed.
+Coordination polyhedra require v_ase 0.3.5 or newer; the tunnel ID and key need
+not change for an ordinary software update.

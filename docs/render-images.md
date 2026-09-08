@@ -6,7 +6,7 @@ The live viewport and saved image can have different aspect ratios.
 
 ## Example: export the styled Cu surface
 
-Download {download}`cu5o4-labeled.traj <assets/examples/cu5o4-labeled.traj>` and follow the
+Download {download}`cu5o4-labeled.extxyz <assets/examples/cu5o4-labeled.extxyz>` and follow the
 [appearance example](appearance.md). Then:
 
 1. Set the camera and open Render Area. Choose **1600 × 1000** pixels.

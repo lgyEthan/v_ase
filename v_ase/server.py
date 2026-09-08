@@ -5787,3 +5787,57 @@ if FASTAPI_AVAILABLE:
         data = session_update_to_json(session)
         data["relaxation_exit"] = result
         return data
+
+
+def _calculate_session_polyhedra(session, payload):
+    import hashlib
+    from .polyhedra import calculate_polyhedra, normalize_rules
+    rules = normalize_rules(payload.get('rules', []))
+    with session.mode_transition_lock:
+        frame = payload.get('frame_index', session.current_frame)
+        if isinstance(frame, bool) or not isinstance(frame, int):
+            raise ValueError('Polyhedra frame_index must be an integer.')
+        atoms = _atom_scalar_frame_atoms(session, frame).copy()
+    if payload.get('positions') is not None:
+        positions = np.asarray(payload['positions'], dtype=float)
+        if positions.shape != (len(atoms), 3) or not np.isfinite(positions).all():
+            raise ValueError('Polyhedra positions require one finite xyz row per atom.')
+        atoms.set_positions(positions, apply_constraint=False)
+    labels = payload.get('labels')
+    if labels is None:
+        labels = atom_labels(atoms)
+    if payload.get('cell') is not None:
+        cell = np.asarray(payload['cell'], dtype=float)
+        if cell.shape != (3, 3) or not np.isfinite(cell).all():
+            raise ValueError('Polyhedra cell must be a finite 3 x 3 matrix.')
+        atoms.set_cell(cell, scale_atoms=False)
+    if payload.get('pbc') is not None:
+        pbc = payload['pbc']
+        if not isinstance(pbc, list) or len(pbc) != 3 or any(type(x) is not bool for x in pbc):
+            raise ValueError('Polyhedra pbc must contain three booleans.')
+        atoms.pbc = pbc
+    digest = hashlib.blake2b(digest_size=20)
+    for value in (atoms.positions, atoms.cell.array, atoms.pbc, atoms.numbers):
+        digest.update(np.ascontiguousarray(value).tobytes())
+    style_fields = {'name','color','opacity','showFaces','showEdges','edgeColor','edgeRadius'}
+    geometry_rules = [{k:v for k,v in rule.items() if k not in style_fields} for rule in rules]
+    digest.update(json.dumps([geometry_rules, labels], sort_keys=True, allow_nan=False).encode())
+    key = digest.hexdigest()
+    cached = getattr(session, '_polyhedra_cached', None)
+    if cached and cached[0] == key:
+        styles = {rule['id']:{k:rule[k] for k in style_fields if k in rule} for rule in rules}
+        return {**cached[1], 'frame':frame, 'polyhedra':[{**poly, 'style':{**poly['style'], **styles[poly['ruleId']]}}
+                                       for poly in cached[1]['polyhedra']]}
+    result = calculate_polyhedra(atoms, rules, labels=labels)
+    result.update(frame=frame, fingerprint=key)
+    session._polyhedra_cached = (key, result)
+    return result
+
+
+@app.post('/api/analysis/polyhedra/{session_id}')
+async def polyhedra_analysis(session_id: str, payload: Dict[str, Any]):
+    session = get_session(session_id)
+    try:
+        return await asyncio.to_thread(_calculate_session_polyhedra, session, payload)
+    except (ValueError, IndexError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc

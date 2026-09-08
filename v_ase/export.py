@@ -904,6 +904,12 @@ def export_html_response(session, payload: Dict[str, Any]):
         if labels is not None:
             frame["symbols"] = labels
             frame["atom_types"] = labels
+    display_settings = settings.get("display", settings)
+    if display_settings.get("showPolyhedra"):
+        from .polyhedra import calculate_polyhedra
+        for frame_data, frame_atoms in zip(frames, frame_objects):
+            frame_data.setdefault("metadata", {})["polyhedra"] = calculate_polyhedra(
+                frame_atoms, display_settings.get("polyhedraRules", []), labels=frame_data["symbols"])
     color_scale_frames = _html_atom_color_scale_frames(
         frame_objects,
         settings,
@@ -1342,6 +1348,45 @@ def _scene_cell_edges(cell, repetitions, cell_origin=(0., 0., 0.)):
     return edges
 
 
+def _polyhedral_scene_meshes(atoms, display, *, labels=None):
+    if not display.get("showPolyhedra"):
+        return []
+    from .polyhedra import calculate_polyhedra
+    data = atoms_to_json(atoms)
+    if labels is None: labels = data["symbols"]
+    geometry = calculate_polyhedra(atoms, display.get("polyhedraRules", []), labels=labels)
+    repetitions, cell = _normalized_supercell(display, data)
+    offsets = _cell_offsets(repetitions)
+    if geometry["vertexCount"] * len(offsets) > 1000000:
+        raise ValueError("Polyhedra export exceeds one million vertices. Reduce repetitions or center selection.")
+    translation = _display_translation(display, data.get("cell"))
+    colors = data.get("visual", {}).get("colors", [])
+    hidden = set(display.get("hiddenAtomReferences", []))
+    meshes = []
+    for poly in geometry["polyhedra"]:
+        center = poly["center"]; label = labels[center]; style = poly["style"]
+        fallback = colors[center] if center < len(colors) else "#808080"
+        color = style["color"] or _valid_hex_color(
+            (display.get("atomColors") or {}).get(str(center),
+                (display.get("labelColors") or {}).get(label)), fallback)
+        if display.get("atomColorScaleEnabled"):
+            scale = display.get("atomColorScaleColors") or []
+            if center < len(scale) and not style["color"]: color = _valid_hex_color(scale[center], color)
+        for offset in offsets:
+            ref = f"replica:{center}:" + ",".join(map(str,offset)) if any(offset) else f"atom:{center}"
+            if display.get("polyhedraRespectVisibility", True) and (
+                (display.get("labelVisible") or {}).get(label) is False or ref in hidden): continue
+            shift = _offset_vector(offset, cell) + translation
+            meshes.append({"name": _safe_name(f"polyhedron_{poly['ruleId']}_{center}_{offset}"),
+                "center": center, "cell_offset": list(offset), "rule_id": poly["ruleId"],
+                "vertices": [(np.asarray(v["position"]) + shift).tolist() for v in poly["vertices"]],
+                "triangles": poly["triangles"], "faces": poly["faces"], "edges": poly["edges"],
+                "color": color, "opacity": style["opacity"], "show_faces": style["showFaces"],
+                "show_edges": style["showEdges"], "edge_color": style["edgeColor"], "edge_radius": style["edgeRadius"],
+                "volume": poly["volume"], "area": poly["area"], "rank": poly["rank"]})
+    return meshes
+
+
 def _cad_scene_data(session, payload: Dict[str, Any]):
     """Normalize the current viewport into editable 3D geometry primitives."""
     payload = payload or {}
@@ -1591,7 +1636,13 @@ def _cad_scene_data(session, payload: Dict[str, Any]):
     cell_material = str(display.get("cellMaterial", "unlit"))
     if cell_material not in {"unlit", "standard", "metal"}:
         cell_material = "unlit"
+    polyhedra = _polyhedral_scene_meshes(atoms, display, labels=labels)
+    if display.get("showPolyhedra") and display.get("polyhedraAtomMode") in ("none", "centers"):
+        centers = {p["center"] for p in polyhedra}
+        atom_specs = [] if display["polyhedraAtomMode"] == "none" else [a for a in atom_specs if a["index"] in centers]
+        bond_specs = []
     return {
+        "polyhedra": polyhedra,
         "atoms": atom_specs,
         "bonds": bond_specs,
         "cell_edges": _scene_cell_edges(cell, repetitions, data.get("cell_origin", [0., 0., 0.])) if include_cell else [],
@@ -2013,6 +2064,30 @@ def export_3dm_response(session, payload: Dict[str, Any]):
             attributes,
         )
 
+    if scene["polyhedra"]:
+        layer = rhino3dm.Layer(); layer.Name = "Coordination Polyhedra"
+        layer_index = model.Layers.Add(layer)
+        for poly in scene["polyhedra"]:
+            attributes = _cad_object_attributes(rhino3dm, poly["name"], layer_index,
+                material_index(poly["color"], "standard", poly["opacity"]), poly["color"],
+                {"v_ase.kind": "polyhedron", "v_ase.center": poly["center"], "v_ase.rule": poly["rule_id"]})
+            if poly["show_faces"] and poly["opacity"] > 0:
+                mesh = rhino3dm.Mesh()
+                for vertex in poly["vertices"]: mesh.Vertices.Add(*vertex)
+                for a,b,c in poly["triangles"]: mesh.Faces.AddFace(a,b,c)
+                mesh.Normals.ComputeNormals();mesh.Compact()
+                model.Objects.AddMesh(mesh, attributes)
+            if poly["show_edges"]:
+                edge_attributes = _cad_object_attributes(rhino3dm,poly["name"]+"_edges",layer_index,
+                    material_index(poly["edge_color"],"unlit"),poly["edge_color"],
+                    {"v_ase.kind":"polyhedron_edges", "v_ase.radius":poly["edge_radius"]})
+                for a,b in poly["edges"]:
+                    start,end = np.asarray(poly["vertices"][a]),np.asarray(poly["vertices"][b])
+                    delta=end-start; length=float(np.linalg.norm(delta))
+                    plane=rhino3dm.Plane(rhino3dm.Point3d(*start),rhino3dm.Vector3d(*(delta/length)))
+                    circle=rhino3dm.Circle(poly["edge_radius"]);circle.Plane=plane
+                    model.Objects.AddBrep(rhino3dm.Cylinder(circle,length).ToBrep(True,True),edge_attributes)
+
     model.Views.Add(_rhino_view_info(rhino3dm, scene.get("camera"), "v_ase View"))
     model.NamedViews.Add(_rhino_view_info(rhino3dm, scene.get("camera"), "v_ase Saved View"))
 
@@ -2178,6 +2253,9 @@ def export_obj_response(session, payload: Dict[str, Any]):
         _atom_material_preset(bond.get("material")),
         round(float(bond.get("opacity", 1.0)), 6),
     ) for bond in scene["bonds"])
+    for poly in scene["polyhedra"]:
+        material_specs.add((poly["color"], "standard", round(float(poly["opacity"]), 6)))
+        material_specs.add((poly["edge_color"], "unlit", 1.0))
     if scene["cell_edges"]:
         cell_preset = "metal" if scene["cell_material"] == "metal" else "standard"
         material_specs.add((scene["cell_color"], cell_preset, 1.0))
@@ -2252,6 +2330,25 @@ def export_obj_response(session, payload: Dict[str, Any]):
                     bond["name"], bond["start"], bond["end"], bond["radius"],
                     materials[bond_material_key]
                 )
+        for poly in scene["polyhedra"]:
+            if poly["show_faces"] and poly["opacity"] > 0:
+                handle.write(f"o {poly['name']}\nusemtl {materials[(poly['color'], 'standard', round(float(poly['opacity']), 6))]}\n")
+                vertices = np.asarray(poly["vertices"], dtype=float)
+                normals = np.zeros_like(vertices)
+                for triangle in poly["triangles"]:
+                    a,b,c = vertices[triangle]
+                    normal = np.cross(b-a,c-a)
+                    for i in triangle: normals[i] += normal
+                lengths = np.linalg.norm(normals, axis=1)
+                normals[lengths > 0] /= lengths[lengths > 0,None]
+                normals[lengths == 0] = [0,0,1]
+                start = writer._vertices_with_normals(vertices, normals)
+                for triangle in poly["triangles"]:
+                    handle.write("f " + " ".join(str(start+i) for i in triangle) + "\n")
+            if poly["show_edges"]:
+                for n, (a,b) in enumerate(poly["edges"]):
+                    writer.cylinder(f"{poly['name']}_edge_{n}",poly["vertices"][a],poly["vertices"][b],
+                        poly["edge_radius"],materials[(poly["edge_color"],"unlit",1.0)])
         for index, edge in enumerate(scene["cell_edges"]):
             cell_preset = "metal" if scene["cell_material"] == "metal" else "standard"
             writer.cylinder(
@@ -2271,6 +2368,7 @@ def export_obj_response(session, payload: Dict[str, Any]):
                 "include_cell": scene["include_cell"],
                 "repetitions": scene["repetitions"],
                 "translation": scene["translation"],
+                "polyhedra": scene["polyhedra"],
                 "atoms": scene["atoms"],
                 "bonds": scene["bonds"],
                 "cell_edges": scene["cell_edges"],
@@ -2662,6 +2760,7 @@ def add_instanced_atom_group(symbol, indices, positions):
 def add_instanced_atoms(positions, symbols):
     grouped = {{}}
     for index, symbol in enumerate(symbols):
+        if not poly_atom_visible(index): continue
         color = get_atom_color(index)
         radius = get_atom_radius(index)
         preset = get_atom_material_preset(index)
@@ -3120,6 +3219,51 @@ try:
 except (TypeError, ValueError):
     pass
 
+POLY_OBJECTS = []
+POLY_CENTER_INDICES = set(p["center"] for p in DATA.get("polyhedra", []))
+
+def poly_atom_visible(index):
+    mode = DISPLAY.get("polyhedraAtomMode", "all") if DISPLAY.get("showPolyhedra") else "all"
+    return mode == "all" or (mode == "centers" and index in POLY_CENTER_INDICES)
+
+def update_polyhedra(scene, *_):
+    global POLY_OBJECTS
+    for obj in POLY_OBJECTS:
+        data_block=obj.data
+        bpy.data.objects.remove(obj,do_unlink=True)
+        if data_block.users == 0:
+            if isinstance(data_block,bpy.types.Mesh): bpy.data.meshes.remove(data_block)
+            elif isinstance(data_block,bpy.types.Curve): bpy.data.curves.remove(data_block)
+    POLY_OBJECTS=[]
+    frames=DATA.get("polyhedra_frames")
+    records=frames[max(0,min(len(frames)-1,scene.frame_current-1))] if frames else DATA.get("polyhedra",[])
+    batches={{}}
+    for poly in records:
+        key=(poly["rule_id"],poly["color"],poly["opacity"],poly["edge_color"],poly["edge_radius"])
+        group=batches.setdefault(key,{{"vertices":[],"faces":[],"edges":[]}})
+        if poly["show_faces"] and poly["opacity"] > 0:
+            start=len(group["vertices"]);group["vertices"].extend(poly["vertices"])
+            group["faces"].extend([[start+i for i in face] for face in poly["triangles"]])
+        if poly["show_edges"]:
+            group["edges"].extend([(poly["vertices"][a],poly["vertices"][b]) for a,b in poly["edges"]])
+    for key, group in batches.items():
+        rule,color,alpha,edge_color,edge_radius=key
+        if group["faces"]:
+            mesh=bpy.data.meshes.new("v_ase_polyhedra_"+rule)
+            mesh.from_pydata(group["vertices"],[],group["faces"]);mesh.update()
+            obj=bpy.data.objects.new("v_ase_polyhedra_"+rule,mesh)
+            bpy.context.collection.objects.link(obj)
+            obj.data.materials.append(get_bond_mat(color,"standard",alpha))
+            POLY_OBJECTS.append(obj)
+        if group["edges"]:
+            obj=add_curve_segments("v_ase_polyhedra_edges_"+rule,group["edges"],edge_radius,get_bond_mat(edge_color,"unlit"))
+            POLY_OBJECTS.append(obj)
+
+if DATA.get("polyhedra") or DATA.get("polyhedra_frames"):
+    update_polyhedra(bpy.context.scene)
+    if DATA.get("polyhedra_frames"):
+        bpy.app.handlers.frame_change_post.append(update_polyhedra)
+
 positions = DATA["positions"]
 symbols = DATA["symbols"]
 atoms = []
@@ -3130,7 +3274,7 @@ if BLENDER_OBJECT_MODE == "objects":
         obj.name = f"atom_{{idx:04d}}_{{symbol}}"
         obj.location = pos
         obj["v_ase_atom_index"] = idx
-        if DISPLAY_LABEL_VISIBLE.get(symbol) is False:
+        if DISPLAY_LABEL_VISIBLE.get(symbol) is False or not poly_atom_visible(idx):
             obj.hide_viewport = True
             obj.hide_render = True
         bpy.context.collection.objects.link(obj)
@@ -3239,6 +3383,20 @@ def export_blender_response(session, payload: Dict[str, Any]):
     display = payload.get("display") or {}
     if display:
         data["display"] = display
+    if display.get("showPolyhedra"):
+        from ase import Atoms
+        data["polyhedra"] = _polyhedral_scene_meshes(atoms, display)
+        all_polyhedra = []
+        vertex_budget = 0
+        for frame in frames:
+            frame_atoms = Atoms(symbols=frame.get("chemical_symbols",frame["symbols"]),
+                positions=frame["positions"],cell=frame.get("cell"),pbc=frame.get("pbc",False))
+            meshes = _polyhedral_scene_meshes(frame_atoms, display, labels=frame["symbols"])
+            vertex_budget += sum(len(mesh["vertices"]) for mesh in meshes)
+            if vertex_budget > 2000000:
+                raise ValueError("Polyhedra animation export exceeds two million vertices. Export fewer frames or centers.")
+            all_polyhedra.append(meshes)
+        if all_polyhedra: data["polyhedra_frames"] = all_polyhedra
     _translate_visual_frame(data, display)
     for frame in frames:
         _translate_visual_frame(frame, display)
@@ -3251,6 +3409,8 @@ def export_blender_response(session, payload: Dict[str, Any]):
     }
     data["lighting"] = lighting
     data["bonds"] = _display_bonds(data, display, payload.get("bond_pairs"))
+    if display.get("showPolyhedra") and display.get("polyhedraAtomMode") in ("none", "centers"):
+        data["bonds"] = []
     data["include_cell"] = bool(payload.get("include_cell", True))
     if payload.get("camera"):
         data["camera"] = payload["camera"]

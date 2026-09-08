@@ -6,12 +6,14 @@ Atom indices in the guides are **zero-based** and refer to these exact inputs.
 
 | Example | Input | Illustrated guide |
 | --- | --- | --- |
+| Rutile IrO2 | {download}`IrO2_polyhedra.extxyz <assets/examples/IrO2_polyhedra.extxyz>` | [Polyhedra](polyhedra.md) |
+| Cubic SrTiO3 | {download}`SrTiO3_polyhedra.traj <assets/examples/SrTiO3_polyhedra.traj>` | [Polyhedra](polyhedra.md) |
 | Ferrocene | {download}`ferrocene.traj <assets/examples/ferrocene.traj>` | [Rotate](rotate.md), [Scale](scale.md) |
 | Li in a carbon nanotube | {download}`fixedline.traj <assets/examples/fixedline.traj>` | [Move](move.md) |
 | Li above Cu(111) | {download}`fixedplane.traj <assets/examples/fixedplane.traj>` | [Constraints](constraints.md) |
 | Surface C–O restraint | {download}`hookean.traj <assets/examples/hookean.traj>` | [Hookean example](constraints.md#example-stretch-a-hookean-restraint) |
 | Phosphorene sheet | {download}`phosphorene_nanosheet.cif <assets/examples/phosphorene_nanosheet.cif>` | [Cumulative twist](rotate.md#example-cumulative-phosphorene-twist) |
-| Cu5O4 surface | {download}`cu5o4-labeled.traj <assets/examples/cu5o4-labeled.traj>` · {download}`group indices <assets/examples/cu5o4-groups.json>` | [Appearance](appearance.md) |
+| Cu5O4 surface | {download}`cu5o4-labeled.extxyz <assets/examples/cu5o4-labeled.extxyz>` · {download}`group indices <assets/examples/cu5o4-groups.json>` | [Appearance](appearance.md) |
 | Oxide/support interface | {download}`cu2o111_on_cu111_pairwise_bonds.traj <assets/examples/cu2o111_on_cu111_pairwise_bonds.traj>` | [Bonds](bonds.md) |
 | Graphene/hBN | {download}`graphene_hbn_commensurate.traj <assets/examples/graphene_hbn_commensurate.traj>` | [Cell tools](cell-tools.md), [Registry](registry.md) |
 | Graphene/MoS2 | {download}`host <assets/examples/graphene_host.extxyz>` · {download}`guest <assets/examples/mos2_guest.extxyz>` | [Commensurate cells](commensurate.md) |

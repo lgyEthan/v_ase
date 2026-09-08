@@ -11,7 +11,7 @@ const TRACKED = [
     'loadFrame', 'completeTrajectoryFrameUpdate', 'refreshVolumetricDataForCurrentFrame',
     'updateVolumetricSurface', 'renderVolumetricPlane', 'renderAllVolumetricPlanes',
     'recolorVolumetricPlanes', 'updateAtomColorScale', 'updateForceVectorsForCurrentFrame',
-    'refreshDisplacementAnalysis', 'calculateRdf', 'prepareCommensurateSupercellProposal'
+    'refreshDisplacementAnalysis', 'refreshPolyhedra', 'calculateRdf', 'prepareCommensurateSupercellProposal'
 ];
 const copy = value => value === undefined ? undefined : JSON.parse(JSON.stringify(value));
 const plain = value => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -109,6 +109,7 @@ function relevantTask(app, name) {
     const d = app.state.display;
     // RDF is a separate analysis panel, not part of the rendered 3D figure.
     if (name === 'calculateRdf') return false;
+    if (name === 'refreshPolyhedra') return Boolean(d.showPolyhedra);
     if (name.startsWith('renderVolumetricPlane:')) {
         const id = name.slice('renderVolumetricPlane:'.length);
         return app.volumetricPlanes().some(p => p.id === id && p.visible);
@@ -206,6 +207,9 @@ export function installAIScene(App) {
         const d = this.state.display;
         const frame = Number(this.state.atoms?.metadata?.current_frame || 0);
         const stale = [];
+        if (d.showPolyhedra && this.polyhedraRuntime?.timer) pending.push('polyhedra-scheduled');
+        if (d.showPolyhedra && this.polyhedraRuntime?.error) stale.push('polyhedra-error');
+        if (d.showPolyhedra && !this.renderer.polyhedraDataValid) stale.push('polyhedra');
         if (d.showVolumetric && (!this.state.volumetricSurfaceSummary || !this.renderer.volumetricGroup.visible)) stale.push('isosurface');
         if (d.atomColorScaleEnabled && this.atomColorScaleRuntime.renderedFrame !== frame) stale.push('atom-colorscale');
         if (d.showForceVectors && this.forceVectorRuntime.renderedFrame !== frame) stale.push('force-vectors');
@@ -244,7 +248,7 @@ export function installAIScene(App) {
 
     proto.aiSceneSnapshot = async function (request = {}) {
         const sections = new Set(request.sections || []);
-        if ([...sections].some(s => !['atoms', 'bonds', 'planes', 'analysis', 'preview'].includes(s))) throw fail('Unknown scene section.');
+        if ([...sections].some(s => !['atoms', 'bonds', 'planes', 'analysis', 'preview', 'polyhedra'].includes(s))) throw fail('Unknown scene section.');
         const limit = integer(request.limit, 64, 1, 256, 'limit');
         const profile = this.currentImageExportProfile();
         const width = integer(request.width, profile.width || 1920, 64, 8192, 'width');
@@ -280,6 +284,9 @@ export function installAIScene(App) {
             units: {length: 'angstrom', screen: 'output pixels; top-left origin', angle: 'degree'},
             readiness, render: effective,
             display: {atomMode: r.atomDisplayMode(), atomRadiusScale: d.atomRadiusScale,
+                showPolyhedra: Boolean(d.showPolyhedra), polyhedraAtomMode: d.polyhedraAtomMode || 'all',
+                polyhedraBaseCount: r.polyhedraDataValid ? (r.polyhedraData?.polyhedronCount || 0) : 0,
+                polyhedraDisplayedCount: r.polyhedraGroup?.visible ? (r.polyhedraRendered?.length || 0) : 0,
                 showBonds: Boolean(d.showBonds), bondMode: d.bondMode,
                 configuredManualEdgeCount: d.manualBondPairs?.length || 0,
                 candidateBaseEdgeCount: r.bondPairs?.length || 0,
@@ -298,6 +305,30 @@ export function installAIScene(App) {
                 previewDetails: r.commensurateSupercellPreview ? 'Request section preview for the displayed host/guest rows; these are not base-atom references.' : null},
             guides: {scene: 'vase_read_guide(topic="scene")', physicalData: 'vase_describe(profile="structure")'},
         };
+        if (sections.has('polyhedra')) {
+            const all = (r.polyhedraGroup?.visible ? r.polyhedraRendered || [] : []).filter(item => filter(item.record.center));
+            const candidates = all.filter(item => !visibleOnly || view.frustum.intersectsBox(new THREE.Box3().setFromPoints(item.vertices)));
+            const offset = Number(request.polyhedronOffset || 0);
+            const page=[];let vertexBudget=0;
+            for(const item of candidates.slice(offset,offset+limit)) {
+                if(vertexBudget+item.vertices.length>512)break;
+                page.push(item);vertexBudget+=item.vertices.length;
+            }
+            data.polyhedra = {total:candidates.length,offset,returnedVertices:vertexBudget,
+                units:{length:'angstrom',area:'angstrom^2',volume:'angstrom^3'},
+                nextOffset:offset+page.length<candidates.length?offset+page.length:null,
+                items:page.map(item=>({
+                    ruleId:item.record.ruleId,centerIndex:item.record.center,cellOffset:item.cellOffset,appearance:item.appearance,
+                    centerWorld:vector(item.center),neighborCount:item.record.neighborCount,
+                    hullVertexCount:item.record.hullVertexCount,duplicateVertexCount:item.record.duplicateVertexCount,
+                    toleranceAngstrom:item.record.toleranceAngstrom,status:item.record.status,
+                    rank:item.record.rank,area:item.record.area,volume:item.record.volume,
+                    centerInside:item.record.centerInside,faces:item.record.faces,edges:item.record.edges,
+                    vertices:item.record.vertices.map((v,i)=>({index:v.index,
+                        cellOffset:v.cellOffset.map((n,k)=>n+item.cellOffset[k]),
+                        world:vector(item.vertices[i]),screen:view.point(item.vertices[i]),distance:v.distance}))
+                })),diagnostics:r.polyhedraData?.diagnostics?.slice(0,limit)||[]};
+        }
         if (sections.has('atoms')) {
             const rows = pageCollector(integer(request.atomOffset, 0, 0, Number.MAX_SAFE_INTEGER, 'atomOffset'), limit);
             for (const ix of offsets[0]) for (const iy of offsets[1]) for (const iz of offsets[2]) {

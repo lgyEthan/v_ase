@@ -55,12 +55,12 @@ def main():
     examples = ASSETS / "examples"
     examples.mkdir(exist_ok=True)
     for source in (ROOT / "examples" / "readme_scene_assets").iterdir():
-        if source.suffix in (".traj", ".cif", ".vasp"):
+        if source.suffix in (".traj", ".cif", ".vasp", ".extxyz"):
             shutil.copyfile(source, examples / source.name)
     for source in (ROOT / "examples" / "commensurate_host_guest").glob("*.extxyz"):
         shutil.copyfile(source, examples / source.name)
     appearance, groups = scenes.make_cu5o4_appearance_scene()
-    write(examples / "cu5o4-labeled.traj", appearance)
+    write(examples / "cu5o4-labeled.extxyz", appearance)
     (examples / "cu5o4-groups.json").write_text(json.dumps(groups, indent=2) + "\n")
     for filename, factory in (
         ("oxygen-insertion.json", scenes.make_random_addition_scene),

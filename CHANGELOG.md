@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.3.5
+
+- Add coordination polyhedra with explicit center/ligand selectors, distance bounds,
+  periodic site images, exact vertex lists, planar coordination and degeneracy reports.
+- Add independent face color/opacity and edge appearance in GUI and typed MCP tools;
+  cache scientific geometry and batch rendering by rule.
+- Preserve polyhedra in projects, image/video renders, offline HTML, OBJ, Blender
+  and optional Rhino 3DM, with frame-aware geometry and bounded scene inspection.
+- Add illustrated IrO2 and SrTiO3 examples and independent geometric/GUI/export checks.
+- Store embedded offline module sources as inert data to avoid spurious script errors.
+- Keep the connection diagram available in PDF manuals and refresh offline HTML examples.
+
 ## 0.3.4
 
 - Independent feature guides, downloadable examples, GIF step stills and code-copy buttons.

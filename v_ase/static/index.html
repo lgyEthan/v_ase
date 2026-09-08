@@ -52,12 +52,12 @@
             });
         })();
     </script>
-    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.3.4">
+    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.3.5">
     <script>
         window.__V_ASE_MOCK__ = new URLSearchParams(window.location.search).has('v_ase_mock');
         const threeModulePath = window.location.protocol === 'file:'
             ? './vendor/three.module.js'
-            : '/static/vendor/three.module.js?v=0.3.4';
+            : '/static/vendor/three.module.js?v=0.3.5';
         const importMap = document.createElement('script');
         importMap.type = 'importmap';
         importMap.textContent = JSON.stringify({
@@ -123,7 +123,7 @@
     <header id="top-bar" class="glass-panel">
         <div class="logo">
             <img class="brand-logo-asset" src="static/v_ase-logo.png" alt="v_ase">
-            <span class="version">0.3.4</span>
+            <span class="version">0.3.5</span>
         </div>
         <div id="runtime-mode-switch" class="runtime-mode-switch" role="group" aria-label="Workspace mode">
             <button type="button" data-runtime-mode="view" aria-pressed="true"
@@ -1546,6 +1546,46 @@
             </div>
         </details>
 
+        <details class="panel-section" data-panel="polyhedra" data-panel-group="structure">
+            <summary class="section-header">Coordination Polyhedra</summary>
+            <p class="panel-note">Build faces around specified centers and surrounding atoms. Cutoffs are independent of displayed bonds.</p>
+            <div class="prop-row"><label for="poly-enabled">Show polyhedra</label><input id="poly-enabled" type="checkbox"></div>
+            <div class="prop-row"><label for="poly-atom-mode">Atoms with polyhedra</label><select id="poly-atom-mode"><option value="all">All atoms</option><option value="centers">Center atoms</option><option value="none">Polyhedra only</option></select></div>
+            <div class="prop-row"><label for="poly-respect">Respect hidden centers</label><input id="poly-respect" type="checkbox" checked></div>
+            <div class="prop-row"><label for="poly-rule">Rule</label><select id="poly-rule"></select></div>
+            <div class="poly-actions"><button id="poly-add" type="button">Add rule</button><button id="poly-remove" type="button">Remove rule</button></div>
+            <div id="poly-editor" hidden>
+                <div class="prop-row"><label for="poly-name">Name</label><input id="poly-name" type="text"></div>
+                <div class="prop-row"><label for="poly-rule-enabled">Enable this rule</label><input id="poly-rule-enabled" type="checkbox" checked></div>
+                <div class="prop-row"><label for="poly-center-kind">Centers by</label><select id="poly-center-kind"><option value="elements">Element</option><option value="labels">Visual label</option><option value="indices">Atom index</option></select></div>
+                <input id="poly-centers" class="poly-full" type="text" placeholder="Ti, Ir or the chosen labels / indices" aria-label="Center selector values">
+                <button id="poly-selected" class="btn-block" type="button">Use selected atoms as centers</button>
+                <div class="prop-row"><label for="poly-ligand-kind">Surrounding atoms by</label><select id="poly-ligand-kind"><option value="elements">Element</option><option value="labels">Visual label</option><option value="indices">Atom index</option></select></div>
+                <input id="poly-ligands" class="poly-full" type="text" value="O" placeholder="O, N, F or * for all" aria-label="Ligand selector values">
+                <div class="prop-row"><label for="poly-min">Minimum distance / Å</label><input id="poly-min" type="number" min="0" step="0.05" value="0"></div>
+                <div class="prop-row"><label for="poly-max">Maximum distance / Å</label><input id="poly-max" type="number" min="0.001" max="100" step="0.05" value="2.5"></div>
+                <div class="prop-row"><label for="poly-cn-min">Minimum coordination</label><input id="poly-cn-min" type="number" min="3" max="512" value="3"></div>
+                <div class="prop-row"><label for="poly-cn-max">Maximum coordination</label><input id="poly-cn-max" type="number" min="3" max="512" value="32"></div>
+                <div class="prop-row"><label for="poly-periodic">Include periodic images</label><input id="poly-periodic" type="checkbox" checked></div>
+                <div class="prop-row"><label for="poly-planar">Allow planar coordination</label><input id="poly-planar" type="checkbox" checked></div>
+                <div class="prop-row"><label for="poly-faces">Filled faces</label><input id="poly-faces" type="checkbox" checked></div>
+                <div class="prop-row"><label for="poly-inherit">Use center atom color</label><input id="poly-inherit" type="checkbox" checked></div>
+                <div class="prop-row"><label for="poly-color">Face color</label><input id="poly-color" type="color" value="#4f8bbc"></div>
+                <div class="prop-row"><label for="poly-opacity">Face opacity</label><input id="poly-opacity" type="number" min="0" max="1" step="0.01" value="0.28"></div>
+                <div class="prop-row"><label for="poly-edges">Show edges</label><input id="poly-edges" type="checkbox" checked></div>
+                <div class="prop-row"><label for="poly-edge-color">Edge color</label><input id="poly-edge-color" type="color" value="#374151"></div>
+                <div class="prop-row"><label for="poly-edge-radius">Edge radius / Å</label><input id="poly-edge-radius" type="number" min="0.001" max="0.3" step="0.005" value="0.025"></div>
+                <details class="inline-subpanel"><summary>Exact periodic vertices</summary>
+                    <p class="panel-note">Optional: choose one center by index, then enter one ligand per line as <code>index shift_x shift_y shift_z</code>. Empty uses distance search. Explicit vertices override cutoffs.</p>
+                    <textarea id="poly-exact" class="poly-full" rows="4" aria-label="Exact vertices"></textarea>
+                </details>
+                <p id="poly-complex" class="panel-note" hidden>This rule combines multiple selectors or center groups. Inspect it through MCP; this compact form will not replace it.</p>
+                <button id="poly-apply" class="btn-block primary" type="button">Apply polyhedra</button>
+            </div>
+            <button id="poly-fit" class="btn-block" type="button">Fit polyhedra in view</button>
+            <p id="poly-status" class="panel-note" role="status">Choose centers and a ligand cutoff, then apply a rule.</p>
+        </details>
+
         <details class="panel-section" open data-panel="bonding" data-panel-group="structure">
             <summary class="section-header">Bonding</summary>
             <div class="panel-subhead">Connectivity</div>
@@ -2056,7 +2096,7 @@
         }
         const modulePath = (window.location.protocol === 'file:' || window.location.pathname.endsWith('/static/index.html'))
             ? './main.js'
-            : './static/main.js?v=0.3.4';
+            : './static/main.js?v=0.3.5';
         import(modulePath).catch(error => {
             console.error('v_ase failed to initialize:', error?.stack || error);
         });

@@ -14,10 +14,11 @@ viewing copy. A structure file alone does not retain the complete figure setup.
 5. Reopen the project in v_ase and check labels, camera, constraints and fields.
 
 ```{vase-animation} assets/readme_html_quicklook.gif
-:alt: A self-contained HTML document in Quick Look and an offline browser.
+:alt: A self-contained HTML document with a static preview and offline 3D interaction.
 :fallback: assets/steps/html-preview.png
 
-A self-contained HTML document in Quick Look and an offline browser.
+A static preview with JavaScript disabled, followed by orbiting the same offline
+HTML document. No local Python server or network connection is required.
 ```
 
 

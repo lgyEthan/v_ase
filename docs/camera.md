@@ -20,10 +20,10 @@ independent display controls. Camera motion is not in Undo/Redo history.
 
 ## Example: show a surface from the side
 
-Download {download}`cu5o4-labeled.traj <assets/examples/cu5o4-labeled.traj>`. Open it with **File > Open**, or run this in the folder containing the download:
+Download {download}`cu5o4-labeled.extxyz <assets/examples/cu5o4-labeled.extxyz>`. Open it with **File > Open**, or run this in the folder containing the download:
 
 ```bash
-v_ase gui cu5o4-labeled.traj
+v_ase gui cu5o4-labeled.extxyz
 ```
 
 1. In View, press `X` to look along x. The slab thickness is visible.

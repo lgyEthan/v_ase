@@ -17,7 +17,7 @@ interface. v_ase does not run a model or require a model API key.
 Install the release including the official MCP SDK adapter:
 
 ```bash
-python -m pip install "v_ase-gui[mcp]==0.3.4"
+python -m pip install "v_ase-gui[mcp]==0.3.5"
 ```
 
 Add this stdio server to your MCP host's configuration. Use the absolute path

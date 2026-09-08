@@ -15,7 +15,7 @@
 [Issues](https://github.com/lgyEthan/v_ase/issues) ·
 [Software paper and LaTeX source](paper/joss/README.md)
 
-**0.3.4 · Scientific fixes & ChatGPT** · [Changes](https://v-ase.readthedocs.io/en/latest/whats-new.html)
+**0.3.5 · Coordination polyhedra** · [Changes](https://v-ase.readthedocs.io/en/latest/whats-new.html)
 
 An ASE-native workspace for building, editing and visualizing atomic structures,
 trajectories and volumetric data.
@@ -49,7 +49,7 @@ Use `v_ase gui` for an empty workspace or `--interactive` to edit a file.
 One HTML file for offline viewing and project recovery.
 [Project HTML](https://v-ase.readthedocs.io/en/latest/save-projects.html#project-html) · [Export HTML View](https://v-ase.readthedocs.io/en/latest/save-projects.html#html-view)
 
-![A self-contained v_ase HTML project in macOS Quick Look and an offline browser](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_html_quicklook.gif)
+![A self-contained v_ase HTML project with a static preview and offline 3D interaction](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_html_quicklook.gif)
 
 ## Work With An AI Agent
 
@@ -210,6 +210,13 @@ Reduce overlaps or optimize with a configured calculator.
 [Repulsion](https://v-ase.readthedocs.io/en/latest/relaxation.html#built-in-repulsion-calculator) · [Run relaxation](https://v-ase.readthedocs.io/en/latest/relaxation.html#run-an-ordinary-relaxation)
 
 ![Repulsive relaxation trajectory](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_relaxation.gif)
+
+## Coordination Polyhedra
+
+Color coordination cages and adjust opacity by element, label, or atom group.
+[Polyhedra guide](https://v-ase.readthedocs.io/en/latest/polyhedra.html)
+
+![IrO2 coordination polyhedra with independent colors and face opacity](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_polyhedra.gif)
 
 ## Style Atoms, Bonds, And Rendering
 

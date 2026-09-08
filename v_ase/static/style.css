@@ -6848,3 +6848,7 @@ body.resizing-pairwise-column * {
         display: inline-flex;
     }
 }
+
+.poly-actions { display:flex; gap:8px; margin:8px 0; }
+.poly-full { width:100%; box-sizing:border-box; margin:6px 0; }
+#poly-exact { font-family:monospace; }

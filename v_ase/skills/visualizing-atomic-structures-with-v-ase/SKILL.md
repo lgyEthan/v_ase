@@ -139,6 +139,7 @@ Parameter definitions belong in tools, not copied JSON manuals.
 | --- | --- | --- |
 | scene | Scene patches, projection, selection, rollback | [Scene workflow](references/scene-workflow.md) |
 | rendering | Reference figures, cameras and effective bonds | [Deterministic rendering](references/deterministic-rendering.md) |
+| polyhedra | Coordination faces, periodic vertices, color and opacity | [Polyhedra](references/polyhedra.md) |
 | structures | Load, build, edit, wrap, transform and replicate | [Structures](references/structures.md) |
 | trajectories | Frames, stored scalar colors, displacement/force vectors | [Trajectories](references/trajectories.md) |
 | volumetric | DFT grids, signed surfaces, sections and combinations | [Volumetric data](references/volumetric.md) |

@@ -162,3 +162,12 @@ DISPLAY_PROPERTIES["atomRadiusScales"] = {"type": "object", "additionalPropertie
 for key in ("labelOpacities", "atomOpacities"):
     DISPLAY_PROPERTIES[key] = {"type": "object", "additionalProperties": {"type": "number", "minimum": 0, "maximum": 1}}
 DISPLAY_PROPERTIES["labelRadii"] = {"type": "object", "additionalProperties": {"type": "number", "exclusiveMinimum": 0}}
+
+# Polyhedra preserve an explicit selector/radius contract across every adapter.
+from .polyhedra import RULES_SCHEMA
+DISPLAY_PROPERTIES.update({
+    'showPolyhedra': {'type': 'boolean'},
+    'polyhedraRules': RULES_SCHEMA,
+    'polyhedraAtomMode': {'enum': ['all', 'centers', 'none']},
+    'polyhedraRespectVisibility': {'type': 'boolean'},
+})

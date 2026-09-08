@@ -1,14 +1,15 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.3.4';
-import { ASERenderer } from './renderer.js?v=0.3.4';
-import { ASESelection } from './selection.js?v=0.3.4';
-import { ASETransform } from './transform.js?v=0.3.4';
-import { installAIScene } from './ai_scene.js?v=0.3.4';
+import { ASEApi } from './api.js?v=0.3.5';
+import { ASERenderer } from './renderer.js?v=0.3.5';
+import { ASESelection } from './selection.js?v=0.3.5';
+import { ASETransform } from './transform.js?v=0.3.5';
+import { installPolyhedra } from './polyhedra.js?v=0.3.5';
+import { installAIScene } from './ai_scene.js?v=0.3.5';
 import {
     interpolateTrajectoryFrames,
     interpolatedFrameCount,
     normalizeInterpolationMultiplier
-} from './trajectory.js?v=0.3.4';
+} from './trajectory.js?v=0.3.5';
 
 const CHEMICAL_ELEMENT_SYMBOLS = Object.freeze([
     'H','He','Li','Be','B','C','N','O','F','Ne',
@@ -149,6 +150,10 @@ class VAseApp {
             clipboard: null,
             selectedAppearanceDirty: new Set(),
             display: {
+                showPolyhedra: false,
+                polyhedraRules: [],
+                polyhedraAtomMode: 'all',
+                polyhedraRespectVisibility: true,
                 showBonds: true,
                 showCell: true,
                 showAxes: true,
@@ -4151,6 +4156,7 @@ class VAseApp {
                 ['transform', 'Transform & Cell Match'],
                 ['constraints', 'Constraints', true],
                 ['bonding', 'Bonding'],
+                ['polyhedra', 'Coordination Polyhedra'],
                 ['scientific-tools', 'Relaxation', true]
             ],
             analysis: [
@@ -16051,6 +16057,7 @@ class VAseApp {
                 categories.add('selection');
                 if (command.operation?.patch?.frame !== undefined) categories.add('trajectory');
             }
+            else if (['configure-polyhedra','style-polyhedra'].includes(operation)) categories.add('display');
             else if (operation === 'set-constraints') categories.add('constraints');
             else if ([
                 'refresh-displacements',
@@ -16765,6 +16772,7 @@ class VAseApp {
             imageExport: this.clonePlain(this.currentImageExportProfile()),
             effectiveRender: this.aiEffectiveRenderSnapshot(),
             analysis: {
+                polyhedra: this.clonePlain(this.state.polyhedraSummary || null),
                 frameSynchronization: {
                     displayedFrame,
                     rdfFrame: this.state.rdfResult?.frame_index ?? null,
@@ -17445,7 +17453,7 @@ class VAseApp {
             'add-atom', 'scatter-atoms', 'scatter-molecules',
             'update-add-atoms-region', 'scale-add-atoms-regions', 'relax-added-atoms',
             'stop-added-atoms', 'finish-add-atoms', 'cancel-add-atoms',
-            'delete-selection', 'set-visual-label', 'style-atoms', 'configure-bonds', 'set-identity', 'set-constraints',
+            'delete-selection', 'set-visual-label', 'style-atoms', 'configure-bonds', 'configure-polyhedra', 'style-polyhedra', 'set-identity', 'set-constraints',
             'move-selection', 'rotate-selection', 'scale-selection', 'rotate-to-commensurate',
             'load-commensurate-guest', 'remove-commensurate-guest',
             'calculate-commensurate', 'apply-commensurate-cell',
@@ -17791,6 +17799,8 @@ class VAseApp {
             );
         }
         const name = String(operation.name || '').trim().toLowerCase();
+        if (name === 'configure-polyhedra') return await this.configurePolyhedra(operation);
+        if (name === 'style-polyhedra') return this.stylePolyhedra(operation);
         if (name === 'select-volumetric-planes') {
             this.aiSelectVolumetricPlanes(operation);
             return;
@@ -25921,6 +25931,7 @@ class VAseApp {
     }
 }
 
+installPolyhedra(VAseApp);
 installAIScene(VAseApp);
 window.__V_ASE_APP__ = new VAseApp();
 window.__ASE_APP__ = window.__V_ASE_APP__;

@@ -60,3 +60,11 @@ Do not describe every profile after a complete small receipt.
 remain separate dedicated tools, with their own scientific validation and history.
 Use `vase_scene_readiness(wait=false)` to monitor pending work without reading
 geometry. Exact capture requires paused playback and settled requested overlays.
+
+## Polyhedra
+
+`configure-polyhedra` controls independent coordination rules. Scene section
+`polyhedra` reports resolved face color/opacity and exact vertex image references;
+use a small page and preserve the scene fingerprint across pages. Rendering waits
+for the current geometry; style-only changes reuse it. Read the polyhedra reference
+for degeneracy, explicit vertices and export behavior.

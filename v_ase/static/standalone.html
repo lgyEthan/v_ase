@@ -62,9 +62,9 @@
 
     <script id="v-ase-scene-data" type="application/vnd.v-ase.view+json" data-encoding="base64">{{SCENE_DATA_BASE64}}</script>
     <script id="v-ase-project-data" type="application/vnd.v-ase.project+zip" data-encoding="base64">{{PROJECT_DATA_BASE64}}</script>
-    <script id="v-ase-three-source" type="application/javascript" data-encoding="base64">{{THREE_SOURCE_BASE64}}</script>
-    <script id="v-ase-renderer-source" type="application/javascript" data-encoding="base64">{{RENDERER_SOURCE_BASE64}}</script>
-    <script id="v-ase-viewer-source" type="application/javascript" data-encoding="base64">{{VIEWER_SOURCE_BASE64}}</script>
+    <script id="v-ase-three-source" type="application/vnd.v-ase.module+base64" data-encoding="base64">{{THREE_SOURCE_BASE64}}</script>
+    <script id="v-ase-renderer-source" type="application/vnd.v-ase.module+base64" data-encoding="base64">{{RENDERER_SOURCE_BASE64}}</script>
+    <script id="v-ase-viewer-source" type="application/vnd.v-ase.module+base64" data-encoding="base64">{{VIEWER_SOURCE_BASE64}}</script>
     <script type="module">
         const encoded = id => document.getElementById(id).textContent.trim();
         const decodeText = value => {

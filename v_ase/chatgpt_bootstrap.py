@@ -70,7 +70,7 @@ def install(args):
             raise ValueError("The requested source directory or wheel does not exist.")
         package = str(source) + "[mcp]"
     else:
-        package = "v_ase-gui[mcp]>=0.3.4"
+        package = "v_ase-gui[mcp]>=0.3.5"
     # Run outside the source checkout: local egg-info must not make pip skip the
     # actual wheel installation. Child argv is a list, never a shell string.
     env = os.environ.copy()

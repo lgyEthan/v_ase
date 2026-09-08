@@ -2391,6 +2391,12 @@ def _ai_apply_method_schema() -> Dict[str, Any]:
         for key, value in AI_CONTROL_SCHEMA["properties"].items()
         if key != "operation"
     }
+    # Method discovery is intentionally shallow, like its operation branch.
+    # Execution still validates the full schema; clients obtain exact rule
+    # parameters through the focused configure-polyhedra tool/schema.
+    properties['display']['properties']['polyhedraRules'] = {
+        'type': 'array', 'maxItems': 32, 'items': {'type': 'object'},
+        'description': 'Complete replacement list. Read the configure-polyhedra operation schema for exact rule fields.'}
     operation_names = sorted(AI_OPERATION_PARAMETERS)
     properties["operation"] = {
         "description": (
@@ -2571,3 +2577,45 @@ def ai_schema_payload(options: Dict[str, Any] | None = None) -> Dict[str, Any]:
             ],
         },
     }
+
+
+from .polyhedra import RULES_SCHEMA as _POLYHEDRA_RULES
+_polyhedra_properties = {
+    "rules": _POLYHEDRA_RULES,
+    "enabled": {"type": "boolean"},
+    "atomMode": {"enum": ["all", "centers", "none"]},
+    "respectVisibility": {"type": "boolean"},
+}
+AI_OPERATION_PARAMETERS["configure-polyhedra"] = {
+    "mode": "view-or-edit", "required": [], "optional": list(_polyhedra_properties),
+    "notes": "Configure coordination hulls without changing atoms or bonds. Rules explicitly select centers and ligands with cutoff distances or exact periodic vertex references. Read scene-snapshot section polyhedra to verify membership and resolved geometry. Omitted fields survive; rules replace the complete rule list."
+}
+
+def _register_polyhedra_operation(node):
+    if isinstance(node, dict):
+        if node.get("properties", {}).get("name", {}).get("enum") is not None:
+            enum = node["properties"]["name"]["enum"]
+            if "calculate-rdf" in enum and "configure-polyhedra" not in enum:
+                enum.append("configure-polyhedra")
+                node.setdefault("allOf", []).append({
+                    "if": {"required": ["name"], "properties": {"name": {"const": "configure-polyhedra"}}},
+                    "then": {"properties": _polyhedra_properties},
+                })
+        for value in list(node.values()): _register_polyhedra_operation(value)
+    elif isinstance(node, list):
+        for value in node: _register_polyhedra_operation(value)
+_register_polyhedra_operation(AI_CONTROL_SCHEMA)
+
+
+from .polyhedra import RULE_SCHEMA as _POLYHEDRA_RULE_SCHEMA
+_polyhedra_style_properties = {key: deepcopy(_POLYHEDRA_RULE_SCHEMA['properties'][key])
+    for key in ('color','opacity','showFaces','showEdges','edgeColor','edgeRadius')}
+_polyhedra_style_properties['ruleIds'] = {'type':'array','items':{'type':'string'},'minItems':1,'maxItems':32,'uniqueItems':True}
+AI_OPERATION_PARAMETERS['style-polyhedra'] = {
+    'mode':'view-or-edit','required':['ruleIds'],
+    'optional':[key for key in _polyhedra_style_properties if key!='ruleIds'],
+    'notes':'Change only face color/opacity or edge appearance of existing coordination rule IDs. Preserves centers, ligands, distances and every other rule; uses cached geometry. Set color=null to inherit center atom colors.'}
+_poly = AI_CONTROL_SCHEMA['properties']['operation']['oneOf'][1]
+_poly['properties']['name']['enum'].append('style-polyhedra')
+_poly['allOf'].append({'if':{'required':['name'],'properties':{'name':{'const':'style-polyhedra'}}},
+    'then':{'properties':_polyhedra_style_properties,'required':['ruleIds']}})

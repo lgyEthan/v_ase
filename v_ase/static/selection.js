@@ -39,6 +39,13 @@ export class ASESelection {
                 if (hit.object.userData.index !== undefined) return hit.object.userData.index;
             }
         }
+        if (this.renderer.polyhedraGroup?.visible) {
+            const faces=this.raycaster.intersectObjects(this.renderer.polyhedraGroup.children)
+                .filter(hit=>hit.object.userData.polyhedraFaces);
+            const ref=faces.length ? faces[0].object.userData.polyhedraFaces[faces[0].faceIndex] : null;
+            if(ref) return ref.cellOffset && includeReplicas
+                ? {kind:'replica',index:ref.index,cellOffset:[...ref.cellOffset],key:this.renderer.supercellReferenceKey(ref.index,ref.cellOffset)} : ref.index;
+        }
         if ((this.renderer.atomMeshByIndex?.size || 0) > 2000) return null;
         return this.nearestProjectedAtom(e, atomGroup, context);
     }

@@ -136,3 +136,13 @@ def test_public_docs_links_use_latest_until_stable_exists():
     assert "version=stable" not in readme
     assert "readthedocs.io/en/latest/" in readme
     assert "/en/latest/" in project["project"]["urls"]["Changelog"]
+
+
+def test_connection_diagram_has_a_pdf_compatible_fallback():
+    from PIL import Image
+    guide=(DOCS / 'chatgpt-local.md').read_text()
+    assert '{figure} assets/chatgpt-local.*' in guide
+    assert (DOCS / 'assets/chatgpt-local.svg').is_file()
+    with Image.open(DOCS / 'assets/chatgpt-local.png') as image:
+        assert image.width >= 920 and image.height >= 294
+    assert 'include docs/assets/chatgpt-local.png' in (ROOT / 'MANIFEST.in').read_text()

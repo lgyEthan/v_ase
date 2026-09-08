@@ -35,3 +35,11 @@ Produced artifact paths are unique. Only artifacts created by this connection
 can be read through it, with content integrity checks. Preserve the user's
 original files unless replacement was requested. No publication/upload follows
 from an ordinary local export request.
+
+## Coordination polyhedra
+
+Polyhedra rules are retained in projects and presets. Exact image/video output
+waits for current hull geometry, including interpolated positions and cells.
+Offline HTML embeds per-frame hulls. OBJ and 3DM export real faces and edge
+geometry with color/opacity; Blender carries per-frame geometry with a frame
+handler. Atom-only formats do not carry coordination display settings.

@@ -5149,6 +5149,143 @@ def capture_analysis_media(browser) -> None:
     capture_rdf_media(browser)
 
 
+def capture_polyhedra_media(browser) -> None:
+    from examples.polyhedra import iridium_oxide, srtio3
+    atoms = iridium_oxide()
+    editor, page = open_scene(browser, atoms, show_bonds=False, viz_only=True)
+    try:
+        set_display(page, {
+            "atomRadiusScale": 0.28, "showBonds": False, "showGrid": False,
+            "showAxes": False, "showCell": True, "viewportBackground": "white",
+            "labelColors": {"Ir_A": "#435b68", "Ir_B": "#715d3f", "O": "#cf4f4f"},
+        })
+        configure_inspector(page, "structure", ["polyhedra"], width=460)
+        center = atoms.positions.mean(axis=0)
+        settle_view(page, target=center.tolist(), position=(center + [15.,-21.,14.]).tolist(), fov=34)
+        set_atomic_scale(page, 48.)
+        set_readme_lighting(page, center.tolist(), intensity=2.8)
+        frames = []
+        for label, color, opacity, edge in [
+            ("Ir_A", "#329eb5", .38, "#235866"),
+            ("Ir_B", "#e29c45", .25, "#78552c"),
+        ]:
+            page.click("#poly-add")
+            page.select_option("#poly-center-kind", "labels")
+            page.fill("#poly-centers", label)
+            page.fill("#poly-name", f"{label} oxygen coordination")
+            page.fill("#poly-max", "2.4")
+            page.fill("#poly-cn-min", "6")
+            page.fill("#poly-cn-max", "6")
+            page.uncheck("#poly-inherit")
+            page.locator("#poly-color").evaluate("(el,value)=>{el.value=value;el.dispatchEvent(new Event('change',{bubbles:true}));}", color)
+            page.locator("#poly-edge-color").evaluate("(el,value)=>{el.value=value;el.dispatchEvent(new Event('change',{bubbles:true}));}", edge)
+            page.fill("#poly-opacity", str(opacity))
+            page.fill("#poly-edge-radius", "0.022")
+            page.click("#poly-apply")
+            page.wait_for_function("window.__V_ASE_APP__.renderer.polyhedraData?.polyhedronCount > 0")
+        page.wait_for_function("window.__V_ASE_APP__.renderer.polyhedraData?.polyhedronCount === 24")
+        page.select_option("#poly-atom-mode", "centers")
+        page.wait_for_function("window.__V_ASE_APP__.state.display.polyhedraAtomMode === 'centers'")
+        page.click("#poly-fit")
+        page.select_option("#poly-rule", "coordination-1")
+        page.locator("#poly-opacity").scroll_into_view_if_needed()
+        append_hold(frames, page, 5)
+        for alpha in [*np.linspace(.10,.75,12),*np.linspace(.75,.38,8)]:
+            page.fill("#poly-opacity", f"{alpha:.2f}")
+            page.locator("#poly-opacity").blur()
+            page.wait_for_timeout(55)
+            frames.append(screenshot_frame(page))
+        append_hold(frames, page, 5)
+        save_gif(frames, ASSET_DIR / "readme_polyhedra.gif", duration=125)
+        frames[-1].save(ASSET_DIR / "readme_polyhedra.png", optimize=True)
+        state = page.evaluate("window.__V_ASE_APP__.renderer.polyhedraData")
+        assert state["polyhedronCount"] == 24
+        assert all(p["neighborCount"] == 6 and len(p["edges"]) == 12 for p in state["polyhedra"])
+    finally:
+        page.close(); editor.close()
+
+    atoms = srtio3()
+    editor, page = open_scene(browser, atoms, show_bonds=False, viz_only=True)
+    try:
+        set_display(page, {"atomRadiusScale":.22,"showBonds":False,"showGrid":False,"showAxes":False,
+                           "showCell":True,"viewportBackground":"white"})
+        page.evaluate("""async () => {
+            await window.__V_ASE_APP__.configurePolyhedra({enabled:true,atomMode:'centers',rules:[{
+                id:'TiO6',centers:{elements:['Ti']},ligands:{elements:['O']},maxDistance:2.2,
+                color:'#547eb5',opacity:.35,edgeColor:'#29466e',edgeRadius:.022
+            }]});
+        }""")
+        center=atoms.positions.mean(axis=0)
+        settle_view(page,target=center.tolist(),position=(center+[14.,-19.,15.]).tolist(),fov=34)
+        page.evaluate("window.__V_ASE_APP__.renderer.fitCameraToStructure()")
+        collapse_inspector(page)
+        screenshot_frame(page).save(ASSET_DIR / "readme_polyhedra_srtio3.png",optimize=True)
+        assert page.evaluate("window.__V_ASE_APP__.renderer.polyhedraData.polyhedronCount") == 18
+    finally:
+        page.close(); editor.close()
+
+
+def capture_docs_connection_diagram(browser) -> None:
+    """Keep the vector diagram's exact raster fallback usable by LaTeX."""
+    page = browser.new_page(viewport={"width":920,"height":294},device_scale_factor=2)
+    try:
+        page.goto((ROOT / "docs/assets/chatgpt-local.svg").as_uri())
+        page.locator("svg").screenshot(path=str(ROOT / "docs/assets/chatgpt-local.png"))
+    finally:
+        page.close()
+
+
+def capture_html_media(browser) -> None:
+    """Record the real exported poster and offline orbit in the same frame."""
+    import tempfile
+    atoms, _ = make_cu5o4_appearance_scene()
+    editor,page=open_scene(browser,atoms,show_bonds=True,viz_only=True)
+    try:
+        set_display(page,{"atomRadiusScale":.55,"showGrid":False,"showAxes":False,"showOverlays":False,
+            "showCell":False,"viewportBackground":"white","bondMode":"pairwise",
+            "pairwiseBondRanges":{"Cu-Cu":{"enabled":False,"max":2.8},
+                "Cu-O_surface_oxide":{"enabled":True,"max":2.25},
+                "O_surface_oxide-O_surface_oxide":{"enabled":False,"max":3.}},
+            "bondThickness":.16,"labelColors":{"Cu":"#c98442","O_surface_oxide":"#d9363e"}})
+        center=atoms.positions.mean(axis=0)
+        settle_view(page,target=center.tolist(),position=(center+[17.,-23.,18.]).tolist(),fov=34)
+        page.evaluate('''() => {
+            const r=window.__V_ASE_APP__.renderer,box=r.structureBounds().makeEmpty();
+            let radius=0;
+            r.atomsData.positions.forEach((_,i)=>{box.expandByPoint(r.getAtomPosition(i));radius=Math.max(radius,r.atomVisualRadius(i));});
+            box.expandByScalar(radius);r.fitCameraToStructure(box,{margin:1.08});r.renderNow();
+        }''')
+        configure_inspector(page,"export",["export"],width=470)
+        page.fill('#image-width','1280');page.fill('#image-height','720')
+        page.click('#btn-export-html');page.locator('#html-export-confirm').wait_for(state='visible')
+        page.check('#html-embed-project')
+        page.uncheck('#html-include-cell')
+        with tempfile.TemporaryDirectory(prefix='vase-html-capture-') as directory:
+            path=Path(directory)/'surface.html'
+            with page.expect_download() as download:
+                page.click('#html-export-confirm')
+            download.value.save_as(path)
+            static=browser.new_page(viewport={"width":1280,"height":720},java_script_enabled=False)
+            static.goto(path.as_uri());static.locator('#standalone-poster').wait_for(state='visible')
+            poster=Image.open(BytesIO(static.screenshot())).convert('RGB');static.close()
+            offline=browser.new_page(viewport={"width":1280,"height":720})
+            external=[]
+            offline.on('request',lambda request:external.append(request.url) if request.url.startswith(('http://','https://')) else None)
+            offline.goto(path.as_uri());offline.locator("html[data-v-ase-ready='true']").wait_for(state='attached')
+            frames=[poster.copy() for _ in range(8)]
+            offline.mouse.move(640,350);offline.mouse.down()
+            for x in range(640,781,10):
+                offline.mouse.move(x,350);offline.wait_for_timeout(90)
+                frames.append(Image.open(BytesIO(offline.screenshot())).convert('RGB'))
+            offline.mouse.up();offline.wait_for_timeout(200)
+            frames.extend([frames[-1].copy() for _ in range(8)])
+            assert not external
+            offline.close()
+            save_gif(frames,ASSET_DIR/'readme_html_quicklook.gif',duration=125)
+    finally:
+        page.close();editor.close()
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -5164,6 +5301,8 @@ def main() -> int:
     parser.add_argument(
         "--only",
         choices=(
+            "html",
+            "polyhedra",
             "phosphorene",
             "ferrocene",
             "commensurate",
@@ -5194,12 +5333,16 @@ def main() -> int:
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(headless=True)
         try:
+            if not args.only and not args.logo_only:
+                capture_docs_connection_diagram(browser)
             if args.logo_only:
                 capture_logo(browser)
                 return 0
             if not args.skip_logo and ASSET_DIR.resolve() == (ROOT / "docs" / "assets").resolve():
                 capture_logo(browser)
             captures = {
+                "html": capture_html_media,
+                "polyhedra": capture_polyhedra_media,
                 "phosphorene": capture_phosphorene_media,
                 "ferrocene": capture_ferrocene_media,
                 "commensurate": capture_commensurate_media,
