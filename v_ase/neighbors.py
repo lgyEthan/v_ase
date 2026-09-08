@@ -3,14 +3,72 @@
 from __future__ import annotations
 
 from typing import Any
+from functools import lru_cache
+import itertools
 
 import numpy as np
 from ase import Atoms
 from ase.cell import Cell
+from ase.geometry.minkowski_reduction import minkowski_reduce
 from matscipy.neighbours import neighbour_list as _matscipy_neighbour_list
 
 
 _CELL_EPS = 1e-12
+
+
+@lru_cache(maxsize=128)
+def _mic_geometry(cell_values: tuple[float, ...], periodic: tuple[bool, ...]):
+    cell = np.asarray(cell_values, dtype=float).reshape(3, 3).copy()
+    pbc = np.asarray(periodic, dtype=bool)
+    if np.linalg.matrix_rank(cell[pbc], tol=_CELL_EPS) != int(np.sum(pbc)):
+        raise ValueError("Periodic directions require independent finite cell vectors.")
+    # Finite lattice rows must not change distances in the periodic subspace.
+    # An oblique finite row makes fractional wrapping a poor initial image and
+    # can move the nearest image outside the usual reduced-cell neighborhood.
+    cell[~pbc] = 0.0
+    completed = np.asarray(Cell(cell).complete(), dtype=float)
+    reduced, _ = minkowski_reduce(completed, pbc=pbc)
+    reduced = np.asarray(reduced, dtype=float)
+    shifts = [(0, 0, 0), *itertools.product(*[
+        (-1, 0, 1) if value else (0,) for value in pbc
+    ])]
+    return reduced, np.linalg.inv(reduced), np.asarray(shifts) @ reduced
+
+
+def find_mic(v, cell, pbc=True):
+    """Return exact reduced-lattice minimum images, including partial PBC.
+
+    Match ASE's single-vector/batched interface while avoiding its unreduced
+    short-vector shortcut and dependence on oblique nonperiodic cell rows.
+    Geometry is cached; vector batches are bounded to limit temporary memory.
+    """
+    vectors = np.asarray(v, dtype=float)
+    single = vectors.ndim == 1
+    values = np.atleast_2d(vectors)
+    matrix = np.asarray(cell, dtype=float)
+    periodic = np.broadcast_to(np.asarray(pbc, dtype=bool), (3,))
+    if values.ndim != 2 or values.shape[1] != 3 or not np.all(np.isfinite(values)):
+        raise ValueError("Minimum-image vectors must be finite xyz vectors.")
+    if matrix.shape != (3, 3) or not np.all(np.isfinite(matrix)):
+        raise ValueError("Minimum-image cell must be a finite 3 x 3 matrix.")
+    if not np.any(periodic):
+        result = values.copy()
+    else:
+        reduced, inverse, translations = _mic_geometry(
+            tuple(matrix.reshape(-1)), tuple(periodic),
+        )
+        result = np.empty_like(values)
+        for start in range(0, len(values), 8192):
+            chunk = values[start:start + 8192]
+            fractional = chunk @ inverse
+            fractional[:, periodic] %= 1.0
+            wrapped = fractional @ reduced
+            images = wrapped[None, :, :] + translations[:, None, :]
+            squared = np.einsum("sni,sni->sn", images, images)
+            indices = np.argmin(squared, axis=0)
+            result[start:start + len(chunk)] = images[indices, np.arange(len(chunk))]
+    lengths = np.linalg.norm(result, axis=1)
+    return (result[0], lengths[0]) if single else (result, lengths)
 
 
 def _normalized_cutoff(cutoff: Any):
@@ -67,19 +125,20 @@ def _partial_periodic_search_geometry(
 
     matscipy bins atoms through the complete cell matrix.  With partial PBC,
     coordinates outside a finite cell direction can otherwise acquire a shift
-    in that nonperiodic direction.  Complete missing finite vectors, then
-    enlarge every nonperiodic basis direction to contain the atoms plus one
-    search-cutoff margin.  Returned shifts therefore use periodic rows only.
+    in that nonperiodic direction. Orthogonally complete the periodic rows,
+    replacing finite rows even when they are nonzero or coplanar, then enlarge
+    the finite search directions to contain the atoms plus a cutoff margin.
+    Returned shifts therefore use periodic rows only.
     """
 
     missing = np.linalg.norm(cell, axis=1) <= _CELL_EPS
     if np.any(missing & pbc):
         raise ValueError("A periodic direction requires a finite cell vector.")
-    completed = (
-        np.asarray(Cell(cell).complete(), dtype=float)
-        if np.any(missing)
-        else np.array(cell, dtype=float, copy=True)
-    )
+    if np.linalg.matrix_rank(cell[pbc], tol=_CELL_EPS) != int(np.sum(pbc)):
+        raise ValueError("Periodic directions require independent finite cell vectors.")
+    periodic_cell = np.array(cell, dtype=float, copy=True)
+    periodic_cell[~pbc] = 0.0
+    completed = np.asarray(Cell(periodic_cell).complete(), dtype=float)
     inverse = np.linalg.inv(completed)
     fractional = positions @ inverse if len(positions) else np.empty((0, 3), dtype=float)
     origin = np.zeros(3, dtype=float)

@@ -1,4 +1,16 @@
+---
+orphan: true
+---
+
 # Editing structures
+
+:::{note}
+For illustrated, step-by-step instructions, choose a feature:
+
+[Select](selection.md) · [Move](move.md) · [Rotate](rotate.md) · [Scale](scale.md) · [Build](build-atoms.md) · [Insertion regions](insertion-regions.md)
+
+This earlier combined reference remains available for existing links.
+:::
 
 v_ase separates inspection from physical editing. A file opens in lightweight
 **View** mode by default; an empty `v_ase gui` document opens in **Edit** so a
@@ -85,7 +97,7 @@ Replication** for cell operations.
 
 Choose the pivot under **Structure > Transform & Cell Match**:
 
-- **Selection COM** uses the selected center of mass;
+- **Selection COM** uses the arithmetic mean of selected editable coordinates (not a mass-weighted center of mass);
 - **Active atom (last selected)** keeps the last-selected atom fixed;
 - **Global origin** uses `[0, 0, 0]`;
 - **Unit-cell center** uses the current cell center.

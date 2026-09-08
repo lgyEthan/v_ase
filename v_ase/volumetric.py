@@ -836,6 +836,8 @@ def generate_volumetric_plane(
             component = np.clip(component, 0.0, 1.0)
         if dataset.endpoint_inclusive:
             coordinates[axis] = component * max(1.0, shape[axis] - 1.0)
+        elif dataset.pbc[axis]:
+            coordinates[axis] = component * shape[axis]
         else:
             coordinates[axis] = np.minimum(
                 component * shape[axis],
@@ -853,7 +855,10 @@ def generate_volumetric_plane(
         dataset.values,
         coordinates.reshape(3, -1),
         order=1,
-        mode="nearest",
+        # Finite coordinates already lie inside their sampled extent. Wrapped
+        # interpolation closes the final interval of exclusive periodic axes
+        # without allocating a padded three-dimensional source grid.
+        mode="grid-wrap",
         prefilter=False,
     ).reshape(height, width)
     sampled = np.ascontiguousarray(sampled, dtype=np.float32)
@@ -889,6 +894,8 @@ def generate_volumetric_plane(
             component = np.clip(component, 0.0, 1.0)
         if dataset.endpoint_inclusive:
             vertex_coordinates[:, axis] = component * max(1.0, shape[axis] - 1.0)
+        elif dataset.pbc[axis]:
+            vertex_coordinates[:, axis] = component * shape[axis]
         else:
             vertex_coordinates[:, axis] = np.minimum(
                 component * shape[axis],
@@ -898,7 +905,7 @@ def generate_volumetric_plane(
         dataset.values,
         vertex_coordinates.T,
         order=1,
-        mode="nearest",
+        mode="grid-wrap",
         prefilter=False,
     )
     visible_minimum = min(float(np.min(visible_values)), float(np.min(vertex_values)))
@@ -1296,7 +1303,8 @@ def combine_volumetric_datasets(
         if not np.allclose(
             dataset.origin,
             reference.origin,
-            rtol=GRID_GEOMETRY_RTOL,
+            # Origin compatibility must not change under a common translation.
+            rtol=0.0,
             atol=GRID_GEOMETRY_ATOL,
         ):
             raise ValueError("Charge-density difference grids must use the same origin.")
@@ -1603,11 +1611,31 @@ def generate_isosurface(
             f"{minimum:.8g} and {maximum:.8g} after field smearing."
         )
     volume, denominator = _periodic_marching_grid_values(dataset, display_values)
+    domain_maximum = np.asarray(volume.shape, dtype=float) - 1.0
+    sample_indices = None
+    if quality_step > 1:
+        # A raw marching-cubes stride omits the final cell interval when the
+        # sample count is not divisible by the step. Keep every domain endpoint
+        # and map the resulting nonuniform coarse grid back to source indices.
+        sample_indices = [
+            np.unique(np.append(np.arange(0, size, quality_step), size - 1))
+            for size in volume.shape
+        ]
+        volume = volume[np.ix_(*sample_indices)]
+    marching_level = iso_level
+    if volume.dtype == np.float64:
+        # Marching cubes stores scalar values in FP32. Subtract the requested
+        # level before that conversion so small FP64 variations atop a large
+        # baseline remain resolvable. The ufunc uses bounded conversion buffers.
+        centered = np.empty(volume.shape, dtype=np.float32)
+        np.subtract(volume, iso_level, out=centered, dtype=np.float64)
+        volume = centered
+        marching_level = 0.0
     try:
         vertices, faces, _normals, _values = marching_cubes(
             volume,
-            level=iso_level,
-            step_size=quality_step,
+            level=marching_level,
+            step_size=1,
             allow_degenerate=False,
         )
     except (RuntimeError, ValueError) as exc:
@@ -1618,7 +1646,12 @@ def generate_isosurface(
             f"{max_triangles:,} triangle safety limit. Increase the mesh step."
         )
 
-    fixed = _mesh_boundary_mask(vertices, denominator)
+    if sample_indices is not None:
+        for axis, indices in enumerate(sample_indices):
+            vertices[:, axis] = np.interp(
+                vertices[:, axis], np.arange(len(indices)), indices,
+            )
+    fixed = _mesh_boundary_mask(vertices, domain_maximum)
     vertices = _smooth_mesh_vertices(
         vertices,
         faces,

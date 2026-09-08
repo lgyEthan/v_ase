@@ -28,7 +28,7 @@ To keep Fe fixed while rotating a cyclopentadienyl ring:
 
 1. Select the five ring atoms and any other atoms that should move.
 2. Shift-select Fe last, making it the active atom.
-3. Choose **Structure > Transform > Active atom (last selected)**.
+3. Choose **Structure > Transform & Cell Match > Active atom (last selected)**.
 4. Press `R`, optionally lock `X`, `Y`, or `Z`, type an exact angle, and press
    `Enter`.
 5. Inspect the Fe coordinate after commit; it must be unchanged.
@@ -148,9 +148,12 @@ The host/guest fixture directory contains graphene, MoS2, and Cu(111) inputs:
 v_ase gui examples/commensurate_host_guest/graphene_host.extxyz --interactive
 ```
 
-The reference cases include a rectangular graphene `(√7 × √21) R±19.11°`
-host, a MoS2 `2 × 2` guest, and a 192-atom Cu(111) slab used to inspect lateral
-neighbor shells.
+The current source finds a graphene `√7 R±19.11°` host (area ratio 7) and a
+MoS2 guest spanning two rectangular conventional cells (area ratio 2).
+Both common-cell edges are 6.50855 Å with a 60° angle. The 0.3.3 search returned
+a doubled rectangular 14/4 match at the same strain; see the
+[source audit](scientific-source-audit.md#commensurate-cells).
+The fixtures also include a 192-atom Cu(111) slab for lateral neighbor shells.
 
 1. Open **Structure > Transform & Cell Match**.
 2. Load the guest without replacing the host.

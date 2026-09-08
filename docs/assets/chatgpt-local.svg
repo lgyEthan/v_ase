@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="920" height="294" viewBox="0 0 920 294" role="img" aria-labelledby="title desc">
+<title id="title">Private ChatGPT connection to local v_ase</title>
+<desc id="desc">ChatGPT connects through OpenAI Secure MCP Tunnel to a local MCP adapter. The adapter and the user's GUI share one atomic document. Python and scientific packages run on the user's computer.</desc>
+<defs><marker id="arrow" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto-start-reverse"><path d="M0 0L7 3.5L0 7Z" fill="#49788b"/></marker></defs>
+<rect width="920" height="294" rx="20" fill="#f2f6f9"/>
+<g font-family="Arial,Helvetica,sans-serif" fill="#183447">
+<text x="28" y="35" font-size="19" font-weight="700">ONE LIVE DOCUMENT · PRIVATE CONNECTION</text>
+<rect x="476" y="55" width="420" height="216" rx="16" fill="#e0eff1"/>
+<text x="494" y="80" font-size="14" font-weight="700">YOUR COMPUTER</text>
+<rect x="24" y="103" width="159" height="77" rx="12" fill="#fff" stroke="#aac1ce"/>
+<text x="104" y="137" text-anchor="middle" font-size="19" font-weight="700">ChatGPT</text>
+<text x="104" y="160" text-anchor="middle" font-size="13">Plugin + Skill</text>
+<rect x="235" y="103" width="192" height="77" rx="12" fill="#fff" stroke="#aac1ce"/>
+<text x="331" y="133" text-anchor="middle" font-size="17" font-weight="700">Secure MCP Tunnel</text>
+<text x="331" y="158" text-anchor="middle" font-size="13">OpenAI · workspace access</text>
+<rect x="502" y="103" width="151" height="77" rx="12" fill="#fff" stroke="#7cabb1"/>
+<text x="578" y="134" text-anchor="middle" font-size="18" font-weight="700">v_ase MCP</text>
+<text x="578" y="158" text-anchor="middle" font-size="13">Loopback only</text>
+<rect x="705" y="103" width="165" height="77" rx="12" fill="#fff" stroke="#7cabb1"/>
+<text x="788" y="134" text-anchor="middle" font-size="18" font-weight="700">Live document</text>
+<text x="788" y="158" text-anchor="middle" font-size="13">Your GUI + typed tools</text>
+<g stroke="#49788b" stroke-width="2" marker-start="url(#arrow)" marker-end="url(#arrow)"><path d="M190 142H228"/><path d="M435 142H493"/><path d="M661 142H698"/></g>
+<text x="687" y="215" text-anchor="middle" font-size="15">Python + ASE + scientific dependencies</text>
+<text x="687" y="244" text-anchor="middle" font-size="13">Installed once locally · keep the launcher running</text>
+<text x="225" y="217" text-anchor="middle" font-size="14">Outbound HTTPS from your computer</text>
+<text x="225" y="244" text-anchor="middle" font-size="13">No public inbound port</text>
+</g></svg>

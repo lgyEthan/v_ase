@@ -59,6 +59,9 @@ def build_parser() -> argparse.ArgumentParser:
     mcp.add_argument("--timeout", type=float, default=300)
     mcp.set_defaults(func=run_mcp)
 
+    from .chatgpt import add_parser as add_chatgpt_parser
+    add_chatgpt_parser(subparsers)
+
     gui = subparsers.add_parser(
         "gui",
         help="open the v_ase GUI, optionally with a structure, trajectory, or project",
@@ -339,7 +342,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def normalize_argv(argv: list[str] | None) -> list[str]:
     args = list(sys.argv[1:] if argv is None else argv)
-    if args and args[0] not in {"gui", "api", "mcp", "remote", "-h", "--help", "--version"} and not args[0].startswith("-"):
+    if args and args[0] not in {"gui", "api", "mcp", "chatgpt", "remote", "-h", "--help", "--version"} and not args[0].startswith("-"):
         return ["gui", *args]
     return args
 
@@ -748,6 +751,7 @@ def run_gui(args: argparse.Namespace) -> int:
         initial_design_settings=initial_design_settings,
         document_name=path.name if path is not None else "Untitled",
         open_browser=not args.no_browser and not args.cli_mode,
+        close_on_disconnect=not keep_alive,
         stream_trajectory=args.stream_frames,
         volumetric_datasets=volumetric_datasets,
     )

@@ -140,7 +140,7 @@ def run_mcp_command(args):
         # Fail before opening a GUI if the optional SDK is missing.
         import mcp.server.stdio
         if not command_url:
-            command = [sys.executable, "-m", "v_ase.cli", "gui", "--cli"]
+            command = [sys.executable, *(["-I"] if sys.flags.isolated else []), "-m", "v_ase.cli", "gui", "--cli"]
             if args.file:
                 command.append(args.file)
             if args.interactive:

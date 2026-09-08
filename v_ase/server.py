@@ -132,7 +132,7 @@ from ase.build.supercells import lattice_points_in_supercell
 from ase.calculators.singlepoint import SinglePointCalculator
 from ase.constraints import FixAtoms, FixCartesian, FixedLine, FixedPlane, FixScaled, Hookean
 from ase.data import atomic_numbers
-from ase.geometry import find_mic
+from .neighbors import find_mic
 from ase.io.formats import string2index
 
 try:
@@ -371,11 +371,13 @@ def trajectory_layout_compatible(session: EditorSession) -> bool:
             return False
         cells = np.asarray(getattr(source, "cells", []), dtype=float)
         pbc = np.asarray(getattr(source, "pbc", []), dtype=bool)
+        origins = getattr(source, "origins", None)
         compatible = bool(
             cells.shape == (session.frame_count, 3, 3)
             and pbc.shape == (session.frame_count, 3)
-            and np.allclose(cells, cells[0])
+            and np.all(cells == cells[0])
             and np.all(pbc == pbc[0])
+            and (origins is None or np.all(origins == origins[0]))
         )
         session._trajectory_layout_compatible = compatible
         return compatible
@@ -383,6 +385,7 @@ def trajectory_layout_compatible(session: EditorSession) -> bool:
     base_labels = atom_labels(session.working_atoms)
     base_cell = np.asarray(session.working_atoms.cell.array)
     base_pbc = np.asarray(session.working_atoms.pbc, dtype=bool)
+    base_origin = np.asarray(session.working_atoms.get_celldisp()).reshape(3)
     for frame in session.trajectory_frames:
         if len(frame) != natoms:
             session._trajectory_layout_compatible = False
@@ -393,7 +396,10 @@ def trajectory_layout_compatible(session: EditorSession) -> bool:
         if not np.array_equal(np.asarray(frame.pbc, dtype=bool), base_pbc):
             session._trajectory_layout_compatible = False
             return False
-        if not np.allclose(np.asarray(frame.cell.array), base_cell):
+        if not np.array_equal(np.asarray(frame.cell.array), base_cell):
+            session._trajectory_layout_compatible = False
+            return False
+        if not np.array_equal(np.asarray(frame.get_celldisp()).reshape(3), base_origin):
             session._trajectory_layout_compatible = False
             return False
     session._trajectory_layout_compatible = True
@@ -2596,7 +2602,7 @@ async def get_frame_positions(session_id: str, frame_index: int):
         raise HTTPException(status_code=404, detail="Virtual trajectory positions are not available for this session.")
     try:
         frame_atoms = await asyncio.to_thread(session.set_frame, frame_index)
-    except IndexError as exc:
+    except (IndexError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     positions = frame_atoms.get_positions()
     cell = np.asarray(frame_atoms.cell.array, dtype=float)
@@ -2610,6 +2616,7 @@ async def get_frame_positions(session_id: str, frame_index: int):
             "X-V-Ase-Atoms": str(len(session.working_atoms)),
             "X-V-Ase-Dtype": "float32",
             "X-V-Ase-Cell": json.dumps(cell.tolist(), separators=(",", ":")),
+            "X-V-Ase-Cell-Origin": json.dumps(np.asarray(frame_atoms.get_celldisp()).reshape(3).tolist()),
             "X-V-Ase-Pbc": json.dumps(pbc.tolist(), separators=(",", ":")),
         },
     )
@@ -4320,12 +4327,13 @@ async def set_frame(session_id: str, payload: Dict[str, Any]):
     frame_index = int(payload.get("index", 0))
     try:
         session.set_frame(frame_index)
-    except IndexError as exc:
+    except (IndexError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if session.trajectory_source is not None:
         return {
             "positions": session.working_atoms.get_positions().astype(float).tolist(),
             "cell": np.asarray(session.working_atoms.cell.array, dtype=float).tolist(),
+            "cell_origin": np.asarray(session.working_atoms.get_celldisp()).reshape(3).tolist(),
             "pbc": np.asarray(session.working_atoms.pbc, dtype=bool).tolist(),
             "metadata": {
                 "positions_only": True,
@@ -4509,13 +4517,12 @@ def calculate_displacements(session: EditorSession, payload: Dict[str, Any]):
     use_mic = bool(payload.get("mic", True))
     mic_applied = False
     if use_mic and np.asarray(current.pbc, dtype=bool).any():
-        cell = np.asarray(current.cell.array, dtype=float)
-        if cell.shape == (3, 3) and np.isfinite(cell).all() and abs(np.linalg.det(cell)) > 1e-12:
+        try:
             vectors, _ = find_mic(vectors, current.cell, current.pbc)
             vectors = np.asarray(vectors, dtype=float)
             mic_applied = True
-        else:
-            warnings.append("MIC was requested but the current frame has no invertible unit cell.")
+        except (ValueError, np.linalg.LinAlgError):
+            warnings.append("MIC was requested but the periodic cell vectors are invalid or dependent.")
 
     # Vectors describe the physical current-reference displacement, while the
     # glyph anchor is the atom's current position. The renderer may add a

@@ -112,8 +112,10 @@ def test_help_dialog_stays_inside_viewport_and_scrolls_to_every_section():
 
 
 def test_exact_selection_rotation_panel_commits_and_undoes_backend_coordinates():
+    # Unlike the legacy UI label "Selection COM", the selection pivot is an
+    # unweighted centroid. Unequal masses distinguish that from physical COM.
     atoms = Atoms(
-        "P3",
+        "HHeLi",
         positions=[
             [1.0, 0.0, 0.0],
             [3.0, 0.0, 0.0],

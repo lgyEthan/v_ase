@@ -1,4 +1,16 @@
+---
+orphan: true
+---
+
 # Visualization and styling
+
+:::{note}
+For illustrated, step-by-step instructions, choose a feature:
+
+[Appearance](appearance.md) · [Bonds](bonds.md) · [Camera](camera.md)
+
+This earlier combined reference remains available for existing links.
+:::
 
 Appearance in v_ase is layered. Element defaults establish a readable scene,
 label-level settings style scientific groups, atom-index overrides handle

@@ -7,6 +7,7 @@ from dataclasses import asdict, dataclass
 from urllib.parse import quote, unquote
 
 import numpy as np
+from ase.outputs import all_outputs
 
 
 _EXCLUDED_ARRAYS = {"numbers", "positions", "forces", "v_ase_atom_type"}
@@ -85,7 +86,16 @@ def _numeric_per_atom_array(value, natoms: int) -> np.ndarray | None:
 
 def _calculator_results(atoms) -> Mapping:
     results = getattr(getattr(atoms, "calc", None), "results", None)
-    return results if isinstance(results, Mapping) else {}
+    if not isinstance(results, Mapping):
+        return {}
+    # ASE describes which leading dimensions count atoms. Global vectors and
+    # tensors can accidentally have the same length as a small structure.
+    # Unknown custom result names retain the existing per-atom shape discovery.
+    return {
+        name: value
+        for name, value in results.items()
+        if name not in all_outputs or all_outputs[name].shapespec[:1] == ("natoms",)
+    }
 
 
 def _force_array(atoms) -> np.ndarray | None:
@@ -272,11 +282,12 @@ def atom_scalar_catalog(atoms) -> list[dict]:
         if str(name) in _EXCLUDED_ARRAYS:
             continue
         fields.extend(_array_field_descriptors("array", str(name), atoms.arrays[name], natoms))
-    for name in sorted(_calculator_results(atoms), key=str.casefold):
+    calculator_results = _calculator_results(atoms)
+    for name in sorted(calculator_results, key=str.casefold):
         if str(name) in _EXCLUDED_RESULTS:
             continue
         fields.extend(
-            _array_field_descriptors("result", str(name), _calculator_results(atoms)[name], natoms)
+            _array_field_descriptors("result", str(name), calculator_results[name], natoms)
         )
     return [field.payload() for field in fields]
 

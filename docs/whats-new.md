@@ -1,44 +1,19 @@
-# What is new in 0.3.3
+# What is new in 0.3.4
 
-## Focused MCP scene workflows
+Scientific fixes, personal ChatGPT connections and illustrated feature guides.
 
-Scene snapshots expose the current effective camera, appearance and rendering
-readiness without loading an image. Common style edits and complete visual/frame
-transactions use document/revision guards, verification and rollback. Scientific
-editing, analysis and exports remain available through focused tools.
-[Follow the scene workflow](ai-scene.md).
-
-## Discovery and focused guidance
-
-MCP registers all callable tools by default so hosts can keep stable bindings.
-Bounded search, exact schemas and focused guides reduce unnecessary context.
-Progressive registration remains opt-in for hosts that support live tool-list
-changes. The canonical Skill covers workflow and verification; tool schemas
-supply parameters. [Connect MCP or native tools](ai-tools.md).
-
-## Publication images and recovery
-
-Publication rendering neutralizes selection outlines and selected plane-border
-appearance without clearing live selection. Image inspection returns image
-content, while ordinary responses carry artifact paths and metadata. Retained
-request receipts support retries after an uncertain response; inspect the live
-revision before starting a different mutation.
-
-## Material evaluation
-
-Sixty fresh Luna/max participants compared GUI-only and SKILL+MCP across three
-prepared material scenes. Strict success was 24/30 and 30/30, respectively.
-Successful-run median total tokens decreased by 46–70% with MCP; an exploratory
-matching-picture audit found 28/30 and 30/30. These are workflow-specific results,
-not a universal interface ranking. [Methods and detailed results](agent-material-evaluation.md).
-
-## Upgrade
+| Change | Details |
+| --- | --- |
+| Numerical correctness and performance | [Scientific audit](scientific-source-audit.md) |
+| Personal ChatGPT tunnel | [Step-by-step setup](chatgpt-local.md) |
+| Independent feature pages and example downloads | [Feature guides](index.md#find-a-feature) |
+| Move, rotate and constraint walkthroughs | [Move](move.md) · [Rotate](rotate.md) · [Constraints](constraints.md) |
 
 ```bash
-python -m pip install --upgrade "v_ase-gui[mcp]==0.3.3"
+python -m pip install --upgrade "v_ase-gui[mcp]==0.3.4"
 ```
 
-Restart the GUI and adapter together. CLI, HTTP and JavaScript compatibility
-remain available; no model API key is required by v_ase itself. See the
-[changelog](https://github.com/lgyEthan/v_ase/blob/main/CHANGELOG.md) for earlier
-releases and the [scientific validation guide](scientific-validation.md).
+Prior releases and complete changes are in the
+[Changelog](https://github.com/lgyEthan/v_ase/blob/main/CHANGELOG.md).
+The [GUI/MCP material comparison](agent-material-evaluation.md) retains its
+original tested version; these changes do not re-label earlier measurements.

@@ -10,12 +10,11 @@ from __future__ import annotations
 import csv
 from dataclasses import dataclass
 import io
+from itertools import product
 from math import ceil, cos, gcd, radians, sin, sqrt
 from typing import Callable, Iterable, Sequence
 
 import numpy as np
-from ase.build.supercells import lattice_points_in_supercell
-
 
 from .limits import MAX_LATTICE_MATCH_AREA_RATIO
 
@@ -37,6 +36,19 @@ _ORIENTED_BASIS_TRANSFORMS = (
     np.array([[-1, 0], [-1, -1]], dtype=int),
     np.array([[1, 1], [0, 1]], dtype=int),
     np.array([[-1, -1], [0, -1]], dtype=int),
+)
+# Include both sides of every reduced-basis shear/swap boundary.  In
+# particular, rounding a Gauss coefficient across +/-1/2 requires inverse
+# shears as well as the positive shears above.  This is still an explicitly
+# finite correspondence search, not enumeration of arbitrary SL(2, Z).
+_ORIENTED_BASIS_TRANSFORMS += tuple(
+    np.array(entries, dtype=int).reshape(2, 2)
+    for entries in product((-1, 0, 1), repeat=4)
+    if entries[0] * entries[3] - entries[1] * entries[2] == 1
+    and not any(
+        tuple(transform.flat) == entries
+        for transform in _ORIENTED_BASIS_TRANSFORMS
+    )
 )
 
 
@@ -137,7 +149,12 @@ def project_periodic_lattice(
             "in the plane perpendicular to the locked rotation axis."
         )
 
-    _, first_index, second_index, first, second, alignment = max(candidates, key=lambda item: item[0])
+    _, first_index, second_index, first, second, alignment = max(
+        candidates, key=lambda item: (item[5] >= _PLANE_ALIGNMENT_MIN, item[0])
+    )
+    if float(np.dot(np.cross(first, second), normal)) < 0:
+        first_index, second_index = second_index, first_index
+        first, second = second, first
     e1 = first / np.linalg.norm(first)
     e2 = np.cross(normal, e1)
     e2 /= np.linalg.norm(e2)
@@ -145,8 +162,6 @@ def project_periodic_lattice(
         [float(np.dot(first, e1)), float(np.dot(first, e2))],
         [float(np.dot(second, e1)), float(np.dot(second, e2))],
     ])
-    if np.linalg.det(basis) < 0:
-        basis[:, 1] *= -1.0
     return ProjectedLattice(
         basis=basis,
         periodic_axes=(first_index, second_index),
@@ -185,8 +200,13 @@ def project_periodic_lattice_in_frame(
     periodic = np.asarray(pbc, dtype=bool)
     unit_normal = _unit_vector(normal)
     axes = np.asarray(frame, dtype=float)
-    if matrix.shape != (3, 3) or axes.shape != (3, 3):
+    if (
+        matrix.shape != (3, 3) or axes.shape != (3, 3)
+        or not np.all(np.isfinite(matrix)) or not np.all(np.isfinite(axes))
+    ):
         raise ValueError("Lattice matching requires finite 3 x 3 cells and a shared frame.")
+    if periodic.shape != (3,):
+        raise ValueError("Lattice matching requires three guest PBC flags.")
     e1, e2 = axes[:2]
     candidates: list[tuple[float, int, int, np.ndarray, np.ndarray, float]] = []
     periodic_indices = np.flatnonzero(periodic)
@@ -220,7 +240,7 @@ def project_periodic_lattice_in_frame(
 
     _, first_index, second_index, first, second, alignment = max(
         candidates,
-        key=lambda item: item[0],
+        key=lambda item: (item[5] >= _PLANE_ALIGNMENT_MIN, item[0]),
     )
     basis = np.array([
         [float(np.dot(first, e1)), float(np.dot(first, e2))],
@@ -497,7 +517,9 @@ def enrich_supercell_candidate(
     rotation = row_rotation_matrix(normal, float(candidate["angle_deg"]))
     rotated_source_cell = source_cell @ rotation
     try:
-        deformation = np.linalg.solve(rotated_source_cell, target_cell)
+        deformation = _plane_deformation(
+            rotated_source_cell, periodic_axes, target_cell, periodic_axes, normal
+        )
         finite_deformation = bool(np.all(np.isfinite(deformation)))
     except np.linalg.LinAlgError:
         deformation = np.eye(3)
@@ -551,20 +573,54 @@ def _integer_supercell_lattice_points(
     cell: Sequence[Sequence[float]],
     matrix: Sequence[Sequence[int]],
 ) -> list[tuple[int, int, int]]:
-    """Return primitive-cell translations inside an integer supercell."""
+    """Enumerate an exact half-open cell with determinant-sized storage.
+
+    The diagonal of row HNF follows from gcds of the first-column entries
+    and first-two-column minors.  Its rectangular coset representatives are
+    mapped into the requested parallelepiped using an integer adjugate.
+    No shear-dependent Cartesian bounding box or physical-cell inverse is
+    needed.  Python integers keep the minors exact for large input shears.
+    """
 
     parent_cell = np.asarray(cell, dtype=float)
-    transform = np.asarray(matrix, dtype=int)
-    supercell = transform @ parent_cell
-    fractional = lattice_points_in_supercell(transform)
-    cartesian = fractional @ supercell
+    if parent_cell.shape != (3, 3) or not np.all(np.isfinite(parent_cell)):
+        raise ValueError("Commensurate supercell requires a finite 3 x 3 cell.")
+    raw = np.asarray(matrix, dtype=object)
+    if raw.shape != (3, 3):
+        raise ValueError("Commensurate supercell requires a 3 x 3 integer matrix.")
     try:
-        integer_points = np.rint(cartesian @ np.linalg.inv(parent_cell)).astype(int)
-    except np.linalg.LinAlgError as exc:
-        raise ValueError("Commensurate supercell requires a non-singular 3D cell.") from exc
-    if not np.allclose(integer_points @ parent_cell, cartesian, atol=2e-7):
-        raise ValueError("Could not recover integer primitive-cell translations for the proposed cell.")
-    return sorted({tuple(int(value) for value in row) for row in integer_points})
+        transform = np.array([[int(value) for value in row] for row in raw], dtype=object)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError("Commensurate supercell requires a 3 x 3 integer matrix.") from exc
+    if not np.all(transform == raw):
+        raise ValueError("Commensurate supercell requires a 3 x 3 integer matrix.")
+    first, second, third = transform
+
+    def cross(left: np.ndarray, right: np.ndarray) -> np.ndarray:
+        return np.array([
+            left[1] * right[2] - left[2] * right[1],
+            left[2] * right[0] - left[0] * right[2],
+            left[0] * right[1] - left[1] * right[0],
+        ], dtype=object)
+
+    adjugate = np.stack([cross(second, third), cross(third, first), cross(first, second)], axis=1)
+    determinant = int(first @ adjugate[:, 0])
+    if determinant == 0:
+        raise ValueError("Commensurate supercell matrix must be non-singular.")
+    index = abs(determinant)
+    first_diagonal = gcd(*(int(value) for value in transform[:, 0]))
+    second_minor_gcd = gcd(*(
+        int(transform[i, 0] * transform[j, 1] - transform[j, 0] * transform[i, 1])
+        for i, j in ((0, 1), (0, 2), (1, 2))
+    ))
+    second_diagonal = second_minor_gcd // first_diagonal
+    third_diagonal = index // second_minor_gcd
+    representatives = np.array(list(product(
+        range(first_diagonal), range(second_diagonal), range(third_diagonal)
+    )), dtype=object)
+    numerators = (representatives @ adjugate * (1 if determinant > 0 else -1)) % index
+    integer_points = (numerators @ transform) // index
+    return sorted(tuple(int(value) for value in row) for row in integer_points)
 
 
 def _primitive_halo_points(
@@ -1270,6 +1326,14 @@ def _square_candidates(basis: np.ndarray, max_index: int) -> Iterable[dict]:
             source = np.array([[m, n], [-n, m]], dtype=int)
             target = np.array([[m, -n], [n, m]], dtype=int)
             area = m * m + n * n
+            if m % 2 and n % 2:
+                # Both boundaries share a centered square subcell.  These
+                # half-sums are integers when m,n are odd, and halve the
+                # coincidence index (including the primitive 90-degree cell).
+                primitive = np.array([[1, 1], [-1, 1]], dtype=int)
+                source = (primitive @ source) // 2
+                target = (primitive @ target) // 2
+                area //= 2
             yield _candidate(basis, source, target, family="square", area=area)
             yield _candidate(basis, target, source, family="square", area=area)
 
@@ -1379,14 +1443,11 @@ def _lattice_match_candidate(
         dtype=int,
     )
     guest_boundary = orientation_transform @ np.asarray(guest_record["basis"], dtype=float)
-    angle, guest_strain, _, guest_deformation_2d = _optimal_rotation_deformation(
+    angle, guest_strain, rotation_2d, guest_deformation_2d = _optimal_rotation_deformation(
         guest_boundary,
         host_boundary,
     )
-    rotated_guest_boundary = guest_boundary @ np.array([
-        [cos(radians(angle)), sin(radians(angle))],
-        [-sin(radians(angle)), cos(radians(angle))],
-    ])
+    rotated_guest_boundary = guest_boundary @ rotation_2d
     host_deformation_2d = np.linalg.solve(host_boundary, rotated_guest_boundary)
     guest_metrics = _deformation_strain_metrics(guest_deformation_2d)
     host_metrics = _deformation_strain_metrics(host_deformation_2d)
@@ -1458,6 +1519,8 @@ def _lattice_match_candidate(
         "Both host and guest cells must define two in-plane periodic vectors "
         "whose normals align with the Z rotation axis."
     )
+    host_notation = _supercell_notation(host_projected.basis, host_matrix_2d)
+    guest_notation = _supercell_notation(guest_projected.basis, guest_matrix_2d)
     return {
         "angle_deg": round(float(angle), 8),
         "strain": round(float(active_strain), 12),
@@ -1498,10 +1561,10 @@ def _lattice_match_candidate(
         "guest_matrix_text": _matrix_text(guest_matrix_2d),
         "source_matrix_text": _matrix_text(guest_matrix_2d),
         "target_matrix_text": _matrix_text(host_matrix_2d),
-        "host_notation": _supercell_notation(host_projected.basis, host_matrix_2d),
-        "guest_notation": _supercell_notation(guest_projected.basis, guest_matrix_2d),
-        "source_notation": _supercell_notation(guest_projected.basis, guest_matrix_2d),
-        "target_notation": _supercell_notation(host_projected.basis, host_matrix_2d),
+        "host_notation": host_notation,
+        "guest_notation": guest_notation,
+        "source_notation": guest_notation,
+        "target_notation": host_notation,
         "suggested_cell": common_cell.tolist(),
         "host_supercell": host_supercell.tolist(),
         "guest_supercell": guest_supercell.tolist(),
@@ -1565,9 +1628,8 @@ def _batch_lattice_match_kinematics(
     """Vectorize proper rotations and strains for all oriented basis variants.
 
     The leading dimension of each returned array indexes
-    ``_ORIENTED_BASIS_TRANSFORMS``.  Testing these determinant-one signed row
-    permutations makes the result invariant to acute versus obtuse reduced
-    basis representations of the same physical sublattice.
+    ``_ORIENTED_BASIS_TRANSFORMS``.  These determinant-one correspondences
+    include signed row swaps and both directions of elementary shears.
     """
 
     host = np.asarray(host_boundaries, dtype=float)
@@ -1581,6 +1643,12 @@ def _batch_lattice_match_kinematics(
     angle_variants: list[np.ndarray] = []
     guest_strain_variants: list[np.ndarray] = []
     host_strain_variants: list[np.ndarray] = []
+    evaluated_transforms: dict[tuple[int, ...], int] = {}
+
+    def normalized_angles(values: np.ndarray) -> np.ndarray:
+        result = (values + 180.0) % 360.0 - 180.0
+        result[np.isclose(result, -180.0, rtol=0.0, atol=1e-10)] = 180.0
+        return result
 
     def principal_stretches(deformation: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         # Closed-form singular values of a 2 x 2 matrix avoid hundreds of
@@ -1620,22 +1688,22 @@ def _batch_lattice_match_kinematics(
         return result
 
     for transform in _ORIENTED_BASIS_TRANSFORMS:
+        opposite = evaluated_transforms.get(tuple((-transform).flat))
+        if opposite is not None:
+            # Negating both boundary vectors only adds a half-turn.  The
+            # principal stretches are identical, so reuse their evaluation.
+            angle_variants.append(normalized_angles(angle_variants[opposite] + 180.0))
+            guest_strain_variants.append(guest_strain_variants[opposite])
+            host_strain_variants.append(host_strain_variants[opposite])
+            continue
+        evaluated_transforms[tuple(transform.flat)] = len(angle_variants)
         oriented_guest = transform @ guest
         covariance = np.swapaxes(oriented_guest, 1, 2) @ host
         cosine_numerator = covariance[:, 0, 0] + covariance[:, 1, 1]
         sine_numerator = covariance[:, 0, 1] - covariance[:, 1, 0]
-        normalization = np.hypot(cosine_numerator, sine_numerator)
-        normalization = np.maximum(normalization, 1e-30)
-        cosine_values = cosine_numerator / normalization
-        sine_values = sine_numerator / normalization
-        rotation = np.empty_like(covariance)
-        rotation[:, 0, 0] = cosine_values
-        rotation[:, 0, 1] = sine_values
-        rotation[:, 1, 0] = -sine_values
-        rotation[:, 1, 1] = cosine_values
-
-        rotated_guest = oriented_guest @ rotation
-        guest_deformation = solve_2x2(rotated_guest, host)
+        # (G Q)^-1 H = Q^T G^-1 H.  Left multiplication by a proper
+        # orthogonal Q preserves singular values; avoid forming rotated G.
+        guest_deformation = solve_2x2(oriented_guest, host)
         largest, smallest = principal_stretches(guest_deformation)
         guest_strain_variants.append(np.maximum(
             np.abs(largest - 1.0),
@@ -1647,10 +1715,9 @@ def _batch_lattice_match_kinematics(
             np.abs(np.reciprocal(smallest) - 1.0),
             np.abs(np.reciprocal(largest) - 1.0),
         ))
-        angles = np.degrees(np.arctan2(rotation[:, 0, 1], rotation[:, 0, 0]))
-        angles = (angles + 180.0) % 360.0 - 180.0
-        angles[np.isclose(angles, -180.0, atol=1e-10)] = 180.0
-        angle_variants.append(angles)
+        angle_variants.append(normalized_angles(
+            np.degrees(np.arctan2(sine_numerator, cosine_numerator))
+        ))
     return (
         np.stack(angle_variants),
         np.stack(guest_strain_variants),
@@ -1717,6 +1784,8 @@ def find_lattice_matches(
     descriptor_scale = np.array([length_limit, length_limit, cosine_limit])
     host_descriptors = np.stack([record["descriptor"] for record in host_records])
     guest_descriptors = np.stack([record["descriptor"] for record in guest_records])
+    host_basis_array = np.stack([record["basis"] for record in host_records])
+    guest_basis_array = np.stack([record["basis"] for record in guest_records])
 
     # A Chebyshev KD-tree query reproduces the three independent descriptor
     # cutoffs without the Python-level 27-bucket loop.  Exact rotations and
@@ -1754,14 +1823,8 @@ def find_lattice_matches(
                 pair_end = min(pair_count, pair_start + kinematics_batch_size)
                 host_batch_indices = host_indices[pair_start:pair_end]
                 guest_batch_indices = guest_indices[pair_start:pair_end]
-                host_boundaries = np.stack([
-                    host_records[index]["basis"]
-                    for index in host_batch_indices
-                ])
-                guest_boundaries = np.stack([
-                    guest_records[index]["basis"]
-                    for index in guest_batch_indices
-                ])
+                host_boundaries = host_basis_array[host_batch_indices]
+                guest_boundaries = guest_basis_array[guest_batch_indices]
                 angles, guest_strains, host_strains = _batch_lattice_match_kinematics(
                     host_boundaries,
                     guest_boundaries,
@@ -2004,16 +2067,30 @@ def find_commensurate_angles(
         raise ValueError("Boundary strain tolerance must be between 0 and 0.25.")
 
     projected = project_periodic_lattice(cell, pbc, axis)
-    family = _lattice_family(projected.basis)
+    search_basis, primitive_transform = _gauss_reduce(
+        projected.basis, np.eye(2, dtype=int)
+    )
+    family = _lattice_family(search_basis)
     symbols = list(chemical_symbols or [])
     carbon_only = bool(symbols) and all(symbol == "C" for symbol in symbols)
 
     if family == "hexagonal":
-        raw_candidates = _hexagonal_candidates(projected.basis, max_index, carbon_only)
+        raw_candidates = _hexagonal_candidates(search_basis, max_index, carbon_only)
     elif family == "square":
-        raw_candidates = _square_candidates(projected.basis, max_index)
+        raw_candidates = _square_candidates(search_basis, max_index)
     else:
-        raw_candidates = _generic_candidates(projected.basis, max_index, strain_tolerance)
+        raw_candidates = _generic_candidates(search_basis, max_index, strain_tolerance)
+
+    # The search uses a reduced primitive basis, but exported matrices always
+    # act on the user's original cell rows.
+    raw_candidates = (
+        {
+            **item,
+            "source_matrix": (np.asarray(item["source_matrix"]) @ primitive_transform).tolist(),
+            "target_matrix": (np.asarray(item["target_matrix"]) @ primitive_transform).tolist(),
+        }
+        for item in raw_candidates
+    )
 
     candidates = [
         enrich_supercell_candidate(
@@ -2056,7 +2133,7 @@ def find_commensurate_angles(
         "mode": "same-lattice",
         "lattice_family": family,
         "exact_rotational_symmetry_deg": _exact_rotational_symmetry_period(
-            projected.basis
+            search_basis
         ),
         "periodic_axes": list(projected.periodic_axes),
         "axis_alignment": round(float(projected.axis_alignment), 8),

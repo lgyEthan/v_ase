@@ -302,8 +302,8 @@ Run all scenarios, not only static document checks:
    - load the graphene/MoS2 visual fixture from
      `examples/commensurate_host_guest`, verify visibly different `2.46 Å` and
      `3.18 Å` parent grids, fixed grid extents and origins, cells-only default,
-     independent atom visibility, and the rectangular graphene
-     `(√7 × √21) R±19.11°` area-14 / MoS2 `2 × 2` area-4 result at
+     independent atom visibility, and the graphene `√7 R±19.11°`
+     area-7 / MoS2 area-2 result (equal 6.50855 Å edges, 60° angle) at
      `|19.10660535|` degrees with `2.3357%` maximum principal strain;
    - load the graphene/Cu(111) strict numerical fixture from the same directory,
      verify the `√13` / `√12` result at `|16.10211375|` degrees, both documented

@@ -168,7 +168,7 @@ def run_opt_thread(session, fmax, steps, run_id):
             _publish_current_step(session, atoms, dyn, run_id)
 
         dyn.attach(callback, interval=1)
-        dyn.run(fmax=fmax, steps=steps)
+        converged = dyn.run(fmax=fmax, steps=steps)
         if run_id == session.relax_run_id:
             session.working_atoms = copy_atoms_with_calc(atoms)
             session.sync_current_frame()
@@ -178,7 +178,7 @@ def run_opt_thread(session, fmax, steps, run_id):
             ws_manager.broadcast_sync(
                 {
                     "type": "relax_finished",
-                    "status": "converged",
+                    "status": "converged" if converged else "steps",
                     "step": dyn.nsteps,
                     "energy": float(energy),
                     "fmax": current_fmax,

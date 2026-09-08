@@ -12,7 +12,7 @@ import numpy as np
 from scipy.optimize import minimize
 
 from .repulsion import ensure_default_calculator
-from .registry import lattice_plane
+from .registry import lattice_plane, validated_registry_indices
 from .session import copy_atoms_with_calc
 from .websocket_manager import ws_manager
 
@@ -116,11 +116,9 @@ def registry_relaxation_summary(session: Any) -> dict[str, Any] | None:
 
 
 def _validated_selection(natoms: int, indices: Sequence[int]) -> list[int]:
-    selected = sorted({int(value) for value in indices})
+    selected = validated_registry_indices(indices, natoms)
     if not selected:
         raise ValueError("Select the movable guest/interface atoms first.")
-    if selected[0] < 0 or selected[-1] >= natoms:
-        raise ValueError("Rigid registry relaxation contains an invalid atom index.")
     if len(selected) >= natoms:
         raise ValueError("Leave at least one unselected host atom as the registry reference.")
     return selected

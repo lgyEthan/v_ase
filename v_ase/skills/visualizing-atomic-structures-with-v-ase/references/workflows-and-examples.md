@@ -837,7 +837,7 @@ Input: `examples/readme_scene_assets/phosphorene_nanosheet.cif`.
 
 For a human-assisted edit, open Edit mode and keep the first puckered ridge
 fixed. Use a visible left-drag box to select the second ridge through the end
-of the ribbon. In **Structure > Transform > Exact selection rotation**, set
+of the ribbon. In **Structure > Transform & Cell Match > Exact selection rotation**, set
 the pivot to Selection COM, axis to X, angle to
 `13.85 / 9 = 1.538889` degrees, and click **Rotate Selection**. Close the panel,
 left-drag from the third ridge through the end, and repeat from the committed
@@ -1418,8 +1418,8 @@ For the visual different-lattice check, launch
 `examples/commensurate_host_guest/mos2_guest.extxyz`. The parent lattice
 constants are `2.46 Å` and `3.18 Å`, so their black/orange primitive grids must
 be visibly different and remain fixed in extent. With guest strain `2.5%` and
-`maxAreaRatio:16`, require a rectangular graphene
-`(√7 × √21) R±19.11°` area-14 / MoS2 `2 × 2` area-4 match at
+`maxAreaRatio:16`, require a graphene `√7 R±19.11°` area-7 / MoS2 area-2
+match (equal 6.50855 Å edges, 60° angle) at
 `|19.10660535|` degrees with maximum principal strain `0.023357` to displayed
 precision. Both parent grids share one fixed in-plane origin. Atom visibility
 must remain independent of candidate validity. Treat that as a shared in-plane

@@ -4,18 +4,70 @@ from __future__ import annotations
 
 import os
 from functools import lru_cache
-from typing import Any
+from typing import Any, Sequence
 
 import numpy as np
 from ase import Atoms
+from ase.cell import Cell
 from ase.calculators.calculator import Calculator, all_changes
 from ase.data import atomic_numbers, covalent_radii, vdw_radii
-from ase.geometry import find_mic
 
 from .io import atom_labels
-from .neighbors import primitive_neighbour_list
+from .neighbors import find_mic, primitive_neighbour_list
 
 _EPS = 1e-12
+
+
+def _cartesian_region_penalty(
+    point: np.ndarray,
+    *,
+    region: Sequence[float | None],
+    prohibited: bool,
+    strength: float,
+) -> tuple[float, np.ndarray]:
+    energy = 0.0
+    force = np.zeros(3, dtype=float)
+    if prohibited:
+        lower = np.asarray(region[::2], dtype=object)
+        upper = np.asarray(region[1::2], dtype=object)
+        bounded = np.asarray([
+            lower[axis] is not None and upper[axis] is not None
+            for axis in range(3)
+        ], dtype=bool)
+        if not np.any(bounded):
+            return energy, force
+        inside = all(
+            not bounded[axis]
+            or float(lower[axis]) < float(point[axis]) < float(upper[axis])
+            for axis in range(3)
+        )
+        if not inside:
+            return energy, force
+        faces: list[tuple[float, int, float]] = []
+        for axis in np.flatnonzero(bounded):
+            faces.append((float(point[axis]) - float(lower[axis]), int(axis), -1.0))
+            faces.append((float(upper[axis]) - float(point[axis]), int(axis), 1.0))
+        distance, axis, direction = min(faces, key=lambda item: item[0])
+        force[axis] = strength * distance * direction
+        energy = 0.5 * strength * distance**2
+        return energy, force
+
+    for axis in range(3):
+        coord = float(point[axis])
+        lower = region[axis * 2]
+        upper = region[axis * 2 + 1]
+        if lower is None and upper is None:
+            continue
+        if not prohibited:
+            if lower is not None and coord < float(lower):
+                displacement = float(lower) - coord
+                force[axis] += strength * displacement
+                energy += 0.5 * strength * displacement**2
+            if upper is not None and coord > float(upper):
+                displacement = coord - float(upper)
+                force[axis] -= strength * displacement
+                energy += 0.5 * strength * displacement**2
+    return energy, force
 
 
 def _coincident_pair_vector(i: int, j: int) -> np.ndarray:
@@ -457,13 +509,16 @@ class VAseRepulsionCalculator(Calculator):
         # MIC check; scanning every missing pair made long placement runs
         # quadratic in Python even when no atoms overlapped.
         positions = np.asarray(atoms.get_positions(), dtype=float)
-        if self.mic and np.any(pbc) and atoms.cell.rank == 3:
-            scaled = np.asarray(atoms.get_scaled_positions(wrap=False), dtype=float)
+        if self.mic and np.any(pbc):
+            periodic_cell = np.array(atoms.cell, dtype=float, copy=True)
+            periodic_cell[~pbc] = 0.0
+            hash_cell = np.asarray(Cell(periodic_cell).complete(), dtype=float)
+            scaled = positions @ np.linalg.inv(hash_cell)
             for axis, periodic in enumerate(pbc):
                 if periodic:
                     scaled[:, axis] -= np.floor(scaled[:, axis])
-                    scaled[np.isclose(scaled[:, axis], 1.0, atol=1e-12), axis] = 0.0
-            hash_positions = scaled @ np.asarray(atoms.cell.array, dtype=float)
+                    scaled[np.isclose(scaled[:, axis], 1.0, rtol=0, atol=1e-12), axis] = 0.0
+            hash_positions = scaled @ hash_cell
         else:
             hash_positions = positions
         # Group in NumPy before entering Python: almost every optimizer step
@@ -476,7 +531,10 @@ class VAseRepulsionCalculator(Calculator):
         duplicate_indices = np.flatnonzero(group_counts[inverse_groups] > 1)
         if not len(duplicate_indices):
             return pairs
-        seen = set(zip(is_.tolist(), js.tolist()))
+        # A nonzero image of a basis pair does not replace its coincident
+        # image. Only an actual zero-distance entry suppresses this fallback.
+        coincident = dists <= _EPS
+        seen = set(zip(is_[coincident].tolist(), js[coincident].tolist()))
         buckets: dict[int, list[int]] = {}
         coincident_candidates: list[tuple[int, int, float, np.ndarray]] = []
         for index in duplicate_indices:
@@ -503,7 +561,7 @@ class VAseRepulsionCalculator(Calculator):
                 [candidate[3] for candidate in coincident_candidates],
                 dtype=float,
             )
-            if self.mic and np.any(pbc) and atoms.cell.rank == 3:
+            if self.mic and np.any(pbc):
                 candidate_vectors, candidate_distances = find_mic(
                     candidate_vectors,
                     atoms.cell,
@@ -521,34 +579,19 @@ class VAseRepulsionCalculator(Calculator):
         return pairs
 
     def _boundary_energy_forces(self, atoms: Atoms):
-        positions = atoms.get_positions()
-        tags = atoms.get_tags()
         forces = np.zeros((len(atoms), 3), dtype=float)
         energy = 0.0
-        for i, position in enumerate(positions):
-            if tags[i] != 3 and not self.work_on_relax_atoms_too:
+        if not any(value is not None for value in self.region):
+            return energy, forces
+        for i, (position, tag) in enumerate(zip(atoms.positions, atoms.get_tags())):
+            if tag != 3 and not self.work_on_relax_atoms_too:
                 continue
-            for axis in range(3):
-                coord = float(position[axis])
-                lower = self.region[axis * 2]
-                upper = self.region[axis * 2 + 1]
-                if lower is None and upper is None:
-                    continue
-                if not self.set_region_as_prohibited:
-                    if lower is not None and coord < lower:
-                        disp = float(lower) - coord
-                        forces[i, axis] += self.k_boundary * disp
-                        energy += 0.5 * self.k_boundary * disp**2
-                    if upper is not None and coord > upper:
-                        disp = coord - float(upper)
-                        forces[i, axis] -= self.k_boundary * disp
-                        energy += 0.5 * self.k_boundary * disp**2
-                elif lower is not None and upper is not None and float(lower) < coord < float(upper):
-                    d_lower = coord - float(lower)
-                    d_upper = float(upper) - coord
-                    disp = -d_lower if d_lower < d_upper else d_upper
-                    forces[i, axis] += self.k_boundary * disp
-                    energy += 0.5 * self.k_boundary * abs(disp) ** 2
+            atom_energy, atom_force = _cartesian_region_penalty(
+                position, region=self.region,
+                prohibited=self.set_region_as_prohibited, strength=self.k_boundary,
+            )
+            energy += atom_energy
+            forces[i] += atom_force
         return energy, forces
 
     def _should_use_torch(self):

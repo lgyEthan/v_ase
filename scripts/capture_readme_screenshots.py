@@ -2057,6 +2057,9 @@ def capture_commensurate_media(browser) -> None:
         if page.locator("#chk-commensurate-show-atoms").is_checked():
             raise AssertionError("Candidate discovery changed the user-controlled atom visibility.")
         append_hold(graph_frames, page, 16)
+        graph_frames[-1].save(
+            ASSET_DIR / "readme_commensurate_host_guest_match.png", optimize=True,
+        )
         page.evaluate("""() => {
             const app = window.__V_ASE_APP__;
             app.showAnalysisDrawer('commensurate', 'Commensurate Angle–Area–Strain Landscape');

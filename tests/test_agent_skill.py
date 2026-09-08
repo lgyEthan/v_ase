@@ -465,7 +465,7 @@ def test_skill_documents_offline_html_handoff_contract():
     assert 'embedProject: true' in workflows
     assert "a nonzero `.vase` download" in workflows
     assert "Export HTML View" in readme
-    assert "projects-export.html#html-view" in readme
+    assert "save-projects.html#html-view" in readme
     export_guide = (ROOT / "docs/projects-export.md").read_text(encoding="utf-8")
     assert "self-contained\noffline, view-only document" in export_guide
 

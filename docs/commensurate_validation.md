@@ -39,8 +39,9 @@ the host is
 D_g = (G Q)^-1 H.
 ```
 
-The implementation checks equivalent determinant-one reduced-basis
-orientations. Regression fixtures verify that equivalent unimodular input
+The current source checks all 20 determinant-one 2D matrices with entries in
+`{-1, 0, 1}`, including both elementary shear directions. Regression fixtures
+verify that equivalent unimodular input
 bases recover the same physical matches in the tested cases.
 
 This is an adaptation of the cited methods: HNF enumeration, Gauss reduction,
@@ -168,6 +169,11 @@ identical. Separate random-boundary tests compare the closed-form batched
 kinematics against SVD solves.
 
 ## Performance Boundary
+
+The following timings are historical release measurements. The
+[current source audit](scientific-source-audit.md#commensurate-cells) also fixes
+handedness, oblique vacuum vectors, square coincidence indices and the doubled
+graphene/MoS₂ result.
 
 The search uses descriptor-space `cKDTree` screening, vectorized closed-form
 2 x 2 rotation/deformation evaluation, and enriches only the best physical

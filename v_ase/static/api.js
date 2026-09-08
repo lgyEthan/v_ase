@@ -980,15 +980,17 @@ export class ASEApi {
         const frames = parseInt(res.headers.get('X-V-Ase-Frames') || '0', 10);
         const atoms = parseInt(res.headers.get('X-V-Ase-Atoms') || '0', 10);
         let cell = null;
+        let cell_origin = null;
         let pbc = null;
         try { cell = JSON.parse(res.headers.get('X-V-Ase-Cell') || 'null'); } catch { cell = null; }
+        try { cell_origin = JSON.parse(res.headers.get('X-V-Ase-Cell-Origin') || 'null'); } catch { cell_origin = null; }
         try { pbc = JSON.parse(res.headers.get('X-V-Ase-Pbc') || 'null'); } catch { pbc = null; }
         const buffer = await res.arrayBuffer();
         const values = new Float32Array(buffer);
         if (!atoms || values.length !== atoms * 3) {
             throw new Error('Frame position payload shape does not match the loaded structure.');
         }
-        return { frame, frames, atoms, values, cell, pbc };
+        return { frame, frames, atoms, values, cell, pbc, cell_origin };
     }
 
     async fetchActiveSession() {

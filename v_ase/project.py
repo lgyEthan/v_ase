@@ -271,6 +271,25 @@ def _label_payload(frames: list[Atoms]) -> dict[str, Any]:
     return {"shared": False, "frames": labels}
 
 
+def _cell_origins_payload(frames: list[Atoms]) -> list[list[float]]:
+    # ASE .traj does not store celldisp. Preserve it in the project manifest,
+    # with one shared vector for fixed-origin trajectories.
+    origins = np.array([np.asarray(frame.get_celldisp()).reshape(3) for frame in frames])
+    if not np.all(np.isfinite(origins)):
+        raise ValueError("Project cell origins must be finite XYZ vectors.")
+    return (origins[:1] if np.all(origins == origins[0]) else origins).tolist()
+
+
+def _restore_cell_origins(frames: list[Atoms], payload: Any) -> None:
+    if payload is None:
+        return  # Older projects use the ASE trajectory's zero origin.
+    origins = np.asarray(payload, dtype=float)
+    if origins.shape not in {(1, 3), (len(frames), 3)} or not np.all(np.isfinite(origins)):
+        raise ValueError("Project cell origins must match the frame count and contain finite XYZ vectors.")
+    for index, frame in enumerate(frames):
+        frame.set_celldisp(origins[0 if len(origins) == 1 else index])
+
+
 def _restore_labels(frames: list[Atoms], payload: Any) -> None:
     if not isinstance(payload, dict):
         return
@@ -522,6 +541,7 @@ def write_project_archive(
             "frame_count": len(frames),
             "current_frame": current_frame,
             "calculator_object_included": False,
+            "cell_origins": _cell_origins_payload(frames),
         },
         "settings": clean_settings,
     }
@@ -779,6 +799,7 @@ def read_project_archive(path: str | Path) -> VaseProject:
     expected_count = int(structure.get("frame_count", len(frames)))
     if expected_count != len(frames):
         raise ValueError("The .vase project frame count does not match its manifest.")
+    _restore_cell_origins(frames, structure.get("cell_origins"))
     if labels_payload is not None:
         _restore_labels(frames, labels_payload)
     if info_payload is not None:

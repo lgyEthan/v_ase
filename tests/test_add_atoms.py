@@ -683,15 +683,20 @@ def test_cached_cartesian_metric_uses_reduced_lattice_safe_radius():
 
 
 @pytest.mark.parametrize("pbc", ([True, True, True], [True, False, True]))
-def test_cached_cartesian_metric_matches_ase_for_triclinic_vectors(pbc):
+def test_cached_cartesian_metric_matches_integer_images_for_triclinic_vectors(pbc):
     from v_ase.add_atoms import _InsertionDistanceMetric
 
     generator = np.random.default_rng(703)
     vectors = generator.uniform(-3.0, 3.0, size=(4000, 3)) @ TRICLINIC_CELL
     metric = _InsertionDistanceMetric(TRICLINIC_CELL, pbc, "cartesian", True)
     actual = metric.squared(vectors, np.zeros(3))
-    expected_vectors, _ = find_mic(vectors, TRICLINIC_CELL, pbc=pbc)
-    expected = np.einsum("ij,ij->i", expected_vectors, expected_vectors)
+    # ASE's partial-PBC wrapping can depend on a tilted finite lattice row;
+    # enumerate physical periodic translations as the independent oracle.
+    expected = np.full(len(vectors), np.inf)
+    ranges = [range(-6, 7) if periodic else (0,) for periodic in pbc]
+    for shift in itertools.product(*ranges):
+        images = vectors + np.asarray(shift) @ TRICLINIC_CELL
+        np.minimum(expected, np.einsum("ij,ij->i", images, images), out=expected)
     np.testing.assert_allclose(actual, expected, atol=2e-12, rtol=1e-12)
 
 

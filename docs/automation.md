@@ -1,15 +1,7 @@
-# Automation and APIs
+---
+orphan: true
+---
 
-Use v_ase from Python, notebooks, remote systems, the command line, or an
-external AI agent while retaining the same live GUI document.
+# AI and scripting
 
-```{toctree}
-:maxdepth: 1
-
-python-api
-cli-reference
-notebooks-remote
-ai-agents
-ai-scene
-agent-material-evaluation
-```
+[ChatGPT](chatgpt-local.md) · [MCP agents](ai-agents.md) · [Python](python-api.md) · [CLI](cli-reference.md) · [Remote](notebooks-remote.md)

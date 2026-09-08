@@ -118,7 +118,24 @@ appearance, selection, and label-pair rules.
 Plain XYZ and many crystallographic formats cannot encode all of these fields.
 Choose an interchange format according to the preservation table below.
 
+## LAMMPS dump geometry
+
+In the current source, orthogonal, restricted triclinic (`xy xz yz`) and general
+triclinic (`abc origin`) boxes preserve their cell vectors and source Cartesian
+origin. Scaled coordinates include that origin; Cartesian coordinates retain
+their input values. The ASE `celldisp`, JSON `cell_origin` and semantic
+`cellOrigin` carry the same origin. Boundary flags follow the dump header;
+when a general-triclinic header omits them, PBC defaults to false.
+
+Fast View streams use FP32 for drawing and exact int64 particle/molecule IDs.
+Scientific ASE frames reread values in FP64. Changed IDs or types fail explicitly
+without switching the active frame. Reopen in **Edit** to read a trajectory whose
+atom types change through the safe parser. These changes are
+[unreleased after 0.3.3](scientific-source-audit.md).
+
 ## Volumetric data
+
+See the [field workflow](volumetric-guide.md) for grid conventions and precision.
 
 VASP density, potential, partial-density, and ELF files, Gaussian Cube, and
 XSF can open as a structure plus scalar datasets. Select the in-memory scalar

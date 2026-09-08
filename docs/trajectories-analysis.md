@@ -1,4 +1,16 @@
+---
+orphan: true
+---
+
 # Trajectories and analysis
+
+:::{note}
+For illustrated, step-by-step instructions, choose a feature:
+
+[Trajectories](trajectories.md) · [Vectors](vectors.md) · [Scalar colors](scalar-colors.md) · [RDF](rdf.md)
+
+This earlier combined reference remains available for existing links.
+:::
 
 v_ase keeps the displayed trajectory frame, atom identities, stored
 properties, vectors, volumetric assignments, and plotted analyses synchronized.
@@ -315,6 +327,12 @@ At `1x`, every source frame appears exactly once. Minimum-image interpolation
 can follow periodic crossings when stable atom count, order, elements, and
 labels permit it. Visible displacement/force vectors and scalar colors are
 recomputed for each captured frame.
+
+The current source uses a bounded nearest-image search in the midpoint-cell
+metric for skew cells. One image choice applies throughout each interval;
+cells and cell origins interpolate with the endpoint fractional coordinates.
+Singular endpoint cells retain a Cartesian fallback with `micApplied=false`.
+See [numerical checks and limits](scientific-source-audit.md#rdf-trajectories-and-file-identity).
 
 ## Semantic examples
 

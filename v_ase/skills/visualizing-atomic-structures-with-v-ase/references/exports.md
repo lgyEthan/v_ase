@@ -14,7 +14,10 @@ input; MCP performs that conversion itself. Never dump Base64 into text.
 
 ## Editable data and geometry
 
-Use project export for the human-editable scientific document; use settings for
+Use project export for the human-editable scientific document.
+`.vase` retains shared or per-frame cell origins in its
+manifest because ASE `.traj` alone drops `celldisp`. Use a project when the cell
+guide's displacement matters on reopening. Settings store
 reusable appearance without atom data. Portable HTML can be a lightweight view
 or explicitly embed the project. Geometry exports (Blender, OBJ, 3DM) are scene
 representations, not a replacement for complete scientific arrays/constraints.

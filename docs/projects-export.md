@@ -1,4 +1,16 @@
+---
+orphan: true
+---
+
 # Projects, rendering, and export
+
+:::{note}
+For illustrated, step-by-step instructions, choose a feature:
+
+[Images](render-images.md) · [Projects](save-projects.md) · [Video](export-video.md) · [3D and structure export](export-structures.md)
+
+This earlier combined reference remains available for existing links.
+:::
 
 v_ase separates the editable scientific project, lightweight offline sharing,
 rendered media, and reusable geometry exports. Choose the output based on what
@@ -37,6 +49,11 @@ The default is the smallest editable source of truth. It stores:
 The archive is self-contained and does not reference the original input file.
 Volumetric arrays use validated compressed members; project loading does not
 execute an arbitrary pickle payload.
+
+The current source also stores per-frame cell origins in the `.vase` manifest.
+ASE `.traj` alone does not preserve `celldisp`; use `.vase` or project HTML when
+the displaced cell guide must reopen exactly. Older projects without this
+optional field retain a zero origin.
 
 ### Project HTML
 

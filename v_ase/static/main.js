@@ -1,14 +1,14 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.3.3';
-import { ASERenderer } from './renderer.js?v=0.3.3';
-import { ASESelection } from './selection.js?v=0.3.3';
-import { ASETransform } from './transform.js?v=0.3.3';
-import { installAIScene } from './ai_scene.js?v=0.3.3';
+import { ASEApi } from './api.js?v=0.3.4';
+import { ASERenderer } from './renderer.js?v=0.3.4';
+import { ASESelection } from './selection.js?v=0.3.4';
+import { ASETransform } from './transform.js?v=0.3.4';
+import { installAIScene } from './ai_scene.js?v=0.3.4';
 import {
     interpolateTrajectoryFrames,
     interpolatedFrameCount,
     normalizeInterpolationMultiplier
-} from './trajectory.js?v=0.3.3';
+} from './trajectory.js?v=0.3.4';
 
 const CHEMICAL_ELEMENT_SYMBOLS = Object.freeze([
     'H','He','Li','Be','B','C','N','O','F','Ne',
@@ -16387,6 +16387,7 @@ class VAseApp {
             labelCounts,
             elementCounts,
             cell: this.clonePlain(atoms.cell || []),
+            cellOrigin: [...(atoms.cell_origin || [0, 0, 0])],
             pbc: [...(atoms.pbc || [])],
             selection,
             interaction: this.aiInteractionSnapshot(),
@@ -16474,6 +16475,7 @@ class VAseApp {
                 chemicalSymbols: atoms.chemical_symbols || [],
                 positions: atoms.positions || [],
                 cell: atoms.cell || [],
+                cellOrigin: atoms.cell_origin || [0, 0, 0],
                 pbc: atoms.pbc || [],
                 constraints: atoms.constraints || {}
             });
@@ -16720,6 +16722,7 @@ class VAseApp {
             labelCounts,
             elementCounts,
             cell: this.clonePlain(atoms.cell || []),
+            cellOrigin: [...(atoms.cell_origin || [0, 0, 0])],
             pbc: [...(atoms.pbc || [])],
             constraints: this.clonePlain(atoms.constraints || {}),
             addAtoms: this.clonePlain(this.addAtomsUI?.active || atoms.metadata?.atom_addition || null),
@@ -24116,6 +24119,7 @@ class VAseApp {
                 : null,
             pbc: Array.isArray(this.state.atoms?.pbc) ? [...this.state.atoms.pbc] : [false, false, false],
             chemicalSymbols: [...(this.state.atoms?.chemical_symbols || [])],
+            cell_origin: [...(this.state.atoms?.cell_origin || [0, 0, 0])],
             labels: [...(this.state.atoms?.symbols || [])]
         };
     }
@@ -24194,7 +24198,7 @@ class VAseApp {
     }
 
     async renderVideoCaptureSample(capture, sequence, sample, outputIndex, outputCount, outputFps, startedAt) {
-        this.applyFrameLattice(sample.cell, sample.pbc);
+        this.applyFrameLattice(sample.cell, sample.pbc, sample.cell_origin);
         this.renderer.updatePositionsFlat(sample.positions, 0, sample.count);
         await this.synchronizeVideoAnalysis(sample);
         await this.captureCurrentVideoFrame(capture, sequence, outputIndex, outputCount, outputFps, startedAt);
@@ -24308,13 +24312,19 @@ class VAseApp {
         }
     }
 
-    applyFrameLattice(cell, pbc) {
+    applyFrameLattice(cell, pbc, cellOrigin = null) {
+        const originChanged = Array.isArray(cellOrigin)
+            && JSON.stringify(this.state.atoms.cell_origin || [0, 0, 0]) !== JSON.stringify(cellOrigin);
+        if (Array.isArray(cellOrigin)) {
+            this.state.atoms.cell_origin = [...cellOrigin];
+            this.renderer.atomsData.cell_origin = [...cellOrigin];
+        }
         if (Array.isArray(cell)) {
             const oldCell = JSON.stringify(this.state.atoms.cell || []);
             const newCell = JSON.stringify(cell);
             this.state.atoms.cell = cell;
             this.renderer.atomsData.cell = cell;
-            if (oldCell !== newCell) {
+            if (oldCell !== newCell || originChanged) {
                 this.renderer.rebuildCell(cell);
                 this.renderer.rebuildSupercell();
             }
@@ -24454,7 +24464,7 @@ class VAseApp {
             }
             this.state.atoms.metadata.current_frame = frame.frame;
             this.state.atoms.metadata.frame_count = frame.frames || count;
-            this.applyFrameLattice(frame.cell, frame.pbc);
+            this.applyFrameLattice(frame.cell, frame.pbc, frame.cell_origin);
             const override = this.relaxOverridePositions(normalized);
             if (override) {
                 this.state.atoms.positions = override;
@@ -24526,7 +24536,7 @@ class VAseApp {
             this.state.atoms.metadata.frame_count = data.metadata.frame_count || this.state.atoms.metadata.frame_count;
             this.state.atoms.positions = data.positions;
             this.state.originalPositions = this.state.vizOnly ? data.positions : data.positions.map(p => [...p]);
-            this.applyFrameLattice(data.cell, data.pbc);
+            this.applyFrameLattice(data.cell, data.pbc, data.cell_origin);
             const override = this.relaxOverridePositions(data.metadata.current_frame);
             if (override) {
                 this.state.atoms.positions = override;

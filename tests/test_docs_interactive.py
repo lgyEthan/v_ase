@@ -33,13 +33,18 @@ def _toctree_entries(text: str) -> list[str]:
     return entries
 
 
-def test_sidebar_starts_with_four_task_hubs():
+def test_sidebar_exposes_independent_features_without_workflow_parent():
     index = (DOCS / "index.md").read_text(encoding="utf-8")
-    assert _toctree_entries(index) == ["start", "workflows", "automation", "reference"]
-
-    for hub in ("start", "workflows", "automation", "reference"):
-        entries = _toctree_entries((DOCS / f"{hub}.md").read_text(encoding="utf-8"))
-        assert entries, f"{hub}.md must own at least one navigation child"
+    entries = _toctree_entries(index)
+    assert len(entries) == len(set(entries))
+    assert "workflows" not in entries
+    for feature in ("move", "rotate", "scale", "constraints", "commensurate",
+                    "rdf", "isosurfaces", "field-planes", "chatgpt-local"):
+        assert feature in entries
+    for page in ("move", "rotate", "constraints"):
+        guide = (DOCS / f"{page}.md").read_text(encoding="utf-8")
+        assert "{download}" in guide
+        assert guide.count("{figure} assets/steps/") >= 2
 
 
 def test_only_logo_is_live_and_scientific_captures_are_static():
@@ -64,7 +69,7 @@ def test_only_logo_is_live_and_scientific_captures_are_static():
         assert (DOCS / target).is_file(), f"{page.name} references missing {target}"
 
     scientific_pages = {
-        "index.md": "readme_overview.png",
+        "camera.md": "readme_cu5o4_view_appearance.png",
         "editing.md": "readme_add_atoms.png",
         "constraints-relaxation.md": "readme_constraints.png",
         "trajectories-analysis.md": "readme_atom_colorscale.png",
@@ -74,7 +79,7 @@ def test_only_logo_is_live_and_scientific_captures_are_static():
     }
     for filename, asset in scientific_pages.items():
         text = (DOCS / filename).read_text(encoding="utf-8")
-        assert f"](assets/{asset})" in text
+        assert f"assets/{asset}" in text
         assert "```{vase-demo}" not in text or filename == "index.md"
 
     scene_dir = DOCS / "_interactive" / "scenes"

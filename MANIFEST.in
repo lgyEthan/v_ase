@@ -19,9 +19,11 @@ prune docs/_build
 prune docs/design
 prune docs/assets
 include docs/assets/readme_add_atoms.png
+include docs/assets/readme_add_molecules.png
 include docs/assets/readme_scratch_amorphous.png
 include docs/assets/readme_atom_colorscale.png
 include docs/assets/readme_commensurate_host_guest.png
+include docs/assets/readme_commensurate_host_guest_match.png
 include docs/assets/readme_constraints.png
 include docs/assets/readme_displacement.png
 include docs/assets/readme_hookean.png
@@ -34,6 +36,7 @@ include docs/assets/readme_volumetric.png
 include docs/assets/readme_volumetric_plane.png
 include docs/assets/v_ase-logo.png
 include docs/assets/readme_ai_collaboration.png
+include docs/assets/chatgpt-local.svg
 include docs/assets/readme_cu5o4_view_appearance.png
 include docs/assets/readme_bonds.png
 include docs/assets/readme_materials.png
@@ -55,3 +58,9 @@ prune tests
 prune paper
 prune output
 prune tmp
+
+# Illustrated independent feature manuals and portable example inputs.
+recursive-include docs/assets/steps *.png *.json
+recursive-include docs/assets/examples *.traj *.cif *.vasp *.extxyz *.cube *.json *.txt
+include docs/assets/readme_commensurate.png
+include docs/assets/readme_rotate.png

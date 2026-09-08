@@ -8,6 +8,14 @@ description: Inspect, edit, analyze and render atomic structures, trajectories a
 Use the live document's structured state. MCP is the primary interface;
 CLI and native function adapters share the same scientific backend.
 Lengths are Angstrom, angles degrees, atom/frame indices zero-based.
+For rotation/scaling, the GUI label “Selection COM” currently denotes an
+unweighted coordinate centroid; use an explicit pivot for a mass-weighted center.
+
+For a ChatGPT plugin, use its registered MCP connection. The person's computer
+runs v_ase; cloud-side localhost is not that computer. Consult the setup guide
+only for a missing connection, not before ordinary figure work.
+A reachable tunnel alone does not establish GUI readiness. Keep a GUI browser
+connected for scene operations; CLI/MCP-owned backends survive closing that tab.
 
 ## Start with the decision the task needs
 
@@ -117,6 +125,9 @@ Do not infer equilibrium from repulsive overlap removal, chemical bonds from
 visual edges, or a physical DFT quantity from a synthetic scalar field. Keep the
 user's scientific provenance and requested constraints. Use new export names
 unless replacement was requested. Existing user authorization continues to apply.
+For preparation or analysis, report the chosen boundary convention and search
+limits. A step-limited optimizer is not converged; inspect its returned status
+and final force. Feature-specific numerical limits are in the focused guides.
 
 ## Focused workflows
 

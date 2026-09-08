@@ -65,9 +65,10 @@ make -C docs clean
 1. Put user and maintainer Markdown under `docs/` with a descriptive,
    lower-case filename.
 2. Give the page exactly one level-one heading.
-3. Add it to the appropriate hub toctree: `start.md`, `workflows.md`,
-   `automation.md`, or `reference.md`. Keep `index.md` limited to those four
-   hubs so the sidebar remains compact. A page omitted from every toctree
+3. Add it directly to the appropriate captioned feature toctree in `index.md`.
+   Independent features must not be nested beneath a sequential workflow hub.
+   Start with purpose and controls, then a downloadable example with numbered
+   steps, figures, exact inputs and expected results. A page omitted from every toctree
    produces a strict-build warning unless it is deliberately marked orphaned.
 4. Use relative links between documentation pages, including the `.md`
    suffix in source.
@@ -119,8 +120,10 @@ tagged manual display a newer image and can force a documentation build or
 reader to download a large animation remotely.
 
 The GitHub README is a separate, visual workflow tour and deliberately keeps
-its generated GIFs through `docs/assets/github/`. The Read the Docs manual is
-the searchable reference and uses compact exact captures in its own pages.
+its generated GIFs through `docs/assets/github/`. The Read the Docs manual uses the same exact captures plus cropped step stills.
+Run `python scripts/build_docs_walkthrough_assets.py` after regenerating source
+GIFs; inspect every extracted frame and update the manifest/captions if frame
+indices change. Keep scientific fixtures distinct from calculated material data.
 
 Scientific application examples use the exact PNG or GIF produced by the
 canonical capture run. Do not replace an analysis, isosurface, constraint,
@@ -248,3 +251,11 @@ remains mandatory. See [Release checklist](release_checklist.md).
 - [ ] Rendered HTML was inspected, not only the Markdown source.
 - [ ] README, Skill, changelog, metadata and tests were updated where required.
 - [ ] Required Sphinx sources/assets are present in the sdist.
+
+## Animation packaging
+
+Use `vase-animation` with a local canonical GIF and an exact PNG fallback.
+GitHub and online documentation retain the original animations. Source packages
+include the static scientific previews and extracted steps instead of duplicating
+large GIFs; this keeps PyPI downloads small and the source-manual build complete.
+PDF/ePub also use the stills. Always check both checkout and sdist documentation.

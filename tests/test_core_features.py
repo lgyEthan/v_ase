@@ -740,7 +740,8 @@ def test_relaxation_starts_with_default_repulsion_calculator(monkeypatch):
         time.sleep(0.01)
     finished = [message for message, sid in messages if sid == session.session_id and message["type"] == "relax_finished"]
     assert finished
-    assert finished[-1]["status"] == "converged"
+    assert finished[-1]["status"] == "steps"
+    assert finished[-1]["fmax"] > 0.05
     assert len(finished[-1]["positions"]) == len(atoms)
     asyncio.run(stop_relaxation(session))
 
@@ -1283,6 +1284,26 @@ def test_displacement_analysis_supports_mic_and_stable_particle_id_mapping():
     np.testing.assert_allclose(mic["starts"], [[2.4, 0.0, 0.0], [0.2, 0.0, 0.0]])
     assert mic["matched"] == 2
     assert mic["unmatched_current"] == 1
+
+
+def test_displacement_analysis_and_html_support_rank_two_periodic_cells():
+    from v_ase.export import _html_frame_displacement
+
+    cell = [[2, 0, 0], [1.8, 0.5, 0], [1, 1, 0]]
+    first = Atoms("H", positions=[[0, 0, 0]], cell=cell, pbc=[True, True, False])
+    second = first.copy()
+    second.positions[0] = [1.85, 0.45, 0]
+    session = EditorSession(
+        "rank-two-displacement", first.copy(), second.copy(),
+        original_frames=[first.copy(), second.copy()],
+        trajectory_frames=[first.copy(), second.copy()], current_frame=1,
+    )
+    result = calculate_displacements(session, {"frame_index": 1, "mic": True})
+    exported = _html_frame_displacement([first, second], 1, {"displacementMic": True})
+    # Direct enumeration gives the nearest vector after subtracting cell row b.
+    np.testing.assert_allclose(result["vectors"], [[0.05, -0.05, 0]], atol=1e-12)
+    np.testing.assert_allclose(exported["vectors"], result["vectors"], atol=1e-12)
+    assert result["mic_applied"] is True
 
 
 def test_view_to_edit_mode_merges_identity_for_variable_topology_frames():

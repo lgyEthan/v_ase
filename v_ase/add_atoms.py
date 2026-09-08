@@ -22,9 +22,10 @@ from typing import Any, Iterable, Sequence
 
 import numpy as np
 from ase import Atom, Atoms
+from ase.cell import Cell
 from ase.build import molecule
 from ase.collections import g2
-from ase.constraints import FixAtoms, FixConstraint
+from ase.constraints import FixAtoms, FixConstraint, Hookean
 from ase.data import atomic_masses, atomic_numbers, covalent_radii, vdw_radii
 from ase.geometry.minkowski_reduction import minkowski_reduce
 from ase.optimize import FIRE
@@ -45,6 +46,7 @@ from .insertion_regions import (
 )
 from .repulsion import (
     VAseRepulsionCalculator,
+    _cartesian_region_penalty,
     copy_calculator,
     cpu_thread_options,
     cuda_available,
@@ -465,11 +467,15 @@ class _InsertionDistanceMetric:
             return
         gram = self.cell @ self.cell.T
         off_diagonal = gram - np.diag(np.diag(gram))
-        scale = max(1.0, float(np.max(np.abs(np.diag(gram)))))
-        if float(np.max(np.abs(off_diagonal))) <= 1e-12 * scale:
+        lengths = np.sqrt(np.diag(gram))
+        orthogonal = np.all(np.abs(off_diagonal) <= 1e-12 * lengths[:, None] * lengths[None, :])
+        if np.all(self.periodic) and orthogonal:
             return
 
-        reduced, _ = minkowski_reduce(self.cell, pbc=self.periodic)
+        periodic_cell = self.cell.copy()
+        periodic_cell[~self.periodic] = 0.0
+        completed = np.asarray(Cell(periodic_cell).complete(), dtype=float)
+        reduced, _ = minkowski_reduce(completed, pbc=self.periodic)
         ranges = [range(-int(periodic), int(periodic) + 1) for periodic in self.periodic]
         shifts = np.asarray(list(itertools.product(*ranges)), dtype=float)
         self.reduced_cell = np.asarray(reduced, dtype=float)
@@ -1568,58 +1574,6 @@ def project_rigid_groups_to_region(
     return output
 
 
-def _cartesian_region_penalty(
-    point: np.ndarray,
-    *,
-    region: Sequence[float | None],
-    prohibited: bool,
-    strength: float,
-) -> tuple[float, np.ndarray]:
-    energy = 0.0
-    force = np.zeros(3, dtype=float)
-    if prohibited:
-        lower = np.asarray(region[::2], dtype=object)
-        upper = np.asarray(region[1::2], dtype=object)
-        bounded = np.asarray([
-            lower[axis] is not None and upper[axis] is not None
-            for axis in range(3)
-        ], dtype=bool)
-        if not np.any(bounded):
-            return energy, force
-        inside = all(
-            not bounded[axis]
-            or float(lower[axis]) < float(point[axis]) < float(upper[axis])
-            for axis in range(3)
-        )
-        if not inside:
-            return energy, force
-        faces: list[tuple[float, int, float]] = []
-        for axis in np.flatnonzero(bounded):
-            faces.append((float(point[axis]) - float(lower[axis]), int(axis), -1.0))
-            faces.append((float(upper[axis]) - float(point[axis]), int(axis), 1.0))
-        distance, axis, direction = min(faces, key=lambda item: item[0])
-        force[axis] = strength * distance * direction
-        energy = 0.5 * strength * distance**2
-        return energy, force
-
-    for axis in range(3):
-        coord = float(point[axis])
-        lower = region[axis * 2]
-        upper = region[axis * 2 + 1]
-        if lower is None and upper is None:
-            continue
-        if not prohibited:
-            if lower is not None and coord < float(lower):
-                displacement = float(lower) - coord
-                force[axis] += strength * displacement
-                energy += 0.5 * strength * displacement**2
-            if upper is not None and coord > float(upper):
-                displacement = coord - float(upper)
-                force[axis] -= strength * displacement
-                energy += 0.5 * strength * displacement**2
-    return energy, force
-
-
 class AdditionRepulsionCalculator(VAseRepulsionCalculator):
     """Temporary calculator with triclinic cell-boundary forces."""
 
@@ -1644,6 +1598,20 @@ class AdditionRepulsionCalculator(VAseRepulsionCalculator):
             for group_index, group in enumerate(self.rigid_groups)
             for atom_index in group
         }
+
+    @staticmethod
+    def _rigid_origin_forces(positions, origin, force):
+        """Rigid tangent gradient of a force applied at the template origin.
+
+        The native origin need not be the atom centroid. Its offset therefore
+        contributes torque as well as translation; equal force shares alone
+        would not differentiate the reported origin-dependent energy.
+        """
+        relative = positions - np.mean(positions, axis=0)
+        inertia = np.sum(relative * relative) * np.eye(3) - relative.T @ relative
+        torque = np.cross(origin - np.mean(positions, axis=0), force)
+        angular = np.linalg.pinv(inertia, rcond=1e-12) @ torque
+        return force / len(positions) + np.cross(angular, relative)
 
     def _neighbor_pairs(self, atoms: Atoms, min_bondinfo):
         pairs = super()._neighbor_pairs(atoms, min_bondinfo)
@@ -1690,7 +1658,9 @@ class AdditionRepulsionCalculator(VAseRepulsionCalculator):
                 delta = self.insertion_domain.displacements_to_domain(
                     np.asarray([origin])
                 )[0]
-                forces[indices] += self.k_boundary * delta / max(1, len(indices))
+                forces[indices] += self._rigid_origin_forces(
+                    atoms.positions[indices], origin, self.k_boundary * delta,
+                )
                 energy += 0.5 * self.k_boundary * float(delta @ delta)
             return energy, forces
         for atom_index, point in enumerate(atoms.positions):
@@ -1716,7 +1686,9 @@ class AdditionRepulsionCalculator(VAseRepulsionCalculator):
                 strength=self.k_boundary,
             )
             energy += group_energy
-            forces[indices] += group_force / max(1, len(indices))
+            forces[indices] += self._rigid_origin_forces(
+                atoms.positions[indices], origin, group_force,
+            )
         if not self.cell_region:
             return energy, forces
         matrix = _finite_cell(atoms.cell.array)
@@ -1769,7 +1741,9 @@ class AdditionRepulsionCalculator(VAseRepulsionCalculator):
                     group_force -= self.k_boundary * distance * normal
                     energy += 0.5 * self.k_boundary * distance**2
             indices = np.asarray(group, dtype=int)
-            forces[indices] += group_force / max(1, len(indices))
+            forces[indices] += self._rigid_origin_forces(
+                atoms.positions[indices], origin, group_force,
+            )
         return energy, forces
 
 
@@ -2483,6 +2457,25 @@ def apply_atom_addition_positions(
         return addition.summary()
 
 
+def _validate_rigid_constraint_compatibility(atoms: Atoms, addition: AtomAdditionSession) -> None:
+    if not addition.rigid_molecules or not addition.molecule_groups:
+        return
+    rigid_indices = {index for group in addition.molecule_groups for index in group}
+    for constraint in atoms.constraints:
+        if isinstance(constraint, Hookean):
+            # Hookean constraints add a potential; they do not project motion.
+            continue
+        try:
+            affected = {int(index) % len(atoms) for index in constraint.get_indices()}
+        except (AttributeError, NotImplementedError):
+            affected = set(range(len(atoms)))
+        if rigid_indices & affected:
+            raise ValueError(
+                "Rigid molecular placement cannot combine atomwise constraints on the same molecule. "
+                "Remove the overlapping constraint or disable Preserve molecular geometry before relaxing."
+            )
+
+
 def _temporary_optimizer_atoms(
     session: Any,
     addition: AtomAdditionSession,
@@ -2497,6 +2490,7 @@ def _temporary_optimizer_atoms(
     device: str,
     cpu_threads: int,
 ) -> Atoms:
+    _validate_rigid_constraint_compatibility(session.working_atoms, addition)
     temporary = session.working_atoms.copy()
     tags = temporary.get_tags()
     tags[:] = 1
@@ -2543,8 +2537,6 @@ def _publish_addition_positions(
     *,
     step: int,
     max_steps: int,
-    energy: float,
-    fmax: float,
     run_id: int,
 ) -> None:
     with addition.lock:
@@ -2581,6 +2573,11 @@ def _publish_addition_positions(
                     committed_positions[ungrouped]
                 )
         temporary.set_positions(committed_positions, apply_constraint=True)
+        # Confinement and rigid constraints can change the optimizer proposal.
+        # Report the energy/forces of the positions actually being published.
+        energy = float(temporary.get_potential_energy())
+        forces = temporary.get_forces()
+        fmax = float(np.max(np.linalg.norm(forces, axis=1))) if len(forces) else 0.0
         current = session.working_atoms
         if len(current) != len(temporary):
             raise RuntimeError(_STOP_SIGNAL)
@@ -2647,7 +2644,14 @@ def _run_addition_relaxation(
                     or getattr(session, "atom_addition", None) is not addition
                 ):
                     raise RuntimeError(_STOP_SIGNAL)
-            forces = temporary.get_forces()
+            _publish_addition_positions(
+                session,
+                addition,
+                temporary,
+                step=optimizer.nsteps,
+                max_steps=steps,
+                run_id=run_id,
+            )
             calculator_status = temporary.calc.status()
             with addition.lock:
                 addition.effective_device = str(
@@ -2656,28 +2660,12 @@ def _run_addition_relaxation(
                 addition.calculator_backend = str(
                     calculator_status.get("backend") or "numpy"
                 )
-            current_fmax = (
-                float(np.sqrt((forces**2).sum(axis=1).max()))
-                if len(forces)
-                else 0.0
-            )
-            _publish_addition_positions(
-                session,
-                addition,
-                temporary,
-                step=optimizer.nsteps,
-                max_steps=steps,
-                energy=float(temporary.get_potential_energy()),
-                fmax=current_fmax,
-                run_id=run_id,
-            )
 
         # Every optimizer step is retained in the Add-mode trajectory.  The
         # calculator evaluates the complete structure before FIRE advances it.
         optimizer.attach(callback, interval=1)
-        optimizer.run(fmax=fmax, steps=steps)
-        if optimizer.nsteps >= steps:
-            status = "steps"
+        converged = optimizer.run(fmax=fmax, steps=steps)
+        status = "converged" if converged else "steps"
         callback()
     except Exception as exc:
         if str(exc) == _STOP_SIGNAL:
@@ -2718,6 +2706,7 @@ def start_atom_addition_relaxation(
         raise ValueError("Start an Add Atoms or Add Molecules session before repulsive placement.")
     if addition.is_relaxing:
         raise ValueError("Repulsive placement is already running.")
+    _validate_rigid_constraint_compatibility(session.working_atoms, addition)
     try:
         fmax = float(payload.get("fmax", 0.05))
         steps = int(payload.get("steps", 250))

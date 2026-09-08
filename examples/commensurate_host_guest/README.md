@@ -18,9 +18,11 @@ numerical regression in `expected.json`.
 4. Keep **Interlayer gap: 3 Å**, **Apply residual strain to: Guest**,
    **Maximum strain: 2.5%**, and **Maximum area ratio: 16**.
 
-The illustrated bounded match is a rectangular graphene
-`(√7 × √21) R±19.11°` area-`14` host cell against four rectangular
-MoS2 conventional cells (`2 × 2`) at `|19.10660535|°`. The parent graphene
+The current bounded match is a graphene `√7 R±19.11°` area-`7` host cell
+against two rectangular MoS2 conventional cells (area ratio `2`) at
+`|19.10660535|°`. Its equal 6.50855 Å edges meet at 60°, with 2.33566%
+maximum principal guest strain. The 0.3.3 search returned a doubled 14/4
+rectangular cell at this same angle and strain. The parent graphene
 and MoS2 grids remain fixed in extent and share the same origin while only the
 orange guest grid rotates. A teal common-cell guide appears only when the
 current angle reaches an accepted match. Atom visibility is an independent

@@ -1,4 +1,16 @@
+---
+orphan: true
+---
+
 # Volumetric fields
+
+:::{note}
+For illustrated, step-by-step instructions, choose a feature:
+
+[Field input and processing](field-processing.md) · [Isosurfaces](isosurfaces.md) · [Planes](field-planes.md)
+
+This earlier combined reference remains available for existing links.
+:::
 
 v_ase keeps scalar grids in the Python backend and sends only compact metadata,
 isosurface meshes, and sampled planar rasters to the browser. This allows large

@@ -124,6 +124,7 @@ def atoms_to_json(atoms):
         "masses": atoms.get_masses().astype(float).tolist(),
         "positions": atoms.get_positions().tolist(),
         "cell": atoms.get_cell().tolist(),
+        "cell_origin": np.asarray(atoms.get_celldisp(), dtype=float).reshape(3).tolist(),
         "pbc": atoms.get_pbc().tolist(),
         "tags": atoms.get_tags().tolist(),
         "charges": _per_atom_values(atoms, atoms.get_initial_charges, [0.0] * len(atoms)),

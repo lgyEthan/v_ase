@@ -2,7 +2,7 @@ from fastapi.responses import FileResponse, Response
 from typing import Dict, Any, Callable
 from ase.io import write
 from ase.calculators.singlepoint import SinglePointCalculator
-from ase.geometry import find_mic
+from .neighbors import find_mic
 import base64
 import binascii
 import copy
@@ -580,15 +580,12 @@ def _html_frame_displacement(frames, current_index, display):
     mic_requested = display.get("displacementMic", True) is not False
     mic_applied = False
     if mic_requested and np.asarray(current.pbc, dtype=bool).any():
-        cell = np.asarray(current.cell.array, dtype=float)
-        if (
-            cell.shape == (3, 3)
-            and np.isfinite(cell).all()
-            and abs(np.linalg.det(cell)) > 1e-12
-        ):
+        try:
             vectors, _ = find_mic(vectors, current.cell, current.pbc)
             vectors = np.asarray(vectors, dtype=float)
             mic_applied = True
+        except (ValueError, np.linalg.LinAlgError):
+            pass
     magnitudes = np.linalg.norm(vectors, axis=1)
     return {
         "status": "ok",
@@ -1321,14 +1318,14 @@ def _offset_vector(offset, cell):
     return np.asarray(offset, dtype=float) @ cell
 
 
-def _scene_cell_edges(cell, repetitions):
+def _scene_cell_edges(cell, repetitions, cell_origin=(0., 0., 0.)):
     if not np.any(cell):
         return []
     edge_axes = ((1, 2), (0, 2), (0, 1))
     edges = []
     seen = set()
     for offset in _cell_offsets(repetitions):
-        origin = _offset_vector(offset, cell)
+        origin = _offset_vector(offset, cell) + np.asarray(cell_origin, dtype=float)
         for axis, (other_a, other_b) in enumerate(edge_axes):
             for bit_a in (0, 1):
                 for bit_b in (0, 1):
@@ -1597,7 +1594,7 @@ def _cad_scene_data(session, payload: Dict[str, Any]):
     return {
         "atoms": atom_specs,
         "bonds": bond_specs,
-        "cell_edges": _scene_cell_edges(cell, repetitions) if include_cell else [],
+        "cell_edges": _scene_cell_edges(cell, repetitions, data.get("cell_origin", [0., 0., 0.])) if include_cell else [],
         "cell_color": _valid_hex_color(display.get("cellColor"), "#d6bd67"),
         "cell_thickness": cell_thickness,
         "cell_material": cell_material,

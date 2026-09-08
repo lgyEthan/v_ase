@@ -1,4 +1,16 @@
+---
+orphan: true
+---
+
 # Periodic cells and interfaces
+
+:::{note}
+For illustrated, step-by-step instructions, choose a feature:
+
+[Cell tools](cell-tools.md) · [Commensurate cells](commensurate.md) · [Registry](registry.md)
+
+This earlier combined reference remains available for existing links.
+:::
 
 v_ase distinguishes display replication, physical supercell construction,
 bounded commensurate-cell matching, and rigid registry analysis. They solve

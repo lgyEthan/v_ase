@@ -3500,6 +3500,8 @@ export class ASERenderer {
             new THREE.Vector3().addVectors(a, b).add(c)
         ];
         const edgePairs = [[0,1],[0,2],[0,3],[1,4],[1,5],[2,4],[2,6],[3,5],[3,6],[4,7],[5,7],[6,7]];
+        const origin = new THREE.Vector3(...(this.atomsData?.cell_origin || [0, 0, 0]));
+        corners.forEach(corner => corner.add(origin));
         const segments = edgePairs.map(([i, j]) => [corners[i], corners[j]]);
         if (!this.displayOptions.vizOnly) {
             const haloColor = this.viewportBackgroundMode === 'white' ? '#263238' : '#f2f5f4';
@@ -8071,8 +8073,9 @@ export class ASERenderer {
             edgeKeys.add(key);
             segments.push([start, end]);
         };
+        const cellOrigin = new THREE.Vector3(...(this.atomsData?.cell_origin || [0, 0, 0]));
         const baseCorners = (shift) => {
-            const o = shift.clone();
+            const o = shift.clone().add(cellOrigin);
             return [
                 o,
                 o.clone().add(cell[0]),

@@ -54,10 +54,11 @@ html_logo = "assets/v_ase-logo.png"
 html_favicon = "assets/v_ase-logo.png"
 html_static_path = ["_static"]
 html_css_files = ["custom.css"]
+html_js_files = ["copy-code.js"]
 html_theme_options = {
     "collapse_navigation": True,
     "navigation_depth": 3,
-    "prev_next_buttons_location": "both",
+    "prev_next_buttons_location": None,
     "sticky_navigation": True,
     "titles_only": True,
 }

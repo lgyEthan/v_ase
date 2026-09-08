@@ -10,6 +10,7 @@ features
 current_progress
 performance
 scientific-validation
+scientific-source-audit
 unit_cell_aware_rotate
 commensurate_validation
 contributing-docs

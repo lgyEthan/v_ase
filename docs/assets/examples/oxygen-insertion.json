@@ -1,0 +1,25 @@
+{
+  "entries": [
+    {
+      "element": "O",
+      "label": "O_subsurface",
+      "count": 18
+    }
+  ],
+  "seed": 2021,
+  "coverage_monolayer": 0.42857142857142855,
+  "allow_region": {
+    "id": "bulk-like-insertion-zone",
+    "name": "Bulk-like insertion zone",
+    "role": "allow",
+    "bounds": [
+      1.789333709792559,
+      16.10400338813303,
+      1.0625886504193427,
+      12.21976947982244,
+      8.0435605,
+      14.3049245
+    ]
+  },
+  "surface_reference": "https://doi.org/10.1016/S0039-6028(01)01464-9"
+}

@@ -415,12 +415,15 @@ class EditorSession:
         if self.trajectory_source is not None:
             if frame_index < 0 or frame_index >= self.frame_count:
                 raise IndexError(f"Frame index {frame_index} is out of range")
-            self.current_frame = frame_index
-            self.working_atoms = self.trajectory_source.read_atoms(frame_index)
+            # Reading can reject changed identity/species or malformed data.
+            # Keep the previous frame intact until the new frame is valid.
+            next_atoms = self.trajectory_source.read_atoms(frame_index)
             if self.original_atoms.calc:
-                self.working_atoms.calc = copy_calculator(self.original_atoms.calc)
+                next_atoms.calc = copy_calculator(self.original_atoms.calc)
             else:
-                self._ensure_session_calculator(self.working_atoms)
+                self._ensure_session_calculator(next_atoms)
+            self.working_atoms = next_atoms
+            self.current_frame = frame_index
             return self.working_atoms
         if not self.trajectory_frames:
             return self.working_atoms

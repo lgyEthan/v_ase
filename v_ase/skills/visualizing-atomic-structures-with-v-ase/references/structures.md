@@ -36,3 +36,23 @@ Use `vase_bulk_catalog` and `vase_bulk_preview`, choose a supported ASE crystal 
 inspect the proposed cell/count before replacing an existing structure. Primitive,
 orthorhombic and cubic cells can differ. Calculator/labels/constraints need an
 explicit scientific decision after a topology-changing build.
+
+## Human move and rotation controls
+
+In Edit, `G` then `X`/`Y`/`Z` and a number requests an axis displacement in Å.
+`R` uses degrees about the chosen pivot; `S` scales coordinate spacing. These
+axes are global Cartesian directions, not lattice rows. ASE constraints can
+project the request; verify committed positions. A FixedLine can project a
+Cartesian request onto an oblique line. Pointer increments do not quantize typed
+numbers; commensurate magnetic snapping can affect rotation angles separately.
+
+The `selection` rotation/scaling pivot is the arithmetic coordinate centroid,
+despite the GUI's “Selection COM” label. It is not mass-weighted. `active` uses
+the last selected atom; `origin` uses [0,0,0]; `cell` uses the cell center. Do not
+confuse this with the separate mass-weighted visual COM-to-origin operation.
+The ferrocene fixture uses top-ring indices 1–10 and Fe #0 selected last. Rotation
+about Fe leaves Fe unchanged but does not create an ASE fixed-atom constraint.
+
+The user manual has independent Move, Rotate and Constraints pages, with exact
+input downloads and sampled GIF stills. A sampled frame is not evidence of an
+exact numerical endpoint; inspect the semantic coordinates for that check.

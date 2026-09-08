@@ -3,7 +3,8 @@ import pytest
 import asyncio
 from ase import Atoms
 
-from v_ase.registry import calculate_registry_map, lattice_plane, registry_map_csv
+from v_ase.registry import calculate_registry_map, lattice_plane, normalized_hkl, registry_map_csv
+from v_ase.registry_relax import _validated_selection
 from v_ase.server import registry_analysis, registry_analysis_csv
 from v_ase.session import EditorSession, sessions
 
@@ -143,3 +144,23 @@ def test_arbitrary_hkl_plane_uses_exact_periodic_lattice_vectors_in_a_skew_cell(
 def test_hkl_plane_rejects_translations_along_a_nonperiodic_cell_vector():
     with pytest.raises(ValueError, match="does not contain two translations"):
         lattice_plane(np.diag([4.0, 5.0, 6.0]), [True, False, True], (0, 0, 1))
+
+
+@pytest.mark.parametrize("hkl", [(100000.1, 0, 1), (np.inf, 0, 1), (2**63, 0, 1)])
+def test_hkl_rejects_noninteger_nonfinite_and_overflowing_values(hkl):
+    with pytest.raises(ValueError):
+        normalized_hkl(hkl)
+
+
+@pytest.mark.parametrize("selection", [[1.5], [True], [np.nan], [[1]], [-1], [3]])
+def test_registry_map_and_relaxation_reject_ambiguous_atom_identities(selection):
+    with pytest.raises(ValueError, match="index|indices"):
+        calculate_registry_map(interface_atoms(), selection, grid_x=4, grid_y=4)
+    with pytest.raises(ValueError, match="index|indices"):
+        _validated_selection(3, selection)
+
+
+@pytest.mark.parametrize("grid", [4.5, True, np.nan])
+def test_registry_grid_rejects_silent_rounding(grid):
+    with pytest.raises(ValueError, match="finite integers"):
+        calculate_registry_map(interface_atoms(), [2], grid_x=grid, grid_y=4)

@@ -43,6 +43,24 @@ ensemble or time average separately if that is the desired observable.
 
 ![Periodic total and label-resolved RDF](assets/readme_rdf.png)
 
+## Example: reproduce the Cu–Zr plot
+
+Download {download}`cuzr-rdf.traj <assets/examples/cuzr-rdf.traj>` and open it:
+
+```bash
+v_ase gui cuzr-rdf.traj
+```
+
+1. Open **Analysis > Radial / Pair Distribution**.
+2. Set cutoff **11 Å**, bins **180**, and **All label pairs**.
+3. Click **Calculate & Plot**. Compare total, Cu–Cu, Cu–Zr and Zr–Zr curves.
+4. Check the label counts and volume before interpreting the normalization.
+5. Export CSV and verify its radius and partial-curve columns.
+
+This is the exact 900-atom, 28 Å cubic, seed-20260731 hard-core fixture used in
+ the image above. It illustrates disordered pair statistics; it is not an
+ equilibrated metallic glass or a fitted experimental RDF.
+
 ## Normalization and partial curves
 
 For a periodic cell of volume `V` with `N` atoms, bin edges `a,b`, and directed
@@ -95,6 +113,6 @@ add independent samples. A smooth homogeneous placement is correlated and
 should not be used as an ideal-gas normalization reference. A low repulsive
 energy does not establish chemical order or physical stability.
 
-See [trajectories](trajectories-analysis.md) for frame synchronization and
+See [trajectories](trajectories.md) for frame synchronization and
 [scientific validation](scientific-validation.md) for the enumeration and
 normalization regressions.

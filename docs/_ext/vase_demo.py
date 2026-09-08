@@ -139,8 +139,36 @@ def _copy_interactive_runtime(app, exception) -> None:
         shutil.copy2(poster_source, poster_target / poster_source.name)
 
 
+class VaseAnimationDirective(Directive):
+    """Keep original animations online, exact stills in the lightweight sdist."""
+
+    required_arguments = 1
+    has_content = True
+    option_spec = {"alt": directives.unchanged_required, "fallback": directives.path}
+
+    def run(self):
+        env = self.state.document.settings.env
+        source = self.arguments[0]
+        fallback = self.options.get("fallback")
+        if not fallback or not (Path(env.srcdir) / fallback).is_file():
+            raise self.error("An existing exact-frame fallback is required.")
+        available = (Path(env.srcdir) / source).is_file()
+        use_animation = available and env.app.builder.name in HTML_BUILDERS
+        target = source if use_animation else fallback
+        env.note_dependency(str(Path(env.srcdir) / target))
+        figure = nodes.figure()
+        figure += nodes.image(uri=target, alt=self.options.get("alt", "Atomic structure example"))
+        caption = " ".join(self.content)
+        if not use_animation:
+            caption += " Static preview; the online manual includes the original animation."
+        if caption.strip():
+            figure += nodes.caption(text=caption.strip())
+        return [figure]
+
+
 def setup(app):
     app.add_directive("vase-demo", VaseDemoDirective)
+    app.add_directive("vase-animation", VaseAnimationDirective)
     app.connect("build-finished", _copy_interactive_runtime)
     return {
         "version": "1.0",

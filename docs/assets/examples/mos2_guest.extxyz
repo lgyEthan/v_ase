@@ -1,0 +1,8 @@
+6
+Lattice="3.18 0.0 0.0 0.0 5.50792156806903 0.0 0.0 0.0 21.19" Properties=species:S:1:pos:R:3:v_ase_atom_type:S:1 fixture=graphene_mos2_commensurate_visual pbc="T T F"
+Mo       0.00000000       0.00000000      10.59500000 Mo_guest
+S        1.59000000       0.91798693      12.19000000 S_guest
+S        1.59000000       0.91798693       9.00000000 S_guest
+Mo       1.59000000       2.75396078      10.59500000 Mo_guest
+S        0.00000000       3.67194771      12.19000000 S_guest
+S        0.00000000       3.67194771       9.00000000 S_guest

@@ -11,7 +11,7 @@ from typing import Any, Callable, Iterable, Sequence
 import numpy as np
 from ase import Atoms
 from ase.data import covalent_radii
-from ase.geometry import find_mic
+from .neighbors import find_mic
 
 from .io import atom_labels
 
@@ -20,15 +20,37 @@ MAX_REGISTRY_GRID = 160
 ProgressCallback = Callable[[float, str], None]
 
 
+def validated_registry_indices(indices: Sequence[int], natoms: int) -> list[int]:
+    """Validate identities before integer conversion can select another atom."""
+    raw = np.asarray(indices, dtype=object)
+    if raw.ndim != 1:
+        raise ValueError("Registry selection must contain integer atom indices.")
+    selected = set()
+    for value in raw:
+        try:
+            index = int(value)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise ValueError("Registry selection must contain finite integer atom indices.") from exc
+        if isinstance(value, (bool, np.bool_)) or index != value:
+            raise ValueError("Registry selection must contain integer atom indices.")
+        if index < 0 or index >= natoms:
+            raise ValueError("Registry selection contains an invalid atom index.")
+        selected.add(index)
+    return sorted(selected)
+
+
 def normalized_hkl(hkl: Sequence[int | float]) -> tuple[int, int, int]:
     """Return a primitive, sign-canonical Miller-index triplet."""
 
     raw = np.asarray(hkl, dtype=float)
     if raw.shape != (3,) or not np.all(np.isfinite(raw)):
         raise ValueError("hkl must contain three finite integer values.")
-    rounded = np.rint(raw).astype(np.int64)
-    if not np.allclose(raw, rounded, atol=1e-10):
+    rounded = np.rint(raw)
+    if not np.allclose(raw, rounded, atol=1e-10, rtol=0):
         raise ValueError("hkl must contain integer Miller indices.")
+    if np.any(rounded >= 2.0**63) or np.any(rounded < -(2.0**63)):
+        raise ValueError("hkl values must fit in signed 64-bit integers.")
+    rounded = rounded.astype(np.int64)
     divisor = math.gcd(math.gcd(abs(int(rounded[0])), abs(int(rounded[1]))), abs(int(rounded[2])))
     if divisor == 0:
         raise ValueError("hkl cannot be (0, 0, 0).")
@@ -234,16 +256,18 @@ def calculate_registry_map(
     extension. Neither score is an electronic energy.
     """
 
-    selected = tuple(sorted({int(value) for value in selected_indices}))
+    selected = tuple(validated_registry_indices(selected_indices, len(atoms)))
     if not selected:
         raise ValueError("Select the guest/interface atoms before calculating a registry map.")
-    if selected[0] < 0 or selected[-1] >= len(atoms):
-        raise ValueError("Registry-map selection contains an invalid atom index.")
     selected_set = set(selected)
     host = tuple(index for index in range(len(atoms)) if index not in selected_set)
     if not host:
         raise ValueError("Registry mapping needs unselected host atoms as a reference.")
 
+    grid = np.asarray([grid_x, grid_y], dtype=float)
+    if (isinstance(grid_x, (bool, np.bool_)) or isinstance(grid_y, (bool, np.bool_))
+            or not np.all(np.isfinite(grid)) or np.any(grid != np.rint(grid))):
+        raise ValueError("Registry grid dimensions must be finite integers.")
     nx, ny = int(grid_x), int(grid_y)
     if nx < 4 or ny < 4 or nx > MAX_REGISTRY_GRID or ny > MAX_REGISTRY_GRID:
         raise ValueError(f"Registry grid dimensions must be between 4 and {MAX_REGISTRY_GRID}.")

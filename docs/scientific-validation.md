@@ -4,6 +4,10 @@ This page records what the 0.3.1 audit establishes and how to reproduce it.
 It separates mathematical correctness of a calculation from physical validity
 of the model supplied to that calculation.
 
+For the current unreleased fixes, see the illustrated
+[source audit by feature](scientific-source-audit.md). The results below are
+the historical 0.3.1 audit.
+
 ```{contents} On this page
 :local:
 :depth: 1
@@ -14,7 +18,7 @@ of the model supplied to that calculation.
 | Feature | Independent check | Interpretation boundary |
 | --- | --- | --- |
 | Random positions | Fractional moments and voxel occupancy in skew cells | Uniform volume sampling, not thermodynamic sampling |
-| Homogeneous positions | Exact ASE triclinic MIC; spacing and probe coverage | Bounded greedy construction, not optimal packing |
+| Homogeneous positions | Triclinic image enumeration; spacing and probe coverage | Bounded greedy construction, not optimal packing |
 | Repulsion | Analytic harmonic derivative, finite differences, momentum/torque, cell repetition | Overlap penalty, not a material potential |
 | Commensurate search | Analytic hexagonal series, published strain components, unscreened small searches | Finite lattice search, not interface energy minimization |
 | RDF | Explicit image enumeration and concentration reconstruction | Bulk or finite-system normalization, not a slab correction |

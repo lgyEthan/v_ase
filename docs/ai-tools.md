@@ -1,5 +1,8 @@
 # MCP and native function tools
 
+For ChatGPT web/app, use the [personal local tunnel setup](chatgpt-local.md)
+(v_ase 0.3.4+). ChatGPT cannot call your computer's loopback address directly.
+
 v_ase 0.3.3 provides typed tools for the shared human GUI. The tools use the
 same scientific operations and revision stream as the CLI and JavaScript
 interface. v_ase does not run a model or require a model API key.
@@ -14,7 +17,7 @@ interface. v_ase does not run a model or require a model API key.
 Install the release including the official MCP SDK adapter:
 
 ```bash
-python -m pip install "v_ase-gui[mcp]==0.3.3"
+python -m pip install "v_ase-gui[mcp]==0.3.4"
 ```
 
 Add this stdio server to your MCP host's configuration. Use the absolute path

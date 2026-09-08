@@ -151,6 +151,26 @@ def test_rank_deficient_partial_periodic_search_preserves_periodic_images():
     _assert_same_pairs(actual, expected)
 
 
+def test_coplanar_nonzero_finite_row_does_not_change_partial_periodic_neighbors():
+    import itertools
+    cell = np.array([[2., 0., 0.], [0., 2., 0.], [1., 1., 0.]])
+    positions = np.array([[0., 0., 0.], [.1, .1, 0.], [1.9, 1.8, .2]])
+    cutoff = .5
+    actual = primitive_neighbour_list('ijSDd', pbc=[True, True, False], cell=cell,
+                                      positions=positions, cutoff=cutoff)
+    pairs = []
+    for i, j, shift in itertools.product(range(3), range(3),
+                                        itertools.product(range(-1, 2), range(-1, 2), [0])):
+        if i == j and shift == (0, 0, 0):
+            continue
+        delta = positions[j] - positions[i] + np.array(shift) @ cell
+        distance = np.linalg.norm(delta)
+        if distance < cutoff:
+            pairs.append((i, j, shift, delta, distance))
+    expected = tuple(np.asarray([pair[column] for pair in pairs]) for column in range(5))
+    _assert_same_shifted_pairs(actual, expected)
+
+
 def test_native_pair_cutoff_table_matches_ase_for_encoded_label_types():
     rng = np.random.default_rng(301)
     positions = rng.random((90, 3)) @ np.asarray([

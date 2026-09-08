@@ -11,12 +11,15 @@ from functools import cached_property, lru_cache
 from typing import Any, Iterable, Sequence
 
 import numpy as np
-from ase.geometry import find_mic
 from scipy.spatial import ConvexHull, QhullError
+
+from .neighbors import find_mic
 
 
 MAX_INSERTION_REGIONS = 32
 MAX_PERIODIC_REGION_IMAGES = 4096
+MAX_PROJECTION_COMPONENT_IMAGES = 2_000_000
+MAX_INSERTION_PARTITION_CELLS = 250_000
 _TOLERANCE = 1e-10
 _REGION_ID_PATTERN = re.compile(r"[^A-Za-z0-9_.:-]+")
 
@@ -210,6 +213,19 @@ def _periodic_region_images(
             region.bounds,
         )]
     base_bounds = cell_cartesian_bounds(cell)
+    region_lower, region_upper = _bounds_arrays(region.bounds)
+    base_lower, base_upper = _bounds_arrays(base_bounds)
+    if np.all(region_lower <= base_lower) and np.all(region_upper >= base_upper):
+        # A Cartesian box containing every cell vertex contains the complete
+        # convex cell. Its translated images add nothing to the region union
+        # within that cell, even for very large boxes and highly skew cells.
+        return [PeriodicRegionImage(
+            region.id,
+            region.role,
+            (0, 0, 0),
+            (0.0, 0.0, 0.0),
+            region.bounds,
+        )]
     if not pbc_aware or not np.any(pbc):
         clipped = _bounds_intersection(region.bounds, base_bounds)
         if clipped is None:
@@ -223,6 +239,14 @@ def _periodic_region_images(
         )]
 
     fractional = _bounds_corners(region.bounds) @ np.linalg.inv(cell)
+    # Periodic translations cannot repair a disjoint finite fractional axis.
+    # Reject this before constructing a potentially enormous periodic range.
+    finite_axes = ~pbc
+    if np.any(finite_axes & (
+        (np.max(fractional, axis=0) <= 0.0)
+        | (np.min(fractional, axis=0) >= 1.0)
+    )):
+        return []
     ranges: list[range] = []
     for axis in range(3):
         if not pbc[axis]:
@@ -231,6 +255,14 @@ def _periodic_region_images(
         lower = int(math.ceil(-float(fractional[:, axis].max()) - 1e-9))
         upper = int(math.floor(1.0 - float(fractional[:, axis].min()) + 1e-9))
         ranges.append(range(lower, upper + 1))
+    # Bound candidates, not only retained intersections. Otherwise a long box
+    # outside the Cartesian cell can enumerate trillions of rejected shifts.
+    # Subtract endpoints rather than len(range), which can itself overflow.
+    if math.prod(max(0, values.stop - values.start) for values in ranges) > MAX_PERIODIC_REGION_IMAGES:
+        raise ValueError(
+            "An insertion region requires too many candidate periodic images. "
+            "Reduce its size or disable periodic region wrapping."
+        )
     images: list[PeriodicRegionImage] = []
     for shift_values in itertools.product(*ranges):
         shift = np.asarray(shift_values, dtype=int)
@@ -475,64 +507,109 @@ class InsertionDomain:
         fractional[:, self.pbc] %= 1.0
         return fractional @ self.cell
 
-    def _project_to_base(self, point: np.ndarray) -> np.ndarray:
-        value = np.asarray(point, dtype=float).copy()
-        if self.cell is None:
-            return value
-        inverse = np.linalg.inv(self.cell)
-        fractional = value @ inverse
-        for axis in range(3):
-            if self.pbc_aware and self.pbc[axis]:
-                fractional[axis] %= 1.0
-            else:
-                fractional[axis] = float(np.clip(fractional[axis], 1e-9, 1.0 - 1e-9))
-        return fractional @ self.cell
-
-    def _candidate_points(self, point: np.ndarray) -> list[np.ndarray]:
-        epsilon = 1e-8
-        base = self._project_to_base(point)
-        if self.cell is not None and self.pbc_aware and np.any(self.pbc):
-            ranges = [(-1, 0, 1) if periodic else (0,) for periodic in self.pbc]
-            point_images = [
-                base + np.asarray(shift, dtype=float) @ self.cell
-                for shift in itertools.product(*ranges)
-            ]
-        else:
-            point_images = [base]
-        candidates: list[np.ndarray] = [base]
-        for source in point_images:
-            for image in self.allow_images:
-                lower, upper = _bounds_arrays(image.bounds)
-                candidates.append(self._project_to_base(
-                    np.clip(source, lower + epsilon, upper - epsilon)
-                ))
-            for image in self.reject_images:
-                lower, upper = _bounds_arrays(image.bounds)
-                if not np.all((source >= lower) & (source <= upper)):
-                    continue
-                for axis in range(3):
-                    lower_face = source.copy()
-                    lower_face[axis] = lower[axis] - epsilon
-                    candidates.append(self._project_to_base(lower_face))
-                    upper_face = source.copy()
-                    upper_face[axis] = upper[axis] + epsilon
-                    candidates.append(self._project_to_base(upper_face))
-        unique = np.unique(np.round(np.asarray(candidates), decimals=12), axis=0)
-        return [candidate for candidate in unique]
-
     def _minimum_image_displacements(self, vectors: np.ndarray) -> np.ndarray:
         values = np.asarray(vectors, dtype=float)
         if self.cell is None or not self.pbc_aware or not np.any(self.pbc):
             return values
         return np.asarray(find_mic(values, self.cell, pbc=self.pbc)[0], dtype=float)
 
-    def project_points(self, points: Sequence[Sequence[float]]) -> np.ndarray:
-        """Project points to the nearest generated feasible boundary candidate.
+    @cached_property
+    def _projection_planes(self):
+        normals, _ = _box_halfspaces([0, 1] * 3)
+        if self.cell is not None:
+            normals = np.concatenate((normals, _cell_halfspaces(self.cell)[0]))
+        scales = np.linalg.norm(normals, axis=1)
+        normals = normals / scales[:, None]
+        groups = []
+        for size in (1, 2, 3):
+            indices = np.asarray([
+                subset for subset in itertools.combinations(range(len(normals)), size)
+                if np.linalg.matrix_rank(normals[list(subset)], tol=1e-12) == size
+            ])
+            active = normals[indices]
+            groups.append((indices, active, np.linalg.pinv(active, rcond=1e-12)))
+        return normals, scales, groups
 
-        Region volume and sampling are exact. This projection is used only by
-        the optional confinement force during relaxation; it searches all
-        relevant allow clamps and reject faces, then chooses the nearest valid
-        candidate in Cartesian distance.
+    def _project_component(self, point: np.ndarray, index: int):
+        lower, upper, box_inside = self._projection_components
+        if box_inside[index]:
+            return np.clip(point, lower[index], upper[index]), 0.5 * (lower[index] + upper[index])
+        normals, scales, groups = self._projection_planes
+        limits = np.column_stack((upper[index], -lower[index])).reshape(-1)
+        limits = np.concatenate((limits, np.tile([1.0, 0.0], 3))) / scales
+        candidates = [point[None, :]]
+        for indices, active, inverse in groups:
+            rhs = np.einsum("nij,j->ni", active, point) - limits[indices]
+            candidates.append(point - np.einsum("nij,nj->ni", inverse, rhs))
+        candidates = np.concatenate(candidates)
+        candidates = candidates[np.all(candidates @ normals.T <= limits + 2e-10, axis=1)]
+        if not len(candidates):
+            raise ValueError("The insertion domain has an ill-conditioned boundary intersection.")
+        squared = np.sum((candidates - point) ** 2, axis=1)
+        # All feasible vertices occur among these active sets, so their mean
+        # lies inside this positive-volume component, including clipped boxes.
+        return candidates[int(np.argmin(squared))], np.mean(candidates, axis=0)
+
+    def _project_closure(self, point: np.ndarray):
+        """Nearest Euclidean point in the finite union, including cell images."""
+        lower, upper, _ = self._projection_components
+        box_delta = np.clip(point, lower, upper) - point
+        lower_bound = np.sum(box_delta * box_delta, axis=1)
+        initial_index = int(np.argmin(lower_bound))
+        best, center = self._project_component(point, initial_index)
+        periodic_search = self.cell is not None and self.pbc_aware and np.any(self.pbc)
+        if len(lower) == 1 and not periodic_search:
+            return best, center
+        best_delta = self._minimum_image_displacements((best - point)[None, :])[0]
+        best_squared = float(best_delta @ best_delta)
+        best_translation = point + best_delta - best
+        best = best + best_translation
+        center = center + best_translation
+
+        translations = np.zeros((1, 3))
+        if periodic_search:
+            inverse = np.linalg.inv(self.cell)
+            fractional = point @ inverse
+            margin = math.sqrt(best_squared) * np.linalg.norm(inverse, axis=0)
+            ranges = [
+                range(math.ceil(fractional[axis] - 1.0 - margin[axis] - 1e-9),
+                      math.floor(fractional[axis] + margin[axis] + 1e-9) + 1)
+                if self.pbc[axis] else range(1)
+                for axis in range(3)
+            ]
+            if math.prod(map(len, ranges)) > MAX_PERIODIC_REGION_IMAGES:
+                raise ValueError("Domain confinement requires too many periodic images; reduce cell skew or region complexity.")
+            translations = np.asarray(list(itertools.product(*ranges))) @ self.cell
+        if len(translations) * len(lower) > MAX_PROJECTION_COMPONENT_IMAGES:
+            raise ValueError("Domain confinement exceeds the bounded region-image search; reduce region complexity.")
+        # Box-distance lower bounds prune exact polytope solves. Search closest
+        # bounds first, then stop as soon as all remaining bounds are worse.
+        candidates = []
+        for translation in translations:
+            local = point - translation
+            delta = np.clip(local, lower, upper) - local
+            distances = np.sum(delta * delta, axis=1)
+            for index in np.flatnonzero(distances <= best_squared + 1e-12):
+                candidates.append((float(distances[index]), int(index), translation))
+        candidates.sort(key=lambda item: item[0])
+        for distance, index, translation in candidates:
+            if distance > best_squared + 1e-12:
+                break
+            if index == initial_index and not np.any(translation):
+                continue  # This component/query was solved for the initial bound.
+            projected, interior = self._project_component(point - translation, index)
+            projected = projected + translation
+            squared = float(np.sum((projected - point) ** 2))
+            if squared < best_squared:
+                best, center, best_squared = projected, interior + translation, squared
+        return best, center
+
+    def project_points(self, points: Sequence[Sequence[float]]) -> np.ndarray:
+        """Project to the nearest feasible domain component in Cartesian space.
+
+        Reject faces belong to the closure used by the conservative penalty.
+        Hard publication nudges those boundary points into the chosen component
+        so that the returned positions also satisfy the strict rejection rule.
         """
         values = np.asarray(points, dtype=float)
         if values.ndim != 2 or values.shape[1] != 3 or not np.all(np.isfinite(values)):
@@ -541,35 +618,19 @@ class InsertionDomain:
         valid = self.contains(output)
         for index in np.flatnonzero(~valid):
             point = output[index]
-            candidates = self._candidate_points(point)
-            feasible = [
-                candidate
-                for candidate in candidates
-                if bool(self.contains(np.asarray([candidate]))[0])
-            ]
-            if not feasible:
-                # Resolve combinations of overlapping reject regions without
-                # replacing exact domain semantics by a voxel approximation.
-                frontier = candidates
-                for _ in range(max(1, len(self.reject_regions))):
-                    next_frontier: list[np.ndarray] = []
-                    for candidate in frontier:
-                        next_frontier.extend(self._candidate_points(candidate))
-                    feasible = [
-                        candidate
-                        for candidate in next_frontier
-                        if bool(self.contains(np.asarray([candidate]))[0])
-                    ]
-                    if feasible:
+            projected, interior = self._project_closure(point)
+            canonical = self.canonicalize_points(projected[None, :])[0]
+            if not self.contains(canonical[None, :])[0]:
+                direction = interior - projected
+                fraction = min(0.5, 1e-8 / max(float(np.linalg.norm(direction)), 1e-20))
+                for _ in range(10):
+                    canonical = self.canonicalize_points((projected + fraction * direction)[None, :])[0]
+                    if self.contains(canonical[None, :])[0]:
                         break
-                    frontier = next_frontier
-            if not feasible:
-                raise ValueError("The insertion domain could not project a confined position.")
-            deltas = self._minimum_image_displacements(
-                np.asarray(feasible, dtype=float) - point
-            )
-            distances = np.einsum("ij,ij->i", deltas, deltas)
-            output[index] = feasible[int(np.argmin(distances))]
+                    fraction = min(0.5, fraction * 10)
+                else:
+                    raise ValueError("The insertion domain could not project a confined position.")
+            output[index] = canonical
         return output
 
     def displacements_to_domain(
@@ -586,8 +647,11 @@ class InsertionDomain:
         if values.ndim != 2 or values.shape[1] != 3 or not np.all(np.isfinite(values)):
             raise ValueError("Insertion-domain points must be a finite N x 3 array.")
         canonical = self.canonicalize_points(values)
-        projected = self.project_points(values)
-        return self._minimum_image_displacements(projected - canonical)
+        delta = np.zeros_like(canonical)
+        for index in np.flatnonzero(~self.contains(canonical)):
+            projected, _ = self._project_closure(canonical[index])
+            delta[index] = projected - canonical[index]
+        return delta
 
     @cached_property
     def volume(self) -> float:
@@ -603,8 +667,16 @@ class InsertionDomain:
                 if upper[axis] > base_lower[axis] + _TOLERANCE and upper[axis] < base_upper[axis] - _TOLERANCE:
                     coordinates[axis].append(float(upper[axis]))
         axes = [np.unique(np.asarray(values, dtype=float)) for values in coordinates]
+        # Use Python integers: a NumPy int64 product can wrap before a shape
+        # or work bound is checked. This precedes both the Boolean masks and
+        # the much larger per-component Cartesian/fractional corner arrays.
+        shape = tuple(len(values) - 1 for values in axes)
+        if math.prod(shape) > MAX_INSERTION_PARTITION_CELLS:
+            raise ValueError(
+                "Insertion regions create more than 250,000 Boolean partition cells. "
+                "Reduce region complexity or disable periodic region wrapping."
+            )
         centers = [0.5 * (values[:-1] + values[1:]) for values in axes]
-        shape = tuple(len(values) for values in centers)
         allowed = np.zeros(shape, dtype=bool) if self.allow_regions else np.ones(shape, dtype=bool)
         rejected = np.zeros(shape, dtype=bool)
 
@@ -624,14 +696,6 @@ class InsertionDomain:
         active = np.argwhere(allowed & ~rejected)
         if not len(active):
             return 0.0
-        widths = [values[1:] - values[:-1] for values in axes]
-        if self.cell is None:
-            return float(np.sum(
-                widths[0][active[:, 0]]
-                * widths[1][active[:, 1]]
-                * widths[2][active[:, 2]]
-            ))
-
         lower = np.column_stack([
             axes[axis][active[:, axis]] for axis in range(3)
         ])
@@ -639,6 +703,9 @@ class InsertionDomain:
             axes[axis][active[:, axis] + 1] for axis in range(3)
         ])
         cell_volumes = np.prod(upper - lower, axis=1)
+        if self.cell is None:
+            self._projection_components = (lower, upper, np.ones(len(active), dtype=bool))
+            return float(np.sum(cell_volumes))
         corner_selectors = np.asarray(
             list(itertools.product((0, 1), repeat=3)), dtype=bool
         )
@@ -664,6 +731,7 @@ class InsertionDomain:
             minimum_dot[:, plane_index] = support @ normal
         wholly_outside = np.any(minimum_dot > limits[None, :] + 2e-10, axis=1)
         boundary = np.flatnonzero(~wholly_inside & ~wholly_outside)
+        nonempty = wholly_inside.copy()
         cell_values = tuple(float(value) for value in self.cell.reshape(-1))
         for row in boundary:
             i, j, k = active[row]
@@ -672,7 +740,10 @@ class InsertionDomain:
                 float(axes[1][j]), float(axes[1][j + 1]),
                 float(axes[2][k]), float(axes[2][k + 1]),
             )
-            volume += _box_cell_intersection_volume_cached(bounds, cell_values)
+            component_volume = _box_cell_intersection_volume_cached(bounds, cell_values)
+            volume += component_volume
+            nonempty[row] = component_volume > 0.0
+        self._projection_components = (lower[nonempty], upper[nonempty], wholly_inside[nonempty])
         return float(volume)
 
     def random_points(

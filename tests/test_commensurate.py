@@ -180,7 +180,7 @@ def test_graphene_cu111_host_guest_fixture_matches_its_independent_reference():
     assert candidate["guest_matrix"] == reference["guest_matrix"]
 
 
-def test_graphene_mos2_visual_fixture_has_the_documented_rectangular_match():
+def test_graphene_mos2_fixture_prefers_the_smaller_hexagonal_match():
     directory = commensurate_fixture_directory()
     host = read(directory / "graphene_host.extxyz")
     guest = read(directory / "mos2_guest.extxyz")
@@ -200,17 +200,19 @@ def test_graphene_mos2_visual_fixture_has_the_documented_rectangular_match():
         if item["angle_deg"] == pytest.approx(-19.10660535, abs=1e-8)
     )
 
-    assert candidate["host_area_ratio"] == 14
-    assert candidate["guest_area_ratio"] == 4
-    assert candidate["host_matrix"] == [[3, -1], [-1, 5]]
-    assert candidate["guest_matrix"] == [[2, 0], [0, 2]]
-    assert candidate["host_notation"] == "(√7 × √21) R-19.11°"
-    assert candidate["guest_notation"] == "2 × 2"
+    # The old orientation set missed an inverse shear and retained a doubled
+    # rectangular boundary.  The smaller cell has the same angle and strain.
+    assert candidate["host_area_ratio"] == 7
+    assert candidate["guest_area_ratio"] == 2
+    assert candidate["host_matrix"] == [[-3, 1], [-1, -2]]
+    assert candidate["guest_matrix"] == [[-2, 0], [-1, -1]]
+    assert candidate["host_notation"] == "(√7 × √7) R-19.11°"
+    assert candidate["guest_notation"] == "[[-2,0],[-1,-1]]"
     assert candidate["cell_lengths_angstrom"] == pytest.approx(
-        [math.sqrt(7.0) * 2.46, math.sqrt(21.0) * 2.46],
+        [math.sqrt(7.0) * 2.46, math.sqrt(7.0) * 2.46],
         abs=1e-8,
     )
-    assert candidate["cell_angle_deg"] == pytest.approx(90.0, abs=1e-10)
+    assert candidate["cell_angle_deg"] == pytest.approx(60.0, abs=1e-10)
     assert candidate["max_principal_strain"] == pytest.approx(
         0.023356639185,
         abs=1e-12,

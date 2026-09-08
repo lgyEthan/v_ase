@@ -507,10 +507,9 @@ def test_readme_presents_real_manipulation_and_analysis_workflows():
             "projects-export.md",
         )
     }
-    assert len(readme.splitlines()) > 1_500
     for heading in (
         "## Installation And Launch",
-        "## Find A Workflow",
+        "## Explore",
         "## Edit Structures",
         "## Periodic Cells And Interfaces",
         "## Analyze Structures And Fields",
@@ -518,13 +517,18 @@ def test_readme_presents_real_manipulation_and_analysis_workflows():
         "## Style Atoms, Bonds, And Rendering",
         "## Export And Save",
         "## Work With An AI Agent",
-        "## Python",
-        "## Remote Servers",
+        "## Python And Remote Systems",
     ):
         assert heading in readme
 
     assert "https://v-ase.readthedocs.io/en/latest/" in readme
     assert "version=latest" in readme
+    for guide in (
+        "move.html", "rotate.html", "commensurate.html", "trajectories.html",
+        "isosurfaces.html", "constraints.html", "save-projects.html",
+        "ai-agents.html", "notebooks-remote.html",
+    ):
+        assert f"https://v-ase.readthedocs.io/en/latest/{guide}" in readme
     assert readme.count(".gif)") >= 15
     for asset in (
         "readme_phosphorene_twist.gif",
@@ -560,7 +564,7 @@ def test_readme_presents_real_manipulation_and_analysis_workflows():
         "18 atoms with TYPE `O`, LABEL `O_subsurface`",
         "64 rigid H2O molecules",
         "Cu_oxide-O_oxide",
-        "rectangular graphene `(√7 × √21) R±19.11°`",
+        "graphene `√7 R±19.11°`",
         "pristine 6 × 6 graphene",
         "`N_pyridinic`",
         "`Li_site` 2.15 Å",

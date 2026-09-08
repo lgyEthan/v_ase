@@ -31,23 +31,34 @@ lengths in an anisotropic cell. Enable **Account for periodic boundaries** to
 include opposite-face neighbors in the spacing metric. Triclinic Cartesian
 spacing uses a reduced-lattice minimum-image search.
 
-## Create a Cu–Zr starting structure in the GUI
+## Example: reproduce the Ga insertion animation
 
 1. Run `v_ase gui`. Under **Structure > Cell & Replication**, set a diagonal
-   20 Å cell and enable all three periodic axes.
-2. Open **+ Add atoms > Batch > Atoms**. Add Cu and Zr rows with 100 atoms each.
-3. Choose **Homogeneous**, **Cartesian distance / Å**, and a fixed seed such as 19.
-4. Scatter the batch. Verify 200 staged atoms and the requested composition.
+   9.2 Å cell and enable all three periodic axes.
+2. Open **+ Add atoms > Batch > Atoms**. Add one row: TYPE `Ga`, LABEL `Ga_amorphous`, count **54**.
+3. Choose **Random** and seed **20260813**.
+4. Scatter the batch. Verify 54 staged Ga atoms in the primary cell.
 5. Open **Structure > Relaxation**, inspect the independent repulsion pair
-   distances, and run placement relaxation. The default host-freezing option
+   distances, and use absolute onset **2.55 Å**, strength **2.8 eV/Å²**,
+   `fmax = 0.025 eV/Å` and **180 steps**. Run placement relaxation. The host-freezing option
    matters when inserting into an existing structure.
 6. Inspect short contacts and the timeline, then choose **Finish** to commit.
    **Cancel** restores the structure from before the whole placement session.
 
-The counts and cell above demonstrate the controls; they do not prescribe a
-realistic Cu–Zr density. Set composition and volume from your intended model.
+These are the values used in the existing Ga animation. For a Cu–Zr or other
+mixture, add species rows and choose composition and volume for your own model.
+The picture demonstrates geometric conditioning, not an equilibrium amorphous phase.
 
-![Building and relaxing a staged distribution](assets/readme_scratch_amorphous.png)
+```{vase-animation} assets/readme_scratch_amorphous.gif
+:alt: Ga atoms scattered and relaxed in the existing demonstration
+:fallback: assets/readme_scratch_amorphous.png
+
+
+```
+
+To compare initial distributions, cancel or finish this session, start a fresh
+empty document with the same cell and count, and choose **Homogeneous**. Compare
+voids and close contacts before relaxation. The animation above uses Random.
 
 ## Define where insertion is allowed
 

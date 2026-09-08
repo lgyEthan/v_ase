@@ -1,4 +1,16 @@
+---
+orphan: true
+---
+
 # Constraints and relaxation
+
+:::{note}
+For illustrated, step-by-step instructions, choose a feature:
+
+[Constraints](constraints.md) · [Relaxation](relaxation.md)
+
+This earlier combined reference remains available for existing links.
+:::
 
 v_ase uses ASE as the authority for constrained coordinates and optimizer
 state. Constraint graphics explain permitted motion, but they do not replace

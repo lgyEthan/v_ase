@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.3.4
+
+- Independent feature guides, downloadable examples, GIF step stills and code-copy buttons.
+- Private ChatGPT tunnel setup with account/device handoff instructions.
+
+- Add personal ChatGPT tunnel setup, an isolated local installer and plugin packaging.
+- Keep CLI/MCP-owned GUI servers alive after browser tabs close; verify the GUI backend during connection checks.
+- Correct skew/partial-periodic distances, insertion confinement and rigid torque;
+  report relaxation convergence accurately and bound complex region allocation.
+- Recover smaller commensurate cells; preserve handedness and normal heights.
+- Correct periodic field seams, FP64 isosurfaces and finite mesh boundaries;
+  avoid unused RDF partial-pair work.
+- Preserve LAMMPS int64 identities, triclinic cells and origins, and FP64
+  scientific reads; validate frame changes and exact skew-cell interpolation.
+- Extend independent numerical, live GUI/native and export regressions; update
+  the feature guides, canonical Skill and rendered examples.
+
 ## 0.3.3
 
 - Add compact rendered-scene snapshots, effective camera/style inspection,

@@ -16,12 +16,18 @@ level must cross the displayed field range. A frame can lack one signed crossing
 Inspect readiness/errors rather than pretending both surfaces were generated.
 An isosurface is limited to 2,000,000 triangles. If it exceeds the limit, use a
 coarser step size or a justified isovalue; do not silently change scientific data.
+Coarse meshes retain domain endpoints but may miss unsampled features. Mesh
+smoothing fixes finite outer boundaries and changes display geometry only.
+FP64 fields are centered on the requested level before FP32 marching cubes;
+this preserves resolvable variations above a large baseline.
 
 A section plane is defined by nonzero reciprocal-space hkl and signed Cartesian
 offset in Angstrom along the normalized Cartesian normal. These coordinates must
 use the actual cell; hkl is not generally the Cartesian normal. Use stable dataset
 and plane IDs. Plane resolution and scalar colormap/range are presentation choices.
 The typed operations validate plane IDs and compatible edits.
+Endpoint-exclusive periodic slices interpolate the final voxel back to the first;
+finite axes stop at their last stored sample. Preserve the dataset's convention.
 
 Plane selection is separate from atom selection. Deselect with
 `vase_select_volumetric_planes(plane_ids=[])` if deselection is intended.
@@ -38,3 +44,5 @@ precision deliberately. A difference field is meaningful only with justified
 alignment and compatible physical definitions. Frame association must remain
 correct after combination or trajectory changes. Removing a dataset changes the
 document; it is not necessary for a visual-only change.
+Origins must agree within an absolute 1e-6 Å tolerance, independent of a common
+translation; source precision and this alignment check are separate concerns.

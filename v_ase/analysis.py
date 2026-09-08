@@ -113,23 +113,24 @@ def _selected_label_pairs(
     pair_mode: str,
     active_pairs: Iterable[Any] | None,
 ) -> tuple[str, list[str], dict[str, int], set[tuple[str, str]]]:
+    mode = str(pair_mode or "active").lower()
+    if mode not in {"active", "selected", "all", "none"}:
+        raise ValueError("RDF pair mode must be active, selected, all, or none.")
+    selected_pairs = parse_pair_keys(active_pairs) if mode in {"active", "selected"} else set()
+    # Total-only requests do not depend on labels. Avoid counting every label
+    # and iterating their quadratic pair combinations when no partial is wanted.
+    if mode != "all" and not selected_pairs:
+        return mode, [], {}, set()
     ordered_labels = list(dict.fromkeys(labels.tolist()))
     counts = {
         label: int(np.count_nonzero(labels == label))
         for label in ordered_labels
     }
-    mode = str(pair_mode or "active").lower()
-    if mode not in {"active", "selected", "all", "none"}:
-        raise ValueError("RDF pair mode must be active, selected, all, or none.")
     if mode == "all":
         selected_pairs = {
             _canonical_pair(left, right)
             for left, right in combinations_with_replacement(ordered_labels, 2)
         }
-    elif mode in {"active", "selected"}:
-        selected_pairs = parse_pair_keys(active_pairs)
-    else:
-        selected_pairs = set()
     return mode, ordered_labels, counts, selected_pairs
 
 

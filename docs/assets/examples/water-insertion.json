@@ -1,0 +1,136 @@
+{
+  "molecules": [
+    {
+      "name": "H2O",
+      "label": "water",
+      "count": 1
+    }
+  ],
+  "target_density_g_cm3": 1.0,
+  "expected_molecule_count": 64,
+  "actual_density_g_cm3": 0.9936947024274073,
+  "regions": [
+    {
+      "id": "lower-go-exclusion",
+      "name": "Lower GO exclusion",
+      "role": "reject",
+      "bounds": [
+        5.15,
+        22.34,
+        0.0,
+        7.378536440243417,
+        2.0,
+        4.0
+      ]
+    },
+    {
+      "id": "upper-go-exclusion",
+      "name": "Upper GO exclusion",
+      "role": "reject",
+      "bounds": [
+        5.15,
+        22.34,
+        0.0,
+        7.378536440243417,
+        8.0,
+        10.0
+      ]
+    }
+  ],
+  "accessible_volume_angstrom3": 1926.683435276361,
+  "interlayer_spacing_angstrom": 6.0,
+  "reject_region_thickness_angstrom": 2.0,
+  "left_chamber_width_angstrom": 5.15,
+  "right_chamber_width_angstrom": 5.149999999999999,
+  "edge_hydroxyls_per_layer": 6,
+  "basal_hydroxyls_per_layer": 6,
+  "basal_hydroxyl_sites": {
+    "lower": [
+      [
+        9.129999999999999,
+        3.6892682201217086
+      ],
+      [
+        11.26,
+        0.0
+      ],
+      [
+        11.26,
+        2.4595121467478056
+      ],
+      [
+        13.39,
+        1.2297560733739028
+      ],
+      [
+        14.1,
+        4.919024293495611
+      ],
+      [
+        18.36,
+        2.4595121467478056
+      ]
+    ],
+    "upper": [
+      [
+        9.129999999999999,
+        6.148780366869514
+      ],
+      [
+        15.52,
+        0.0
+      ],
+      [
+        17.65,
+        3.6892682201217086
+      ],
+      [
+        18.36,
+        -8.881784197001252e-16
+      ],
+      [
+        19.78,
+        0.0
+      ],
+      [
+        19.78,
+        2.4595121467478056
+      ]
+    ]
+  },
+  "hydroxyl_carbon_indices": {
+    "lower": [
+      0,
+      2,
+      4,
+      37,
+      39,
+      41,
+      8,
+      12,
+      14,
+      18,
+      21,
+      31
+    ],
+    "upper": [
+      0,
+      2,
+      4,
+      37,
+      39,
+      41,
+      10,
+      24,
+      32,
+      35,
+      36,
+      38
+    ]
+  },
+  "seed": 1207,
+  "placement_mode": "random",
+  "coordinate_basis": "cartesian",
+  "random_orientation": true,
+  "rigid_molecules": true
+}

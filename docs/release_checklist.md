@@ -30,8 +30,8 @@ and rendered examples in sync.
 
    Open the generated home, quick start, one long workflow page, API/CLI
    reference, troubleshooting, and developer navigation at desktop and narrow
-   widths. Confirm the four-hub sidebar, search, code blocks, tables,
-   previous/next links, version label, and Edit-on-GitHub target. Exercise the
+   widths. Confirm the feature-group sidebar, search, code blocks, tables,
+   code-copy buttons, version label, and Edit-on-GitHub target. Exercise the
    home-page logo and its exact +Z, zero-roll initial camera. Confirm that all
    scientific examples—including isosurfaces, analysis plots, constraints,
    and trajectories—use their captured PNG/GIF rather than a live standalone

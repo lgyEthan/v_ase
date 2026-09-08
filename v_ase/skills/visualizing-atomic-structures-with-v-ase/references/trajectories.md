@@ -36,3 +36,22 @@ Use explicit interpolation/MIC/FPS settings. Movie dimensions must be even; use
 the export schema for bounds. Scientific array identity, frame count and cell/PBC
 must survive visualization-only work. Use a project or appropriate ASE format
 when scientific data must remain editable.
+MIC interpolation chooses a nearest lattice image in the midpoint cell metric
+for the whole frame interval, then interpolates each endpoint's fractional
+coordinates and cell. It searches periodic rows only; componentwise rounding is
+insufficient for skew cells. Singular endpoint cells retain Cartesian fallback
+with `micApplied=false`. Search limits (10,000 candidates/atom; 2,000,000/frame)
+raise an error; use a reduced cell or explicitly disable MIC when appropriate.
+
+Fast LAMMPS display streams use FP32. Loading an ASE frame for edits or scientific
+export rereads numeric values in FP64, with exact int64 atom/molecule identities.
+Large IDs must not be recovered from scalar display colors or FP32 positions.
+Global calculator tensors/vectors are not per-atom scalar fields just because
+their leading dimension happens to equal the atom count.
+LAMMPS orthogonal, restricted and general triclinic boxes preserve their
+Cartesian origin. Inspect `cellOrigin` in semantic structure state (raw JSON:
+`cell_origin`); it also positions cell guides and interpolates between frames.
+The general `abc origin` header can omit boundary flags; such files use finite
+boundaries unless the user explicitly sets PBC. Fast View requires stable types;
+for changing species reopen in Edit with the safe reader. Rejected frame loads
+preserve the previous frame and return an actionable error.
