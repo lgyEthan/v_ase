@@ -974,6 +974,7 @@ def export_html_response(session, payload: Dict[str, Any]):
         "{{THREE_SOURCE_BASE64}}": _base64_text(
             (static_dir / "vendor" / "three.module.js").read_bytes()
         ),
+        "{{BSP_SOURCE_BASE64}}": _base64_text((static_dir / "polyhedra_bsp.js").read_bytes()),
         "{{RENDERER_SOURCE_BASE64}}": _base64_text(
             (static_dir / "renderer.js").read_bytes()
         ),
@@ -1314,9 +1315,9 @@ def _translate_visual_frame(data, display):
 def _cell_offsets(repetitions):
     return [
         (ix, iy, iz)
-        for ix in range(repetitions[0])
-        for iy in range(repetitions[1])
-        for iz in range(repetitions[2])
+        for ix in range(-((repetitions[0]-1)//2), (repetitions[0]+2)//2)
+        for iy in range(-((repetitions[1]-1)//2), (repetitions[1]+2)//2)
+        for iz in range(-((repetitions[2]-1)//2), (repetitions[2]+2)//2)
     ]
 
 
@@ -1379,6 +1380,8 @@ def _polyhedral_scene_meshes(atoms, display, *, labels=None):
             shift = _offset_vector(offset, cell) + translation
             meshes.append({"name": _safe_name(f"polyhedron_{poly['ruleId']}_{center}_{offset}"),
                 "center": center, "cell_offset": list(offset), "rule_id": poly["ruleId"],
+                "center_position": (np.asarray(poly['centerPosition'])+shift).tolist(),
+                "vertex_references": [{"index":v['index'],"cell_offset":[n+offset[k] for k,n in enumerate(v['cellOffset'])]} for v in poly['vertices']],
                 "vertices": [(np.asarray(v["position"]) + shift).tolist() for v in poly["vertices"]],
                 "triangles": poly["triangles"], "faces": poly["faces"], "edges": poly["edges"],
                 "color": color, "opacity": style["opacity"], "show_faces": style["showFaces"],
@@ -1398,6 +1401,7 @@ def _cad_scene_data(session, payload: Dict[str, Any]):
     repetitions, cell = _normalized_supercell(display, data)
     visual_translation = _display_translation(display, data.get("cell"))
     offsets = _cell_offsets(repetitions)
+    offset_set = set(offsets)
     total_atoms = len(data.get("positions") or []) * len(offsets)
     if total_atoms > 1_000_000:
         raise ValueError(
@@ -1531,8 +1535,8 @@ def _cad_scene_data(session, payload: Dict[str, Any]):
             opacity = bond_opacity
         requested_color = endpoint_style.get("color", pair.get("color", custom_bond_color))
         return {
-            "style": "flat" if pair.get("style", bond_style) == "flat" else "cylinder",
-            "material": _atom_material_preset(endpoint_style.get(
+            "style": "flat" if display.get('atomDisplayMode')=='2d' or pair.get("style", bond_style) == "flat" else "cylinder",
+            "material": 'unlit' if display.get('atomDisplayMode')=='2d' else _atom_material_preset(endpoint_style.get(
                 "material", pair.get("material", bond_material)
             )),
             "diameter": diameter,
@@ -1620,7 +1624,7 @@ def _cad_scene_data(session, payload: Dict[str, Any]):
             continue
         for offset in offsets:
             end_offset = tuple(offset[axis] + image_offset[axis] for axis in range(3))
-            if not all(0 <= end_offset[axis] < repetitions[axis] for axis in range(3)):
+            if end_offset not in offset_set:
                 continue
             start = positions[i] + _offset_vector(offset, cell) + visual_translation
             end = positions[j] + _offset_vector(end_offset, cell) + visual_translation
@@ -1637,10 +1641,39 @@ def _cad_scene_data(session, payload: Dict[str, Any]):
     if cell_material not in {"unlit", "standard", "metal"}:
         cell_material = "unlit"
     polyhedra = _polyhedral_scene_meshes(atoms, display, labels=labels)
-    if display.get("showPolyhedra") and display.get("polyhedraAtomMode") in ("none", "centers"):
-        centers = {p["center"] for p in polyhedra}
-        atom_specs = [] if display["polyhedraAtomMode"] == "none" else [a for a in atom_specs if a["index"] in centers]
-        bond_specs = []
+    if display.get('showPolyhedra'):
+        mode=display.get('polyhedraAtomMode','all')
+        centers={p['center'] for p in polyhedra}
+        ligands={(v['index'],tuple(v['cell_offset'])):p['vertices'][i]
+                 for p in polyhedra for i,v in enumerate(p['vertex_references'])}
+        templates={a['index']:a.copy() for a in atom_specs}
+        present={(a['index'],tuple(a['cell_offset'])) for a in atom_specs}
+        hidden=set(display.get('hiddenAtomReferences',[]))
+        def allowed(index,offset):
+            ref=f"replica:{index}:"+','.join(map(str,offset)) if any(offset) else f'atom:{index}'
+            return visible_map.get(labels[index],True) is not False and ref not in hidden
+        if display.get('polyhedraCompleteLigands',True) and mode not in ('none','centers'):
+            for (index,offset),position in ligands.items():
+                if (index,offset) not in present and index in templates and allowed(index,offset):
+                    atom_specs.append({**templates[index],'position':position,'cell_offset':list(offset),
+                                       'source':'polyhedra-ligand-image'})
+        atom_specs=[a for a in atom_specs if allowed(a['index'],a['cell_offset']) and (
+            mode=='all' or (mode in ('centers','coordination') and a['index'] in centers)
+            or (mode in ('ligands','coordination') and (a['index'],tuple(a['cell_offset'])) in ligands))]
+        if mode in ('none','centers'):bond_specs=[]
+        elif mode!='all':
+            points={tuple(np.round(a['position'],8)) for a in atom_specs}
+            bond_specs=[b for b in bond_specs if tuple(np.round(b['full_start'],8)) in points and tuple(np.round(b['full_end'],8)) in points]
+        if display.get('polyhedraShowCenterBonds'):
+            def key(start,end):return tuple(sorted((tuple(np.round(start,8)),tuple(np.round(end,8)))))
+            seen={key(b['full_start'],b['full_end']) for b in bond_specs}
+            for poly in polyhedra:
+                for ref,end in zip(poly['vertex_references'],poly['vertices']):
+                    start=poly['center_position'];signature=key(start,end)
+                    if signature in seen or not allowed(poly['center'],poly['cell_offset']) or not allowed(ref['index'],ref['cell_offset']):continue
+                    seen.add(signature);first=len(bond_specs)
+                    add_bond(poly['center'],ref['index'],start,end,'coordination_'+str(len(seen)))
+                    for b in bond_specs[first:]:b['source']='polyhedra-coordination-connector'
     return {
         "polyhedra": polyhedra,
         "atoms": atom_specs,
@@ -2401,6 +2434,7 @@ def export_obj_response(session, payload: Dict[str, Any]):
 def _blender_script(data: Dict[str, Any]) -> str:
     return f'''# Generated by v_ase. Run in Blender with: blender --python this_file.py
 import math
+import json
 import bpy
 from mathutils import Vector
 
@@ -3226,17 +3260,86 @@ def poly_atom_visible(index):
     mode = DISPLAY.get("polyhedraAtomMode", "all") if DISPLAY.get("showPolyhedra") else "all"
     return mode == "all" or (mode == "centers" and index in POLY_CENTER_INDICES)
 
+def add_polyhedron_atom_groups(specs):
+    groups={{}}
+    for spec in specs:
+        if spec['opacity']<=0:continue
+        key=(spec['symbol'],spec['radius'],spec['color'],spec['material'],spec['opacity'])
+        groups.setdefault(key,[]).append(spec)
+    result=[]
+    for (symbol,radius,color,preset,alpha),rows in groups.items():
+        name='v_ase_coordination_atoms_'+safe_name(symbol)
+        if BLENDER_OBJECT_MODE=='objects':
+            bpy.ops.mesh.primitive_uv_sphere_add(segments=32,ring_count=16,radius=radius)
+            source=bpy.context.object;mesh=source.data
+            mesh.materials.append(get_bond_mat(color,'unlit' if DISPLAY.get('atomDisplayMode')=='2d' else preset,alpha))
+            for polygon in mesh.polygons:polygon.use_smooth=True
+            bpy.data.objects.remove(source,do_unlink=True)
+            for row in rows:
+                obj=bpy.data.objects.new(name+'_'+str(row['index'])+'_'+str(row['cell_offset']),mesh)
+                obj.location=row['position'];bpy.context.collection.objects.link(obj)
+                obj['v_ase_atom_indices']=[row['index']];obj['v_ase_cell_offsets']=json.dumps([row['cell_offset']])
+                obj['v_ase_atom_radius']=radius;result.append(obj)
+            continue
+        mesh=bpy.data.meshes.new(name);mesh.from_pydata([row['position'] for row in rows],[],[]);mesh.update()
+        attribute=mesh.attributes.new('atom_index','INT','POINT');attribute.data.foreach_set('value',[row['index'] for row in rows])
+        obj=bpy.data.objects.new(name,mesh);bpy.context.collection.objects.link(obj)
+        obj['v_ase_atom_indices']=[row['index'] for row in rows]
+        obj['v_ase_cell_offsets']=json.dumps([row['cell_offset'] for row in rows])
+        obj['v_ase_atom_radius']=radius
+        group=geometry_node_group(name);nodes=group.nodes;links=group.links
+        source=nodes.new('NodeGroupInput');output=nodes.new('NodeGroupOutput');sphere=nodes.new('GeometryNodeMeshIcoSphere')
+        sphere.inputs['Radius'].default_value=radius;sphere.inputs['Subdivisions'].default_value=3
+        material_node=nodes.new('GeometryNodeSetMaterial');material_node.inputs['Material'].default_value=get_bond_mat(color,'unlit' if DISPLAY.get('atomDisplayMode')=='2d' else preset,alpha)
+        smooth=nodes.new('GeometryNodeSetShadeSmooth');instances=nodes.new('GeometryNodeInstanceOnPoints')
+        if 'Shade Smooth' in smooth.inputs:smooth.inputs['Shade Smooth'].default_value=True
+        links.new(sphere.outputs['Mesh'],material_node.inputs['Geometry']);links.new(material_node.outputs['Geometry'],smooth.inputs['Geometry'])
+        links.new(smooth.outputs['Geometry'],instances.inputs['Instance']);links.new(source.outputs['Geometry'],instances.inputs['Points'])
+        links.new(instances.outputs['Instances'],output.inputs['Geometry'])
+        modifier=obj.modifiers.new('v_ase coordination sites','NODES');modifier.node_group=group
+        result.append(obj)
+    return result
+
 def update_polyhedra(scene, *_):
     global POLY_OBJECTS
     for obj in POLY_OBJECTS:
         data_block=obj.data
+        node_groups=[modifier.node_group for modifier in obj.modifiers if modifier.type=='NODES' and modifier.node_group]
         bpy.data.objects.remove(obj,do_unlink=True)
+        for group in node_groups:
+            if group.users==0:bpy.data.node_groups.remove(group)
         if data_block.users == 0:
             if isinstance(data_block,bpy.types.Mesh): bpy.data.meshes.remove(data_block)
             elif isinstance(data_block,bpy.types.Curve): bpy.data.curves.remove(data_block)
     POLY_OBJECTS=[]
     frames=DATA.get("polyhedra_frames")
     records=frames[max(0,min(len(frames)-1,scene.frame_current-1))] if frames else DATA.get("polyhedra",[])
+    if 'polyhedra_atoms' in DATA:
+        def frame_records(name):
+            sequence=DATA.get(name+'_frames')
+            return sequence[max(0,min(len(sequence)-1,scene.frame_current-1))] if sequence else DATA.get(name,[])
+        POLY_OBJECTS.extend(add_polyhedron_atom_groups(frame_records('polyhedra_atoms')))
+        bond_groups={{}}
+        for bond in frame_records('polyhedra_bonds'):
+            if bond['opacity']<=0:continue
+            key=(bond['color'],bond['material'],bond['opacity'],bond['radius'],bond['style'])
+            bond_groups.setdefault(key,[]).append((bond['start'],bond['end']))
+        for (color,preset,alpha,radius,style),segments in bond_groups.items():
+            mat=get_bond_mat(color,preset,alpha)
+            if style=='flat':
+                for i,(start,end) in enumerate(segments):
+                    obj=add_flat_between('v_ase_coordination_bond_'+str(i),start,end,2*radius,mat)
+                    if obj:POLY_OBJECTS.append(obj)
+            else:
+                parts=([segment] for segment in segments) if BLENDER_OBJECT_MODE=='objects' else [segments]
+                for part in parts:
+                    obj=add_curve_segments('v_ase_coordination_bonds',part,radius,mat)
+                    if obj:POLY_OBJECTS.append(obj)
+        sequence=DATA.get('polyhedra_cell_frames')
+        cell_edges=sequence[max(0,min(len(sequence)-1,scene.frame_current-1))] if sequence else DATA.get('polyhedra_cell_edges',[])
+        if cell_edges:
+            obj=add_curve_segments('v_ase_coordination_cell',[(e['start'],e['end']) for e in cell_edges],float(DISPLAY.get('cellThickness',.04))/2,get_bond_mat(DISPLAY.get('cellColor','#d6bd67'),'unlit'))
+            if obj:POLY_OBJECTS.append(obj)
     batches={{}}
     for poly in records:
         key=(poly["rule_id"],poly["color"],poly["opacity"],poly["edge_color"],poly["edge_radius"])
@@ -3259,16 +3362,17 @@ def update_polyhedra(scene, *_):
             obj=add_curve_segments("v_ase_polyhedra_edges_"+rule,group["edges"],edge_radius,get_bond_mat(edge_color,"unlit"))
             POLY_OBJECTS.append(obj)
 
-if DATA.get("polyhedra") or DATA.get("polyhedra_frames"):
+if 'polyhedra_atoms' in DATA or DATA.get("polyhedra") or DATA.get("polyhedra_frames"):
     update_polyhedra(bpy.context.scene)
     if DATA.get("polyhedra_frames"):
+        bpy.context.scene.frame_start=1;bpy.context.scene.frame_end=len(DATA['polyhedra_frames'])
         bpy.app.handlers.frame_change_post.append(update_polyhedra)
 
 positions = DATA["positions"]
 symbols = DATA["symbols"]
 atoms = []
 atom_groups = []
-if BLENDER_OBJECT_MODE == "objects":
+if "polyhedra_atoms" not in DATA and BLENDER_OBJECT_MODE == "objects":
     for idx, (symbol, pos) in enumerate(zip(symbols, positions)):
         obj = bpy.data.objects.new(f"atom_{{idx:04d}}_{{symbol}}", get_atom_mesh(idx, symbol))
         obj.name = f"atom_{{idx:04d}}_{{symbol}}"
@@ -3279,13 +3383,13 @@ if BLENDER_OBJECT_MODE == "objects":
             obj.hide_render = True
         bpy.context.collection.objects.link(obj)
         atoms.append(obj)
-else:
+elif "polyhedra_atoms" not in DATA:
     atom_groups = add_instanced_atoms(positions, symbols)
 
-if INCLUDE_CELL:
+if INCLUDE_CELL and "polyhedra_atoms" not in DATA:
     add_unit_cell(CELL)
 
-if BLENDER_OBJECT_MODE == "objects":
+if "polyhedra_atoms" not in DATA and BLENDER_OBJECT_MODE == "objects":
     for bond_index, bond in enumerate(BONDS):
         i = int(bond.get("i", 0)); j = int(bond.get("j", 0))
         start = Vector(bond.get("start")); end = Vector(bond.get("end"))
@@ -3294,7 +3398,7 @@ if BLENDER_OBJECT_MODE == "objects":
         for piece_index, (piece_start, piece_end, mat, appearance) in enumerate(pieces):
             suffix = "" if len(pieces) == 1 else ("_start" if piece_index == 0 else "_end")
             add_bond_piece(name + suffix, piece_start, piece_end, mat, appearance)
-else:
+elif "polyhedra_atoms" not in DATA:
     add_bond_groups(BONDS)
 
 def frame_topology_matches(frame_data):
@@ -3303,8 +3407,8 @@ def frame_topology_matches(frame_data):
         and len(frame_data.get("positions", [])) == len(symbols)
     )
 
-if len(FRAMES) > 1 and all(frame_topology_matches(frame) for frame in FRAMES):
-    if BLENDER_OBJECT_MODE == "objects":
+if "polyhedra_atoms" not in DATA and len(FRAMES) > 1 and all(frame_topology_matches(frame) for frame in FRAMES):
+    if "polyhedra_atoms" not in DATA and BLENDER_OBJECT_MODE == "objects":
         bpy.context.scene.frame_start = 1
         bpy.context.scene.frame_end = len(FRAMES)
         for frame_number, frame_data in enumerate(FRAMES, start=1):
@@ -3385,18 +3489,23 @@ def export_blender_response(session, payload: Dict[str, Any]):
         data["display"] = display
     if display.get("showPolyhedra"):
         from ase import Atoms
-        data["polyhedra"] = _polyhedral_scene_meshes(atoms, display)
-        all_polyhedra = []
-        vertex_budget = 0
+        from types import SimpleNamespace
+        from .io import set_atom_labels
+        def poly_scene(frame_atoms):
+            isolated=SimpleNamespace(working_atoms=frame_atoms,config={},trajectory_frames=[])
+            return _cad_scene_data(isolated,{'display':display,'include_cell':payload.get('include_cell',True)})
+        scene=poly_scene(atoms)
+        data['polyhedra']=scene['polyhedra'];data['polyhedra_atoms']=scene['atoms'];data['polyhedra_bonds']=scene['bonds']
+        data['polyhedra_cell_edges']=scene['cell_edges']
+        all_polyhedra=[];all_atoms=[];all_bonds=[];all_cells=[];vertex_budget=0
         for frame in frames:
-            frame_atoms = Atoms(symbols=frame.get("chemical_symbols",frame["symbols"]),
-                positions=frame["positions"],cell=frame.get("cell"),pbc=frame.get("pbc",False))
-            meshes = _polyhedral_scene_meshes(frame_atoms, display, labels=frame["symbols"])
-            vertex_budget += sum(len(mesh["vertices"]) for mesh in meshes)
-            if vertex_budget > 2000000:
-                raise ValueError("Polyhedra animation export exceeds two million vertices. Export fewer frames or centers.")
-            all_polyhedra.append(meshes)
-        if all_polyhedra: data["polyhedra_frames"] = all_polyhedra
+            frame_atoms=Atoms(symbols=frame.get('chemical_symbols',frame['symbols']),positions=frame['positions'],cell=frame.get('cell'),pbc=frame.get('pbc',False))
+            set_atom_labels(frame_atoms,frame['symbols']);scene=poly_scene(frame_atoms)
+            vertex_budget+=sum(len(mesh['vertices']) for mesh in scene['polyhedra'])+len(scene['atoms'])
+            if vertex_budget>2000000:raise ValueError('Polyhedra animation export exceeds two million sites/vertices. Export fewer frames or centers.')
+            all_polyhedra.append(scene['polyhedra']);all_atoms.append(scene['atoms']);all_bonds.append(scene['bonds']);all_cells.append(scene['cell_edges'])
+        if all_polyhedra:
+            data['polyhedra_frames']=all_polyhedra;data['polyhedra_atoms_frames']=all_atoms;data['polyhedra_bonds_frames']=all_bonds;data['polyhedra_cell_frames']=all_cells
     _translate_visual_frame(data, display)
     for frame in frames:
         _translate_visual_frame(frame, display)

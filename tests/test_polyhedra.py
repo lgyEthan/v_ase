@@ -134,3 +134,18 @@ def test_downloaded_iridium_example_keeps_its_documented_visual_labels():
         result=calculate_polyhedra(atoms,[rule(centers={'labels':[label]},maxDistance=2.4)])
         assert result['polyhedronCount']==12
         assert all(p['neighborCount']==6 for p in result['polyhedra'])
+
+
+def test_documented_surface_preserves_undercoordination_and_finite_normal():
+    from pathlib import Path
+    from collections import Counter
+    from ase.io import read
+    root=Path(__file__).resolve().parents[1]
+    atoms=read(root/'docs/assets/examples/IrO2_110_polyhedra.extxyz')
+    before=atoms.positions.copy()
+    assert len(atoms)==144 and atoms.pbc.tolist()==[True,True,False]
+    result=calculate_polyhedra(atoms,[rule(centers={'elements':['Ir']},maxDistance=2.4)])
+    assert Counter(p['neighborCount'] for p in result['polyhedra'])=={6:36,5:6,4:6}
+    assert all(v['cellOffset'][2]==0 for p in result['polyhedra'] for v in p['vertices'])
+    assert sum(p['neighborCount'] for p in result['polyhedra'])==270
+    np.testing.assert_array_equal(atoms.positions,before)

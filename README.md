@@ -15,7 +15,7 @@
 [Issues](https://github.com/lgyEthan/v_ase/issues) ·
 [Software paper and LaTeX source](paper/joss/README.md)
 
-**0.3.6 · PDF docs fix** · [Changes](https://v-ase.readthedocs.io/en/latest/whats-new.html)
+**0.3.7 · Polyhedra rendering fix** · [Changes](https://v-ase.readthedocs.io/en/latest/whats-new.html)
 
 An ASE-native workspace for building, editing and visualizing atomic structures,
 trajectories and volumetric data.
@@ -213,7 +213,7 @@ Reduce overlaps or optimize with a configured calculator.
 
 ## Coordination Polyhedra
 
-Color coordination cages and adjust opacity by element, label, or atom group.
+Show coordination faces, ligand atoms and connectors in 2D/3D, with per-group color and opacity.
 [Polyhedra guide](https://v-ase.readthedocs.io/en/latest/polyhedra.html)
 
 ![IrO2 coordination polyhedra with independent colors and face opacity](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_polyhedra.gif)

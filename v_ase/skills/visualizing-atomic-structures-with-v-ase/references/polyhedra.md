@@ -27,16 +27,39 @@ do not retrieve and resend the complete rule list. Omitted style fields survive.
 Face `color` is a hexadecimal string or null to inherit the resolved center
 color. `opacity` is 0–1. `show_faces`, `show_edges`, `edge_color`, `edge_radius`
 (Å) are independent. Color/opacity edits preserve scientific geometry and use
-cached results. `atom_mode` is all/centers/none; original atom visibility settings
-remain stored. `respect_visibility` follows hidden-center labels/references.
+cached results. `atom_mode` is `all`, `coordination` (centers + ligands), `centers`, `ligands`,
+or `none`. Original atom visibility settings remain stored. Use `coordination`
+for a complete octahedron without unrelated atoms. `complete_ligands=true`
+(default) adds the required image spheres outside displayed cells; these are
+unique base-index/cell-offset sites, not new physical atoms. Keep it enabled for
+complete periodic cages. `show_center_bonds=true` adds optional center–ligand
+connectors independently of ordinary bonds, using bond color/width styles.
+They remain visible with `atom_mode=none` if explicitly enabled. In 2D connectors
+are unlit; 3D material settings remain stored. `respect_visibility` follows hidden-center labels/references.
 
 Read `vase_scene_snapshot(sections=["polyhedra"], limit=4)` after the update.
 It reports resolved appearance, base/image identities, world and screen positions,
 faces, true edges, areas and volumes. Page using `polyhedron_offset` and the same
 scene fingerprint. Each page returns at most 512 vertices, keeping whole hulls
 together; do not request every vertex for a color-only change.
-Normal summary includes counts and readiness. Render only after pending geometry
-settles; image/video capture waits for the current frame's hulls.
+Include `atoms` and `bonds` only when checking displayed sites/connectors. Their
+`source` values `polyhedra-ligand-image` and `polyhedra-coordination-connector`
+distinguish them from regular displayed atoms/bonds. Summary includes supplemental
+site/connector counts, readiness and transparency ordering. Physical atom count
+never includes the supplemental images. Click, rectangle and native selection retain image offsets in View mode;
+Edit maps image selections to editable base atoms. Native `vase_set_selection`
+accepts the returned `index` and `cell_offset` directly; no internal `kind` is
+required. A zero offset selects the base atom.
+
+Verify a complete cage's ligand count and styles semantically, then inspect the
+final image in the requested 2D/3D style. Flat 2D is a shading style, not a planar
+hull or a request to modify coordinates. Transparent polyhedron faces are split
+and depth ordered across rules for the active projection/camera. Independent
+translucent objects such as an annotation plane intersecting these faces still
+use object ordering; do not promise universal order-independent transparency.
+For exact face/atom depth, keep atom and connector opacity at 1. Render only after pending geometry
+settles; image/video capture waits for each source or interpolated frame's hulls.
+For a movie, inspect decoded source and midpoint frames, not only export success.
 
 Planar neighbors may form a polygon with zero volume. Collinear/degenerate
 neighborhoods and coordination filters are reported, not turned into artificial

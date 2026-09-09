@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.7
+
+- Correct transparent polyhedron depth ordering across intersecting faces and rules in 2D/3D, including perspective views.
+- Complete periodic ligand spheres, add optional center–ligand connectors and independent atom-role controls.
+- Keep flat-view bonds unlit and preserve image identities in scene inspection, selection and geometry exports.
+- Synchronize Blender trajectory sites/connectors with faces and match GUI-centered repetitions in CAD output.
+- Keep polyhedra visible in every interpolated video frame; accept public periodic references in native selection.
+- Add pixel-level depth checks and illustrated NbO6, SrTiO3 and IrO2 surface comparisons.
+
 ## 0.3.6
 
 - Fix shared HTML/PDF/ePub documentation caches so static previews are used in offline manuals.

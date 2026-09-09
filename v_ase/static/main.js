@@ -1,15 +1,15 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.3.6';
-import { ASERenderer } from './renderer.js?v=0.3.6';
-import { ASESelection } from './selection.js?v=0.3.6';
-import { ASETransform } from './transform.js?v=0.3.6';
-import { installPolyhedra } from './polyhedra.js?v=0.3.6';
-import { installAIScene } from './ai_scene.js?v=0.3.6';
+import { ASEApi } from './api.js?v=0.3.7';
+import { ASERenderer } from './renderer.js?v=0.3.7';
+import { ASESelection } from './selection.js?v=0.3.7';
+import { ASETransform } from './transform.js?v=0.3.7';
+import { installPolyhedra } from './polyhedra.js?v=0.3.7';
+import { installAIScene } from './ai_scene.js?v=0.3.7';
 import {
     interpolateTrajectoryFrames,
     interpolatedFrameCount,
     normalizeInterpolationMultiplier
-} from './trajectory.js?v=0.3.6';
+} from './trajectory.js?v=0.3.7';
 
 const CHEMICAL_ELEMENT_SYMBOLS = Object.freeze([
     'H','He','Li','Be','B','C','N','O','F','Ne',
@@ -153,6 +153,8 @@ class VAseApp {
                 showPolyhedra: false,
                 polyhedraRules: [],
                 polyhedraAtomMode: 'all',
+                polyhedraCompleteLigands: true,
+                polyhedraShowCenterBonds: false,
                 polyhedraRespectVisibility: true,
                 showBonds: true,
                 showCell: true,
@@ -11619,6 +11621,13 @@ class VAseApp {
 
     normalizeSelectionReference(reference) {
         if (reference === null || reference === undefined) return null;
+        // Public scene/native references omit the GUI-internal "kind" field.
+        if (reference && typeof reference === 'object' && Number.isInteger(reference.index)
+            && Array.isArray(reference.cellOffset) && reference.cellOffset.length===3) {
+            if (!reference.cellOffset.every(Number.isInteger)) return null;
+            reference=reference.cellOffset.some(Boolean) ? {...reference,kind:'replica'}
+                : {kind:'atom',index:reference.index};
+        }
         if (this.isReplicaReference(reference)) {
             const cellOffset = reference.cellOffset.map(value => Number(value));
             if (!cellOffset.every(Number.isInteger)) return null;
@@ -11682,6 +11691,8 @@ class VAseApp {
             || reference.index >= count
             || !this.isSelectionReferenceVisible(reference)
         ) return false;
+        if (this.renderer.polyhedraGroup?.visible && this.renderer.polyhedraExtraAtoms?.some(site=>
+            site.index===reference.index && site.cellOffset.every((n,k)=>n===reference.cellOffset[k]))) return true;
         const reps = this.state.display.supercell || [1, 1, 1];
         const offset = reference.cellOffset.map(Number);
         return offset.every((value, axis) => (
@@ -11709,6 +11720,7 @@ class VAseApp {
 
     addSelectionReference(reference) {
         const original = this.normalizeSelectionReference(reference);
+        if (!original || original.index<0 || original.index>=(this.state.atoms?.positions?.length||0)) return false;
         if (original?.kind === 'replica' && !this.replicaReferenceIsSelectable(original)) return false;
         const normalized = this.editableSelectionReference(original);
         if (!normalized || !this.isSelectionReferenceVisible(normalized)) return false;
@@ -24194,6 +24206,9 @@ class VAseApp {
     }
 
     async captureCurrentVideoFrame(capture, sequence, outputIndex, outputCount, outputFps, startedAt) {
+        // Interpolated samples update positions without a loadFrame completion.
+        // Await their own hulls before copying the framebuffer into the video.
+        await this.renderer.preparePolyhedraCapture?.();
         this.renderer.renderExportCaptureFrame(capture);
         const png = await new Promise((resolve, reject) => {
             this.renderer.domElement.toBlob(blob => blob ? resolve(blob) : reject(new Error('Could not capture a PNG video frame.')), 'image/png');

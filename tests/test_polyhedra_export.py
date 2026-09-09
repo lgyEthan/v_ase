@@ -100,3 +100,39 @@ def test_default_label_selection_invalidates_cache_when_labels_change():
     second=_calculate_session_polyhedra(s,{'rules':rules})
     assert first['polyhedronCount']==1 and second['polyhedronCount']==0
     assert first['fingerprint']!=second['fingerprint']
+
+
+@pytest.mark.parametrize('mode,count',[('all',8),('coordination',7),('centers',1),('ligands',6),('none',0)])
+def test_periodic_ligand_roles_and_connectors_survive_geometry_export(mode,count):
+    s=session();before=s.working_atoms.positions.copy()
+    options={**display(),'supercell':[1,1,1],'polyhedraAtomMode':mode,
+        'polyhedraCompleteLigands':True,'polyhedraShowCenterBonds':True,'showBonds':False,'atomDisplayMode':'2d'}
+    scene=_cad_scene_data(s,{'display':options})
+    assert len(scene['atoms'])==count
+    assert len({(a['index'],tuple(a['cell_offset'])) for a in scene['atoms']})==count
+    assert len(scene['bonds'])==12 # Two color segments for each of six spokes.
+    assert all(b['style']=='flat' and b['material']=='unlit' for b in scene['bonds'])
+    assert len({b['logical_name'] for b in scene['bonds']})==6
+    np.testing.assert_array_equal(s.working_atoms.positions,before)
+
+
+def test_geometry_export_uses_the_same_centered_repetitions_as_the_gui():
+    scene=_cad_scene_data(session(),{'display':{**display(),'supercell':[3,1,1]}})
+    assert {tuple(p['cell_offset']) for p in scene['polyhedra']}=={(-1,0,0),(0,0,0),(1,0,0)}
+
+
+def test_blender_scene_keeps_periodic_sites_and_connectors_across_frames():
+    import ast
+    from v_ase.export import export_blender_response
+    s=session();other=s.working_atoms.copy();other.positions[2,2]+=.1
+    s.trajectory_frames=[s.working_atoms.copy(),other]
+    options={**display(),'supercell':[1,1,1],'polyhedraAtomMode':'coordination',
+        'polyhedraShowCenterBonds':True,'showBonds':False}
+    result=export_blender_response(s,{'display':options})
+    tree=ast.parse(Path(result.path).read_text())
+    node=next(n for n in tree.body if isinstance(n,ast.Assign) and any(isinstance(t,ast.Name) and t.id=='DATA' for t in n.targets))
+    payload=ast.literal_eval(node.value)
+    assert len(payload['polyhedra_atoms'])==7 and len(payload['polyhedra_bonds'])==12
+    assert len(payload['polyhedra_atoms_frames'])==2
+    assert payload['polyhedra_atoms_frames'][0]!=payload['polyhedra_atoms_frames'][1]
+    Path(result.path).unlink(missing_ok=True)

@@ -110,7 +110,7 @@ export function installPolyhedra(App) {
                 this.polyhedraDraft=null;this.syncPolyhedraControls(true);
             } catch(error){this.toast(error.message,'error');}
         });
-        for (const [name,key] of [['enabled','enabled'],['atom-mode','atomMode'],['respect','respectVisibility']]) {
+        for (const [name,key] of [['enabled','enabled'],['atom-mode','atomMode'],['respect','respectVisibility'],['complete','completeLigands'],['center-bonds','showCenterBonds']]) {
             input(name)?.addEventListener('change',async()=>{
                 try {await this.configurePolyhedra({[key]:name==='atom-mode'?input(name).value:input(name).checked});}
                 catch(error){this.toast(error.message,'error');this.syncPolyhedraControls(true);}
@@ -124,6 +124,8 @@ export function installPolyhedra(App) {
         input('enabled').checked=Boolean(d.showPolyhedra);
         input('atom-mode').value=d.polyhedraAtomMode||'all';
         input('respect').checked=d.polyhedraRespectVisibility!==false;
+        input('complete').checked=d.polyhedraCompleteLigands!==false;
+        input('center-bonds').checked=Boolean(d.polyhedraShowCenterBonds);
         if (!force && document.activeElement?.closest('[data-panel="polyhedra"]')) return;
         const rules=d.polyhedraRules||[];
         const draft=this.polyhedraDraft || rules[0] || null;
@@ -158,7 +160,8 @@ export function installPolyhedra(App) {
         }
         runtime.wasEnabled=true;
         if(runtime.key===signature(this)&&runtime.data){
-            this.renderer.setPolyhedraData(runtime.data);return;
+            if(this.renderer.polyhedraData!==runtime.data||!this.renderer.polyhedraDataValid)this.renderer.setPolyhedraData(runtime.data);
+            return;
         }
         if(this.renderer.polyhedraGroup)this.renderer.polyhedraGroup.visible=false;
         if(runtime.timer || runtime.pending)return;
@@ -174,7 +177,10 @@ export function installPolyhedra(App) {
         if(!this.state.display.showPolyhedra)return null;
         if(runtime.pending){await runtime.pending;return this.refreshPolyhedra();}
         const key=signature(this);
-        if(runtime.key===key&&runtime.data){this.renderer.setPolyhedraData(runtime.data);return runtime.data;}
+        if(runtime.key===key&&runtime.data){
+            if(this.renderer.polyhedraData!==runtime.data||!this.renderer.polyhedraDataValid)this.renderer.setPolyhedraData(runtime.data);
+            return runtime.data;
+        }
         const atoms=this.renderer.atomsData;
         if(!atoms)return null;
         runtime.error=null;
@@ -206,15 +212,21 @@ export function installPolyhedra(App) {
         const patch=Object.fromEntries(Object.entries(options).filter(([key,value])=>styleFields.has(key) && key!=='name' && value!==undefined));
         const nextRules=rules.map(rule=>ids.has(rule.id)?{...rule,...patch}:rule);
         this.renderer.validatePolyhedraDisplay(this.renderer.polyhedraData,{...this.state.display,polyhedraRules:nextRules});
-        this.state.display.polyhedraRules=nextRules;
-        if(ids.has(this.polyhedraDraft?.id))Object.assign(this.polyhedraDraft,patch);
-        this.renderer.setDisplayOptions(this.state.display);
+        const draft=clone(this.polyhedraDraft??null);
+        try {
+            this.state.display.polyhedraRules=nextRules;
+            if(ids.has(this.polyhedraDraft?.id))Object.assign(this.polyhedraDraft,patch);
+            this.renderer.setDisplayOptions(this.state.display);
+        } catch(error) {
+            this.state.display.polyhedraRules=rules;this.polyhedraDraft=draft;
+            this.renderer.setDisplayOptions(this.state.display);throw error;
+        }
         this.scheduleVisualHistoryCommit('polyhedra-appearance');if(syncEditor)this.syncPolyhedraControls(true);
     };
     proto.configurePolyhedra = async function (options={}) {
         this.ensurePolyhedra();
         const d=this.state.display;
-        if(options.enabled===false && options.rules===undefined) {
+        if(options.enabled===false && Object.keys(options).filter(key=>!['name','enabled'].includes(key)).length===0) {
             d.showPolyhedra=false;this.polyhedraRuntime.error=null;
             this.renderer.setDisplayOptions(d);this.renderer.applyAtomVisibility();
             this.scheduleVisualHistoryCommit('configure-polyhedra');this.syncPolyhedraControls(true);return null;
@@ -223,19 +235,40 @@ export function installPolyhedra(App) {
         if(options.rules!==undefined)next.polyhedraRules=clone(options.rules);
         if(options.enabled!==undefined)next.showPolyhedra=options.enabled;
         if(options.atomMode!==undefined)next.polyhedraAtomMode=options.atomMode;
+        if(options.completeLigands!==undefined)next.polyhedraCompleteLigands=options.completeLigands;
+        if(options.showCenterBonds!==undefined)next.polyhedraShowCenterBonds=options.showCenterBonds;
         if(options.respectVisibility!==undefined)next.polyhedraRespectVisibility=options.respectVisibility;
         const generation=this.polyhedraRuntime.generation;
+        const initialSignature=signature(this);
         const result=await this.api.jsonPost('/api/analysis/polyhedra/{session_id}',{
             frame_index:Number(this.state.atoms?.metadata?.current_frame||0),
             positions:this.renderer.atomsData.positions,cell:this.renderer.atomsData.cell,pbc:this.renderer.atomsData.pbc,
             labels:this.renderer.atomsData.symbols,rules:next.polyhedraRules||[]
         });
-        if(generation!==this.polyhedraRuntime.generation)throw new Error('The structure changed during polyhedra setup. Apply again to the current frame.');
+        if(generation!==this.polyhedraRuntime.generation||initialSignature!==signature(this))throw new Error('The structure or coordination rules changed during polyhedra setup. Apply again to the current frame.');
+        // Preserve human changes to unrelated appearance while the query ran.
+        const updates={};
+        for(const [option,field] of [['rules','polyhedraRules'],['enabled','showPolyhedra'],['atomMode','polyhedraAtomMode'],['completeLigands','polyhedraCompleteLigands'],['showCenterBonds','polyhedraShowCenterBonds'],['respectVisibility','polyhedraRespectVisibility']]) {
+            if(options[option]!==undefined)updates[field]=next[field];
+        }
+        Object.assign(next,d,updates);
         this.renderer.validatePolyhedraDisplay(result,next);
-        Object.assign(d,next);
-        if(options.rules!==undefined)this.polyhedraDraft=clone(next.polyhedraRules.find(r=>r.id===this.polyhedraDraft?.id)||next.polyhedraRules[0]||null);
-        this.polyhedraRuntime.data=result;this.polyhedraRuntime.key=signature(this);this.polyhedraRuntime.error=null;
-        this.renderer.setDisplayOptions(d);this.renderer.setPolyhedraData(result);
+        const previous={display:clone(d),draft:clone(this.polyhedraDraft??null),data:this.renderer.polyhedraData,
+            runtimeData:this.polyhedraRuntime.data,key:this.polyhedraRuntime.key};
+        try {
+            Object.assign(d,next);
+            if(options.rules!==undefined)this.polyhedraDraft=clone(next.polyhedraRules.find(r=>r.id===this.polyhedraDraft?.id)||next.polyhedraRules[0]||null);
+            this.polyhedraRuntime.data=result;this.polyhedraRuntime.key=signature(this);this.polyhedraRuntime.error=null;
+            this.renderer.polyhedraDataValid=false;
+            this.renderer.setDisplayOptions(d);
+            if(this.renderer.polyhedraData!==result||!this.renderer.polyhedraDataValid)this.renderer.setPolyhedraData(result);
+        } catch(error) {
+            for(const key of Object.keys(d))if(!(key in previous.display))delete d[key];
+            Object.assign(d,previous.display);this.polyhedraDraft=previous.draft;
+            this.polyhedraRuntime.data=previous.runtimeData;this.polyhedraRuntime.key=previous.key;
+            this.renderer.polyhedraData=previous.data;this.renderer.polyhedraDataValid=Boolean(previous.data);
+            this.renderer.setDisplayOptions(d);this.renderer.setPolyhedraData(previous.data);throw error;
+        }
         this.state.polyhedraSummary={polyhedronCount:result.polyhedronCount,centerCount:result.centerCount,
             vertexCount:result.vertexCount,frame:result.frame,fingerprint:result.fingerprint,diagnostics:result.diagnostics.slice(0,40)};
         this.scheduleVisualHistoryCommit('configure-polyhedra');

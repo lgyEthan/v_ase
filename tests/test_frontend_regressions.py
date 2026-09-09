@@ -1373,7 +1373,8 @@ def test_blender_export_includes_bonds_unit_cell_smooth_atoms_and_camera_project
     np.testing.assert_allclose(exported_data["cell"], atoms.cell.array)
     assert 'scene.render.engine = render_engine' in script
     assert 'INCLUDE_CELL = bool(DATA.get("include_cell", True))' in script
-    assert 'if INCLUDE_CELL:\n    add_unit_cell(CELL)' in script
+    assert 'if INCLUDE_CELL and "polyhedra_atoms" not in DATA:\n    add_unit_cell(CELL)' in script
+    assert 'polyhedra_atoms' not in exported_data
     compile(script, "v_ase_blender_scene.py", "exec")
 
 

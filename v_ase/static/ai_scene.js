@@ -287,6 +287,9 @@ export function installAIScene(App) {
                 showPolyhedra: Boolean(d.showPolyhedra), polyhedraAtomMode: d.polyhedraAtomMode || 'all',
                 polyhedraBaseCount: r.polyhedraDataValid ? (r.polyhedraData?.polyhedronCount || 0) : 0,
                 polyhedraDisplayedCount: r.polyhedraGroup?.visible ? (r.polyhedraRendered?.length || 0) : 0,
+                polyhedraLigandImageCount: r.polyhedraGroup?.visible ? (r.polyhedraExtraAtoms?.length || 0) : 0,
+                polyhedraConnectorCount: r.polyhedraGroup?.visible ? (r.polyhedraConnectors?.length || 0) : 0,
+                polyhedraTransparencyOrdering: 'split-convex-faces-back-to-front',
                 showBonds: Boolean(d.showBonds), bondMode: d.bondMode,
                 configuredManualEdgeCount: d.manualBondPairs?.length || 0,
                 candidateBaseEdgeCount: r.bondPairs?.length || 0,
@@ -351,6 +354,18 @@ export function installAIScene(App) {
                         enabled, intersectsFrustum, occlusion: 'not-tested'}));
                 }
             }
+            for(const site of r.polyhedraExtraAtoms || []) {
+                if(!filter(site.index))continue;
+                const world=site.position.clone().add(r.visualTranslationVector()),radius=r.atomVisualRadius(site.index);
+                const enabled=Boolean(r.polyhedraGroup?.visible && r.polyhedraDataValid);
+                const intersectsFrustum=view.frustum.intersectsSphere(new THREE.Sphere(world,radius));
+                if(visibleOnly&&(!enabled||!intersectsFrustum))continue;
+                rows.add(()=>({reference:{index:site.index,cellOffset:site.cellOffset},
+                    source:'polyhedra-ligand-image',label:atoms.symbols?.[site.index],element:atoms.chemical_symbols?.[site.index],
+                    positionAngstrom:vector(world),...view.point(world),radiusAngstrom:finite(radius),
+                    appearance:{color:r.atomVisualColor(site.index),material:r.atomMaterialPreset(site.index),opacity:r.atomVisualOpacity(site.index)},
+                    enabled,intersectsFrustum,occlusion:'not-tested'}));
+            }
             data.atoms = rows.result();
         }
         if (sections.has('bonds')) {
@@ -400,6 +415,16 @@ export function installAIScene(App) {
                             ...segment.appearance,color:new THREE.Color(r.bondSegmentColor(segment)).getStyle()})),
                         enabled,intersectsFrustum,occlusion:'not-tested'}));
                 }
+            }
+            for(const connector of r.polyhedraConnectors || []) {
+                if(!connector.endpoints.every(p=>filter(p.index)))continue;
+                const enabled=Boolean(r.polyhedraGroup?.visible&&r.polyhedraDataValid);
+                const intersectsFrustum=view.frustum.intersectsBox(new THREE.Box3().setFromPoints([connector.start,connector.end]));
+                if(visibleOnly&&(!enabled||!intersectsFrustum))continue;
+                rows.add(()=>({endpoints:connector.endpoints,source:'polyhedra-coordination-connector',
+                    positionAngstrom:[vector(connector.start),vector(connector.end)],screen:[view.point(connector.start),view.point(connector.end)],
+                    segments:connector.segments.map(segment=>({from:segment.t0,to:segment.t1,...segment.appearance,color:r.bondSegmentColor(segment)})),
+                    enabled,intersectsFrustum,occlusion:'not-tested'}));
             }
             data.bonds = rows.result();
         }

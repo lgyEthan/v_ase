@@ -64,6 +64,7 @@
     <script id="v-ase-project-data" type="application/vnd.v-ase.project+zip" data-encoding="base64">{{PROJECT_DATA_BASE64}}</script>
     <script id="v-ase-three-source" type="application/vnd.v-ase.module+base64" data-encoding="base64">{{THREE_SOURCE_BASE64}}</script>
     <script id="v-ase-renderer-source" type="application/vnd.v-ase.module+base64" data-encoding="base64">{{RENDERER_SOURCE_BASE64}}</script>
+    <script id="v-ase-bsp-source" type="application/vnd.v-ase.module+base64">{{BSP_SOURCE_BASE64}}</script>
     <script id="v-ase-viewer-source" type="application/vnd.v-ase.module+base64" data-encoding="base64">{{VIEWER_SOURCE_BASE64}}</script>
     <script type="module">
         const encoded = id => document.getElementById(id).textContent.trim();
@@ -76,10 +77,11 @@
         const moduleUrl = source => URL.createObjectURL(new Blob([source], { type: 'text/javascript' }));
         try {
             const threeUrl = moduleUrl(decodeText(encoded('v-ase-three-source')));
+            const bspUrl = moduleUrl(decodeText(encoded('v-ase-bsp-source')));
             const rendererSource = decodeText(encoded('v-ase-renderer-source')).replace(
                 /from\s+['"]three['"]/,
                 `from '${threeUrl}'`
-            );
+            ).replace(/from\s+['"]\.\/polyhedra_bsp\.js['"]/, `from '${bspUrl}'`);
             const rendererUrl = moduleUrl(rendererSource);
             const viewerSource = decodeText(encoded('v-ase-viewer-source'))
                 .replace(/from\s+['"]three['"]/, `from '${threeUrl}'`)

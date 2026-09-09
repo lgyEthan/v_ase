@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { PolyhedraBSP } from './polyhedra_bsp.js';
 
 function numberArrayEqual(first = [], second = []) {
     if (first === second) return true;
@@ -1434,7 +1435,8 @@ export class ASERenderer {
             this.cellGroup,
             this.bondGroup,
             this.supercellGroup,
-            this.volumetricGroup
+            this.volumetricGroup,
+            this.polyhedraGroup
         ].forEach(group => {
             group?.traverse?.(object => {
                 if (!object.isMesh) return;
@@ -2616,6 +2618,9 @@ export class ASERenderer {
         this.supercellGroup?.children?.forEach(mesh => {
             if (mesh.userData?.supercellInstanced) replace(mesh);
         });
+        this.polyhedraGroup?.children?.forEach(mesh=>{
+            if(mesh.userData?.polyhedraAtomReferences)replace(mesh);
+        });
         return () => {
             assignments.forEach(([mesh, geometry]) => {
                 mesh.geometry = geometry;
@@ -3304,6 +3309,7 @@ export class ASERenderer {
             }
             this.updateHookeanPositions();
             this.updateViewLighting(exportView.camera, exportView.target);
+            this.preparePolyhedraView(exportView.camera);
             this.renderer.render(this.scene, exportView.camera);
             if (sceneState.requestedMode === 'studio-shadow') {
                 this.renderer.render(this.scene, exportView.camera);
@@ -7180,6 +7186,7 @@ export class ASERenderer {
     }
 
     normalizedBondMaterial(value) {
+        if(this.atomDisplayMode()==='2d')return 'unlit';
         return ['standard', 'metal', 'rubber', 'unlit'].includes(value)
             ? value
             : 'standard';
@@ -7782,6 +7789,15 @@ export class ASERenderer {
                 });
             });
         });
+        if(this.polyhedraGroup?.visible) {
+            const seen=new Set(references.map(reference=>reference.key));
+            for(const site of this.polyhedraExtraAtoms || []) {
+                if(symbol!==null && this.atomsData?.symbols?.[site.index]!==symbol)continue;
+                const key=this.supercellReferenceKey(site.index,site.cellOffset);
+                if(!seen.has(key))references.push({kind:'replica',index:site.index,cellOffset:[...site.cellOffset],key});
+                seen.add(key);
+            }
+        }
         return references;
     }
 
@@ -9184,6 +9200,7 @@ export class ASERenderer {
         this.syncSelectionOutlines();
         this.onFrame?.();
         this.updateViewLighting();
+        this.preparePolyhedraView(this.camera);
         this.renderer.render(this.scene, this.camera);
         this.renderExportPreview();
         this.renderCount += 1;
@@ -9263,15 +9280,17 @@ ASERenderer.prototype.clearPolyhedra = function () {
     this.polyhedraDataValid = false;
     this.polyhedraRendered = [];
     this.polyhedraCenters = new Set();
+    this.polyhedraSites = new Map();
+    this.polyhedraExtraAtoms = [];
+    this.polyhedraConnectors = [];
+    this.polyhedraDisplayedRecords = [];
+    this.polyhedraBspCache = null;
 };
 ASERenderer.prototype.setPolyhedraData = function (data) {
     this.validatePolyhedraDisplay(data);
     this.polyhedraData = data;
     this.polyhedraDataValid = Boolean(data);
-    this.polyhedraCenters = new Set([
-        ...(data?.polyhedra || []).map(p => p.center),
-        ...(data?.diagnostics || []).map(p => p.center)
-    ]);
+    this.polyhedraCenters = new Set((data?.polyhedra || []).map(p => p.center));
     this.drawPolyhedra();
     this.applyAtomVisibility();
     this.applyPolyhedraBondVisibility();
@@ -9295,6 +9314,9 @@ ASERenderer.prototype.drawPolyhedra = function () {
     }
     this.clearGroup(this.polyhedraGroup);
     this.polyhedraRendered = [];
+    this.polyhedraSites = new Map();
+    this.polyhedraDisplayedRecords = [];
+    this.polyhedraExtraAtoms=[];this.polyhedraConnectors=[];
     const d = this.displayOptions;
     this.polyhedraGroup.visible = Boolean(d.showPolyhedra && this.polyhedraData && this.polyhedraDataValid);
     if (!this.polyhedraGroup.visible) return;
@@ -9307,6 +9329,7 @@ ASERenderer.prototype.drawPolyhedra = function () {
     const hidden = new Set(d.hiddenAtomReferences || []);
     const ruleMap = new Map((d.polyhedraRules || []).map(rule => [rule.id,rule]));
     const batches = new Map();
+    const facePolygons=[];
     for (const record of records) {
         const configured = ruleMap.get(record.ruleId);
         if (configured?.enabled === false) continue;
@@ -9329,38 +9352,28 @@ ASERenderer.prototype.drawPolyhedra = function () {
             const vertices = record.vertices.map(v => new THREE.Vector3(...v.position).add(shift));
             const item = {record,cellOffset:offset,vertices:vertices.map(v=>v.clone().add(translation)),
                 center:new THREE.Vector3(...record.centerPosition).add(shift).add(translation)};
+            this.polyhedraDisplayedRecords.push(item);
+            record.vertices.forEach((v,i)=>{
+                const cellOffset=v.cellOffset.map((n,k)=>n+offset[k]);
+                const key=this.atomReferenceKey(v.index,cellOffset.some(Boolean)?cellOffset:null);
+                this.polyhedraSites.set(key,{index:v.index,cellOffset,position:vertices[i].clone()});
+            });
             item.appearance={color,opacity:style.opacity,showFaces:style.showFaces!==false && style.opacity>0,
                 showEdges:style.showEdges!==false,edgeColor:style.edgeColor,edgeRadius:style.edgeRadius};
             if(item.appearance.showFaces || item.appearance.showEdges)this.polyhedraRendered.push(item);
             if (style.showFaces !== false && style.opacity > 0) {
-                for (const face of record.triangles) {
-                    for (const i of face) {
-                        batch.positions.push(...vertices[i].toArray());
-                        batch.colors.push(faceColor.r,faceColor.g,faceColor.b);
-                    }
-                    batch.faces.push({index:record.center,cellOffset:base ? null : offset});
-                }
+                record.faces.forEach((face,faceIndex)=>facePolygons.push({
+                    points:face.map(i=>vertices[i].toArray()),
+                    rgba:[faceColor.r,faceColor.g,faceColor.b,style.opacity],
+                    reference:{index:record.center,cellOffset:base?null:offset},
+                    key:`${record.ruleId}:${record.center}:${offset.join(',')}:${faceIndex}`
+                }));
             }
             if (style.showEdges !== false) for (const [a,b] of record.edges) batch.segments.push([vertices[a],vertices[b]]);
         }
     }
     for (const batch of batches.values()) {
         const {style} = batch;
-        if (batch.positions.length) {
-            const geometry = new THREE.BufferGeometry();
-            geometry.setAttribute('position',new THREE.Float32BufferAttribute(batch.positions,3));
-            geometry.setAttribute('color',new THREE.Float32BufferAttribute(batch.colors,3));
-            geometry.computeVertexNormals();
-            const Material = this.atomDisplayMode()==='2d' ? THREE.MeshBasicMaterial : THREE.MeshStandardMaterial;
-            const material = new Material({color:'#ffffff',vertexColors:true,opacity:style.opacity,transparent:style.opacity<1,
-                side:THREE.DoubleSide,depthWrite:style.opacity>=1,polygonOffset:true,
-                polygonOffsetFactor:1,polygonOffsetUnits:1});
-            const mesh = new THREE.Mesh(geometry,material);
-            mesh.name = 'coordination-polyhedra-faces';
-            mesh.userData.polyhedraFaces = batch.faces;
-            mesh.renderOrder = 2;
-            this.polyhedraGroup.add(mesh);
-        }
         if (batch.segments.length) {
             const geometry = new THREE.CylinderGeometry(1,1,1,8,1);
             const material = new THREE.MeshBasicMaterial({color:style.edgeColor});
@@ -9378,9 +9391,164 @@ ASERenderer.prototype.drawPolyhedra = function () {
             this.polyhedraGroup.add(mesh);
         }
     }
+    this.drawPolyhedraAtomsAndBonds(offsets);
+    for(const transparent of [false,true]) {
+        const polygons=facePolygons.filter(p=>(p.rgba[3]<1)===transparent);
+        if(polygons.length)this.polyhedraGroup.add(this.createPolyhedraFaceMesh(polygons,transparent));
+    }
     this.domElement.dataset.polyhedronCount=String(this.polyhedraRendered.length);
+    this.applyShadowFlags();
     this.syncPolyhedraSelection();
     this.requestRender();
+};
+ASERenderer.prototype.drawPolyhedraAtomsAndBonds = function (offsets) {
+    const d=this.displayOptions,mode=d.polyhedraAtomMode||'all';
+    const inside=offset=>offset.every((n,k)=>offsets[k].includes(n));
+    const hidden=new Set(d.hiddenAtomReferences||[]);
+    const allowed=(index,offset)=>this.atomLabelVisible(index)
+        && !hidden.has(this.atomReferenceKey(index,offset.some(Boolean)?offset:null));
+    this.polyhedraExtraAtoms=[];this.polyhedraConnectors=[];
+    if(d.polyhedraCompleteLigands!==false && !['none','centers'].includes(mode)) {
+        for(const site of this.polyhedraSites.values()) {
+            if(!inside(site.cellOffset) && allowed(site.index,site.cellOffset) && this.atomVisualOpacity(site.index)>0)
+                this.polyhedraExtraAtoms.push(site);
+        }
+    }
+    const fixed=this.fixedAtomDisplayEnabled()?new Set(this.atomsData?.constraints?.fixed_indices||[]):new Set();
+    const atomGroups=new Map(),quality=this.sphereQualitySegments(this.polyhedraExtraAtoms.length);
+    for(const site of this.polyhedraExtraAtoms) {
+        const isFixed=fixed.has(site.index),preset=this.atomMaterialPreset(site.index),opacity=this.atomVisualOpacity(site.index);
+        const key=`${isFixed}:${preset}:${opacity}`;
+        if(!atomGroups.has(key))atomGroups.set(key,{isFixed,preset,opacity,sites:[]});
+        atomGroups.get(key).sites.push(site);
+    }
+    for(const group of atomGroups.values()) {
+        const segments=group.isFixed?this.fixedAtomSegments(quality):quality;
+        const mesh=new THREE.InstancedMesh(new THREE.SphereGeometry(1,segments,Math.max(8,Math.floor(segments*.65))),
+            this.createInstancedAtomMaterial(group.isFixed,group.preset,group.opacity),group.sites.length);
+        mesh.userData.polyhedraAtomReferences=group.sites;mesh.userData.fixed=group.isFixed;mesh.userData.opacity=group.opacity;mesh.name='coordination-ligand-images';
+        const dummy=new THREE.Object3D();
+        group.sites.forEach((site,i)=>{
+            dummy.position.copy(site.position);dummy.scale.setScalar(this.atomVisualRadius(site.index));dummy.updateMatrix();
+            mesh.setMatrixAt(i,dummy.matrix);mesh.setColorAt(i,new THREE.Color(this.atomVisualColor(site.index)));
+        });
+        mesh.instanceMatrix.needsUpdate=true;mesh.instanceColor.needsUpdate=true;
+        this.polyhedraGroup.add(mesh);
+    }
+    if(!d.polyhedraShowCenterBonds)return;
+    const existing=new Set((this.bondPairs||[]).map(([a,b])=>`${Math.min(a,b)}:${Math.max(a,b)}`));
+    const seen=new Set(),bondGroups=new Map();
+    for(const item of this.polyhedraDisplayedRecords) {
+        const center=item.record.center,co=item.cellOffset;
+        const start=new THREE.Vector3(...item.record.centerPosition).add(this.cellOffsetVector(co));
+        for(const vertex of item.record.vertices) {
+            const offset=vertex.cellOffset.map((n,k)=>n+co[k]);
+            if(!allowed(center,co)||!allowed(vertex.index,offset))continue;
+            const a=this.atomReferenceKey(center,co.some(Boolean)?co:null),b=this.atomReferenceKey(vertex.index,offset.some(Boolean)?offset:null);
+            const key=[a,b].sort().join('|');if(seen.has(key))continue;seen.add(key);
+            const end=new THREE.Vector3(...vertex.position).add(this.cellOffsetVector(co));
+            const delta=end.clone().sub(start);
+            const baseVisible=d.showBonds&&!['centers','none'].includes(mode)&&inside(co)&&inside(offset)
+                &&this.atomReferenceVisible(center,co.some(Boolean)?co:null)
+                &&this.atomReferenceVisible(vertex.index,offset.some(Boolean)?offset:null);
+            if(baseVisible&&existing.has(`${Math.min(center,vertex.index)}:${Math.max(center,vertex.index)}`)
+                &&delta.distanceTo(this.bondDelta(center,vertex.index))<1e-7)continue;
+            const segments=this.bondSegmentsForPair(center,vertex.index);
+            this.polyhedraConnectors.push({endpoints:[{index:center,cellOffset:co},{index:vertex.index,cellOffset:offset}],
+                start:start.clone().add(this.visualTranslationVector()),end:end.clone().add(this.visualTranslationVector()),segments});
+            for(const segment of segments) {
+                if(segment.appearance.opacity<=0)continue;
+                const groupKey=this.bondAppearanceKey(segment),appearance=segment.appearance;
+                if(!bondGroups.has(groupKey))bondGroups.set(groupKey,{appearance,color:this.bondSegmentColor(segment),segments:[]});
+                bondGroups.get(groupKey).segments.push({start:start.clone().addScaledVector(delta,segment.t0),
+                    end:start.clone().addScaledVector(delta,segment.t1)});
+            }
+        }
+    }
+    for(const group of bondGroups.values()) {
+        const flat=group.appearance.style==='flat';
+        const mesh=new THREE.InstancedMesh(flat?new THREE.PlaneGeometry(1,1):new THREE.CylinderGeometry(.5,.5,1,12),
+            this.bondMaterial(group.appearance.style,group.color,group.appearance.material,group.appearance.opacity),group.segments.length);
+        mesh.userData.sharedMaterial=true;mesh.userData.polyhedraBondSegments=group.segments;
+        mesh.userData.opacity=group.appearance.opacity;
+        mesh.userData.polyhedraBondAppearance=group.appearance;mesh.name='coordination-center-ligand-bonds';
+        this.polyhedraGroup.add(mesh);
+    }
+};
+ASERenderer.prototype.createPolyhedraFaceMesh = function (polygons,transparent) {
+    let tree=null;
+    if(transparent) {
+        const key=polygons.map(p=>p.key).sort().join('|'),cache=this.polyhedraBspCache;
+        tree=this.polyhedraData && cache?.data===this.polyhedraData && cache.key===key
+            ? cache.tree : new PolyhedraBSP(polygons);
+        this.polyhedraBspCache={data:this.polyhedraData,key,tree};
+    }
+    const fragments=tree?tree.ordered([0,0,1]):polygons;
+    const sources=new Map(polygons.map(p=>[p.key,p]));
+    const positions=[],colors=[],normals=[];
+    for(const p of fragments) {
+        p.rgba=sources.get(p.key).rgba;p.reference=sources.get(p.key).reference;
+        p.first=positions.length/3;
+        const normal=p.plane?new THREE.Vector3(...p.plane.normal):new THREE.Vector3().crossVectors(
+            new THREE.Vector3(...p.points[1]).sub(new THREE.Vector3(...p.points[0])),
+            new THREE.Vector3(...p.points[2]).sub(new THREE.Vector3(...p.points[0]))).normalize();
+        for(let i=1;i<p.points.length-1;i++)for(const j of [0,i,i+1]) {
+            positions.push(...p.points[j]);colors.push(...p.rgba);normals.push(...normal.toArray());
+        }
+        p.count=positions.length/3-p.first;
+    }
+    const geometry=new THREE.BufferGeometry();
+    geometry.setAttribute('position',new THREE.Float32BufferAttribute(positions,3));
+    geometry.setAttribute('color',new THREE.Float32BufferAttribute(colors,4));
+    geometry.setAttribute('normal',new THREE.Float32BufferAttribute(normals,3));
+    geometry.setIndex(new THREE.BufferAttribute(new Uint32Array(positions.length/3),1).setUsage(THREE.DynamicDrawUsage));
+    const flat=this.atomDisplayMode()==='2d';
+    const Material=flat?THREE.MeshBasicMaterial:THREE.MeshStandardMaterial;
+    const material=new Material({color:'#ffffff',vertexColors:true,transparent,opacity:1,
+        toneMapped:!flat,side:THREE.DoubleSide,forceSinglePass:true,depthWrite:!transparent,
+        polygonOffset:true,polygonOffsetFactor:1,polygonOffsetUnits:1});
+    const mesh=new THREE.Mesh(geometry,material);
+    mesh.userData.opacity=transparent?polygons.reduce((alpha,p)=>Math.min(alpha,p.rgba[3]),1):1;
+    mesh.name='coordination-polyhedra-faces';mesh.renderOrder=transparent?2:0;
+    mesh.userData.polyhedraFaces=[];
+    mesh.userData.polyhedraSort=camera=>{
+        const inverse=mesh.matrixWorld.clone().invert();
+        const eye=camera.getWorldPosition(new THREE.Vector3()).applyMatrix4(inverse);
+        const backward=camera.isOrthographicCamera?camera.getWorldDirection(new THREE.Vector3()).negate().transformDirection(inverse):null;
+        const key=[...eye.toArray(),...(backward?.toArray()||[])].join(',');
+        if(mesh.userData.sortKey===key)return;
+        mesh.userData.sortKey=key;
+        const ordered=tree?tree.ordered(eye.toArray(),backward?.toArray()):fragments;
+        let cursor=0;const references=[];
+        for(const p of ordered) {
+            for(let i=p.first;i<p.first+p.count;i++)geometry.index.array[cursor++]=i;
+            for(let i=0;i<p.count;i+=3)references.push(p.reference);
+        }
+        geometry.index.needsUpdate=true;mesh.userData.polyhedraFaces=references;
+    };
+    return mesh;
+};
+ASERenderer.prototype.preparePolyhedraView = function (camera) {
+    if(!this.polyhedraGroup?.visible)return;
+    camera.updateMatrixWorld(true);
+    this.polyhedraGroup.updateMatrixWorld(true);
+    for(const child of this.polyhedraGroup.children) {
+        child.userData.polyhedraSort?.(camera);
+        const segments=child.userData.polyhedraBondSegments,appearance=child.userData.polyhedraBondAppearance;
+        if(!segments)continue;
+        const orientationKey=appearance.style==='flat'?camera.matrixWorld.elements.join(','):'cylinder';
+        if(child.userData.polyhedraBondOrientationKey===orientationKey)continue;
+        const dummy=new THREE.Object3D(),previous=this.flatOrientationCamera;this.flatOrientationCamera=camera;
+        segments.forEach(({start,end},i)=>{
+            const delta=end.clone().sub(start),length=delta.length();
+            dummy.position.copy(start).add(end).multiplyScalar(.5);
+            if(appearance.style==='flat'){dummy.scale.set(appearance.thickness,length,1);this.orientFlatBond(dummy,delta);}
+            else{dummy.scale.set(appearance.thickness,length,appearance.thickness);dummy.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),delta.normalize());}
+            dummy.updateMatrix();child.setMatrixAt(i,dummy.matrix);
+        });
+        this.flatOrientationCamera=previous;child.instanceMatrix.needsUpdate=true;
+        child.userData.polyhedraBondOrientationKey=orientationKey;
+    }
 };
 ASERenderer.prototype.validatePolyhedraDisplay = function (data, d=this.displayOptions) {
     if (!d.showPolyhedra || !data) return;
@@ -9401,7 +9569,13 @@ ASERenderer.prototype.validatePolyhedraDisplay = function (data, d=this.displayO
     ASERenderer.prototype.atomReferenceVisible = function (index,offset=null) {
         const mode=this.displayOptions?.polyhedraAtomMode || 'all';
         if (this.displayOptions?.showPolyhedra && mode==='none') return false;
-        if (this.displayOptions?.showPolyhedra && mode==='centers' && !this.polyhedraCenters?.has(index)) return false;
+        if(this.displayOptions?.showPolyhedra) {
+            const center=this.polyhedraCenters?.has(index);
+            const ligand=this.polyhedraSites?.has(this.atomReferenceKey(index,offset?.some(Boolean)?offset:null));
+            if(mode==='centers' && !center)return false;
+            if(mode==='ligands' && !ligand)return false;
+            if(mode==='coordination' && !center && !ligand)return false;
+        }
         return original.call(this,index,offset);
     };
     const rebuild = ASERenderer.prototype.rebuildAtoms;
@@ -9456,6 +9630,11 @@ ASERenderer.prototype.validatePolyhedraDisplay = function (data, d=this.displayO
         if(this.displayOptions?.showPolyhedra && this.polyhedraGroup?.visible) {
             box ||= new THREE.Box3();
             for(const poly of this.polyhedraRendered || [])for(const vertex of poly.vertices)box.expandByPoint(vertex);
+            const translation=this.visualTranslationVector();
+            for(const site of this.polyhedraExtraAtoms || []) {
+                const point=site.position.clone().add(translation),radius=this.atomVisualRadius(site.index);
+                box.expandByPoint(point.clone().addScalar(radius));box.expandByPoint(point.clone().addScalar(-radius));
+            }
         }
         return box;
     };

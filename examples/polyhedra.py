@@ -6,6 +6,7 @@ experimental refinement. Labels distinguish supplied sites, not oxidation states
 from pathlib import Path
 from ase import Atoms
 from ase.spacegroup import crystal
+from ase.build import surface
 from ase.io import write
 from v_ase.io import set_atom_labels
 
@@ -27,11 +28,28 @@ def iridium_oxide(repeat=(2,2,3)):
     return atoms.repeat(repeat)
 
 
+def nbo6_fragment():
+    """Seven isolated sites for a transparent-face/ligand visibility example."""
+    atoms=Atoms('NbO6',positions=[[0,0,0],[2,0,0],[-2,0,0],
+                [0,2,0],[0,-2,0],[0,0,2],[0,0,-2]])
+    atoms.info['model']='Ideal NbO6 coordination fragment, Nb-O=2 A; unrelaxed, not a free molecule or charge assignment.'
+    return atoms
+
+
+def rutile110_surface():
+    """Finite (110) slab; periodicity completes in-plane sites, never vacuum."""
+    atoms=surface(iridium_oxide((1,1,1)),(1,1,0),4,vacuum=5).repeat((3,2,1))
+    atoms.info['model']='Unrelaxed rutile IrO2 (110) slab cut from the illustrative bulk; four layers, 3x2 in-plane repetition.'
+    return atoms
+
+
 def write_examples(directory):
     directory=Path(directory);directory.mkdir(parents=True,exist_ok=True)
     write(directory/'SrTiO3_polyhedra.traj',srtio3())
     write(directory/'SrTiO3_primitive.traj',srtio3((1,1,1)))
     write(directory/'IrO2_polyhedra.extxyz',iridium_oxide())
+    write(directory/'NbO6_fragment.extxyz',nbo6_fragment())
+    write(directory/'IrO2_110_polyhedra.extxyz',rutile110_surface())
 
 
 if __name__=='__main__':

@@ -168,6 +168,8 @@ from .polyhedra import RULES_SCHEMA
 DISPLAY_PROPERTIES.update({
     'showPolyhedra': {'type': 'boolean'},
     'polyhedraRules': RULES_SCHEMA,
-    'polyhedraAtomMode': {'enum': ['all', 'centers', 'none']},
+    'polyhedraAtomMode': {'enum': ['all', 'coordination', 'centers', 'ligands', 'none']},
+    'polyhedraCompleteLigands': {'type': 'boolean'},
+    'polyhedraShowCenterBonds': {'type': 'boolean'},
     'polyhedraRespectVisibility': {'type': 'boolean'},
 })

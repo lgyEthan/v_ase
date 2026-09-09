@@ -2583,8 +2583,10 @@ from .polyhedra import RULES_SCHEMA as _POLYHEDRA_RULES
 _polyhedra_properties = {
     "rules": _POLYHEDRA_RULES,
     "enabled": {"type": "boolean"},
-    "atomMode": {"enum": ["all", "centers", "none"]},
+    "atomMode": {"enum": ["all", "coordination", "centers", "ligands", "none"]},
     "respectVisibility": {"type": "boolean"},
+    "completeLigands": {"type": "boolean"},
+    "showCenterBonds": {"type": "boolean"},
 }
 AI_OPERATION_PARAMETERS["configure-polyhedra"] = {
     "mode": "view-or-edit", "required": [], "optional": list(_polyhedra_properties),

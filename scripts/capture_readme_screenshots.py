@@ -5150,7 +5150,8 @@ def capture_analysis_media(browser) -> None:
 
 
 def capture_polyhedra_media(browser) -> None:
-    from examples.polyhedra import iridium_oxide, srtio3
+    from examples.polyhedra import iridium_oxide, srtio3, nbo6_fragment, rutile110_surface, write_examples
+    write_examples(ROOT / "docs/assets/examples")
     atoms = iridium_oxide()
     editor, page = open_scene(browser, atoms, show_bonds=False, viz_only=True)
     try:
@@ -5184,8 +5185,8 @@ def capture_polyhedra_media(browser) -> None:
             page.click("#poly-apply")
             page.wait_for_function("window.__V_ASE_APP__.renderer.polyhedraData?.polyhedronCount > 0")
         page.wait_for_function("window.__V_ASE_APP__.renderer.polyhedraData?.polyhedronCount === 24")
-        page.select_option("#poly-atom-mode", "centers")
-        page.wait_for_function("window.__V_ASE_APP__.state.display.polyhedraAtomMode === 'centers'")
+        page.select_option("#poly-atom-mode", "coordination")
+        page.wait_for_function("window.__V_ASE_APP__.state.display.polyhedraAtomMode === 'coordination'")
         page.click("#poly-fit")
         page.select_option("#poly-rule", "coordination-1")
         page.locator("#poly-opacity").scroll_into_view_if_needed()
@@ -5210,7 +5211,7 @@ def capture_polyhedra_media(browser) -> None:
         set_display(page, {"atomRadiusScale":.22,"showBonds":False,"showGrid":False,"showAxes":False,
                            "showCell":True,"viewportBackground":"white"})
         page.evaluate("""async () => {
-            await window.__V_ASE_APP__.configurePolyhedra({enabled:true,atomMode:'centers',rules:[{
+            await window.__V_ASE_APP__.configurePolyhedra({enabled:true,atomMode:'coordination',completeLigands:true,rules:[{
                 id:'TiO6',centers:{elements:['Ti']},ligands:{elements:['O']},maxDistance:2.2,
                 color:'#547eb5',opacity:.35,edgeColor:'#29466e',edgeRadius:.022
             }]});
@@ -5223,6 +5224,48 @@ def capture_polyhedra_media(browser) -> None:
         assert page.evaluate("window.__V_ASE_APP__.renderer.polyhedraData.polyhedronCount") == 18
     finally:
         page.close(); editor.close()
+
+
+    # Same geometry, pose and face styles in flat (2D) and shaded (3D) views.
+    # Export from the renderer, without post-processing the scientific image.
+    cases=[('nbo6',nbo6_fragment(),'Nb',[8,-15,9],2.3),
+           ('primitive',srtio3((1,1,1)),'Ti',[8,-15,9],2.2),
+           ('surface',rutile110_surface(),'Ir',[0,-20,0],2.4),
+           ('surface_oblique',rutile110_surface(),'Ir',[3,-20,5],2.4)]
+    for name,atoms,element,direction,cutoff in cases:
+        editor,page=open_scene(browser,atoms,show_bonds=False,viz_only=True)
+        try:
+            page.set_viewport_size({'width':1000,'height':800})
+            collapse_inspector(page)
+            page.wait_for_function('window.__V_ASE_APP__.renderer.domElement.clientWidth===1000')
+            for mode in ('2d','3d'):
+                result=page.evaluate("""async ({mode,element,direction,cutoff})=>{
+                    const a=window.__V_ASE_APP__,r=a.renderer;
+                    Object.assign(a.state.display,{atomDisplayMode:mode,showCell:false,showAxes:false,showGrid:false,
+                        showOverlays:false,showBonds:false,atomRadiusScale:1,bondThickness:.11,
+                        labelRadii:{Nb:.55,Ti:.4,O:.22,Sr:.48,Ir_A:.32,Ir_B:.32},
+                        labelColors:{Nb:'#284f9e',Ti:'#476294',O:'#ed3438',Sr:'#eeeeee',Ir_A:'#a9a9a9',Ir_B:'#a9a9a9'}});
+                    r.setDisplayOptions(a.state.display);
+                    await a.configurePolyhedra({enabled:true,atomMode:'all',completeLigands:true,showCenterBonds:true,
+                        rules:[{id:'coordination',centers:{elements:[element]},ligands:{elements:['O']},maxDistance:cutoff,
+                        color:element==='Ir'?'#a4a4a4':'#6aafe0',opacity:element==='Ir'?.28:.45,edgeColor:'#444444',edgeRadius:.012}]});
+                    const target=r.controls.target.clone().set(0,0,0);
+                    r.atomsData.positions.forEach(p=>target.add(r.camera.position.clone().set(...p)));
+                    target.multiplyScalar(1/r.atomsData.positions.length);
+                    r.controls.target.copy(target);r.camera.position.copy(target).add(r.camera.position.clone().set(...direction));
+                    r.camera.up.set(0,0,1);r.camera.lookAt(target);
+                    const box=r.structureBounds().makeEmpty();
+                    r.atomsData.positions.forEach((_,i)=>box.expandByPoint(r.getAtomPosition(i)));
+                    for(const poly of r.polyhedraRendered)for(const p of poly.vertices)box.expandByPoint(p);
+                    box.expandByScalar(.6);r.fitCameraToStructure(box,{margin:1.12});r.renderNow();
+                    return {png:r.exportPNG(1000,800,{includeCell:false,includeAxes:false,includeGrid:false}),
+                        count:r.polyhedraRendered.length,extra:r.polyhedraExtraAtoms.length,connectors:r.polyhedraConnectors.length};
+                }""",{'mode':mode,'element':element,'direction':direction,'cutoff':cutoff})
+                (ASSET_DIR/f'readme_polyhedra_{name}_{mode}.png').write_bytes(base64.b64decode(result['png'].split(',',1)[1]))
+                assert result['count']==(48 if element=='Ir' else 1)
+                if name=='primitive':assert result['extra']==3 and result['connectors']==6
+        finally:
+            page.close();editor.close()
 
 
 def capture_docs_connection_diagram(browser) -> None:

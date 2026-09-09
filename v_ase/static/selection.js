@@ -25,10 +25,15 @@ export class ASESelection {
             ? (supercellGroup?.children || [])
                 .filter(object => object.userData?.supercellInstanced && object.visible !== false)
             : [];
-        const intersects = this.raycaster.intersectObjects([...atomGroup.children, ...repeatedAtoms])
+        const ligandImages=this.renderer.polyhedraGroup?.visible
+            ? this.renderer.polyhedraGroup.children.filter(child=>child.userData.polyhedraAtomReferences) : [];
+        const intersects = this.raycaster.intersectObjects([...atomGroup.children, ...repeatedAtoms,...ligandImages])
             .filter(hit => hit.object.visible !== false);
         if (intersects.length > 0) {
             for (const hit of intersects) {
+                const site=hit.object.userData.polyhedraAtomReferences?.[hit.instanceId];
+                if(site)return includeReplicas ? {kind:'replica',index:site.index,cellOffset:[...site.cellOffset],
+                    key:this.renderer.supercellReferenceKey(site.index,site.cellOffset)} : site.index;
                 if (hit.object.userData.instancedAtoms) {
                     return hit.object.userData.atomIndices?.[hit.instanceId] ?? null;
                 }
@@ -56,10 +61,15 @@ export class ASESelection {
         this.raycaster.setFromCamera(mouse, context.camera);
         const repeatedAtoms = (supercellGroup?.children || [])
             .filter(object => object.userData?.supercellInstanced && object.visible !== false);
-        const candidates = [...atomGroup.children, ...repeatedAtoms];
+        const ligandImages=this.renderer.polyhedraGroup?.visible
+            ? this.renderer.polyhedraGroup.children.filter(child=>child.userData.polyhedraAtomReferences) : [];
+        const candidates = [...atomGroup.children, ...repeatedAtoms,...ligandImages];
         const intersects = this.raycaster.intersectObjects(candidates)
             .filter(hit => hit.object.visible !== false);
         for (const hit of intersects) {
+            const site=hit.object.userData.polyhedraAtomReferences?.[hit.instanceId];
+            if(site)return {kind:'replica',index:site.index,cellOffset:[...site.cellOffset],
+                key:this.renderer.supercellReferenceKey(site.index,site.cellOffset)};
             if (hit.object.userData.instancedAtoms) {
                 return hit.object.userData.atomIndices?.[hit.instanceId] ?? null;
             }
@@ -144,6 +154,17 @@ export class ASESelection {
             });
         }
 
+        if (this.renderer.polyhedraGroup?.visible) {
+            this.renderer.polyhedraGroup.updateMatrixWorld(true);
+            for (const site of this.renderer.polyhedraExtraAtoms || []) {
+                const world = site.position.clone().applyMatrix4(this.renderer.polyhedraGroup.matrixWorld);
+                const screen = this.renderer.projectWorldToClient(world, context);
+                if (screen.z < -1 || screen.z > 1 || screen.x < rect.left || screen.x > rect.right
+                    || screen.y < rect.top || screen.y > rect.bottom) continue;
+                selected.add(includeReplicas ? {kind:'replica',index:site.index,cellOffset:[...site.cellOffset],
+                    key:this.renderer.supercellReferenceKey(site.index,site.cellOffset)} : site.index);
+            }
+        }
         return selected;
     }
 }

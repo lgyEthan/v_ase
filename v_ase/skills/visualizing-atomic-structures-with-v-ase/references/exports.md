@@ -43,3 +43,9 @@ waits for current hull geometry, including interpolated positions and cells.
 Offline HTML embeds per-frame hulls. OBJ and 3DM export real faces and edge
 geometry with color/opacity; Blender carries per-frame geometry with a frame
 handler. Atom-only formats do not carry coordination display settings.
+
+Polyhedra exports retain completed ligand images and optional center–ligand
+connectors with base indices/cell offsets, without adding physical atoms. Blender
+animation updates sites, connectors, faces and edges together. Display repetition
+uses the same centered cell offsets as the GUI (three cells: −1, 0, 1). Exact
+2D shading is guaranteed by PNG/HTML; editable geometry uses its host renderer.

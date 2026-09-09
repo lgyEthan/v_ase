@@ -68,3 +68,5 @@ include docs/assets/readme_rotate.png
 
 include docs/assets/readme_polyhedra.png
 include docs/assets/readme_polyhedra_srtio3.png
+include docs/assets/readme_polyhedra_*_2d.png
+include docs/assets/readme_polyhedra_*_3d.png
