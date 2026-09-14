@@ -4498,16 +4498,20 @@ body.resizing-pairwise-column * {
 }
 
 .lighting-card {
-    position: absolute;
-    top: calc(100% + 16px);
-    right: 0;
-    width: 310px;
+    position: fixed;
+    z-index: 350;
+    top: calc(var(--header-height) + 8px);
+    right: auto;
+    width: min(310px, calc(100vw - 20px));
+    display: flex;
+    flex-direction: column;
     overflow: hidden;
     border-radius: 7px;
     background: var(--panel-glass);
 }
 
 .lighting-card-head {
+    flex: none;
     min-height: 48px;
     display: flex;
     align-items: center;
@@ -4551,6 +4555,8 @@ body.resizing-pairwise-column * {
 
 .lighting-card-body {
     display: grid;
+    min-height: 0;
+    overflow-y: auto;
     gap: 11px;
     padding: 12px;
 }
@@ -6737,14 +6743,6 @@ body.resizing-pairwise-column * {
         right: 58px;
         width: 88px;
         height: 88px;
-    }
-
-    .lighting-card {
-        position: fixed;
-        top: calc(var(--header-height) + 8px);
-        right: 10px;
-        left: auto;
-        width: min(310px, calc(100vw - 20px));
     }
 
     .create-atom-widget {

@@ -1,15 +1,15 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.3.7';
-import { ASERenderer } from './renderer.js?v=0.3.7';
-import { ASESelection } from './selection.js?v=0.3.7';
-import { ASETransform } from './transform.js?v=0.3.7';
-import { installPolyhedra } from './polyhedra.js?v=0.3.7';
-import { installAIScene } from './ai_scene.js?v=0.3.7';
+import { ASEApi } from './api.js?v=0.3.8';
+import { ASERenderer } from './renderer.js?v=0.3.8';
+import { ASESelection } from './selection.js?v=0.3.8';
+import { ASETransform } from './transform.js?v=0.3.8';
+import { installPolyhedra } from './polyhedra.js?v=0.3.8';
+import { installAIScene } from './ai_scene.js?v=0.3.8';
 import {
     interpolateTrajectoryFrames,
     interpolatedFrameCount,
     normalizeInterpolationMultiplier
-} from './trajectory.js?v=0.3.7';
+} from './trajectory.js?v=0.3.8';
 
 const CHEMICAL_ELEMENT_SYMBOLS = Object.freeze([
     'H','He','Li','Be','B','C','N','O','F','Ne',
@@ -9338,18 +9338,51 @@ class VAseApp {
         const widget = document.getElementById('lighting-widget');
         const card = document.getElementById('lighting-card');
         const trigger = document.getElementById('btn-lighting-toggle');
+        // The horizontally scrolling toolbar clips all descendant popovers.
+        // Keep the panel in the viewport layer, anchored to its toolbar button.
+        if (card) document.body.appendChild(card);
+        const positionCard = () => {
+            if (!card || !trigger || card.classList.contains('hidden')) return;
+            const margin = 10;
+            const button = trigger.getBoundingClientRect();
+            const header = document.getElementById('top-bar')?.getBoundingClientRect();
+            const width = card.getBoundingClientRect().width;
+            const left = Math.max(margin, Math.min(button.right - width, window.innerWidth - width - margin));
+            const top = Math.min((header?.bottom ?? button.bottom) + 8, Math.max(margin, window.innerHeight - 80));
+            card.style.left = `${left}px`;
+            card.style.top = `${top}px`;
+            card.style.maxHeight = `${Math.max(0, window.innerHeight - top - margin)}px`;
+        };
         const setOpen = open => {
             card?.classList.toggle('hidden', !open);
             trigger?.setAttribute('aria-expanded', open ? 'true' : 'false');
             widget?.classList.toggle('open', open);
+            if (open) {
+                positionCard();
+                document.getElementById('lighting-mode')?.focus({ preventScroll: true });
+            }
         };
+        trigger?.setAttribute('aria-controls', 'lighting-card');
+        window.addEventListener('resize', positionCard);
+        window.addEventListener('scroll', positionCard, true);
         trigger?.addEventListener('click', event => {
             event.stopPropagation();
             setOpen(card?.classList.contains('hidden'));
         });
-        document.getElementById('btn-lighting-close')?.addEventListener('click', () => setOpen(false));
+        document.getElementById('btn-lighting-close')?.addEventListener('click', () => {
+            setOpen(false);
+            trigger?.focus({ preventScroll: true });
+        });
+        card?.addEventListener('keydown', event => {
+            if (event.key !== 'Escape') return;
+            event.preventDefault();
+            event.stopPropagation();
+            setOpen(false);
+            trigger?.focus({ preventScroll: true });
+        });
         document.addEventListener('pointerdown', event => {
-            if (!card?.classList.contains('hidden') && widget && !widget.contains(event.target)) setOpen(false);
+            if (!card?.classList.contains('hidden') && widget
+                && !widget.contains(event.target) && !card?.contains(event.target)) setOpen(false);
         });
         document.getElementById('lighting-mode')?.addEventListener('change', () => this.applyLightingControls());
         document.getElementById('sun-intensity')?.addEventListener('input', () => this.applyLightingControls());

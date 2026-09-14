@@ -68,3 +68,14 @@ geometry. Exact capture requires paused playback and settled requested overlays.
 use a small page and preserve the scene fingerprint across pages. Rendering waits
 for the current geometry; style-only changes reuse it. Read the polyhedra reference
 for degeneracy, explicit vertices and export behavior.
+
+## Human lighting controls
+
+The sphere button in the top toolbar opens **Render Lighting**. Its panel is
+anchored outside the toolbar's scrolling region, stays inside resized windows,
+and scrolls internally when height is limited. Opening focuses the Renderer
+selector; Escape or the close button closes it and returns focus to the trigger.
+Clicking elsewhere closes it without changing lighting. Opening/closing this
+panel does not modify the scientific document; choosing a lighting mode does
+change shared display state. Agents should continue using typed lighting fields
+and inspect the current revision before refining a person's changes.

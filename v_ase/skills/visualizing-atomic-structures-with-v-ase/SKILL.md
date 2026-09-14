@@ -107,6 +107,9 @@ Native-function hosts embed validated artifact bytes as image input. Never print
 Base64 or count a file path as image inspection. Use one final render when the
 state establishes the result; add a draft only when visual composition needs it.
 
+For same-document human lighting refinement, see the toolbar controls in the
+[scene guide](references/scene-workflow.md#human-lighting-controls).
+
 ## Collaboration and retry
 
 The person and agent share one document. Consume `vase_events` when relevant,

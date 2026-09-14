@@ -41,6 +41,7 @@ include docs/assets/chatgpt-local.png
 include docs/assets/readme_cu5o4_view_appearance.png
 include docs/assets/readme_bonds.png
 include docs/assets/readme_materials.png
+include docs/assets/render-lighting-controls.png
 recursive-include docs/assets/agent-evaluation *.png *.svg
 exclude docs/design/ai_collaboration_concepts.html
 exclude docs/design/ai_collaboration_recording.html

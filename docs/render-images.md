@@ -23,6 +23,24 @@ Use this surface composition as the input; the exported image excludes the surro
 ```
 
 
+## Render lighting
+
+1. Click the **sphere button** beside the grid button in the top toolbar.
+2. Under **Renderer**, choose **Modeling**, **Studio Sun**, or **Sun + Soft Shadow**.
+3. For the sun modes, adjust **Brightness**, source and target coordinates.
+4. Close with **×**, **Escape**, or a click outside the panel.
+
+The panel follows its button when the toolbar scrolls and stays inside the
+window when resized. On short windows, scroll inside the panel to reach all
+controls. These settings affect the shared scene and its rendered exports.
+
+```{figure} assets/render-lighting-controls.png
+:alt: Open Render Lighting controls above the Cu surface viewport, with the Renderer selector accessible outside the scrolling toolbar.
+:width: 900px
+
+The sphere button opens a separate panel; it remains clickable below the toolbar.
+```
+
 ## Render Area
 
 Image, video, and HTML use one persistent **Render Area**. Its visible boundary

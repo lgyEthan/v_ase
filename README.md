@@ -15,7 +15,7 @@
 [Issues](https://github.com/lgyEthan/v_ase/issues) ·
 [Software paper and LaTeX source](paper/joss/README.md)
 
-**0.3.7 · Polyhedra rendering fix** · [Changes](https://v-ase.readthedocs.io/en/latest/whats-new.html)
+**0.3.8 · Rendering menu fix** · [Changes](https://v-ase.readthedocs.io/en/latest/whats-new.html)
 
 An ASE-native workspace for building, editing and visualizing atomic structures,
 trajectories and volumetric data.

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.8
+
+- Fix the toolbar clipping Render Lighting controls; keep the panel clickable, keyboard-accessible and within resized windows.
+
 ## 0.3.7
 
 - Correct transparent polyhedron depth ordering across intersecting faces and rules in 2D/3D, including perspective views.
