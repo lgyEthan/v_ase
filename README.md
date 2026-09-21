@@ -69,6 +69,9 @@ v_ase mcp
 **60-run comparison:** MCP completed 30/30 strict targets; GUI completed 24/30.
 [Images, token usage and success criteria](https://v-ase.readthedocs.io/en/latest/agent-material-evaluation.html)
 
+**Cu₈O₄ extension:** both completed 10/10; MCP used 90.9% fewer median tokens.
+[Images and methods](https://v-ase.readthedocs.io/en/latest/agent-material-evaluation.html#cu8o4-prepared-scene-extension)
+
 ![A natural-language request passing through an external AI Agent into the same live revisioned v_ase GUI](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_ai_collaboration.gif)
 
 Exact atom edits from a natural-language request.

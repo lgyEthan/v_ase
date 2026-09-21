@@ -145,6 +145,70 @@ censored at 900 s, with no invented completion time.
 | Prepared cameras and group indices | Tests refinement/reproduction, not unrestricted figure design or site recognition |
 | GUI cheaper in 2/10 Cu blocks | MCP is not always the lowest-token route; blocks are not identical provider random seeds |
 
+(cu8-extension-methods)=
+## Cu₈O₄ prepared-scene extension
+
+This phase is reported separately from the 60-run study above.
+
+| Item | Fixed condition |
+| --- | --- |
+| Date / runtime | 21 September 2026; v_ase 0.3.8 frozen source |
+| Participants | 20 fresh `gpt-5.6-luna` threads, reasoning `max`; 10 per interface |
+| Order | Ten randomized paired blocks, seed 20260921; serial execution |
+| Horizon | 900 seconds per run; first strict acceptance |
+| Structure | 44 atoms: 40 Cu + 4 O; 24 fixed atoms |
+| Shared input | Byte-identical prepared project and exact 987 × 882 target PNG |
+| Requested edit | Change atom display from 3D to flat 2D and hide bonds |
+| Preserve | Coordinates, cell, PBC, constraints, labels, colors, radii, camera, crop, repetition, visual translation and all unrequested state |
+| GUI arm | Visible screenshot/accessibility controls only; no semantic API, CLI, raw DOM or MCP |
+| MCP arm | Frozen canonical Skill before scientific calls; official SDK stdio MCP, `discovery=all` |
+
+The target is a reviewed, deterministic v_ase rendering prepared from the
+supplied Cu₈O₄ structure. It is not claimed to be the original publication
+screenshot. Providing the exact target to both arms tests whether each interface
+can reproduce a known visual state while preserving the live scientific record.
+
+### Results
+
+| Interface | Strict success | Median total tokens (Q1–Q3) | Median time, s (Q1–Q3) | Images | Calls / invalid |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| GUI-only | 10/10 | 1,589,856.5 (996,207.75–2,670,396.5) | 500.8 (350.8–657.1) | 103 | 695 / 6 |
+| SKILL+MCP | 10/10 | 145,256 (133,082.5–184,405.5) | 85.5 (73.3–100.2) | 10 | 40 / 0 |
+
+The MCP median reduction was 90.9% for total tokens and 82.9% for time. MCP
+used fewer tokens and less time in every paired block. All 20 records had
+complete provider accounting; every accepted PNG was byte-identical to the
+target; model, reasoning effort, freshness, scientific invariants and token
+arithmetic passed the strict audit. Each MCP run delivered exactly one final
+tool-result image. GUI runs delivered 3–18 images.
+
+### Frozen audit and exclusion
+
+Before the confirmatory phase, one GUI and one MCP engineering pilot verified
+the runtime. The pilot revealed that one MCP render was counted once in a nested
+transport record and again in the actual provider tool-result record. Those two
+runs were excluded before the new phase was frozen. The corrected metric reads
+only top-level provider `input_image` tool outputs; a regression test rejects
+the duplicated nested record. None of the pilot outcomes were reused.
+
+The model-free preflight accepted the correct target and rejected the bonded 3D
+baseline, changed camera, changed color, changed coordinates and an uninspected
+final image. It also verified the official stdio server, eager discovery of 120
+tools and zero participant model turns. The strict post-run analyzer found 20
+unique slots, no missing records, no duplicate threads and no model fallback.
+
+This extension changes Skill guidance and transport together. Its task closely
+matches the Skill's flat/no-bonds example and starts from a prepared camera and
+appearance. It therefore supports efficiency for this reproducible refinement,
+not a universal model, interface or SOTA ranking. It also remains separate from
+historical Cu₅O₄ because source version, output size, date and reference
+disclosure differ.
+
+{download}`Cu₈O₄ aggregate results <benchmark-results/cu8-gui-mcp-20260921.json>`
+contain every public run aggregate, success evidence, variability, image counts
+and representative-output hashes. Private structures, prompts and provider logs
+remain outside the public documentation.
+
 ## Published assets
 
 {download}`Aggregate results <benchmark-results/material-gui-mcp-20260908.json>`
