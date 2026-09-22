@@ -262,14 +262,17 @@ async function runSmoke({ app, win, handshake, vault, sendCommand }) {
     await js(`window.__V_ASE_WORKSPACE__.createDocument()`);
     await wait('window.__V_ASE_WORKSPACE__.tabs.size === 2');
     await wait(`${appRef}?.collaborationReady`);
+    // Failure injection must follow native adapter installation; otherwise its
+    // document-ready handler can replace the injected function during startup.
+    await wait(`${appRef}.workspaceRecoveryAcknowledged && typeof ${appRef}.openWorkspaceWindow === 'function'`);
     const rollbackId = await js(`${appRef}.sessionId`);
     assert.equal(await js(`(async()=>{
         const a=${appRef}, original=a.openWorkspaceWindow;
         a.openWorkspaceWindow=async()=>{throw new Error('smoke-destination-failure')};
-        try { await window.__vaseDesktopHost.detach(a.sessionId); return false; }
-        catch(e){return e.message==='smoke-destination-failure'}
+        try { await window.__vaseDesktopHost.detach(a.sessionId); return 'unexpected-success'; }
+        catch(e){return e.message}
         finally {a.openWorkspaceWindow=original}
-    })()`), true);
+    })()`), 'smoke-destination-failure');
     assert.equal(await js(`window.__V_ASE_WORKSPACE__.tabs.has('${rollbackId}') && !${active}.document.body.inert`), true);
     const nativeDialog = require('electron').dialog;
     const previousOpen = nativeDialog.showOpenDialog;
