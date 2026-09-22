@@ -11398,6 +11398,13 @@ class VAseApp {
             this.syncRegistryRelaxationFromData(data);
             this.renderVolumetricControls();
             const initialFieldRequests = [];
+            // Initial project settings are applied without rendering while the
+            // scene is constructed. Resolve their stored scalar colors before
+            // declaring the document ready, just like volumetric layers.
+            if (this.state.display.atomColorScaleEnabled) {
+                initialFieldRequests.push(this.updateAtomColorScale({ refreshCatalog: true })
+                    .catch(error => this.handleAtomColorScaleError(error)));
+            }
             if (this.state.display.showVolumetric) {
                 initialFieldRequests.push(this.updateVolumetricSurface().catch(error => {
                     this.setVolumeStatus('warning', 'Isosurface unavailable', error.message);

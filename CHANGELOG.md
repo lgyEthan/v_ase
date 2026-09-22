@@ -21,8 +21,10 @@
   new window. Desktop tabs detach into independent windows, preserving their
   scientific session, camera, undo history and original writable save target.
   Closing one window releases only its workspace; Quit checks every window.
-- Replace the desktop icon with an enlarged Pinocchio-and-turret derivative of
-  the maintainer's atomic-bead castle render. Retain Python/Jupyter support.
+- Replace the desktop icon with the full atomic-bead castle, keeping its small
+  Pinocchio detail and removing the projecting red foundation board. Retain Python/Jupyter support.
+- Apply saved per-atom colorscales during initial project loading, so a fresh
+  launch is ready to render without toggling its scalar settings.
 - Remove the decorative HTML orbit GIF, recapture scientific examples and
   synchronize user documentation and the canonical agent workflow.
 

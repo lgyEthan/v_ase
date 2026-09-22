@@ -986,3 +986,46 @@ def test_browser_force_arrows_follow_each_trajectory_frame():
             browser.close()
     finally:
         editor.close()
+
+
+def test_fresh_project_open_applies_stored_scalar_colors_before_ready(tmp_path):
+    from v_ase.project import write_project_archive
+
+    frames = [Atoms('H2', positions=[[0, 0, 0], [2, 0, 0]]) for _ in range(2)]
+    for i, frame in enumerate(frames):
+        frame.new_array('audit_scalar', np.array([0.1 + i, 0.4 + i], dtype=np.float64))
+    seed = EditorSession('colorscale-startup', frames[0].copy(), frames[0].copy(),
+                         original_frames=frames, trajectory_frames=frames,
+                         current_frame=1, config={'viz_only': True})
+    project = tmp_path / 'mapped.vase'
+    write_project_archive(project, seed, {'display': {
+        'atomColorScaleEnabled': True, 'atomColorScaleField': 'array::audit_scalar::scalar',
+        'atomColorScaleMap': 'viridis', 'atomColorScaleReverse': True,
+        'atomColorScaleRangeMode': 'manual', 'atomColorScaleMin': 0.1, 'atomColorScaleMax': 1.4,
+    }})
+    editor = view(project, notebook=True, block=False, port=find_free_port(),
+                  close_on_disconnect=False)
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            page = browser.new_page(viewport={'width': 1280, 'height': 800})
+            page.goto(editor.url)
+            page.wait_for_function('window.__ASE_APP__?.collaborationReady')
+            result = page.evaluate('''() => {
+                const app = window.__ASE_APP__;
+                return {frame: app.state.atoms.metadata.current_frame,
+                    renderedFrame: app.atomColorScaleRuntime.renderedFrame,
+                    field: document.getElementById('atom-colorscale-field').value,
+                    reverse: app.state.display.atomColorScaleReverse,
+                    colors: app.renderer.atomColorScaleColors,
+                    legend: !document.getElementById('atom-colorscale-legend').classList.contains('hidden')};
+            }''')
+            assert result['frame'] == result['renderedFrame'] == 1
+            assert result['field'] == 'array::audit_scalar::scalar'
+            assert result['reverse'] is True
+            assert result['legend'] is True
+            assert len(result['colors']) == 2
+            assert all(result['colors']) and result['colors'][0] != result['colors'][1]
+            browser.close()
+    finally:
+        editor.close()

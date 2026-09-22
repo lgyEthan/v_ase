@@ -1085,6 +1085,10 @@ defaults intended for unrelated structures. They persist in
 visual presets, `.vase`/project HTML, standalone HTML, Blender, OBJ, and 3DM
 exports without changing ASE atoms or per-atom arrays.
 
+Saved enabled atom colorscales resolve their stored property catalog and current
+frame values during initial project loading. Fresh `.vase` launch does not
+require a repeated colorscale command before exact rendering.
+
 Bond settings:
 
 | Setting | Values |

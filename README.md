@@ -94,6 +94,7 @@ objects, camera orbit and object creation. Move/Rotate/Scale require an editable
 selection; click one and drag in the viewport, or enter an axis and value.
 Apply/Enter confirms, Cancel/Escape restores the original, and switching tools
 cancels a provisional transform. Keyboard G/R/S retains its modal workflow.
+Saved per-atom colorscales are applied before a reopened project is ready to render.
 The right panel overlays the scene without shifting the camera and expands up
 to 900 px when the window permits. Bonds opens editable pair specifications by
 default; **Reset to suggested cutoffs** restores radius-derived suggestions.
