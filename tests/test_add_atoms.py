@@ -2168,7 +2168,14 @@ def test_browser_scratch_relaxation_lifecycle_and_physical_scale():
             page.fill('#relax-fmax', '0.000001')
             page.fill('#relax-steps', '5000')
             page.click('#btn-relax')
-            page.wait_for_function("window.__ASE_APP__.state.isRelaxing === true", timeout=20_000)
+            # The small repulsion problem can converge before Playwright's
+            # first poll. Require an actual trajectory in that case.
+            page.wait_for_function("""() => {
+                const s = window.__ASE_APP__.state;
+                return s.isRelaxing || (s.relaxTrajectory?.finished
+                    && s.relaxTrajectory?.kind === 'relaxation'
+                    && s.relaxTrajectory?.frames?.length >= 2);
+            }""", timeout=20_000)
             page.evaluate("document.getElementById('btn-stop-relax').click()")
             page.wait_for_function("window.__ASE_APP__.state.isRelaxing === false", timeout=10_000)
             assert page.locator("#btn-relax").is_enabled()

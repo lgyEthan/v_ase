@@ -9,6 +9,7 @@ export const EDITOR_COMMANDS = Object.freeze({
     close: { code: 'KeyW', shift: false, label: 'Close the active document after Save/Discard/Cancel', action: 'close' },
     save: { code: 'KeyS', shift: false, label: 'Save the active document to its current target', action: 'save' },
     'save-as': { code: 'KeyS', shift: true, label: 'Save the active document to a new target', action: 'save-as' },
+    open: { code: 'KeyO', shift: false, label: 'Open a structure or project', action: 'open' },
     new: { code: 'KeyN', shift: false, label: 'Create one new document', action: 'new' }
 });
 

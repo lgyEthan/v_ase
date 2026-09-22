@@ -2,7 +2,7 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const path = require('node:path');
-const { Menu, nativeImage } = require('electron');
+const { Menu, nativeImage, BrowserWindow } = require('electron');
 
 async function runSmoke({ app, win, handshake, vault, sendCommand }) {
     const output = process.env.V_ASE_SMOKE_DIR || path.join(__dirname, 'smoke-output');
@@ -26,7 +26,7 @@ async function runSmoke({ app, win, handshake, vault, sendCommand }) {
             await new Promise(resolve => setTimeout(resolve, 50));
         }
         const state = await js(`(()=>{const f=${active};return {focus:f.document.activeElement?.id,selection:[...f.__ASE_APP__.state.selected],key:f.__smokeKey,modal:f.document.querySelector('#modal-content')?.textContent};})()`);
-        throw new Error(`Timed out: ${expression}\n${JSON.stringify(state)}`);
+        throw new Error(`Timed out: ${expression}\n${JSON.stringify(state)}\n${JSON.stringify(await js('window.__smokePointer || []'))}`);
     }
     async function api(method, params = {}) {
         const response = await fetch(handshake.command_url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ method, params }) });
@@ -61,6 +61,18 @@ async function runSmoke({ app, win, handshake, vault, sendCommand }) {
     assert.equal(await js(`${active}.vaseDesktop`), undefined);
     const fixture = path.join(output, 'desktop-fixture.xyz');
     await fs.writeFile(fixture, '3\nDesktop fixture\nO 0 0 0\nH 0.95 0 0\nH -0.2 0.9 0\n');
+    // A real OS-backed File from Chromium, not a renderer-supplied pathname.
+    await js(`(()=>{const input=document.createElement('input'); input.type='file'; input.id='smoke-drop-file'; input.hidden=true; document.body.append(input);})()`);
+    win.webContents.debugger.attach('1.3');
+    try {
+        const root = await win.webContents.debugger.sendCommand('DOM.getDocument');
+        const node = await win.webContents.debugger.sendCommand('DOM.querySelector', { nodeId: root.root.nodeId, selector:'#smoke-drop-file' });
+        await win.webContents.debugger.sendCommand('DOM.setFileInputFiles', { nodeId:node.nodeId, files:[fixture] });
+        const dropped = await js("window.vaseDesktop.openDropped(document.getElementById('smoke-drop-file').files[0])");
+        assert.equal(dropped.name, 'desktop-fixture.xyz');
+        assert.ok(dropped.token && !dropped.path);
+        assert.equal(await js("window.vaseDesktop.openDropped(new File(['x'],'fake.xyz'))"), null);
+    } finally { win.webContents.debugger.detach(); await js("document.getElementById('smoke-drop-file').remove()"); }
     await open(fixture);
     assert.equal(await js(`${appRef}.state.atoms.positions.length`), 3);
     const routes = { supercell: 'cell-replication', appearance: 'appearance', bonding: 'bonding', renderer: 'export', 'cell-transform': 'cell-transform' };
@@ -187,8 +199,82 @@ async function runSmoke({ app, win, handshake, vault, sendCommand }) {
     }
     win.setContentSize(1440,960);
     await fs.writeFile(path.join(output, 'workspace.png'), (await win.webContents.capturePage()).toPNG());
+    // Real native Ctrl+A (also on macOS) and one-Tab cutoff editing.
+    await js(`${appRef}.openEditorRoute('bonding')`);
+    await js(`(()=>{const d=${active}.document; const input=d.querySelector('.pairwise-bond-max'); input.focus(); input.value='1.234'; })()`);
+    win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'A', modifiers: ['control'] });
+    win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'A', modifiers: ['control'] });
+    win.webContents.insertText('2');
+    await wait(`${active}.document.querySelector('.pairwise-bond-max').value === '2'`);
+    win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Tab' });
+    win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Tab' });
+    await wait(`${active}.document.activeElement === ${active}.document.querySelectorAll('.pairwise-bond-max')[1]`);
+    win.webContents.insertText('2.5');
+    await wait(`${active}.document.querySelectorAll('.pairwise-bond-max')[1].value === '2.5'`);
+    await js(`${active}.document.activeElement.blur()`);
+    await js(`${appRef}.settleScientificMutations().then(()=>${appRef}.flushVisualHistoryCommit())`);
+    const movedId = await js(`${appRef}.sessionId`);
+    const beforeMove = await js(`({format:${appRef}.projectFile.format, filename:${appRef}.projectFile.filename,
+        positions:${appRef}.renderer.currentPositions(), camera:${appRef}.cameraSettingsSnapshot(),
+        undo:${appRef}.undoTimeline.length, dirty:${appRef}.updateProjectDirtyState()})`);
+    const tabPoint = await js(`(()=>{const r=window.__V_ASE_WORKSPACE__.tabs.get('${movedId}').select.getBoundingClientRect();return {x:Math.round(r.x+r.width/2),y:Math.round(r.y+r.height/2)};})()`);
+    await js(`(() => { window.__smokePointer=[]; for (const d of [document,${active}.document]) for(const type of ['pointerdown','pointermove','pointerup','click']) d.addEventListener(type,e=>window.__smokePointer.push({type,target:e.target.className,x:e.clientX,y:e.clientY,top:d===document}),true); })()`);
+    win.show(); win.focus(); win.webContents.focus();
+    win.webContents.sendInputEvent({ type: 'mouseMove', ...tabPoint });
+    win.webContents.sendInputEvent({ type: 'mouseDown', ...tabPoint, button: 'left', clickCount: 1 });
+    await js('new Promise(resolve => requestAnimationFrame(resolve))');
+    win.webContents.sendInputEvent({ type: 'mouseMove', x:tabPoint.x+70, y:tabPoint.y+140, modifiers:['leftbuttondown'] });
+    await js('new Promise(resolve => requestAnimationFrame(resolve))');
+    win.webContents.sendInputEvent({ type: 'mouseUp', x:tabPoint.x+70, y:tabPoint.y+140, button:'left', clickCount:1 });
+    await wait(`!window.__V_ASE_WORKSPACE__.tabs.has('${movedId}')`);
+    const detached = BrowserWindow.getAllWindows().find(candidate => candidate !== win);
+    assert.ok(detached, 'Dragging a tab creates a second native window');
+    const detachedJS = code => detached.webContents.executeJavaScript(code);
+    const detachedWorkspaceId = new URL(detached.webContents.getURL()).searchParams.get('workspace_id');
+    const afterMove = await detachedJS(`({format:${appRef}.projectFile.format, filename:${appRef}.projectFile.filename,
+        positions:${appRef}.renderer.currentPositions(), camera:${appRef}.cameraSettingsSnapshot(),
+        undo:${appRef}.undoTimeline.length, dirty:${appRef}.updateProjectDirtyState()})`);
+    assert.deepEqual(afterMove, beforeMove, 'Detach preserves visual state, history, dirty state and the save format');
+    assert.ok(await detachedJS(`${appRef}.projectFile.handle?.desktopToken`), 'Native file grant moves with the tab');
+    await detachedJS(`${appRef}.saveDocument()`);
+    assert.equal(await detachedJS(`${appRef}.updateProjectDirtyState()`), false);
+    await fs.writeFile(path.join(output, 'detached-window.png'), (await detached.webContents.capturePage()).toPNG());
+    const quittingOther = new Promise(resolve => detached.once('closed', resolve));
+    detached.close(); await quittingOther;
+    assert.equal(win.isDestroyed(), false, 'Closing the detached window leaves the original window running');
+    assert.equal((await fetch(`${new URL(handshake.human_url).origin}/api/workspace/${detachedWorkspaceId}`)).status, 400,
+        'Closing a native window releases its backend workspace');
+    await js(`window.__V_ASE_WORKSPACE__.createDocument()`);
+    await wait('window.__V_ASE_WORKSPACE__.tabs.size === 2');
+    await wait(`${appRef}?.collaborationReady`);
+    const rollbackId = await js(`${appRef}.sessionId`);
+    assert.equal(await js(`(async()=>{
+        const a=${appRef}, original=a.openWorkspaceWindow;
+        a.openWorkspaceWindow=async()=>{throw new Error('smoke-destination-failure')};
+        try { await window.__vaseDesktopHost.detach(a.sessionId); return false; }
+        catch(e){return e.message==='smoke-destination-failure'}
+        finally {a.openWorkspaceWindow=original}
+    })()`), true);
+    assert.equal(await js(`window.__V_ASE_WORKSPACE__.tabs.has('${rollbackId}') && !${active}.document.body.inert`), true);
+    const nativeDialog = require('electron').dialog;
+    const previousOpen = nativeDialog.showOpenDialog;
+    nativeDialog.showOpenDialog = async()=>({canceled:false,filePaths:[html]});
+    try { await js("window.__vaseDesktopHost.command('open')"); }
+    finally { nativeDialog.showOpenDialog=previousOpen; }
+    await js(`${active}.document.querySelector('[name="open-file-mode"][value="new-window"]').checked=true; ${active}.document.querySelector('#open-file-confirm').click()`);
+    let openedWindow, openedState;
+    for (let i=0;i<200;i++) {
+        openedWindow=BrowserWindow.getAllWindows().find(candidate=>candidate!==win);
+        openedState=openedWindow && await openedWindow.webContents.executeJavaScript(`(()=>{const w=window.__V_ASE_WORKSPACE__,a=w?.tabs.get(w.activeSessionId)?.pane?.contentWindow?.__ASE_APP__;return a?.collaborationReady && a.projectFile.handle?.desktopToken ? {format:a.projectFile.format,width:a.projectFile.outputProfile?.width,count:a.state.atoms.positions.length} : null;})()`).catch(()=>null);
+        if(openedState) break;
+        await new Promise(resolve=>setTimeout(resolve,50));
+    }
+    assert.deepEqual(openedState,{format:'html',width:720,count:3},'Open in new window restores the project and native target');
+    const openedClosed=new Promise(resolve=>openedWindow.once('closed',resolve));
+    openedWindow.close(); await openedClosed;
+    assert.equal(win.isDestroyed(),false);
     const result = { version: app.getVersion(), platform: process.platform, architecture: process.arch,
-        commands: 9, nativeKeyInput: true, nativeSave: true, scientificProject: true,
+        commands: 10, nativeControlA: true, verticalCutoffTab: true, droppedFileGrant: true, detachedWindow: true, detachedSave: true, transferRollback: true, openNewWindow: true, independentWindowClose: true, nativeKeyInput: true, nativeSave: true, scientificProject: true,
         htmlProfile: [720,480], openNewTab: true, quitCancellation: true, render: [800, 600],
         oxygenPixels, geometryRoutes, nodeIsolation: true };
     await fs.writeFile(path.join(output, 'result.json'), JSON.stringify(result, null, 2));

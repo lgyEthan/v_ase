@@ -385,12 +385,14 @@ reuse the same style and shared boundaries are deduplicated.
 
 Bond topology modes:
 
-- **Automatic**: ASE covalent radii from Cordero et al.
+- **Legacy automatic compatibility**: ASE covalent radii from Cordero et al.
   ([DOI 10.1039/B801115J](https://doi.org/10.1039/B801115J)) with additive
   tolerance by pair class. H-H and metal-metal contacts are excluded by
   default; metal-ligand, H-containing, and other covalent pairs use separate
-  tolerances.
-- **Pair specifications**: each label pair has an enabled state and explicit
+  tolerances. The GUI converts saved automatic settings, including their
+  cutoff scale, to editable pair specifications. There is no separate Automatic
+  radii control.
+- **Pair specifications (default)**: each label pair has an enabled state and explicit
   maximum distance. The maximum is the complete topology rule for that
   mode; a disabled row or zero maximum produces no bond. Initial specifications
   are deterministic element-radius suggestions, not values learned from a

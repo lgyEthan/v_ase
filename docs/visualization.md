@@ -106,7 +106,7 @@ range, and playback behavior are stored in projects and standalone HTML.
 ```{figure} assets/readme_bonds.png
 :alt: Pair-specific bond settings on a copper oxide film over copper.
 
-Inspect the exact pairs and effective style in the Bonding panel.
+Inspect the exact pairs and effective style in Style → Bonds.
 ```
 
 Bond visibility and bond appearance are separate from physical constraints or
@@ -114,10 +114,14 @@ calculator connectivity.
 
 ### Topology modes
 
-- Automatic mode infers contacts from element/covalent information and the
-  active cutoff scale.
-- Label-pair mode uses explicit enabled/cutoff records for each label pair.
-- Manual bonds preserve explicitly selected pairs.
+- **Pair specifications** is the default. Each label pair has an enabled
+  checkbox and an explicit cutoff in Å. **Reset to suggested cutoffs** fills
+  radius-derived suggestions; there is no separate Automatic radii option.
+- **Manual index pairs** preserves explicitly selected atom-index pairs.
+
+Legacy automatic settings are converted to editable pair specifications using
+their saved cutoff scale. Ctrl+A selects an entire cutoff value, including on
+Mac; Tab/Shift+Tab moves directly to the next/previous cutoff.
 
 Periodic bonds can be shown across cell boundaries. Export uses the same
 minimum-image topology and, for skewed cells, ASE's exact minimum-image

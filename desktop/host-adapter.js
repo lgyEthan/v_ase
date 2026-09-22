@@ -2,8 +2,10 @@
 (async () => {
     if (window.__vaseDesktopHost || !window.vaseDesktop) return;
     const native = window.vaseDesktop;
-    const { EDITOR_COMMANDS, commandIdForEvent } = await import('/static/editor_commands.js?v=0.4.1');
+    const { EDITOR_COMMANDS, commandIdForEvent } = await import('/static/editor_commands.js?v=0.4.2');
     const installed = new WeakSet();
+    const { detachWorkspaceDocument, restoreWindowDocument } = await import('/static/workspace_windows.js?v=0.4.2');
+    let transfer = null;
     const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     const workspace = () => window.__V_ASE_WORKSPACE__;
     const activeApp = () => {
@@ -42,7 +44,7 @@
     async function waitForApp() {
         for (let attempt = 0; attempt < 600; attempt++) {
             const app = activeApp();
-            if (app?.collaborationReady) { install(app); return app; }
+            if (app?.collaborationReady && (!app.workspaceChild || app.workspaceRecoveryAcknowledged)) { install(app); return app; }
             await sleep(50);
         }
         throw new Error('The document is still loading. Try again when it is ready.');
@@ -50,6 +52,7 @@
 
     async function open(selected) {
         if (!selected) return;
+        if (transfer) throw new Error('Wait until the tab finishes moving before opening another file.');
         const app = await waitForApp();
         const parts = [];
         let offset = 0;
@@ -65,6 +68,17 @@
     function install(app) {
         if (!app || installed.has(app)) return;
         installed.add(app);
+        app.droppedFileHandle = async file => {
+            const selected = await native.openDropped(file);
+            return selected ? fileHandle(selected) : null;
+        };
+        app.openWorkspaceWindow = async payload => {
+            const provenance = payload.snapshot?.provenance;
+            const serialized = { ...payload, snapshot: payload.snapshot ? { ...payload.snapshot,
+                provenance: provenance ? { ...provenance, handle: null,
+                    desktopToken: provenance.handle?.desktopToken || null } : null } : null };
+            return native.newWindow(serialized);
+        };
         app.filePickerAdapter = { showSaveFilePicker: async options => {
             const selected = await native.chooseSave(options);
             if (!selected) throw new DOMException('Save cancelled', 'AbortError');
@@ -126,12 +140,22 @@
             metaKey: input.meta, altKey: input.alt, isComposing: input.isComposing,
         }, native.platform === 'darwin' ? 'mac' : 'windows'),
         async command(id) {
+            if (transfer) throw new Error('Wait until the tab finishes moving to its new window.');
             const app = await waitForApp();
             if (id === 'open') return app.chooseSystemStructureFile();
+            if (id === 'detach-tab') return host.detach(workspace().activeSessionId);
+            if (id === 'new-window') {
+                const ws = workspace();
+                const state = await ws.createDocument({ activate: true });
+                if (!state) return;
+                await waitForApp();
+                return host.detach(state.session_id);
+            }
             if (id === 'shortcuts') return app.showShortcutsModal();
             return app.executeEditorCommand(id);
         },
         async confirmQuit() {
+            if (transfer) { report(new Error('Wait until the tab finishes moving to its new window.')); return false; }
             const ws = workspace();
             if (!ws?.tabs) return activeApp() ? activeApp().confirmDocumentClose() : true;
             const previous = ws.activeSessionId;
@@ -144,9 +168,87 @@
             if (ws.tabs.has(previous)) (ws.activateDocument || ws.activate).call(ws, previous);
             return true;
         },
+        async restore(snapshot) {
+            const app = await waitForApp();
+            if (snapshot?.provenance?.desktopToken) {
+                snapshot.provenance.handle = fileHandle({ token: snapshot.provenance.desktopToken,
+                    name: snapshot.provenance.filename });
+                delete snapshot.provenance.desktopToken;
+            }
+            restoreWindowDocument(app, snapshot);
+            const entry = workspace()?.tabs.get(app.sessionId);
+            workspace()?.captureDocumentProvenance?.(entry, app);
+            return true;
+        },
+        async detach(sessionId, position = null) {
+            if (transfer) return transfer;
+            const ws = workspace();
+            (ws.activateDocument || ws.activate).call(ws, sessionId);
+            const app = await waitForApp();
+            transfer = detachWorkspaceDocument(ws, sessionId, payload => app.openWorkspaceWindow({ ...payload, position }));
+            try { return await transfer; } finally { transfer = null; }
+        },
         open,
     };
     window.__vaseDesktopHost = host;
+    // Pointer capture keeps the gesture alive outside the tab strip/window.
+    let tabDrag = null;
+    let suppressDragClick = false;
+    const tabSelector = '.document-tab, .direct-document-tab';
+    document.addEventListener('pointerdown', event => {
+        const tab = event.target.closest(tabSelector);
+        if (!tab || event.button !== 0 || event.target.closest('.document-close, .direct-document-close')) return;
+        tabDrag = { tab, id: tab.dataset.sessionId, x: event.clientX, y: event.clientY,
+            pointer: event.pointerId, moved: false, title: tab.title };
+        suppressDragClick = false;
+        tab.setPointerCapture(event.pointerId);
+    });
+    document.addEventListener('pointermove', event => {
+        if (!tabDrag || event.pointerId !== tabDrag.pointer) return;
+        if (Math.hypot(event.clientX-tabDrag.x, event.clientY-tabDrag.y) < 8) return;
+        tabDrag.moved = true;
+        tabDrag.tab.style.opacity = '0.5';
+        tabDrag.tab.title = 'Release below the tab strip to move this document into a new window';
+        event.preventDefault();
+    });
+    const finishTabDrag = event => {
+        const drag = tabDrag; tabDrag = null;
+        if (!drag) return;
+        drag.tab.style.opacity = '';
+        drag.tab.title = drag.title;
+        if (drag.tab.hasPointerCapture?.(drag.pointer)) drag.tab.releasePointerCapture(drag.pointer);
+        if (!drag.moved || event.type === 'pointercancel') return;
+        suppressDragClick = true;
+        const bar = document.querySelector('#document-bar, #direct-document-bar').getBoundingClientRect();
+        if (event.clientY > bar.bottom + 56 || event.clientY < -24 || event.clientX < -24 || event.clientX > innerWidth + 24) {
+            event.preventDefault();
+            host.detach(drag.id, { x: Math.max(0, event.screenX-150), y: Math.max(0,event.screenY-24) }).catch(report);
+        } else {
+            const target = [...document.querySelectorAll(tabSelector)].find(tab => {
+                const rect = tab.getBoundingClientRect(); return event.clientX >= rect.left && event.clientX <= rect.right;
+            });
+            if (target && target !== drag.tab) {
+                const before = event.clientX < target.getBoundingClientRect().left + target.clientWidth/2;
+                target.parentNode.insertBefore(drag.tab, before ? target : target.nextSibling);
+                const ws = workspace();
+                ws.tabs = new Map([...document.querySelectorAll(tabSelector)]
+                    .map(tab => [tab.dataset.sessionId, ws.tabs.get(tab.dataset.sessionId)]));
+            }
+        }
+    };
+    document.addEventListener('pointerup', finishTabDrag);
+    document.addEventListener('pointercancel', finishTabDrag);
+    document.addEventListener('keydown', event => {
+        if (event.key !== 'Escape' || !tabDrag) return;
+        event.preventDefault(); event.stopPropagation();
+        finishTabDrag({ type: 'pointercancel' });
+    }, true);
+    document.addEventListener('click', event => {
+        if (!suppressDragClick) return;
+        suppressDragClick = false;
+        event.preventDefault(); event.stopImmediatePropagation();
+    }, true);
+
     native.onCommand(id => host.command(id).catch(report));
     native.onOpen(file => open(file).catch(report));
     for (const entry of workspace()?.tabs.values() || []) {

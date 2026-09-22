@@ -18,7 +18,8 @@ independent backend editor session with its own:
 - collaboration revision and project output.
 
 The **+** tab action creates an empty document. **Open** can replace the active
-document, append frames to its trajectory, or create a new tab. Inactive
+document, append frames to its trajectory, create a new tab, or open a new window.
+Dropping a supported structure or project opens the same destination choices. Inactive
 document iframes suspend rendering and movie playback, although a backend
 calculation already in progress can continue.
 In a direct or notebook editor, the first New/Open-in-new-tab action adds the
@@ -27,8 +28,11 @@ browser file handle, selection and camera remain attached to the first tab.
 Later tabs use independent child sessions inside that page or notebook frame.
 File/Edit/View/Help menus and Save/Render actions sit above the document canvas.
 An optional Objects drawer overlays the viewport; the single right workbench
-uses Style / Build / Analyze / Render tabs. Each tab exposes its tools as labelled buttons; no tool dropdown hides the
-available scientific workflows. Style includes Atoms, Bonds, Cell, Polyhedra
+uses Style / Build / Analyze / Render tabs. Each tab has distinct icon bookmarks
+above its active section heading; hover or focus a bookmark for its name. The
+right panel overlays a stable canvas and can expand up to 900 px. The left
+toolbar groups selection/measurement, selected-object transforms, orbit and
+creation. Choosing a new tool cancels an uncommitted transform. Style includes Atoms, Bonds, Cell, Polyhedra
 and View & guides. Search in the
 header reveals an existing control, not a duplicate setting. At narrow widths
 the viewport comes first and the workbench stacks beneath it. A dirty tab offers Save, Discard and Cancel before closing;
@@ -47,6 +51,11 @@ the current rendered setting.
 Analysis results live in a dock below the canvas. Drag its top edge to give
 plots more room without changing the camera's px/Å scale; on short windows,
 results take the work area and **Back** returns to the canvas.
+
+Desktop tabs can be dragged below the tab strip into a separate native window.
+The same backend session moves with its history and writable project target.
+Closing that window releases its documents while other windows keep running.
+The native Help menu copies the connection URL for its focused workspace.
 
 ## View and Edit
 

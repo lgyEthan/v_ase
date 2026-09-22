@@ -32,6 +32,14 @@ class FileVault {
         return { token, name: path.basename(resolved) };
     }
 
+    fork(owner, token, newOwner) {
+        const record = this.handle(owner, token);
+        const next = randomUUID();
+        // Keep the original fingerprint: detaching must not accept an external edit.
+        this.handles.set(next, { ...record, owner: newOwner });
+        return { token: next, name: path.basename(record.path) };
+    }
+
     handle(owner, token) {
         const record = this.handles.get(token);
         if (!record || record.owner !== owner) throw new Error('Unknown file permission. Choose the file again.');

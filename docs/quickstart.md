@@ -50,9 +50,15 @@ available at desktop sizes:
 **Analyze → Measure** shows atom details and deliberate measurements;
 selecting an atom does not switch away from a task. Use the header search to
 find a control. File/Edit/View/Help menus sit above the canvas; the optional
-Objects drawer opens scene objects and their real properties. Select, Move, Orbit, Rotate, Scale, Measure and Add atoms are visible below the
-viewport. At narrow widths
-the right workbench stacks below the viewport.
+Objects drawer opens scene objects and their real properties. Each workbench
+has icon bookmarks above its section title; hover or focus an icon for its name.
+The left toolbar groups selection/measurement, transforms of a selected object,
+camera orbit and creation. Select atoms first, choose Move/Rotate/Scale, then
+drag in the viewport; Apply/Enter confirms and Cancel/Escape reverts. Switching
+tools cancels the previous provisional transform. G/R/S keeps the keyboard modal
+workflow. The right panel overlays the canvas and can be widened without moving
+the structure. At narrow widths it stacks below the viewport. The Reset menu
+provides coordinates-only and full reset.
 On short windows, an open analysis result uses the work area; **Back to
 viewport** returns to the structure.
 

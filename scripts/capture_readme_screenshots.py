@@ -5350,7 +5350,9 @@ def capture_html_media(browser) -> None:
             frames.extend([frames[-1].copy() for _ in range(8)])
             assert not external
             offline.close()
-            save_gif(frames,ASSET_DIR/'readme_html_quicklook.gif',duration=125)
+            # Keep validating offline HTML, but do not publish the uninformative orbit GIF.
+            (ASSET_DIR / 'steps').mkdir(exist_ok=True)
+            poster.save(ASSET_DIR / 'steps' / 'html-preview.png')
     finally:
         page.close();editor.close()
 

@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.4.2
+
+- Replace repeated workbench symbols with 23 distinct section icons, hover/focus
+  names, and section headings below the bookmark strip. Group the left toolbar
+  by selection/measurement, selected-object transforms, camera and creation.
+- Make Move/Rotate/Scale wait for an editable selection and a viewport drag;
+  preserve modal G/R/S, explicit Apply/Cancel and exclusive tool state. Wait
+  for pending physical edits before Undo/Redo.
+- Float the right panel over a stable canvas and widen it up to 900 px. Normalize
+  option typography, align selection controls, and keep fields and units inside
+  their bounds. Restore the canonical GitHub logo in the editor header.
+- Default Bonds to editable pair specifications; remove the redundant Automatic
+  radii selector and retain suggested-cutoff reset and explicit index pairs.
+  Preserve guest-label bonds in cell-match previews.
+- Support Ctrl+A for entire numeric fields even on Mac, consecutive cutoff
+  editing with Tab/Shift+Tab, and Open with Command+O / Ctrl+O. Make menus
+  switch on hover, coordinate with search, and expose a visible Reset menu.
+- Open dropped projects/structures in the current trajectory, a new tab or a
+  new window. Desktop tabs detach into independent windows, preserving their
+  scientific session, camera, undo history and original writable save target.
+  Closing one window releases only its workspace; Quit checks every window.
+- Replace the desktop icon with an enlarged Pinocchio-and-turret derivative of
+  the maintainer's atomic-bead castle render. Retain Python/Jupyter support.
+- Remove the decorative HTML orbit GIF, recapture scientific examples and
+  synchronize user documentation and the canonical agent workflow.
+
 ## 0.4.1
 
 - **Redesign the complete editor UI** around a wide atomic viewport and one

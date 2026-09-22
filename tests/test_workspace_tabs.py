@@ -661,3 +661,58 @@ def test_last_workspace_tab_cancel_then_discard_keeps_workspace_alive():
     finally:
         finalize_workspace(workspace.workspace_id)
         editor.close()
+
+
+def test_detach_moves_live_document_and_old_window_cannot_destroy_it():
+    from v_ase.session import move_workspace_session, create_workspace_session
+    host, original = _workspace_host()
+    host.push_history()
+    host.working_atoms.positions[0, 0] += 1
+    host.project_file_binding = {'id': 'opaque', 'format': 'html', 'filename': 'sample.html'}
+    history = host.history
+    frames = host.trajectory_frames
+    target = move_workspace_session(original, host.session_id)
+    try:
+        assert original.host_session_id != host.session_id
+        assert len(original.session_ids) == 1
+        assert target.session_ids == [host.session_id]
+        assert target.host_session is host
+        assert host.history is history and host.trajectory_frames is frames
+        assert host.project_file_binding['format'] == 'html'
+        assert host.config['workspace_id'] == target.workspace_id
+        finalize_workspace(original.workspace_id)
+        assert sessions[host.session_id] is host
+        assert not host.done_event.is_set()
+        assert len(host.working_atoms) == 3
+        # Transfer back into another existing window is the failure rollback path.
+        fresh_host = create_workspace_session(target)
+        fresh = create_workspace(fresh_host)
+        target.session_ids.remove(fresh_host.session_id)
+        move_workspace_session(target, host.session_id, fresh)
+        assert host.config['workspace_id'] == fresh.workspace_id
+        assert host.session_id in fresh.session_ids
+        assert host.session_id not in target.session_ids
+        finalize_workspace(target.workspace_id)
+        assert sessions[host.session_id] is host
+        finalize_workspace(fresh.workspace_id)
+    finally:
+        for ws in (original, target):
+            finalize_workspace(ws.workspace_id)
+
+
+def test_native_window_close_releases_only_its_documents_without_stopping_host():
+    from v_ase.server import close_workspace_window
+    from v_ase.session import move_workspace_session
+    host, original = _workspace_host()
+    target = move_workspace_session(original, host.session_id)
+    try:
+        asyncio.run(close_workspace_window(target.workspace_id))
+        assert target.workspace_id not in workspaces
+        assert host.session_id not in sessions
+        assert not host.done_event.is_set()  # The desktop owns process lifetime.
+        assert original.workspace_id in workspaces
+        assert original.host_session_id in sessions
+        child = asyncio.run(create_workspace_document(original.workspace_id))
+        assert child['session_id'] in sessions
+    finally:
+        finalize_workspace(original.workspace_id)

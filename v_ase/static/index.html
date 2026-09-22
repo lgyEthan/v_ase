@@ -52,14 +52,14 @@
             });
         })();
     </script>
-    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.4.1">
-    <link id="editor-style" rel="stylesheet" href="static/editor.css?v=0.4.1">
-    <link id="direct-workspace-style" rel="stylesheet" href="static/direct_workspace.css?v=0.4.1">
+    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.4.2">
+    <link id="editor-style" rel="stylesheet" href="static/editor.css?v=0.4.2">
+    <link id="direct-workspace-style" rel="stylesheet" href="static/direct_workspace.css?v=0.4.2">
     <script>
         window.__V_ASE_MOCK__ = new URLSearchParams(window.location.search).has('v_ase_mock');
         const threeModulePath = window.location.protocol === 'file:'
             ? './vendor/three.module.js'
-            : '/static/vendor/three.module.js?v=0.4.1';
+            : '/static/vendor/three.module.js?v=0.4.2';
         const importMap = document.createElement('script');
         importMap.type = 'importmap';
         importMap.textContent = JSON.stringify({
@@ -93,6 +93,12 @@
             <button id="tool-scale" type="button" aria-label="Scale selection" title="Scale selection (S)">Scale</button>
             <button id="tool-measure" type="button" aria-label="Measure ordered selection" title="Measure ordered selection">Measure</button>
             <button id="tool-add" type="button" aria-label="Add atoms and molecules" title="Add atoms and molecules">Add atoms</button>
+        </div>
+        <div id="viewport-transform-context" class="viewport-transform-context hidden" role="group" aria-label="Current selection transform">
+            <strong id="viewport-transform-title">Move selection</strong>
+            <span>Drag · X/Y/Z axis · type a value</span>
+            <button id="viewport-transform-apply" type="button" title="Apply transform (Enter)" aria-label="Apply transform">✓</button>
+            <button id="viewport-transform-cancel" type="button" title="Cancel transform (Escape)" aria-label="Cancel transform">×</button>
         </div>
         <button id="btn-fit-view" type="button" title="Fit structure to view (F)">Fit view</button>
         <div id="viewport-camera-tools" class="viewport-camera-tools" aria-label="Camera and lighting controls">
@@ -152,13 +158,13 @@
     <!-- Top Status Bar -->
     <header id="top-bar" class="glass-panel">
         <div class="logo">
-            <span class="app-wordmark" aria-label="v_ase">v_<span>ase</span></span>
-            <span class="version">0.4.1</span>
+            <img class="brand-logo-asset" src="static/v_ase-logo.png" alt="v_ase">
+            <span class="version">0.4.2</span>
         </div>
         <nav id="editor-menu-bar" class="editor-menu-bar" aria-label="Document commands">
             <details><summary>File</summary><div class="editor-menu-popover">
                 <button type="button" data-editor-menu-action="new">New <kbd data-editor-command="new"></kbd></button>
-                <button type="button" data-editor-menu-action="open">Open…</button>
+                <button type="button" data-editor-menu-action="open">Open… <kbd data-editor-command="open"></kbd></button>
                 <button type="button" data-editor-menu-action="save">Save <kbd data-editor-command="save"></kbd></button>
                 <button type="button" data-editor-menu-action="save-as">Save As… <kbd data-editor-command="save-as"></kbd></button>
                 <button type="button" data-editor-menu-route="project">Project save settings</button>
@@ -186,6 +192,10 @@
             <details><summary>Help</summary><div class="editor-menu-popover">
                 <button type="button" data-editor-menu-action="shortcuts">Shortcuts &amp; formats</button>
                 <button type="button" data-editor-menu-route="save-guide">Export format guide</button>
+            </div></details>
+            <details id="editor-reset-menu"><summary title="Restore coordinates or the full initial scene">Reset</summary><div class="editor-menu-popover">
+                <button type="button" data-editor-menu-action="reset-coordinates">Reset coordinates</button>
+                <button type="button" data-editor-menu-action="reset-all">Full reset</button>
             </div></details>
         </nav>
         <div id="runtime-mode-switch" class="runtime-mode-switch" role="group" aria-label="Workspace mode">
@@ -774,6 +784,7 @@
             <button type="button" role="tab" data-workbench="analyze" aria-selected="false">Analyze</button>
             <button type="button" role="tab" data-workbench="render" aria-selected="false">Render</button>
         </div>
+        <div id="workbench-tools" class="workbench-tools"></div>
         <header class="inspector-head">
             <div class="inspector-title">
                 <span id="inspector-context">Inspect</span>
@@ -791,7 +802,6 @@
                 </select>
             </label>
         </header>
-        <div id="workbench-tools" class="workbench-tools"></div>
         <div id="workbench-edit-notice" class="workbench-edit-notice hidden" role="status">
             <span>View mode protects the structure. Switch to Edit to use this tool.</span>
             <button id="workbench-switch-edit" type="button">Switch to Edit</button>
@@ -1853,7 +1863,6 @@
             <div class="prop-row">
                 <label for="bond-mode">Definition</label>
                 <select id="bond-mode">
-                    <option value="auto">Automatic radii</option>
                     <option value="pairwise">Pair specifications</option>
                     <option value="manual">Manual index pairs</option>
                 </select>
@@ -1862,7 +1871,7 @@
                 <label for="bond-cutoff">Cutoff scale</label>
                 <input type="number" id="bond-cutoff" value="1.00" min="0.5" max="3.0" step="0.05">
             </div>
-            <div id="pairwise-bond-panel" class="pairwise-bond-panel hidden">
+            <div id="pairwise-bond-panel" class="pairwise-bond-panel">
                 <div class="mini-table-head pairwise-bond-head">
                     <span>On</span>
                     <span class="pairwise-label-heading">
@@ -1877,11 +1886,11 @@
                             title="Drag to resize the label pair column"
                         ></button>
                     </span>
-                    <span>Max / A</span>
+                    <span>r<sub>cut</sub> / Å</span>
                 </div>
                 <div id="pairwise-bond-list"></div>
                 <button id="btn-bond-reset-specifications" class="pairwise-reset" type="button">
-                    Reset suggested ranges
+                    Reset to suggested cutoffs
                 </button>
             </div>
             <textarea id="bond-pairs" class="hidden" rows="4" placeholder="0-1, 1-2&#10;4-8"></textarea>
@@ -2414,7 +2423,7 @@
         }
         const modulePath = (window.location.protocol === 'file:' || window.location.pathname.endsWith('/static/index.html'))
             ? './main.js'
-            : './static/main.js?v=0.4.1';
+            : './static/main.js?v=0.4.2';
         import(modulePath).catch(error => {
             console.error('v_ase failed to initialize:', error?.stack || error);
         });

@@ -1090,8 +1090,8 @@ Bond settings:
 | Setting | Values |
 | --- | --- |
 | `showBonds` | boolean |
-| `bondMode` | `"auto"`, `"pairwise"`, or `"manual"` |
-| `bondCutoffScale` | automatic cutoff multiplier |
+| `bondMode` | `"pairwise"` (default) or `"manual"`; `"auto"` remains a legacy compatibility input |
+| `bondCutoffScale` | multiplier retained when converting legacy automatic cutoffs |
 | `pairwiseBondRanges` | label-pair `{enabled,max}` records |
 | `pairwiseLabelColumnWidth` | resizable pair-label column width in pixels |
 | `manualBondPairs` | atom-index pairs |
@@ -1103,6 +1103,10 @@ Bond settings:
 | `bondColorMode` | `"split"` or `"custom"` |
 | `bondCustomColor` | `"#rrggbb"` |
 | `pairwiseBondStyles` | label-pair appearance records with `style`, `thickness`, `material`, `colorMode`, `color`, and `opacity` |
+
+The GUI normalizes legacy `bondMode:"auto"` into explicit label-pair ranges,
+using its saved cutoff scale. New workflows should set `"pairwise"` and explicit
+`pairwiseBondRanges`; suggested-cutoff reset is a deliberate UI action.
 
 Pairwise bond keys use visual labels. A pair with `enabled: false` and `max: 0`
 is disabled. Appearance overrides use sorted `labelA-labelB` keys and do not

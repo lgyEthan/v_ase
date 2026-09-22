@@ -86,3 +86,19 @@ test('simultaneous document saves cannot acquire the same target', async t => {
     const retry = await vault.begin(7, handle.token);
     await vault.abort(7, retry);
 });
+
+test('moving a document transfers only its grant and preserves external-change detection', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'vase-window-vault-'));
+    try {
+        const filename = path.join(root, 'project.vase');
+        await fs.writeFile(filename, 'original');
+        const vault = new FileVault();
+        const source = await vault.authorize(1, filename);
+        const target = vault.fork(1, source.token, 2);
+        assert.throws(() => vault.handle(3, target.token));
+        await vault.revoke(1);
+        assert.equal((await vault.stat(2, target.token)).name, 'project.vase');
+        await fs.writeFile(filename, 'externally changed');
+        await assert.rejects(vault.begin(2, target.token), /changed outside/);
+    } finally { await fs.rm(root, { recursive: true, force: true }); }
+});

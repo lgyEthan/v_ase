@@ -1,9 +1,10 @@
-import { projectProvenanceFromLoad } from './project_provenance.js?v=0.4.1';
-import { captureDocumentRecovery, restoreDocumentRecovery } from './workspace_recovery.js?v=0.4.1';
-import { createWorkspaceAIBridge, handleWorkspaceAICommand } from './workspace_ai.js?v=0.4.1';
-import { installShortcutCapture } from './shortcut_capture.js?v=0.4.1';
+import { restoreWindowDocument } from './workspace_windows.js?v=0.4.2';
+import { projectProvenanceFromLoad } from './project_provenance.js?v=0.4.2';
+import { captureDocumentRecovery, restoreDocumentRecovery } from './workspace_recovery.js?v=0.4.2';
+import { createWorkspaceAIBridge, handleWorkspaceAICommand } from './workspace_ai.js?v=0.4.2';
+import { installShortcutCapture } from './shortcut_capture.js?v=0.4.2';
 import { commandIdForEvent, editorAriaShortcut, editorShortcutLabel, resolveShortcutPlatform,
-    viewportNavigationForEvent } from './editor_commands.js?v=0.4.1';
+    viewportNavigationForEvent } from './editor_commands.js?v=0.4.2';
 
 class VAseWorkspace {
     constructor() {
@@ -586,6 +587,13 @@ class VAseWorkspace {
         if (message.type === 'v_ase:document-ready') {
             const app = entry.pane.contentWindow?.__ASE_APP__;
             restoreDocumentRecovery(entry, app);
+            if (new URLSearchParams(location.search).has('window_transfer') && window.opener) {
+                try {
+                    const transfers = window.opener.top.__vaseWindowTransfers;
+                    const snapshot = transfers?.get(entry.sessionId);
+                    if (snapshot) { restoreWindowDocument(app, snapshot); transfers.delete(entry.sessionId); captureDocumentRecovery(entry, app); }
+                } catch {}
+            }
             if (app) entry.dirty = Boolean(app.projectFile.dirty);
             entry.tab.classList.toggle('dirty', entry.dirty);
             entry.pane.contentWindow?.postMessage({

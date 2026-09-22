@@ -15,7 +15,7 @@
 [Issues](https://github.com/lgyEthan/v_ase/issues) ·
 [Software paper and LaTeX source](paper/joss/README.md)
 
-**v_ase 0.4.1 — redesigned scientific workspace** ·
+**v_ase 0.4.2 — editor interaction and desktop workspace improvements** ·
 [Changes](https://v-ase.readthedocs.io/en/latest/whats-new.html)
 
 An ASE-native workspace for building, editing and visualizing atomic structures,
@@ -29,16 +29,16 @@ Trajectory navigation retains double-precision coordinates through editing and s
 
 macOS and Windows users can install the self-contained
 [desktop app](https://v-ase.readthedocs.io/en/latest/desktop.html) from
-[GitHub Releases](https://github.com/lgyEthan/v_ase/releases/tag/v0.4.1).
+[GitHub Releases](https://github.com/lgyEthan/v_ase/releases/tag/v0.4.2).
 It runs the same GUI with native Command/Ctrl shortcuts and file dialogs;
 Python installation is not required. Python and Jupyter remain available
 independently.
 
-| Desktop download (0.4.1) | Install and launch |
+| Desktop download (0.4.2) | Install and launch |
 | --- | --- |
-| [Mac, Apple silicon](https://github.com/lgyEthan/v_ase/releases/download/v0.4.1/v_ase-0.4.1-mac-arm64.dmg) | macOS 15+: open the DMG, drag **v_ase** to **Applications**, eject the disk image, then launch the Applications copy. |
-| [Mac, Intel](https://github.com/lgyEthan/v_ase/releases/download/v0.4.1/v_ase-0.4.1-mac-x64.dmg) | Same steps; choose Intel when **About This Mac** shows an Intel processor. |
-| [Windows, Intel/AMD x64](https://github.com/lgyEthan/v_ase/releases/download/v0.4.1/v_ase-0.4.1-win-x64.exe) | Windows 10/11, 64-bit: run the EXE installer, complete installation, then launch **v_ase** from Start. |
+| [Mac, Apple silicon](https://github.com/lgyEthan/v_ase/releases/download/v0.4.2/v_ase-0.4.2-mac-arm64.dmg) | macOS 15+: open the DMG, drag **v_ase** to **Applications**, eject the disk image, then launch the Applications copy. |
+| [Mac, Intel](https://github.com/lgyEthan/v_ase/releases/download/v0.4.2/v_ase-0.4.2-mac-x64.dmg) | Same steps; choose Intel when **About This Mac** shows an Intel processor. |
+| [Windows, Intel/AMD x64](https://github.com/lgyEthan/v_ase/releases/download/v0.4.2/v_ase-0.4.2-win-x64.exe) | Windows 10/11, 64-bit: run the EXE installer, complete installation, then launch **v_ase** from Start. |
 
 The Mac downloads are **Developer ID signed and Apple-notarized**, with
 stapled tickets for the app and DMG. macOS may show its normal first-open
@@ -85,10 +85,21 @@ One HTML file for offline viewing and project recovery.
 
 The editor keeps the atomic viewport wide, with no permanent left navigator.
 The optional **Objects** drawer overlays the scene, while the right workbench
-has **Style / Build / Analyze / Render** tabs. Every workbench exposes its tools as visible, labelled buttons; Style includes
-Atoms, Bonds, Cell, Polyhedra and View & guides. Search in the header finds existing
-controls, and Select, Move, Orbit, Rotate, Scale, Measure and Add atoms sit below the
-viewport. **Fit view** or F frames the structure when the viewport has focus.
+has **Style / Build / Analyze / Render** tabs. An icon bookmark strip sits above
+the selected section title; hover or keyboard-focus an icon to see its name.
+Each section has its own symbol, including selection Transform, Cell matrix and
+energy-minimization Relax. Search in the header finds existing controls.
+The left icon toolbar separates selection/measurement, transforms of selected
+objects, camera orbit and object creation. Move/Rotate/Scale require an editable
+selection; click one and drag in the viewport, or enter an axis and value.
+Apply/Enter confirms, Cancel/Escape restores the original, and switching tools
+cancels a provisional transform. Keyboard G/R/S retains its modal workflow.
+The right panel overlays the scene without shifting the camera and expands up
+to 900 px when the window permits. Bonds opens editable pair specifications by
+default; **Reset to suggested cutoffs** restores radius-derived suggestions.
+Ctrl+A selects the entire number in an input on Mac as well as Windows; Tab and
+Shift+Tab move through successive bond cutoffs. The visible Reset menu offers
+coordinates-only and full reset. Open uses Command+O on Mac / Ctrl+O on Windows. **Fit view** or F frames the structure when the viewport has focus.
 Save
 reuses an approved writable project target; Save As chooses a new one. When
 the browser only supports downloads, v_ase labels the result a copy rather
@@ -126,7 +137,6 @@ opened in a new tab. Fullscreen editing requests Keyboard Lock where the browser
 permits it; the status distinguishes active, denied and unsupported capture.
 File-menu controls remain available when reserved keys cannot be captured.
 
-![A self-contained v_ase HTML project with a static preview and offline 3D interaction](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_html_quicklook.gif)
 
 ## Work With An AI Agent
 

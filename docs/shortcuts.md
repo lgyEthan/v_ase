@@ -5,16 +5,23 @@ The visualizer is designed to be familiar to Blender users.
 Use the top-bar **View / Edit** switch to change between lightweight
 visualization and ASE-backed structural editing without reopening the file.
 The right workbench organizes controls under **Style**, **Build**,
-**Analyze**, and **Render**. Each tab exposes its tools as labelled buttons. Style groups Atoms, Bonds, Cell,
+**Analyze**, and **Render**. Each tab exposes icon bookmarks with hover/focus names above the active section heading. Style groups Atoms, Bonds, Cell,
 Polyhedra and View & guides. The optional Objects drawer overlays the viewport.
 Selecting an atom does not steal the chosen workbench route.
 The File/Edit/View/Help menu and Save/Render actions sit in the command bar;
-canvas-local tools provide Select, Move, Orbit, Rotate, Scale, Measure and
-Add atoms. Grid and lighting remain beside the camera presets. At narrow widths, the workbench stacks below
+the left icon toolbar separates selection/measurement, selected-object
+Move/Rotate/Scale, camera Orbit and Add atoms. Transform buttons activate only
+when a suitable object is selected. Click a transform, then drag in the canvas;
+Apply/Enter commits, Cancel/Escape reverts, and switching tools cancels a preview. Grid and lighting remain beside the camera presets. At narrow widths, the workbench stacks below
 the viewport. The header search popover reveals existing controls.
 View applies materials by label. Edit can apply Standard, Metal, or Rubber to
 individual selected atoms and can merge them into an existing label by entering
 that exact label.
+
+In editable fields, Ctrl+A also selects the entire value on macOS; Command+A
+continues to work. In the bond cutoff column, Tab/Shift+Tab moves directly to
+the next/previous cutoff. Escape first returns Measure/Orbit to Select; it then
+uses the existing modal/panel behavior.
 
 ## Mouse Controls
 - **Left Click**: Select an atom or the visible Sun light object.
@@ -69,11 +76,12 @@ apply to browser-hosted sessions.
 | **⌘W** | **Ctrl+W** | **Close document** | Close only the active internal tab after a Save/Discard/Cancel check. |
 | **⌘S** | **Ctrl+S** | **Save** | Reuse the retained writable project target when available. |
 | **⌘Shift+S** | **Ctrl+Shift+S** | **Save As** | Choose a new project target and keep the previous file. |
+| **⌘O** | **Ctrl+O** | **Open** | Choose a structure or project and its destination. |
 | **⌘N** | **Ctrl+N** | **New document** | Add one new internal document tab. |
 | **⌘A** | **Ctrl+A** | **Select all** | Select all visible base atoms and eligible periodic images. |
 | **Option+← / Option+→** | **Alt+← / Alt+→** | **Previous / Next Frame** | Move one frame in the selected source or relaxation timeline. |
 
-Use Command (⌘) on macOS and Ctrl on Windows/Linux. The nine editor commands require
+Use Command (⌘) on macOS and Ctrl on Windows/Linux. The ten editor commands require
 the exact modifier and Shift state when the browser delivers them to the active document
 or workspace tab. A normal browser tab cannot universally override reserved
 shortcuts such as ⌘W/⌘N or Ctrl+W/Ctrl+N. **Fullscreen editing** requests

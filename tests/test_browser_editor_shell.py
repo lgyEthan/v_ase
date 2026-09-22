@@ -52,7 +52,7 @@ def test_editor_shell_docks_viewport_and_reveals_one_scoped_route():
             assert state["viewport"]["x"] == pytest.approx(0, abs=2)
             assert state["inspector"]["width"] == pytest.approx(352, abs=2)
             assert state["viewport"]["x"] + state["viewport"]["width"] == pytest.approx(
-                state["inspector"]["x"], abs=2)
+                1440, abs=2)
             assert state["viewport"]["y"] + state["viewport"]["height"] <= state["footer"]["y"] + 2
             route_inventory = page.evaluate("""() => {
                 const app=window.__ASE_APP__;

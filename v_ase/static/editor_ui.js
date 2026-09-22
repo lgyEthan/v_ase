@@ -1,3 +1,4 @@
+import { editorIcon } from './editor_interactions.js?v=0.4.2';
 // The workbench is a presentation adapter. Route IDs and mounted scientific
 // controls belong to the editor; no project state is stored here.
 export const WORKBENCH_ROUTES = Object.freeze({
@@ -65,8 +66,10 @@ export function mountWorkbenchTools() {
             button.setAttribute('role', 'tab');
             button.setAttribute('aria-controls', 'inspector-content');
             button.setAttribute('aria-selected', 'false');
-            button.textContent = WORKBENCH_LABELS[route];
-            button.title = descriptions[route];
+            button.innerHTML = editorIcon(route);
+            button.setAttribute('aria-label', WORKBENCH_LABELS[route]);
+            button.dataset.tooltip = WORKBENCH_LABELS[route];
+            button.title = `${WORKBENCH_LABELS[route]} — ${descriptions[route]}`;
             button.addEventListener('keydown', event => {
                 if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) return;
                 event.preventDefault();

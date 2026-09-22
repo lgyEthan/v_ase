@@ -12,7 +12,7 @@ Download {download}`cu2o111_on_cu111_pairwise_bonds.traj <assets/examples/cu2o11
 v_ase gui cu2o111_on_cu111_pairwise_bonds.traj
 ```
 
-1. Open **Bonding** and choose label-pair controls.
+1. Open **Style → Bonds**; Pair specifications is selected by default.
 2. Enable `Cu_oxide–O_oxide` and `Cu_substrate–O_oxide`, both at **2.08 Å**.
    Disable Cu–Cu and O–O pairs to expose the oxide network.
 3. Set bond thickness **0.30** and split endpoint colors. Use substrate Cu
@@ -33,7 +33,7 @@ Cu2O(111) on Cu(111), with label-pair bond controls.
 ```{figure} assets/readme_bonds.png
 :alt: Pair-specific bond settings on a copper oxide film over copper.
 
-Inspect the exact pairs and effective style in the Bonding panel.
+Inspect the exact pairs and effective style in Style → Bonds.
 ```
 
 Bond visibility and bond appearance are separate from physical constraints or
@@ -41,10 +41,14 @@ calculator connectivity.
 
 ### Topology modes
 
-- Automatic mode infers contacts from element/covalent information and the
-  active cutoff scale.
-- Label-pair mode uses explicit enabled/cutoff records for each label pair.
-- Manual bonds preserve explicitly selected pairs.
+- **Pair specifications** is the default. Each label pair has an enabled
+  checkbox and an explicit cutoff in Å. **Reset to suggested cutoffs** fills
+  radius-derived suggestions; there is no separate Automatic radii option.
+- **Manual index pairs** preserves explicitly selected atom-index pairs.
+
+Legacy automatic settings are converted to editable pair specifications using
+their saved cutoff scale. Ctrl+A selects an entire cutoff value, including on
+Mac; Tab/Shift+Tab moves directly to the next/previous cutoff.
 
 Periodic bonds can be shown across cell boundaries. Export uses the same
 minimum-image topology and, for skewed cells, ASE's exact minimum-image

@@ -532,7 +532,6 @@ def test_readme_presents_real_manipulation_and_analysis_workflows():
     assert readme.count(".gif)") >= 15
     for asset in (
         "readme_phosphorene_twist.gif",
-        "readme_html_quicklook.gif",
         "readme_scratch_amorphous.gif",
         "readme_add_atoms_allowed.gif",
         "readme_add_molecules.gif",

@@ -199,9 +199,9 @@ body.editor-shell #top-bar .logo { display: flex; align-items: center; gap: 6px;
 .workbench-tool-list button:hover { color: var(--text); background: var(--panel-raised); }
 .workbench-tool-list button[aria-selected="true"] { color: var(--teal-contrast); background: var(--teal-soft); border-color: color-mix(in srgb, var(--teal) 22%, transparent); }
 .workbench-tool-list button:focus-visible, .workbench-tabs button:focus-visible { outline: 2px solid var(--teal); outline-offset: -2px; }
-body.editor-shell .viewport-tools > button { min-height: 32px; border: 0; border-radius: 4px; padding: 5px 9px; font: 12px var(--font-ui); }
-body.editor-shell .viewport-tools > button:hover { background: var(--panel-raised); }
-body.editor-shell .viewport-tools > button[aria-pressed="true"], body.editor-shell .viewport-tools > button.active { color: var(--teal-contrast); background: var(--teal-soft); }
+body.editor-shell .viewport-tools button { min-height: 32px; border: 0; border-radius: 4px; padding: 5px 9px; font: 12px var(--font-ui); }
+body.editor-shell .viewport-tools button:hover { background: var(--panel-raised); }
+body.editor-shell .viewport-tools button[aria-pressed="true"], body.editor-shell .viewport-tools button.active { color: var(--teal-contrast); background: var(--teal-soft); }
 
 /* A field and its unit share one border and cannot compete for the same width. */
 body.editor-shell #inspector *, #modal-container * { box-sizing: border-box; }
@@ -261,7 +261,7 @@ body.editor-shell #viewport-scene-caption { overflow: hidden; text-overflow: ell
 @media (max-width: 760px) {
     body.editor-shell .viewport-object-access { max-width: calc(100% - 28px); }
     body.editor-shell .viewport-tools { width: max-content; }
-    body.editor-shell .viewport-tools > button { font-size: 11px; padding-inline: 6px; }
+    body.editor-shell .viewport-tools button { font-size: 11px; padding-inline: 6px; }
 }
 
 body.editor-shell :is(#inspector, #modal-container) .prop-row > .unit-input { flex: 0 1 160px; width: 160px; }
@@ -282,3 +282,99 @@ body.editor-shell .atom-colorscale-legend .atom-colorscale-legend-scope { color:
 @media (min-width: 761px) {
     body.editor-shell.inspector-collapsed #inspector > :not(#btn-inspector-collapse):not(#inspector-resizer) { visibility: hidden; pointer-events: none; }
 }
+
+/* Floating properties never change the camera viewport or its projection. */
+@media (min-width: 761px) {
+    body.editor-shell, body.editor-shell.inspector-collapsed {
+        grid-template-columns: minmax(0, 1fr);
+        grid-template-areas: "header" "viewport" "results" "footer";
+    }
+    body.editor-shell #inspector {
+        grid-area: viewport; justify-self: end; align-self: stretch;
+        width: var(--inspector-width); max-width: calc(100vw - 100px);
+        z-index: 340; transition: none; box-shadow: var(--shadow-control);
+    }
+    body.editor-shell.inspector-collapsed #inspector { width: 0; overflow: visible; }
+    body.editor-shell #app-viewport { grid-area: viewport; width: 100%; }
+    body.editor-shell #inspector-content { container-type: inline-size; }
+    body.editor-shell:not(.inspector-collapsed) .viewport-camera-tools,
+    body.editor-shell:not(.inspector-collapsed) #app-viewport .orientation-widget { right: calc(var(--inspector-width) + 18px); }
+    body.editor-shell:not(.inspector-collapsed) #btn-fit-view { right: calc(var(--inspector-width) + 14px); }
+}
+/* Use the same optical text size for form labels, values and options. */
+body.editor-shell :is(button, input, select, textarea, option) { font-family: var(--font-ui); font-size: 13px; letter-spacing: normal; }
+body.editor-shell #inspector :is(label, .prop-row, .field-row, .range-row, .mini-table-head, .pairwise-bond-pair-label) { font-family: var(--font-ui); font-size: 13px; line-height: 1.4; }
+body.editor-shell #inspector :is(input, output) { font-variant-numeric: tabular-nums; }
+body.editor-shell #inspector :is(.panel-note, .atom-type-toggle, .atom-type-fields label) { font-family: var(--font-ui); font-size: 12px; }
+body.editor-shell #inspector :is(.panel-subhead, .appearance-section-heading) { font-size: 13px; font-weight: 600; }
+body.editor-shell #inspector-content { padding: 12px 20px 24px; }
+body.editor-shell #inspector .prop-row { gap: 12px; min-height: 35px; }
+body.editor-shell #inspector :is(.prop-row, .range-head) > label { color: var(--text); }
+.editor-icon { display: block; flex: 0 0 20px; width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.65; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
+body.editor-shell .viewport-tools {
+    top: 60px; bottom: auto; left: 12px; transform: none; flex-direction: column;
+    flex-wrap: nowrap; width: 42px; max-width: 42px; padding: 4px; gap: 3px;
+    border-radius: 6px; box-shadow: var(--shadow-control);
+}
+body.editor-shell .viewport-tools button { display: grid; place-items: center; width: 34px; height: 36px; padding: 0; position: relative; }
+body.editor-shell .viewport-tools button.active::before { content: ''; position: absolute; left: -4px; top: 7px; bottom: 7px; width: 2px; background: var(--teal); }
+body.editor-shell .viewport-tools button:focus-visible { outline: 2px solid var(--teal); outline-offset: 1px; }
+body.editor-shell .viewport-tools button:last-child { margin-top: 6px; border-top: 1px solid var(--line); border-radius: 0; }
+body.editor-shell #app-viewport .atom-colorscale-legend { left: 64px; }
+body.editor-shell #editor-search-toggle { display: grid; place-items: center; width: 30px; height: 30px; }
+body.editor-shell #top-bar .logo .brand-logo-asset { display: block; object-fit: contain; width: 82px; height: 33px; }
+.workbench-tool-list { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; }
+.workbench-tool-list button { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; min-height: 61px; padding: 8px 4px; font-size: 12px; color: var(--text); }
+.workbench-tool-list button span { line-height: 1.3; }
+.workbench-tabs button { font-size: 13px; }
+body.editor-shell #inspector .pairwise-bond-panel { overflow: visible; border: 1px solid var(--line); border-radius: 5px; }
+body.editor-shell #inspector :is(.pairwise-bond-panel .mini-table-head, .pairwise-bond-row) {
+    min-width: 0; grid-template-columns: 28px minmax(60px, min(var(--pair-label-width), calc(100% - 148px))) minmax(90px, 1fr); gap: 10px;
+}
+body.editor-shell #inspector .pairwise-bond-row input { width: 100%; min-width: 0; }
+body.editor-shell #inspector .pairwise-bond-row input[type="checkbox"] { width: 16px; height: 16px; margin: 0; }
+body.editor-shell #pairwise-label-column-resizer { display: block; }
+body.editor-shell #btn-bond-reset-specifications { margin: 8px; max-width: calc(100% - 16px); font-size: 12px; }
+body.editor-shell #inspector input[type="checkbox"] { appearance: auto; accent-color: var(--teal); flex: none; width: 16px; height: 16px; margin: 0; vertical-align: middle; border-radius: 3px; }
+body.editor-shell #inspector input[type="checkbox"]::after { display: none; }
+body.editor-shell #inspector :is(.label-check, .atom-colorscale-target-option input) { align-self: center; justify-self: center; }
+.workbench-selection { min-height: 36px; border-radius: 4px; padding: 6px 10px; font-size: 13px; }
+body.editor-shell #inspector :is(.prop-row, .field-row) > :is(input:not([type="checkbox"]), select, .unit-input) { flex: 1 1 160px; width: auto; }
+body.editor-shell #inspector .prop-row > label { flex: 1 1 120px; }
+body.editor-shell #inspector .range-with-number { grid-template-columns: minmax(60px,1fr) minmax(85px, 110px); }
+@container (min-width: 520px) {
+    .atom-type-fields { grid-template-columns: repeat(4, minmax(0,1fr)); }
+    .appearance-surface-controls label { grid-template-columns: 140px minmax(0,1fr); }
+}
+body.file-drag-over::after { content: 'Drop a structure or project to open'; position: fixed; inset: 12px; z-index: 20000; display: grid; place-items: center; color: var(--teal-contrast); background: color-mix(in srgb, var(--panel) 90%, transparent); border: 2px dashed var(--teal); border-radius: 8px; pointer-events: none; font: 500 18px var(--font-ui); }
+@media (max-width: 760px) {
+    body.editor-shell .viewport-tools { top: 58px; bottom: auto; left: 10px; width: 42px; max-width: 42px; }
+    body.editor-shell .viewport-tools button { width: 34px; padding: 0; }
+    body.editor-shell #top-bar .logo .brand-logo-asset { width: 64px; height: 28px; }
+    body.editor-shell .editor-menu-bar summary { padding-inline: 5px; }
+    body.editor-shell #top-bar .logo .version { display: none; }
+    body.editor-shell #app-viewport .atom-colorscale-legend { top: 100px; left: 64px; }
+}
+@media (max-width: 480px) {
+    body.editor-shell #top-bar #runtime-mode-switch { display: none; }
+    body.editor-shell #editor-reset-menu > summary { padding-inline: 5px; }
+}
+
+/* Bookmark navigation precedes the section heading; labels live in tooltips. */
+.workbench-tools { padding: 8px 16px; }
+.workbench-tool-list { display: flex; flex-wrap: wrap; gap: 4px; }
+.workbench-tool-list button { flex: 0 0 36px; width: 36px; min-height: 36px; height: 36px; padding: 8px; position: relative; }
+.workbench-tool-list button::after { content: attr(data-tooltip); position: absolute; top: calc(100% + 6px); left: 50%; transform: translateX(-50%); z-index: 800; display: none; padding: 6px 9px; border-radius: 4px; background: var(--text); color: var(--panel); font: 12px/1.3 var(--font-ui); white-space: nowrap; pointer-events: none; box-shadow: var(--shadow-md); }
+.workbench-tool-list button:hover::after, .workbench-tool-list button:focus-visible::after { display: block; }
+body.editor-shell #inspector .inspector-head { flex-basis: 46px; }
+body.editor-shell #inspector-context { font-size: 15px; letter-spacing: 0; }
+.viewport-tool-group { display: flex; flex-direction: column; gap: 3px; padding: 4px 0; }
+.viewport-tool-group + .viewport-tool-group { border-top: 1px solid var(--line-strong); }
+body.editor-shell .viewport-tools button:last-child { margin: 0; border-top: 0; border-radius: 4px; }
+body.editor-shell .viewport-tools button:disabled { opacity: .35; cursor: default; }
+body.editor-shell .viewport-tools button:disabled:hover { background: transparent; }
+.viewport-transform-context { position: absolute; z-index: 330; top: 58px; left: 68px; display: flex; flex-wrap: wrap; align-items: center; gap: 9px; padding: 7px 10px; max-width: calc(100% - 90px); background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 4px; box-shadow: var(--shadow-control); font-size: 12px; pointer-events: auto; }
+.viewport-transform-context.hidden { display: none; }
+.viewport-transform-context span { color: var(--muted); }
+.viewport-transform-context button { display: grid; place-items: center; width: 27px; height: 27px; padding: 0; border: 0; background: var(--panel-raised); color: var(--text); border-radius: 3px; }
+body.editor-shell #inspector #btn-bond-reset-specifications { min-width: 0; width: calc(100% - 16px); }

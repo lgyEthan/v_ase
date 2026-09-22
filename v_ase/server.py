@@ -25,6 +25,7 @@ from .session import (
     get_session,
     get_workspace,
     remove_workspace_session,
+    move_workspace_session,
     replace_session_frames,
     sessions,
     workspaces,
@@ -2177,6 +2178,14 @@ async def create_workspace_document(workspace_id: str, payload: Dict[str, Any] |
     return workspace_session_payload(session)
 
 
+@app.post("/api/workspace/{workspace_id}/close")
+async def close_workspace_window(workspace_id: str):
+    """Release a native window's documents after its Save/Discard checks."""
+    get_workspace(workspace_id)
+    finalize_workspace(workspace_id, notify_host=False)
+    return {"status": "closed", "workspace_id": workspace_id}
+
+
 @app.post("/api/workspace/{workspace_id}/sessions/{session_id}/close")
 async def close_workspace_document(workspace_id: str, session_id: str):
     workspace = get_workspace(workspace_id)
@@ -2185,6 +2194,22 @@ async def close_workspace_document(workspace_id: str, session_id: str):
             raise HTTPException(status_code=409, detail="A workspace must keep at least one document tab.")
         remove_workspace_session(workspace, session_id)
     return {"status": "closed", "session_id": session_id}
+
+
+@app.post("/api/workspace/{workspace_id}/sessions/{session_id}/move")
+async def move_workspace_document(workspace_id: str, session_id: str,
+                                  payload: Dict[str, Any] | None = None):
+    source = get_workspace(workspace_id)
+    target_id = (payload or {}).get('target_workspace_id')
+    try:
+        target = move_workspace_session(source, session_id,
+                                        get_workspace(str(target_id)) if target_id else None)
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    return {"workspace_id": target.workspace_id, "session_id": session_id,
+            "host_session_id": target.host_session_id,
+            "source_documents": [workspace_session_payload(sessions[item])
+                                 for item in source.session_ids if item in sessions]}
 
 
 @app.post("/api/workspace/{workspace_id}/browser-close/{client_id}")

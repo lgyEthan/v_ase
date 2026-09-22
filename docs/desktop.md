@@ -6,15 +6,15 @@ provide document shortcuts without browser conflicts or fullscreen mode.
 
 ## Choose a download
 
-Open the [v0.4.1 GitHub release](https://github.com/lgyEthan/v_ase/releases/tag/v0.4.1)
+Open the [v0.4.2 GitHub release](https://github.com/lgyEthan/v_ase/releases/tag/v0.4.2)
 and expand **Assets**, or use a direct installer link below. GitHub's **Source
 code** archives and the Python `.whl`/`.tar.gz` files are not desktop installers.
 
 | Computer | Requirement | Installer |
 | --- | --- | --- |
-| Apple silicon Mac (M-series) | macOS 15 or newer | [Download Apple silicon DMG](https://github.com/lgyEthan/v_ase/releases/download/v0.4.1/v_ase-0.4.1-mac-arm64.dmg) |
-| Intel Mac | macOS 15 or newer | [Download Intel DMG](https://github.com/lgyEthan/v_ase/releases/download/v0.4.1/v_ase-0.4.1-mac-x64.dmg) |
-| Windows PC, Intel/AMD x64 | Windows 10 or 11, 64-bit | [Download Windows EXE](https://github.com/lgyEthan/v_ase/releases/download/v0.4.1/v_ase-0.4.1-win-x64.exe) |
+| Apple silicon Mac (M-series) | macOS 15 or newer | [Download Apple silicon DMG](https://github.com/lgyEthan/v_ase/releases/download/v0.4.2/v_ase-0.4.2-mac-arm64.dmg) |
+| Intel Mac | macOS 15 or newer | [Download Intel DMG](https://github.com/lgyEthan/v_ase/releases/download/v0.4.2/v_ase-0.4.2-mac-x64.dmg) |
+| Windows PC, Intel/AMD x64 | Windows 10 or 11, 64-bit | [Download Windows EXE](https://github.com/lgyEthan/v_ase/releases/download/v0.4.2/v_ase-0.4.2-win-x64.exe) |
 
 On a Mac, **Apple menu → About This Mac** shows either an Apple **Chip** or an
 Intel **Processor**. On Windows, **Settings → System → About → System type**
@@ -55,7 +55,7 @@ the final downloads. No Apple developer account is needed to install the app.
 
 ## Install on Windows
 
-1. Download **v_ase-0.4.1-win-x64.exe** and open it from File Explorer.
+1. Download **v_ase-0.4.2-win-x64.exe** and open it from File Explorer.
 2. The current build is **not publisher-signed**. If SmartScreen displays
    **Windows protected your PC**, verify the source and checksum, then use
    **More info → Run anyway** if offered. Do not disable SmartScreen or
@@ -83,17 +83,17 @@ The Windows ZIP does not run the installer or register file associations;
 choose the executable manually when configuring **Open with**. Moving it
 later invalidates that saved association.
 
-Download [desktop-SHA256SUMS.txt](https://github.com/lgyEthan/v_ase/releases/download/v0.4.1/desktop-SHA256SUMS.txt)
+Download [desktop-SHA256SUMS.txt](https://github.com/lgyEthan/v_ase/releases/download/v0.4.2/desktop-SHA256SUMS.txt)
 from the same release. In the download directory, compute the relevant hash:
 
 ```sh
 # macOS Terminal; substitute mac-x64 for an Intel download.
-shasum -a 256 v_ase-0.4.1-mac-arm64.dmg
+shasum -a 256 v_ase-0.4.2-mac-arm64.dmg
 ```
 
 ```powershell
 # Windows PowerShell.
-Get-FileHash .\v_ase-0.4.1-win-x64.exe -Algorithm SHA256
+Get-FileHash .\v_ase-0.4.2-win-x64.exe -Algorithm SHA256
 ```
 
 Compare it with the line for that exact filename in the checksum file.
@@ -147,7 +147,7 @@ imports its structures only.
 
 **This is already supported; a future version is not required.** Repeat the
 association steps above using a `.vasp` file. Unlike `.vase`, `.vasp` is not
-predeclared by the 0.4.1 installer, so you may need to browse to v_ase manually.
+predeclared by the installer, so you may need to browse to v_ase manually.
 You can choose it just once or make it the default for `.vasp`. The same method
 works for other [supported formats](formats.md), such as `.xyz` and `.cif`.
 An OS association only selects the application; it does not add a new reader
@@ -195,6 +195,8 @@ leaves the prior file and dirty document intact.
 
 | Action | macOS | Windows |
 | --- | --- | --- |
+| Open file | Command+O | Ctrl+O |
+| New window | Command+Shift+N | Ctrl+Shift+N |
 | New internal document | Command+N | Ctrl+N |
 | Close internal document | Command+W | Ctrl+W |
 | Save / Save As | Command+S / Command+Shift+S | Ctrl+S / Ctrl+Shift+S |
@@ -207,8 +209,19 @@ leaves the prior file and dirty document intact.
 The [existing viewport, selection and G/R/S shortcuts](shortcuts.md) are
 unchanged. Typing into a field retains normal text editing. Close document
 keeps the app open, including when the last document becomes a blank tab.
-Quit (Command+Q on macOS, Alt+F4 on Windows) checks every document for unsaved
-changes and active jobs before stopping the app and its Python server.
+Drag a tab below the tab strip to detach it into its own window, or use
+**File → Move tab to new window**. The document retains its scientific session,
+camera, visual settings, Undo/Redo, dirty state and writable project target.
+Each window closes independently; quitting the app checks every window for
+unsaved changes and active jobs before stopping the shared Python server.
+Use **File → New window** for a separate blank workspace. Drop a structure or
+project onto the editor to choose **Add to trajectory**, **Open in new tab**,
+**Open in new window** or **Replace**. Adding to a trajectory imports frames;
+opening a project separately also restores its project appearance and profile.
+
+Ctrl+A selects the complete value in a numeric input even on Mac. Tab and
+Shift+Tab navigate successive bond cutoffs. The Reset menu above the viewport
+offers **Reset coordinates** and **Full reset**.
 
 ## Python, Jupyter and agents
 

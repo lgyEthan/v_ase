@@ -123,11 +123,19 @@ pass the intent inside its `selection` argument, for example
 A single selected atom leads with its chemical element and user label in the
 Measure readout, then exposes stored properties without a property-count summary.
 For human refinement, the editor has a wide viewport and a single right
-Style / Build / Analyze / Render workbench. Each workbench exposes its tool buttons directly. Style includes Atoms,
-Bonds, Cell, Polyhedra and View & guides. The optional Objects drawer
-overlays the viewport and opens contextual properties. Search is in the header;
-File/Edit/View/Help sit above the canvas. Select/Move/Orbit/Measure sit below
-it, with physical Rotate/Scale/Add in More. F fits the real camera when the
+Style / Build / Analyze / Render workbench. Each workbench has a unique icon
+bookmark for every section, with hover/focus names and the active section heading
+below. Style includes Atoms, Bonds, Cell, Polyhedra and View & guides. Both the
+Objects drawer and resizable right workbench overlay the viewport at desktop
+sizes, without changing its camera or projection. The left icon toolbar groups
+selection/measurement, selected-object transforms, orbit and creation. Transform
+buttons require an editable selection, then drag to apply; switching tools or
+Cancel/Escape cancels a provisional transform. Keyboard G/R/S is still modal.
+Search and File/Edit/View/Preferences/Help/Reset menus sit above the canvas.
+Bonds defaults to editable pair specifications; reset restores suggested cutoffs.
+The legacy automatic bonding mode remains readable through the semantic API,
+while the GUI converts its suggestions to explicit editable pairs. Do not confuse
+these visual bond cutoffs with the independent relaxation-calculator cutoffs. F fits the real camera when the
 viewport has focus. On narrow screens the workbench stacks below the viewport. Project
 Save reuses a retained writable browser or explicitly opened server project
 target, Save As chooses a new one, and a download-only browser creates a copy rather than

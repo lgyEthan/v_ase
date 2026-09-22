@@ -1,32 +1,34 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.4.1';
-import { ASERenderer } from './renderer.js?v=0.4.1';
-import { ASESelection } from './selection.js?v=0.4.1';
-import { ASETransform } from './transform.js?v=0.4.1';
+import { ASEApi } from './api.js?v=0.4.2';
+import { ASERenderer } from './renderer.js?v=0.4.2';
+import { ASESelection } from './selection.js?v=0.4.2';
+import { ASETransform } from './transform.js?v=0.4.2';
 
-import { installPolyhedra } from './polyhedra.js?v=0.4.1';
-import { installAIScene } from './ai_scene.js?v=0.4.1';
-import { AtomScalarStore } from './atom_properties.js?v=0.4.1';
-import { DirectWorkspace } from './direct_workspace.js?v=0.4.1';
-import { projectProvenanceFromLoad } from './project_provenance.js?v=0.4.1';
-import { installShortcutCapture } from './shortcut_capture.js?v=0.4.1';
-import { WORKBENCH_ROUTES, mountWorkbenchTools, syncWorkbenchRoute } from './editor_ui.js?v=0.4.1';
+import { installPolyhedra } from './polyhedra.js?v=0.4.2';
+import { installAIScene } from './ai_scene.js?v=0.4.2';
+import { AtomScalarStore } from './atom_properties.js?v=0.4.2';
+import { DirectWorkspace } from './direct_workspace.js?v=0.4.2';
+import { projectProvenanceFromLoad } from './project_provenance.js?v=0.4.2';
+import { installShortcutCapture } from './shortcut_capture.js?v=0.4.2';
+import { openFileInWindow } from './workspace_windows.js?v=0.4.2';
+import { installEditorInteractions } from './editor_interactions.js?v=0.4.2';
+import { WORKBENCH_ROUTES, mountWorkbenchTools, syncWorkbenchRoute } from './editor_ui.js?v=0.4.2';
 import {
     EDITOR_COMMANDS, commandIdForEvent, resolveShortcutPlatform,
     editorShortcutLabel, editorAriaShortcut, editorShortcutSearchTerms,
     viewportNavigationForEvent
-} from './editor_commands.js?v=0.4.1';
+} from './editor_commands.js?v=0.4.2';
 import {
     DEFAULT_ATOM_RADIUS_MAPPING,
     atomRadiusFactors,
     normalizeAtomRadiusMapping,
     radiusMappingPreset
-} from './radius_mapping.js?v=0.4.1';
+} from './radius_mapping.js?v=0.4.2';
 import {
     interpolateTrajectoryFrames,
     interpolatedFrameCount,
     normalizeInterpolationMultiplier
-} from './trajectory.js?v=0.4.1';
+} from './trajectory.js?v=0.4.2';
 
 const EDITOR_ROUTES = Object.freeze({
     'structure-info': { group: 'inspect', category: 'scene', title: 'Scene overview' },
@@ -316,7 +318,7 @@ class VAseApp {
                 cellThickness: 0.04,
                 cellColor: '#d6bd67',
                 cellMaterial: 'unlit',
-                bondMode: 'auto',
+                bondMode: 'pairwise',
                 bondCutoffScale: 1.0,
                 manualBondPairs: [],
                 pairwiseBondCutoffs: {},
@@ -5009,7 +5011,7 @@ class VAseApp {
 
     clampInspectorWidth(width) {
         const minWidth = 320;
-        const maxWidth = Math.max(minWidth, Math.min(420, window.innerWidth - 260));
+        const maxWidth = Math.max(minWidth, Math.min(900, window.innerWidth - 100));
         return Math.max(minWidth, Math.min(maxWidth, Math.round(width)));
     }
 
@@ -5040,7 +5042,9 @@ class VAseApp {
         this.setInspectorWidth(this.inspectorWidthCustom ? savedWidth
             : (window.innerWidth <= 1050 ? 324 : 352));
         window.addEventListener('resize', () => {
-            if (!this.inspectorWidthCustom) this.setInspectorWidth(window.innerWidth <= 1050 ? 324 : 352);
+            this.setInspectorWidth(this.inspectorWidthCustom
+                ? parseFloat(document.documentElement.style.getPropertyValue('--inspector-width'))
+                : (window.innerWidth <= 1050 ? 324 : 352));
         });
         const onMove = event => {
             this.setInspectorWidth(window.innerWidth - event.clientX, false);
@@ -5558,14 +5562,7 @@ class VAseApp {
         });
         document.getElementById('editor-render')?.addEventListener('click', () =>
             this.executeEditorCommand('renderer'));
-        document.getElementById('tool-measure')?.addEventListener('click', () => this.armMeasurementTool());
-        document.getElementById('tool-add')?.addEventListener('click', () => this.openEditorRoute('add-atoms'));
-        document.getElementById('tool-orbit')?.addEventListener('click', () => {
-            this.orbitToolActive = true;
-            document.getElementById('tool-orbit')?.setAttribute('aria-pressed', 'true');
-            document.getElementById('tool-select')?.setAttribute('aria-pressed', 'false');
-            this.renderer.domElement?.focus({ preventScroll: true });
-        });
+        installEditorInteractions(this);
         this.setupEditorShortcutHints();
         this.openEditorRoute('appearance');
     }
@@ -6001,19 +5998,42 @@ class VAseApp {
         }
     }
 
+    activateViewportTool(tool) {
+        const canvas = this.renderer.domElement;
+        const previous = this.activeViewportTool;
+        if (this.transform.mode !== 'IDLE') this.cancelTransform();
+        this.orbitToolActive = false;
+        this.measureToolArmed = false;
+        this.state.isDragging = false;
+        this.hideMarquee();
+        this.renderer.controls.enabled = true;
+        if (tool === previous && tool !== 'select') tool = 'select';
+        if (['move', 'rotate', 'scale'].includes(tool)) {
+            this.enterTransformMode(tool.toUpperCase());
+            if (this.transform.mode !== 'IDLE') this.pointerTransformGesture = 'armed';
+        } else if (tool === 'orbit') {
+            this.orbitToolActive = true;
+        } else if (tool === 'measure') {
+            this.armMeasurementTool();
+        } else if (tool === 'add') {
+            this.openEditorRoute('add-atoms');
+        }
+        this.updateToolState();
+        canvas?.focus({ preventScroll: true });
+    }
+
     armMeasurementTool() {
+        if (this.transform.mode !== 'IDLE') this.cancelTransform();
+        this.orbitToolActive = false;
+        this.measureToolArmed = true;
         const keys = this.selectionEntries().map(reference => reference.key);
         if (keys.length >= 2 && keys.length <= 4) {
             this.state.measurementIntent = { kind: 'ordered', keys };
-            this.measureToolArmed = false;
-            document.getElementById('tool-measure')?.setAttribute('aria-pressed', 'false');
             this.updateSelectionVisuals();
-            this.updateUI();
-            return;
         }
-        this.measureToolArmed = true;
-        document.getElementById('tool-measure')?.setAttribute('aria-pressed', 'true');
-        this.toast('Click 2–4 atoms in order to measure them.', 'info');
+        this.updateToolState();
+        this.openEditorRoute('selection');
+        this.toast('Click atoms in order. Click empty space to start a new measurement; Esc returns to Select.', 'info');
     }
 
     fitEditorView() {
@@ -6142,6 +6162,7 @@ class VAseApp {
             this.openEditorRoute(command.section, { focus });
             return true;
         }
+        if (command.action === 'open') { this.chooseStructureFile(); return true; }
         if (command.action === 'save') {
             this.saveDocument().catch(error => this.toast(`Save failed: ${error.message}`, 'error'));
             return true;
@@ -10976,6 +10997,7 @@ class VAseApp {
     }
 
     async performUndo() {
+        await this.settleScientificMutations();
         this.flushVisualHistoryCommit();
         const action = this.undoTimeline.pop();
         if (!action) {
@@ -11039,6 +11061,7 @@ class VAseApp {
     }
 
     async performRedo() {
+        await this.settleScientificMutations();
         this.flushVisualHistoryCommit();
         const action = this.redoTimeline.pop();
         if (!action) {
@@ -13240,6 +13263,7 @@ class VAseApp {
     }
 
     updateSelectionVisuals() {
+        this.updateToolState();
         this.renderer.setSelection(this.state.selected);
         if (this.state.vizOnly) {
             this.renderer.setReplicaSelection(this.state.replicaSelected.values());
@@ -15383,6 +15407,10 @@ class VAseApp {
     }
 
     enterTransformMode(mode) {
+        if (this.transform.mode !== 'IDLE') this.cancelTransform();
+        this.orbitToolActive = false;
+        this.measureToolArmed = false;
+        this.updateToolState();
         if (this.state.renderAreaSelected) {
             if (mode !== 'MOVE') {
                 this.toast('The Render Area eye can be moved with G.', 'warning');
@@ -15793,10 +15821,27 @@ class VAseApp {
     }
 
     updateToolState() {
-        document.getElementById('tool-select')?.classList.toggle('active', this.transform.mode === 'IDLE');
-        document.getElementById('tool-move')?.classList.toggle('active', this.transform.mode === 'MOVE');
-        document.getElementById('tool-rotate')?.classList.toggle('active', this.transform.mode === 'ROTATE');
-        document.getElementById('tool-scale')?.classList.toggle('active', this.transform.mode === 'SCALE');
+        const tool = this.transform.mode !== 'IDLE' ? this.transform.mode.toLowerCase()
+            : this.orbitToolActive ? 'orbit' : this.measureToolArmed ? 'measure' : 'select';
+        this.activeViewportTool = tool;
+        if (this.transform.mode === 'IDLE') this.pointerTransformGesture = null;
+        const transforming = this.transform.mode !== 'IDLE';
+        document.getElementById('viewport-transform-context')?.classList.toggle('hidden', !transforming);
+        const title = document.getElementById('viewport-transform-title');
+        if (title) title.textContent = `${tool.charAt(0).toUpperCase()+tool.slice(1)} selection`;
+        const selectedObject = (this.state.selected.size > 0 && this.canTransformSelectedAtoms()) || this.state.renderAreaSelected
+            || this.state.sunSelected || this.state.selectedVolumetricPlanes.size || this.selectedAddAtomsRegionIds().size;
+        document.querySelectorAll('#viewport-tools button').forEach(button => {
+            const active = button.id === `tool-${tool}`;
+            button.classList.toggle('active', active);
+            if (button.id !== 'tool-add') button.setAttribute('aria-pressed', String(active));
+            if (['tool-move', 'tool-rotate', 'tool-scale'].includes(button.id)) {
+                button.disabled = !selectedObject;
+                button.title = selectedObject
+                    ? `${button.getAttribute('aria-label')} — drag in the viewport, Enter to apply, Esc to cancel`
+                    : 'Select an editable atom or object first';
+            }
+        });
     }
 
     setupAseBulkBuilder() {
@@ -22471,7 +22516,18 @@ class VAseApp {
         setValue('commensurate-max-index', display.commensurateMaxIndex ?? 32);
         setValue('commensurate-max-area', display.commensurateMaxAreaRatio ?? 16);
         setValue('commensurate-snap-range', display.commensurateSnapRangeDeg ?? 2);
-        setValue('bond-mode', display.bondMode || 'auto');
+        if (!display.bondMode || display.bondMode === 'auto') {
+            // Preserve legacy automatic cutoffs when exposing them as editable pairs.
+            const scale = Number(display.bondCutoffScale) || 1;
+            display.pairwiseBondRanges = {}; display.pairwiseBondCutoffs = {};
+            this.uniqueLabelPairs().forEach(([a, b]) => {
+                const key = this.labelPairKey(a, b), max = this.defaultPairwiseCutoff(a, b) * scale;
+                display.pairwiseBondRanges[key] = { enabled: max > 0, min: 0, max };
+                display.pairwiseBondCutoffs[key] = max;
+            });
+            display.bondMode = 'pairwise';
+        }
+        setValue('bond-mode', display.bondMode);
         setValue('bond-cutoff', display.bondCutoffScale || 1.0);
         setValue('bond-style', display.bondStyle || 'cylinder');
         setValue('bond-material', this.normalizedBondMaterial(display.bondMaterial));
@@ -25825,7 +25881,11 @@ class VAseApp {
         this.chooseSystemStructureFile();
     }
 
-    showOpenFileModal(file, { handle = null } = {}) {
+    openStructureFileInNewWindow(file, inputFormat = '', index = ':', runtimeMode = null, options = {}) {
+        return openFileInWindow(this, file, inputFormat, index, runtimeMode, options);
+    }
+
+    showOpenFileModal(file, { handle = null, dropped = false } = {}) {
         const newTabAvailable = Boolean(this.sessionId);
         const hasDocument = this.hasScratchContent();
         const currentRuntimeMode = this.state.vizOnly ? 'view' : 'edit';
@@ -25862,10 +25922,10 @@ class VAseApp {
                 </div>
                 <p class="modal-intro">View prioritizes large-data inspection. Edit enables ASE-backed structure changes and calculators.</p>
             </fieldset>
-            <fieldset class="open-file-modes${hasDocument ? '' : ' hidden'}">
+            <fieldset class="open-file-modes">
                 <legend>Open as</legend>
                 <label class="open-file-mode">
-                    <input type="radio" name="open-file-mode" value="replace" checked>
+                    <input type="radio" name="open-file-mode" value="replace"${dropped && hasDocument ? '' : ' checked'}>
                     <span>
                         <strong>Replace this tab</strong>
                         <small>Open the selected document in the current tab. A .vase project or project-embedded HTML restores its complete visual setup.</small>
@@ -25879,13 +25939,17 @@ class VAseApp {
                     </span>
                 </label>
                 <label class="open-file-mode${newTabAvailable ? '' : ' disabled'}">
-                    <input type="radio" name="open-file-mode" value="new-tab"${newTabAvailable ? '' : ' disabled'}>
+                    <input type="radio" name="open-file-mode" value="new-tab"${newTabAvailable ? '' : ' disabled'}${dropped && hasDocument ? ' checked' : ''}>
                     <span>
                         <strong>Open in new tab</strong>
                         <small>${newTabAvailable
                             ? 'Create an independent structure tab with its own state and .vase project.'
                             : 'Available when v_ase is running in its multi-tab workspace.'}</small>
                     </span>
+                </label>
+                <label class="open-file-mode">
+                    <input type="radio" name="open-file-mode" value="new-window">
+                    <span><strong>Open in new window</strong><small>Use a separate workspace window.</small></span>
                 </label>
             </fieldset>
         `, `
@@ -25905,10 +25969,11 @@ class VAseApp {
             const labels = {
                 replace: 'Replace',
                 append: 'Add Frames',
-                'new-tab': 'Open New Tab'
+                'new-tab': 'Open New Tab', 'new-window': 'Open New Window'
             };
             if (confirm) confirm.textContent = labels[mode];
         };
+        syncConfirmLabel();
         document.querySelectorAll('input[name="open-file-mode"]').forEach(input => {
             input.addEventListener('change', syncConfirmLabel);
         });
@@ -25916,12 +25981,12 @@ class VAseApp {
         confirm?.addEventListener('click', async () => {
             const inputFormat = document.getElementById('open-file-format')?.value || '';
             const index = document.getElementById('open-file-index')?.value.trim() || ':';
-            const mode = hasDocument
-                ? (document.querySelector('input[name="open-file-mode"]:checked')?.value || 'replace')
-                : 'replace';
+            const mode = document.querySelector('input[name="open-file-mode"]:checked')?.value || 'replace';
             const runtimeMode = document.querySelector('input[name="open-runtime-mode"]:checked')?.value || currentRuntimeMode;
             this.closeModal();
-            if (mode === 'append') {
+            if (mode === 'new-window') {
+                await this.openStructureFileInNewWindow(file, inputFormat, index, runtimeMode, { handle });
+            } else if (mode === 'append') {
                 await this.appendStructureFile(file, inputFormat, index, runtimeMode);
             } else if (mode === 'new-tab') {
                 await this.openStructureFileInNewTab(file, inputFormat, index, runtimeMode, { handle });
@@ -28327,16 +28392,10 @@ class VAseApp {
         const movieSkip = document.getElementById('movie-skip');
         movieSkip.oninput = () => this.currentPlaybackSkip();
         movieSkip.onchange = () => this.currentPlaybackSkip();
-        document.getElementById('tool-select')?.addEventListener('click', () => {
-            this.orbitToolActive = false;
-            document.getElementById('tool-orbit')?.setAttribute('aria-pressed', 'false');
-            if (this.transform.mode !== 'IDLE') this.cancelTransform();
-            this.measureToolArmed = false;
-            document.getElementById('tool-measure')?.setAttribute('aria-pressed', 'false');
+        ['select', 'move', 'orbit', 'rotate', 'scale', 'measure', 'add'].forEach(tool => {
+            document.getElementById(`tool-${tool}`)?.addEventListener('click', () => this.activateViewportTool(tool));
         });
-        document.getElementById('tool-move')?.addEventListener('click', () => this.enterTransformMode('MOVE'));
-        document.getElementById('tool-rotate')?.addEventListener('click', () => this.enterTransformMode('ROTATE'));
-        document.getElementById('tool-scale')?.addEventListener('click', () => this.enterTransformMode('SCALE'));
+        this.updateToolState();
         this.readTransformSettings();
         ['move-increment', 'rotate-increment'].forEach(id => {
             document.getElementById(id)?.addEventListener('change', () => {
@@ -28482,6 +28541,14 @@ class VAseApp {
             if (this.orbitToolActive && this.transform.mode === 'IDLE') return;
             if (this.transform.mode !== 'IDLE') {
                 e.preventDefault();
+                if (this.pointerTransformGesture === 'armed') {
+                    this.pointerTransformGesture = 'dragging';
+                    this.state.transformStartPointer.set(e.clientX, e.clientY);
+                    this.transform.pointerDelta.set(0, 0);
+                    this.state.rotationPointerActive = false;
+                    canvas.setPointerCapture?.(e.pointerId);
+                    return;
+                }
                 this.state.suppressNextPointerUp = true;
                 this.commitTransform();
                 return;
@@ -28538,6 +28605,7 @@ class VAseApp {
 
         canvas.addEventListener('pointermove', (e) => {
             if (this.transform.mode !== 'IDLE') {
+                if (this.pointerTransformGesture === 'armed') return;
                 const size = this.renderer.containerSize();
                 this.transform.pointerDelta.x = (e.clientX - this.state.transformStartPointer.x) / size.width;
                 this.transform.pointerDelta.y = -(e.clientY - this.state.transformStartPointer.y) / size.height;
@@ -28565,6 +28633,11 @@ class VAseApp {
 
         canvas.addEventListener('pointerup', (e) => {
             if (e.button !== 0) return;
+            if (this.pointerTransformGesture === 'dragging') {
+                this.pointerTransformGesture = null;
+                if (canvas.hasPointerCapture?.(e.pointerId)) canvas.releasePointerCapture(e.pointerId);
+                this.commitTransform(); return;
+            }
             if (this.orbitToolActive && this.transform.mode === 'IDLE') return;
             if (this.state.suppressNextPointerUp) {
                 this.state.suppressNextPointerUp = false;
@@ -28572,6 +28645,9 @@ class VAseApp {
                 this.hideMarquee();
                 return;
             }
+            // A drag that began in the tab strip or another control is not
+            // an atom-selection gesture, even if its release lands here.
+            if (!this.state.isDragging) return;
             if (!this.canViewportSelectAtoms()) {
                 this.state.isDragging = false;
                 this.renderer.controls.enabled = true;
@@ -28614,15 +28690,11 @@ class VAseApp {
                 this.applySelectionAction({
                     references: picked === null ? [] : [picked],
                     mode: this.measureToolArmed
-                        ? (this.selectionCount() ? 'add' : 'replace')
+                        ? (picked !== null && this.selectionCount() < 4 && this.selectionCount() ? 'add' : 'replace')
                         : e.shiftKey ? 'toggle' : 'replace',
                     origin: 'pointer-single',
                     measurement: 'ordered'
                 });
-                if (this.measureToolArmed && this.selectionCount() >= 4) {
-                    this.measureToolArmed = false;
-                    document.getElementById('tool-measure')?.setAttribute('aria-pressed', 'false');
-                }
             } else if (dist >= 5) {
                 // Box Select
                 const rect = {
@@ -28651,6 +28723,7 @@ class VAseApp {
         });
 
         canvas.addEventListener('pointercancel', () => {
+            if (this.pointerTransformGesture && this.transform.mode !== 'IDLE') this.cancelTransform();
             this.state.isDragging = false;
             this.renderer.controls.enabled = true;
             this.hideMarquee();
@@ -28684,6 +28757,9 @@ class VAseApp {
                 )));
             const isFormControl = isEditableControl || tag === 'button';
             const inspectorCollapsed = document.body.classList.contains('inspector-collapsed');
+            if (e.key === 'Escape' && this.transform.mode === 'IDLE' && (this.orbitToolActive || this.measureToolArmed)) {
+                e.preventDefault(); this.activateViewportTool('select'); return;
+            }
             if (e.key === 'Escape' && this.transform.mode === 'IDLE') {
                 const objects = document.getElementById('objects-drawer');
                 if (objects && !objects.classList.contains('hidden')) {

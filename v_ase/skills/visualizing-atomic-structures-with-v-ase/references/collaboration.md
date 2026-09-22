@@ -28,6 +28,13 @@ arguments by dropping guards. A scene patch checks again after preparation,
 briefly holds interactive input while applying, and produces one undo step.
 Queries/captures wait for the mutation queue, while readiness can report progress.
 
+Desktop documents can move into independent windows without changing their
+scientific session ID. Workspace membership changes; rediscover it after a human
+moves a tab. Help → Copy agent connection URL targets the focused window.
+Window transfer waits for pending edits and blocks while transforms, jobs or
+saves are active. A native file grant is reissued only to the destination window;
+the original format/profile and external-change checks remain in force.
+
 ## Events and continuation
 
 Consume `vase_events` with its cursor while sharing work. A gap means events were

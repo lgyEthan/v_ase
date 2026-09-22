@@ -6695,10 +6695,16 @@ export class ASERenderer {
 
     commensuratePreviewBondRange(preview, firstRow, secondRow) {
         if (this.displayOptions.bondMode === 'pairwise') {
-            return this.pairwiseBondRange(
-                this.commensuratePreviewLabel(preview, firstRow),
-                this.commensuratePreviewLabel(preview, secondRow)
-            );
+            const left = this.commensuratePreviewLabel(preview, firstRow);
+            const right = this.commensuratePreviewLabel(preview, secondRow);
+            const key = this.labelPairKey(left, right);
+            // Guest-only labels have not entered the document's pair table yet.
+            // Use their suggested cutoff; retain every explicit host policy,
+            // including disabled pairs, exactly as configured.
+            if (Object.hasOwn(this.displayOptions.pairwiseBondRanges || {}, key)
+                || Object.hasOwn(this.displayOptions.pairwiseBondCutoffs || {}, key)) {
+                return this.pairwiseBondRange(left, right);
+            }
         }
         const scale = Math.max(0.1, Number(this.displayOptions.bondCutoffScale || 1));
         const maximum = this.autoBondBaseCutoffFromValues(
@@ -6713,20 +6719,19 @@ export class ASERenderer {
     }
 
     commensuratePreviewMaximumBondCutoff(preview) {
-        if (this.displayOptions.bondMode === 'pairwise') {
-            return Object.values(this.displayOptions.pairwiseBondRanges || {}).reduce((maximum, range) => {
+        const explicitMaximum = this.displayOptions.bondMode === 'pairwise'
+            ? Object.values(this.displayOptions.pairwiseBondRanges || {}).reduce((maximum, range) => {
                 const value = range?.enabled === false ? 0 : Number(range?.max);
                 return Number.isFinite(value) ? Math.max(maximum, value) : maximum;
-            }, 0);
-        }
+            }, 0) : 0;
         const radii = (preview?.bond_radii || [])
             .map(Number)
             .filter(value => Number.isFinite(value) && value > 0)
             .sort((left, right) => right - left);
         const radiusSum = (radii[0] || FALLBACK_COVALENT_RADIUS)
             + (radii[1] || radii[0] || FALLBACK_COVALENT_RADIUS);
-        return (radiusSum + AUTO_BOND_COVALENT_SLACK)
-            * Math.max(0.1, Number(this.displayOptions.bondCutoffScale || 1));
+        return Math.max(explicitMaximum, (radiusSum + AUTO_BOND_COVALENT_SLACK)
+            * Math.max(0.1, Number(this.displayOptions.bondCutoffScale || 1)));
     }
 
     commensuratePreviewBondPairs(preview) {

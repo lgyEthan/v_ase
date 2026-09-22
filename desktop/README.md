@@ -1,6 +1,6 @@
 # v_ase Desktop
 
-Native macOS and Windows windows around the published v_ase 0.4.1 GUI. Scientific
+Native macOS and Windows windows around the published v_ase 0.4.2 GUI. Scientific
 editing, rendering, serialization and Python/Jupyter APIs stay in the Python
 distribution. The host adds OS file dialogs, guarded native file handles,
 document shortcuts, single-instance file opening and safe Quit.
@@ -28,7 +28,7 @@ python scripts/test_packaged.py
 ```
 
 The helper verifies a pinned official python-build-standalone archive against
-its SHA-256, installs published `v_ase-gui[mcp,rhino]==0.4.1` and locked binary
+its SHA-256, installs published `v_ase-gui[mcp,rhino]==0.4.2` and locked binary
 dependencies, runs `pip check`, and checks scientific imports. The full
 relocatable Python preserves dynamic ASE readers and package resources. It
 never installs into the user's Python environment.
@@ -46,8 +46,10 @@ and package metadata remain those of the published wheel.
 `npm start` runs the development host; `npm run pack` builds an unpacked app.
 Output goes to `dist/`; test reports, screenshots and PNGs go to `smoke-output/`.
 The packaged test launches outside the repository to catch dependencies on the
-developer's checkout or Python installation. The icon is a code-drawn v-shaped
-atomic chain and v_ase wordmark, in PNG/ICNS/ICO forms under `assets/`.
+developer's checkout or Python installation. The desktop icon is a transparent
+derivative of the maintainer's atomic-bead castle and Pinocchio render. Its
+approved master and reproducible PNG/ICNS/ICO encoding are documented in
+[assets/README.md](assets/README.md). The editor header retains the GitHub logo.
 
 ## Host contract
 
@@ -167,10 +169,10 @@ must be repaired and tested before continuing. Once accepted:
 xcrun stapler staple "$VASE_APP"
 xcrun stapler validate "$VASE_APP"
 spctl --assess --type execute --verbose=2 "$VASE_APP"
-ditto -c -k --sequesterRsrc --keepParent "$VASE_APP" "$VASE_OUTPUT/v_ase-0.4.1-mac-$VASE_ARCH.zip"
+ditto -c -k --sequesterRsrc --keepParent "$VASE_APP" "$VASE_OUTPUT/v_ase-0.4.2-mac-$VASE_ARCH.zip"
 npx --no-install electron-builder --prepackaged "$VASE_APP" --mac dmg --"$VASE_ARCH" --publish never --config.directories.output="$VASE_OUTPUT" --config.dmg.writeUpdateInfo=false
-codesign --force --timestamp --sign "$VASE_IDENTITY" "$VASE_OUTPUT/v_ase-0.4.1-mac-$VASE_ARCH.dmg"
-xcrun notarytool submit "$VASE_OUTPUT/v_ase-0.4.1-mac-$VASE_ARCH.dmg" --keychain-profile vase-notary --wait --output-format json
+codesign --force --timestamp --sign "$VASE_IDENTITY" "$VASE_OUTPUT/v_ase-0.4.2-mac-$VASE_ARCH.dmg"
+xcrun notarytool submit "$VASE_OUTPUT/v_ase-0.4.2-mac-$VASE_ARCH.dmg" --keychain-profile vase-notary --wait --output-format json
 ```
 
 The pinned builder's `--prepackaged` path creates the familiar DMG layout
@@ -178,11 +180,11 @@ without rebuilding or re-signing the app. After the **DMG** submission is
 Accepted, retain that ID/log as well, then run:
 
 ```sh
-xcrun stapler staple "$VASE_OUTPUT/v_ase-0.4.1-mac-$VASE_ARCH.dmg"
-xcrun stapler validate "$VASE_OUTPUT/v_ase-0.4.1-mac-$VASE_ARCH.dmg"
+xcrun stapler staple "$VASE_OUTPUT/v_ase-0.4.2-mac-$VASE_ARCH.dmg"
+xcrun stapler validate "$VASE_OUTPUT/v_ase-0.4.2-mac-$VASE_ARCH.dmg"
 codesign --verify --deep --strict "$VASE_APP"
 python scripts/verify_macos.py "$VASE_APP" --team-id YOUR_TEAM_ID --notarized
-spctl --assess --type open --context context:primary-signature --verbose=2 "$VASE_OUTPUT/v_ase-0.4.1-mac-$VASE_ARCH.dmg"
+spctl --assess --type open --context context:primary-signature --verbose=2 "$VASE_OUTPUT/v_ase-0.4.2-mac-$VASE_ARCH.dmg"
 ```
 
 ZIPs cannot themselves receive a staple: their enclosed `.app` must already
@@ -211,7 +213,7 @@ second physical Intel test.
    download, source archive and evidence file. Preserve hashes for unchanged
    Windows assets. Sign-only promotion does not modify the Python tag, wheel,
    sdist or package version.
-5. Use authenticated `gh release upload v0.4.1 --repo lgyEthan/v_ase --clobber`
+5. Use authenticated `gh release upload v0.4.2 --repo lgyEthan/v_ase --clobber`
    with the explicit changed asset paths. Upload the checksum file last. Use
    `gh release edit ... --notes-file ...` to preserve core release notes and
    update desktop install links, source provenance, Mac signed/notarized status

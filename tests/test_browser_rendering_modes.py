@@ -78,7 +78,7 @@ def test_help_dialog_stays_inside_viewport_and_scrolls_to_every_section():
             page = browser.new_page(viewport={"width": 980, "height": 620})
             page.goto(f"http://127.0.0.1:{port}/?session_id={editor.session_id}")
             page.wait_for_function("window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 1")
-            page.locator('#editor-menu-bar details').last.locator('summary').click()
+            page.locator('#editor-menu-bar summary').filter(has_text='Help').click()
             page.click('[data-editor-menu-action="shortcuts"]')
             metrics = page.evaluate("""() => {
                 const modal = document.querySelector('#modal-container .modal');
@@ -289,12 +289,12 @@ def test_rdf_drawer_controls_and_selected_active_bond_pairs():
                 )
                 _expand_inspector(page)
                 open_editor_route(page, 'rdf')
-                assert page.locator('#workbench-tools [data-tool-group]:not([hidden]) button').all_text_contents() == [
+                assert page.locator('#workbench-tools [data-tool-group]:not([hidden]) button').evaluate_all('(buttons) => buttons.map(button => button.getAttribute("aria-label"))') == [
                     'Measure', 'Distributions', 'Displacements',
                     'Forces', 'Fields', 'Registry'
                 ]
                 open_editor_route(page, 'export')
-                assert page.locator('#workbench-tools [data-tool-group]:not([hidden]) button').all_text_contents() == [
+                assert page.locator('#workbench-tools [data-tool-group]:not([hidden]) button').evaluate_all('(buttons) => buttons.map(button => button.getAttribute("aria-label"))') == [
                     'Renderer', 'Image', 'Video', 'Interactive HTML', 'Geometry'
                 ]
                 open_editor_route(page, 'appearance')
@@ -3071,7 +3071,8 @@ def test_empty_workspace_opens_a_complete_trajectory_from_the_browser(tmp_path):
                 page.click('#btn-empty-open')
             chooser_info.value.set_files(str(source))
             assert page.locator('#open-file-name').inner_text() == source.name
-            assert page.locator('.open-file-modes').is_hidden()
+            assert page.locator('.open-file-modes').is_visible()
+            assert page.locator('[name="open-file-mode"][value="replace"]').is_checked()
             assert page.locator('input[name="open-runtime-mode"][value="edit"]').is_checked()
             page.locator('input[name="open-runtime-mode"][value="view"]').check()
             page.click('#open-file-confirm')

@@ -154,3 +154,20 @@ structure remain the same.
 Personal defaults exclude coordinates, cell contents, trajectory data,
 absolute camera placement, and per-atom index overrides. Use a `.vase` project
 when the exact document state must be recovered.
+
+## Bond pair editing
+
+**Style → Bonds** opens **Pair specifications** by default. Each label pair has
+an enable checkbox and a maximum distance in Å. **Reset to suggested cutoffs**
+restores element-radius-derived suggestions; **Manual index pairs** remains
+available for explicitly chosen edges. There is no separate Automatic radii
+choice in this GUI. Existing automatic project settings are converted into
+editable suggested pairs, preserving their cutoff multiplier. Guest-only labels
+in a cell-match preview use their own suggested distances until they enter the
+document's editable pair table; existing configured pairs remain unchanged.
+
+Click a cutoff and press Ctrl+A (also supported on Mac) or Command+A on Mac
+to replace the whole value. Tab moves to the next cutoff; Shift+Tab moves to
+the previous one. Resize the label column with its divider or widen the entire
+right panel. Controls reflow within the available width. The relaxation
+calculator's pair distances are independent of these displayed bonds.

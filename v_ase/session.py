@@ -867,7 +867,39 @@ def remove_workspace_session(workspace: EditorWorkspace, session_id: str) -> Non
             session.release_resources()
 
 
-def finalize_workspace(workspace_id: str) -> None:
+def move_workspace_session(source: EditorWorkspace, session_id: str,
+                           target: EditorWorkspace | None = None) -> EditorWorkspace:
+    """Move the live session, including history/jobs/resources; never copy atoms.
+
+    A source window keeps a blank document when its last tab is detached.
+    Moving its original tab also transfers host ownership, so closing the old
+    window cannot release the detached document's trajectories or calculators.
+    """
+    from contextlib import ExitStack
+    with _workspaces_lock, ExitStack() as stack:
+        for workspace in sorted({w.workspace_id: w for w in (source, target) if w}.values(),
+                                key=lambda w: w.workspace_id):
+            stack.enter_context(workspace.lock)
+        if source.closed or session_id not in source.session_ids:
+            raise ValueError("The document is no longer in this workspace")
+        if target is source or (target and target.closed):
+            raise ValueError("Choose a different open workspace")
+        session = get_session(session_id)
+        if len(source.session_ids) == 1:
+            create_workspace_session(source)
+        source.session_ids.remove(session_id)
+        if source.host_session_id == session_id:
+            source.host_session = get_session(source.session_ids[0])
+        if target is None:
+            target = create_workspace(session)
+        else:
+            target.session_ids.append(session_id)
+            session.config['workspace_id'] = target.workspace_id
+        session.config['auto_close_on_disconnect'] = False
+        return target
+
+
+def finalize_workspace(workspace_id: str, *, notify_host: bool = True) -> None:
     """Close all child documents and release the blocking host session."""
     with _workspaces_lock:
         workspace = workspaces.get(workspace_id)
@@ -893,7 +925,12 @@ def finalize_workspace(workspace_id: str) -> None:
                 session.release_resources()
         workspace.session_ids.clear()
         host.release_resources()
-        host.done_event.set()
+        if notify_host:
+            host.done_event.set()
+        else:
+            # A native window is one of several owners of a single process.
+            # Its original ASEEditor watcher must not stop their shared server.
+            sessions.pop(host.session_id, None)
     with _workspaces_lock:
         workspaces.pop(workspace_id, None)
 

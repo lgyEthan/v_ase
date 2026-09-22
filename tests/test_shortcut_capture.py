@@ -82,7 +82,7 @@ def test_capture_controller_granted_denied_retry_and_exit():
             assert result['locked']['state'] == 'locked'
             assert 'OS may still reserve' in result['locked']['message']
             assert set(result['locked']['codes']) == {'KeyW', 'KeyN', 'KeyS',
-                                                     'KeyB', 'KeyP', 'KeyA', 'KeyE',
+                                                     'KeyB', 'KeyP', 'KeyA', 'KeyE', 'KeyO',
                                                      'ArrowLeft', 'ArrowRight'}
             assert result['exited'] == {'state': 'normal', 'unlocks': 1}
             assert result['deniedState']['state'] == 'fullscreen-without-lock'
