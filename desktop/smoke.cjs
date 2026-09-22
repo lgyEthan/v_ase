@@ -20,7 +20,7 @@ async function runSmoke({ app, win, handshake, vault, sendCommand }) {
         win.webContents.sendInputEvent({ type: 'keyDown', keyCode, modifiers });
         win.webContents.sendInputEvent({ type: 'keyUp', keyCode, modifiers });
     }
-    async function wait(expression, timeoutMs = 10000) {
+    async function wait(expression, timeoutMs = process.env.V_ASE_SOFTWARE_GL === '1' ? 60000 : 10000) {
         const deadline = Date.now() + timeoutMs;
         while (Date.now() < deadline) {
             if (await js(`Boolean(${expression})`)) return;
