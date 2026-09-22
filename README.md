@@ -40,10 +40,11 @@ independently.
 | [Mac, Intel](https://github.com/lgyEthan/v_ase/releases/download/v0.4.1/v_ase-0.4.1-mac-x64.dmg) | Same steps; choose Intel when **About This Mac** shows an Intel processor. |
 | [Windows, Intel/AMD x64](https://github.com/lgyEthan/v_ase/releases/download/v0.4.1/v_ase-0.4.1-win-x64.exe) | Windows 10/11, 64-bit: run the EXE installer, complete installation, then launch **v_ase** from Start. |
 
-These builds are not publisher-signed or Apple-notarized. After verifying the
-release and its checksum, a blocked Mac first launch uses **System Settings →
-Privacy & Security → Open Anyway**; a Windows SmartScreen prompt may offer
-**More info → Run anyway**. Do not disable OS protection globally.
+The Mac downloads are **Developer ID signed and Apple-notarized**, with
+stapled tickets for the app and DMG. macOS may show its normal first-open
+confirmation for an internet download. The Windows build is **not yet
+publisher-signed**; after verifying its source and checksum, a SmartScreen
+prompt may offer **More info → Run anyway**. Do not disable OS protection.
 [Step-by-step installation, ZIPs, checksums and troubleshooting](https://v-ase.readthedocs.io/en/latest/desktop.html).
 Maintainer build, signing and notarization steps are in
 [the desktop build guide](desktop/README.md).

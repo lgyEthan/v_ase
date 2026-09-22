@@ -33,14 +33,25 @@ environment and the browser GUI instead.
    window, then use **File → Open** or **Command+O** to select a project or
    structure. No `pip`, Conda, Node.js or terminal setup is necessary.
 
-The 0.4.1 Mac app has an ad-hoc integrity signature, but is **not signed with an
-Apple Developer ID or Apple-notarized**. If macOS blocks the first launch after
-you have checked the download source and checksum, open **System Settings →
-Privacy & Security**, find the v_ase warning, click **Open Anyway**, and confirm
-the prompt. Attempt to open the installed app first so the exception is shown.
-This is an exception for that app; do not disable Gatekeeper globally. If the
-exception is unavailable on a managed computer, ask its administrator. See
-[Apple's instructions for opening an unnotarized app](https://support.apple.com/en-us/102445).
+The Mac DMGs and apps are **signed with Developer ID Application: Giyeok Lee
+(B89YQRGQ6C) and notarized by Apple**. Both carry stapled notarization tickets;
+the portable ZIP also contains the app with its ticket. macOS may show the
+normal confirmation that the app was downloaded from the internet: choose
+**Open** after checking the source. The current downloads do not require an
+**Open Anyway** exception or disabling Gatekeeper.
+
+The Mac files were refreshed on 22 September 2026 to replace the initial
+ad-hoc-signed downloads while retaining v_ase 0.4.1. If an older copy reports
+an unidentified developer, quit it and download the current matching DMG
+again; compare its checksum and replace the Applications copy. If a current,
+checksum-matching copy is blocked, keep the exact error and consult your
+administrator on a managed Mac. Do not remove quarantine attributes or
+disable Gatekeeper as an installation step. See
+[Apple's explanation of Developer ID distribution](https://developer.apple.com/developer-id/).
+
+The release's `mac-notarization.json` records the public signing identity,
+Apple submission results and final hashes. `desktop-SHA256SUMS.txt` covers
+the final downloads. No Apple developer account is needed to install the app.
 
 ## Install on Windows
 
@@ -87,6 +98,8 @@ Get-FileHash .\v_ase-0.4.1-win-x64.exe -Algorithm SHA256
 
 Compare it with the line for that exact filename in the checksum file.
 Matching hashes verify download integrity, not the publisher's identity.
+For Mac downloads, Developer ID signatures and Apple's notarization checks
+provide the separate OS-level publisher and distribution checks.
 
 ## Open .vase by default
 

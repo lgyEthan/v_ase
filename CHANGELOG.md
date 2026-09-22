@@ -32,7 +32,12 @@
   capture Command/Ctrl document shortcuts without browser conflicts, retain
   project destinations for Save, and guard every document on Quit. Python and
   Jupyter remain supported. See the desktop installation guide for OS minimums
-  and the initial builds' ad-hoc signing/notarization status.
+  and step-by-step installation and file-association instructions.
+- Refresh both Mac desktop downloads with Developer ID signatures, secure
+  timestamps and Apple notarization tickets for the app and DMG. Reverify the
+  bundled Python/native libraries and packaged GUI after signing. Keep CI
+  candidates separate from public promotion so ad-hoc builds cannot overwrite
+  notarized releases. Windows publisher signing remains separate and pending.
 
 ## 0.3.8
 
