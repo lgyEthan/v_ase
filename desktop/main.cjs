@@ -120,7 +120,8 @@ async function launchBackend() {
     for (const key of ['PYTHONHOME', 'PYTHONPATH', 'VIRTUAL_ENV', 'CONDA_PREFIX', 'CONDA_DEFAULT_ENV']) delete environment[key];
     // -I intentionally ignores PYTHON* environment variables; -X is required
     // so Windows reads the GUI's Unicode source in UTF-8 as macOS does.
-    backend = spawn(executable, ['-I', '-X', 'utf8', '-u', '-m', 'v_ase.cli', 'gui', '--no-browser', '--cli'], {
+    // Signed/read-only application resources must never receive import caches.
+    backend = spawn(executable, ['-I', '-B', '-X', 'utf8', '-u', '-m', 'v_ase.cli', 'gui', '--no-browser', '--cli'], {
         cwd: app.getPath('userData'), env: environment, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'],
     });
     backend.stderr.pipe(log);

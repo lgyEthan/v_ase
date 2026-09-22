@@ -100,9 +100,11 @@ before advertising signed builds. Never describe ad-hoc signing as Apple
 notarization, or require users to disable OS protection.
 Mac bundles use a valid ad-hoc signature with electron-builder's standard
 Electron entitlements and hardened runtime. Packaged tests check the entire
-bundle with `codesign --verify --deep --strict`; this catches broken resource
+bundle before and after execution with `codesign --verify --deep --strict`; this catches broken resource
 signatures that a direct executable launch alone can miss. Ad-hoc signing
 does not identify a publisher or replace Apple notarization.
+The private Python process runs with `-B` so imports cannot add bytecode caches
+inside the signed application, including after repeated launches.
 
 For updates, revise Electron/runtime pins, desktop version, bundled PyPI
 version and documentation together; rerun native and packaged checks on every
