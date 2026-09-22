@@ -20,8 +20,9 @@ async function runSmoke({ app, win, handshake, vault, sendCommand }) {
         win.webContents.sendInputEvent({ type: 'keyDown', keyCode, modifiers });
         win.webContents.sendInputEvent({ type: 'keyUp', keyCode, modifiers });
     }
-    async function wait(expression) {
-        for (let i = 0; i < 200; i++) {
+    async function wait(expression, timeoutMs = 10000) {
+        const deadline = Date.now() + timeoutMs;
+        while (Date.now() < deadline) {
             if (await js(`Boolean(${expression})`)) return;
             await new Promise(resolve => setTimeout(resolve, 50));
         }
@@ -214,9 +215,11 @@ async function runSmoke({ app, win, handshake, vault, sendCommand }) {
     await js(`${active}.document.activeElement.blur()`);
     await js(`${appRef}.settleScientificMutations().then(()=>${appRef}.flushVisualHistoryCommit())`);
     const movedId = await js(`${appRef}.sessionId`);
-    const beforeMove = await js(`({format:${appRef}.projectFile.format, filename:${appRef}.projectFile.filename,
+    const documentState = `({format:${appRef}.projectFile.format, filename:${appRef}.projectFile.filename,
         positions:${appRef}.renderer.currentPositions(), camera:${appRef}.cameraSettingsSnapshot(),
-        undo:${appRef}.undoTimeline.length, dirty:${appRef}.updateProjectDirtyState()})`);
+        pixelsPerAngstrom:${appRef}.renderer.currentPixelsPerAngstrom(),
+        undo:${appRef}.undoTimeline.length, dirty:${appRef}.updateProjectDirtyState()})`;
+    const beforeMove = await js(documentState);
     const tabPoint = await js(`(()=>{const r=window.__V_ASE_WORKSPACE__.tabs.get('${movedId}').select.getBoundingClientRect();return {x:Math.round(r.x+r.width/2),y:Math.round(r.y+r.height/2)};})()`);
     await js(`(() => { window.__smokePointer=[]; for (const d of [document,${active}.document]) for(const type of ['pointerdown','pointermove','pointerup','click']) d.addEventListener(type,e=>window.__smokePointer.push({type,target:e.target.className,x:e.clientX,y:e.clientY,top:d===document}),true); })()`);
     win.show(); win.focus(); win.webContents.focus();
@@ -226,15 +229,27 @@ async function runSmoke({ app, win, handshake, vault, sendCommand }) {
     win.webContents.sendInputEvent({ type: 'mouseMove', x:tabPoint.x+70, y:tabPoint.y+140, modifiers:['leftbuttondown'] });
     await js('new Promise(resolve => requestAnimationFrame(resolve))');
     win.webContents.sendInputEvent({ type: 'mouseUp', x:tabPoint.x+70, y:tabPoint.y+140, button:'left', clickCount:1 });
-    await wait(`!window.__V_ASE_WORKSPACE__.tabs.has('${movedId}')`);
+    await wait(`!window.__V_ASE_WORKSPACE__.tabs.has('${movedId}')`, 60000);
     const detached = BrowserWindow.getAllWindows().find(candidate => candidate !== win);
     assert.ok(detached, 'Dragging a tab creates a second native window');
     const detachedJS = code => detached.webContents.executeJavaScript(code);
     const detachedWorkspaceId = new URL(detached.webContents.getURL()).searchParams.get('workspace_id');
-    const afterMove = await detachedJS(`({format:${appRef}.projectFile.format, filename:${appRef}.projectFile.filename,
-        positions:${appRef}.renderer.currentPositions(), camera:${appRef}.cameraSettingsSnapshot(),
-        undo:${appRef}.undoTimeline.length, dirty:${appRef}.updateProjectDirtyState()})`);
-    assert.deepEqual(afterMove, beforeMove, 'Detach preserves visual state, history, dirty state and the save format');
+    const afterMove = await detachedJS(documentState);
+    await fs.writeFile(path.join(output, 'detached-state.json'), JSON.stringify({beforeMove, afterMove}, null, 2));
+    assert.ok(Math.abs(afterMove.pixelsPerAngstrom - beforeMove.pixelsPerAngstrom) < 0.001,
+        'Detach preserves physical magnification even when the OS fits the new window to the screen');
+    // Raw orthographic zoom/span depend on viewport height. Windows may clamp a
+    // newly created window to the work area; compare physical scale above and
+    // preserve all remaining camera/scientific/document state exactly.
+    const comparable = state => {
+        const { pixelsPerAngstrom, ...value } = structuredClone(state);
+        if (value.camera.projection === 'orthographic') {
+            delete value.camera.zoom;
+            delete value.camera.ortho_scale;
+        }
+        return value;
+    };
+    assert.deepEqual(comparable(afterMove), comparable(beforeMove), 'Detach preserves visual state, history, dirty state and the save format');
     assert.ok(await detachedJS(`${appRef}.projectFile.handle?.desktopToken`), 'Native file grant moves with the tab');
     await detachedJS(`${appRef}.saveDocument()`);
     assert.equal(await detachedJS(`${appRef}.updateProjectDirtyState()`), false);
@@ -263,7 +278,8 @@ async function runSmoke({ app, win, handshake, vault, sendCommand }) {
     finally { nativeDialog.showOpenDialog=previousOpen; }
     await js(`${active}.document.querySelector('[name="open-file-mode"][value="new-window"]').checked=true; ${active}.document.querySelector('#open-file-confirm').click()`);
     let openedWindow, openedState;
-    for (let i=0;i<200;i++) {
+    const openDeadline = Date.now() + 60000;
+    while (Date.now() < openDeadline) {
         openedWindow=BrowserWindow.getAllWindows().find(candidate=>candidate!==win);
         openedState=openedWindow && await openedWindow.webContents.executeJavaScript(`(()=>{const w=window.__V_ASE_WORKSPACE__,a=w?.tabs.get(w.activeSessionId)?.pane?.contentWindow?.__ASE_APP__;return a?.collaborationReady && a.projectFile.handle?.desktopToken ? {format:a.projectFile.format,width:a.projectFile.outputProfile?.width,count:a.state.atoms.positions.length} : null;})()`).catch(()=>null);
         if(openedState) break;

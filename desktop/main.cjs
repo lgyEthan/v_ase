@@ -274,7 +274,9 @@ async function start() {
 
 async function createEditorWindow(url, { snapshot = null, sourceOwner = null, position = null, contentSize = [1440, 960], initial = false } = {}) {
     const isolated = session.fromPartition('persist:v_ase-desktop');
-    const win = new BrowserWindow({ width: contentSize[0], height: contentSize[1], useContentSize: true, minWidth: 390, minHeight: 480, title: 'v_ase', show: !smoke,
+    // Smoke windows must be visible too: hidden destination windows throttle
+    // animation frames and cannot exercise the real restore/readiness lifecycle.
+    const win = new BrowserWindow({ width: contentSize[0], height: contentSize[1], useContentSize: true, minWidth: 390, minHeight: 480, title: 'v_ase', show: true,
         backgroundColor: '#f8f9fa', webPreferences: { preload: path.join(__dirname, 'preload.cjs'),
             contextIsolation: true, nodeIntegration: false, sandbox: true, webSecurity: true, session: isolated } });
     windows.add(win);

@@ -82,6 +82,11 @@ renderer, native menus and keyboard input, project opening, dirty Save, Save As,
 selection, exact PNG rendering, internal New/Close and Node isolation. Inspect
 screenshots as well as `result.json`. Core regressions are recorded in
 `docs/design/v_ase_041_validation.md`.
+Multi-window checks keep destination windows visible, as in normal use, and
+verify physical pixels per angstrom alongside camera pose and document state.
+The OS may fit a new window to its work area, so raw orthographic zoom/span are
+not required to match between different viewport heights. Retain
+`detached-state.json` with each platform's evidence.
 The desktop smoke also checks all 23 workbench routes at 1440, 1024 and 390
 pixel widths for clipped controls and unit overlap, and counts oxygen-colored
 pixels in the export to reject a blank WebGL image. Windows starts isolated
