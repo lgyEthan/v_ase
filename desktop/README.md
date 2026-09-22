@@ -9,6 +9,7 @@ document shortcuts, single-instance file opening and safe Quit.
 
 Use Node.js 22, npm, Python 3.12+ **for the build helper**, and Git. The app bundles
 CPython 3.11.16. Targets are macOS arm64/x64 and Windows x64.
+Mac builds require Xcode command-line tools and CMake 3.22.1+.
 The finished Mac app requires macOS 15+ because of its bundled scientific and
 Rhino wheels. Intel builds also require Xcode tools, Rust and Homebrew
 `openssl@3` to compile current `cryptography` with static OpenSSL; that project
@@ -19,6 +20,7 @@ downgrades to an older cryptography release to obtain a wheel.
 cd desktop
 python scripts/prepare_runtime.py
 npm ci
+python scripts/prepare_macos_graphics.py
 npm test
 npm run smoke
 npm run dist
@@ -30,6 +32,13 @@ its SHA-256, installs published `v_ase-gui[mcp,rhino]==0.4.1` and locked binary
 dependencies, runs `pip check`, and checks scientific imports. The full
 relocatable Python preserves dynamic ASE readers and package resources. It
 never installs into the user's Python environment.
+The Mac graphics helper builds digest-pinned Khronos Vulkan Loader 1.4.357.0
+sources. Electron 44 omits this library although Chromium 151+ dynamically
+requires it for SwiftShader. `after_pack.cjs` puts it in the framework before
+signing, including its licenses and source provenance in Resources. The app
+does not depend on Homebrew or a system Vulkan installation. Software graphics
+is explicitly enabled only for the fixed CI smoke fixture; normal windows use
+the platform GPU. See the [upstream report](https://github.com/chromiumembedded/cef/issues/4230).
 The canonical agent Skill and its references are then synchronized into the
 bundle, including desktop connection guidance. Scientific Python/JavaScript
 and package metadata remain those of the published wheel.
@@ -89,6 +98,11 @@ workspace screenshots and rendered fixture, excluding browser profiles/logs.
 Initial builds are not publisher-signed/notarized. Configure real credentials
 before advertising signed builds. Never describe ad-hoc signing as Apple
 notarization, or require users to disable OS protection.
+Mac bundles use a valid ad-hoc signature with electron-builder's standard
+Electron entitlements and hardened runtime. Packaged tests check the entire
+bundle with `codesign --verify --deep --strict`; this catches broken resource
+signatures that a direct executable launch alone can miss. Ad-hoc signing
+does not identify a publisher or replace Apple notarization.
 
 For updates, revise Electron/runtime pins, desktop version, bundled PyPI
 version and documentation together; rerun native and packaged checks on every

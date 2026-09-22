@@ -22,10 +22,11 @@
   "build": {
     "appId": "org.v-ase.desktop",
     "artifactName": "v_ase-${version}-${os}-${arch}.${ext}",
+    "afterPack": "scripts/after_pack.cjs",
     "directories": {"output": "dist", "buildResources": "assets"},
     "files": ["*.cjs", "*.js", "*.html", "package.json", "LICENSE"],
     "extraResources": [{"from": "runtime/python", "to": "python", "filter": ["**/*", "!**/__pycache__/**", "!**/*.pyc"]}],
-    "mac": {"category": "public.app-category.education", "minimumSystemVersion": "15.0", "icon": "assets/icon.icns", "target": ["dmg", "zip"]},
+    "mac": {"category": "public.app-category.education", "minimumSystemVersion": "15.0", "identity": "-", "hardenedRuntime": true, "icon": "assets/icon.icns", "target": ["dmg", "zip"]},
     "win": {"icon": "assets/icon.ico", "target": ["nsis", "zip"]},
     "nsis": {"oneClick": false, "perMachine": false, "allowToChangeInstallationDirectory": true},
     "fileAssociations": [{"ext": "vase", "name": "v_ase project", "role": "Editor"}]

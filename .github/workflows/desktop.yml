@@ -52,6 +52,9 @@ jobs:
       - name: Prepare the verified scientific Python runtime
         run: python scripts/prepare_runtime.py
       - run: npm ci
+      - name: Prepare the relocatable Mac graphics loader
+        if: runner.os == 'macOS'
+        run: python scripts/prepare_macos_graphics.py
       - name: Check native file permissions and atomic saves
         run: npm test
       - name: Exercise the desktop GUI and native commands
@@ -101,6 +104,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          CURRENT_MAIN=$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)
+          if [ "$CURRENT_MAIN" != "$GITHUB_SHA" ]; then
+            echo "A newer main commit exists; its workflow owns desktop publication."
+            exit 0
+          fi
           VERSION=$(node -p "require('./desktop/package.json').version")
           TAG="v${VERSION}"
           gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null

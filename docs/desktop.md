@@ -21,6 +21,8 @@ The Mac minimum includes the bundled scientific/Rhino dependencies; older
 Macs can continue to use a compatible Python environment and the browser GUI.
 
 These initial desktop builds are **not Apple-notarized or publisher-signed**.
+Mac bundles have an ad-hoc integrity signature, which does not identify a
+verified publisher.
 macOS may require System Settings → Privacy & Security → Open Anyway after
 attempting to open the app. Windows may display a SmartScreen notice; check the
 download source and file hash before choosing More info → Run anyway. The
