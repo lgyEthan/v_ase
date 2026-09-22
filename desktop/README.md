@@ -200,7 +200,15 @@ again after final stapling; inspect workspace/render images and confirm no
 `.pyc` files were created inside the sealed app. Test Intel natively in CI;
 on an Apple-silicon signing Mac with Rosetta, repeat its packaged smoke with
 `V_ASE_SOFTWARE_GL=1` and record that additional test as **Rosetta**, not a
-second physical Intel test.
+second physical Intel test. For this additional software-rendered test on a
+Retina display, launch the sealed app with `--smoke-test
+--force-device-scale-factor=1` and a fresh `V_ASE_SMOKE_DIR`; record the display
+scale explicitly. The 0.4.2 Retina-scale Rosetta run exceeded the destination
+window readiness timeout, while the standard-scale run and native Intel CI
+passed. This test setting does not change the packaged app or its default
+display scale. Verify its code signature before and after the run, require
+`result.json`, and repeat all native-component checks above. Apple silicon
+users should install the native arm64 build.
 
 ## Promote verified desktop downloads
 
