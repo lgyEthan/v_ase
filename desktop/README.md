@@ -83,6 +83,8 @@ three** pass does it attach installers, ZIPs, a corresponding source archive
 and checksums to the existing `v0.4.1` release. The PyPI wheel and release tag
 are not replaced. Notes identify the exact desktop commit. One failing target
 blocks all desktop uploads.
+`desktop-validation.zip` on the release contains each platform's result JSON,
+workspace screenshots and rendered fixture, excluding browser profiles/logs.
 
 Initial builds are not publisher-signed/notarized. Configure real credentials
 before advertising signed builds. Never describe ad-hoc signing as Apple
