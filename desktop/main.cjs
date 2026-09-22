@@ -13,6 +13,7 @@ const smoke = process.argv.includes('--smoke-test');
 if (smoke) {
     app.setPath('userData', path.join(process.env.V_ASE_SMOKE_DIR || path.join(__dirname, 'smoke-output'), 'profile'));
     if (process.env.V_ASE_SOFTWARE_GL === '1') {
+        app.commandLine.appendSwitch('use-gl', 'angle');
         app.commandLine.appendSwitch('use-angle', 'swiftshader');
         app.commandLine.appendSwitch('enable-unsafe-swiftshader');
     }

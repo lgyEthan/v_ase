@@ -23,6 +23,7 @@ jobs:
             platform: mac-arm64
           - runner: macos-15-intel
             platform: mac-x64
+            software_gl: '1'
           - runner: windows-2022
             platform: win-x64
             software_gl: '1'
