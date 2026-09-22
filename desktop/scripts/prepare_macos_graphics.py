@@ -66,6 +66,8 @@ def main():
     (output / "SOURCE.txt").write_text(
         f"KhronosGroup/Vulkan-Loader vulkan-sdk-{VERSION}\n"
         + "\n".join(f"{name}: {digest}" for name, digest in SOURCES.items()) + "\n")
+    # Electron 44 downloads its executable lazily on first require, not npm ci.
+    subprocess.run(["node", "-e", "require('electron')"], cwd=ROOT, check=True)
     development = ROOT / "node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Framework.framework/Libraries"
     if not development.is_dir():
         raise SystemExit("Run npm ci before preparing macOS graphics")
