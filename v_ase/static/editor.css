@@ -272,6 +272,8 @@ body.editor-shell #inspector .renderer-properties > .export-group { margin-top: 
 body.editor-shell #inspector .panel-subhead { font-size: 12px; font-weight: 600; text-transform: none; letter-spacing: 0; }
 body.editor-shell #app-viewport .atom-colorscale-legend { position: absolute; top: 56px; left: 16px; max-width: calc(100% - 132px); color: var(--text); background: var(--panel); box-shadow: none; }
 body.editor-shell .atom-colorscale-legend :is(.atom-colorscale-legend-head span, .atom-colorscale-legend-range) { color: var(--muted); }
+body.editor-shell .atom-colorscale-range-source { flex-direction: column; align-items: flex-start; justify-content: center; gap: 2px; padding-block: 4px; }
+body.editor-shell .atom-colorscale-range-source > strong { max-width: 100%; overflow: visible; white-space: normal; overflow-wrap: anywhere; text-overflow: clip; }
 body.editor-shell .atom-colorscale-legend .atom-colorscale-legend-scope { color: var(--teal-contrast); }
 @media (max-width: 760px) {
     body.editor-shell #app-viewport .atom-colorscale-legend { top: 100px; }

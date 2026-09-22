@@ -59,6 +59,10 @@ def test_all_tools_and_unit_fields_fit_desktop_narrow_and_mobile():
 
                             const visible = element => element.getClientRects().length
                                 && getComputedStyle(element).visibility !== 'hidden';
+                            const rangeSource = document.getElementById('atom-colorscale-range-source');
+                            if (visible(rangeSource) && rangeSource.scrollWidth > rangeSource.clientWidth + 1) {
+                                issues.push('color range source text clipped');
+                            }
                             if (document.documentElement.scrollWidth > innerWidth + 1) issues.push('page overflow');
                             document.querySelectorAll('#inspector-content input, #inspector-content select, #inspector-content textarea, #inspector-content button').forEach(element => {
                                 if (!visible(element) || element.type === 'hidden') return;
