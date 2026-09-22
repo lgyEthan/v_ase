@@ -77,6 +77,25 @@ button:focus-visible {
     background: var(--chrome);
     box-shadow: 0 4px 14px rgba(0, 0, 0, 0.14);
 }
+#workspace-fullscreen-editing {
+    align-self: center;
+    flex: 0 0 auto;
+    border: 1px solid var(--line-strong);
+    border-radius: 6px;
+    padding: 4px 8px;
+    background: var(--surface);
+    cursor: pointer;
+    font-size: 11px;
+}
+.workspace-shortcut-status {
+    align-self: center;
+    max-width: 250px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--muted);
+    font-size: 10px;
+}
 
 .document-tabs {
     min-width: 0;
@@ -153,6 +172,23 @@ button:focus-visible {
 .document-tab.active .document-symbol {
     background: var(--teal);
     box-shadow: 0 0 0 3px var(--teal-soft);
+}
+
+.document-tab.dirty .document-symbol {
+    border-color: #d7a244;
+    background: #d7a244;
+    box-shadow: 0 0 0 3px rgba(215, 162, 68, 0.14);
+}
+
+.document-tab.saving .document-symbol {
+    border-color: var(--teal);
+    background: transparent;
+}
+
+.document-tab.error .document-symbol {
+    border-color: var(--danger);
+    background: var(--danger);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 18%, transparent);
 }
 
 .document-title {

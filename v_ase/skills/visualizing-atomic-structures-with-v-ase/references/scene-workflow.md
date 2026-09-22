@@ -46,6 +46,24 @@ an atom selection with a nonempty plane selection in one `apply-scene` patch.
 Publication export neutralizes selection appearance without changing selection,
 which is preferable when selection also defines a colorscale or analysis scope.
 
+An ordinary semantic selection has bulk intent even with two to four atoms.
+For deliberately ordered measurements set `selection.intent="measure"` with
+two to four explicit indices/references in order. Label-based or marquee
+selection does not infer an order; the default summary is the selection count.
+This transient intent is not a physical or persisted project property.
+
+The optional `display.atomRadiusMapping` has `enabled`, scalar catalog `field`,
+`valueTransform` (`identity`/`absolute`), locked `min`/`max`, `rangeMode`,
+`minMultiplier`/`maxMultiplier`, `exponent`, and `scope`/frozen `indices`.
+Its factor is applied after the manual global/label/index radius settings.
+Zero hides a glyph without deleting its scientific atom. Discover field IDs
+through the atom-scalar catalog rather than guessing a charge or occupancy name.
+Use `set-atom-radius-mapping` for an atomic field/scope/range fit; `minimum` and
+`maximum` are required for a deliberately manual range. Read the focused
+appearance state after applying to verify the effective mapping and ready
+frame. A positive final Å radius cannot be applied to an atom whose mapped
+factor is zero until the mapping is changed or disabled.
+
 ## Completion and failure
 
 The transaction validates before editing, waits for tracked rendering work, and
@@ -63,8 +81,8 @@ geometry. Exact capture requires paused playback and settled requested overlays.
 
 ## Polyhedra
 
-`configure-polyhedra` controls independent coordination rules. Scene section
-`polyhedra` reports resolved face color/opacity and exact vertex image references;
+`configure-polyhedra` controls independent coordination rules. Style's Polyhedra
+properties report resolved face color/opacity and exact vertex image references;
 use a small page and preserve the scene fingerprint across pages. Rendering waits
 for the current geometry; style-only changes reuse it. Read the polyhedra reference
 for degeneracy, explicit vertices and export behavior.

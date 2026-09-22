@@ -9,6 +9,7 @@ from playwright.sync_api import sync_playwright
 
 from v_ase.io import set_atom_labels
 from v_ase.viewer import find_free_port, view
+from tests.ui_navigation import open_editor_route
 
 
 def _expand_inspector(page):
@@ -22,8 +23,7 @@ def _expand_inspector(page):
 
 
 def _select_structure_section(page, section):
-    page.click('[data-inspector-group="structure"]')
-    page.select_option("#structure-section-select", section)
+    open_editor_route(page, section)
     page.wait_for_function(
         """section => document.querySelector(`[data-panel="${section}"]`)?.open === true""",
         arg=section,
@@ -109,7 +109,7 @@ def test_repulsion_bond_theme_toolbar_and_add_atoms_history_are_independent():
             }
             assert page.locator("#bond-style").input_value() == "cylinder"
 
-            page.click('[data-inspector-group="view"]')
+            open_editor_route(page, 'view')
             page.select_option("#ui-theme", "dark")
             page.wait_for_function(
                 "document.documentElement.dataset.uiTheme === 'dark'"
@@ -128,12 +128,13 @@ def test_repulsion_bond_theme_toolbar_and_add_atoms_history_are_independent():
             page.click("#btn-lighting-toggle")
             assert page.get_attribute("#btn-lighting-toggle", "aria-expanded") == "true"
             assert "hidden" not in (page.get_attribute("#lighting-card", "class") or "")
+            page.click('#btn-lighting-close')
             page.hover("#btn-grid-toggle")
             page.wait_for_timeout(650)
             assert page.locator("#toolbar-tooltip").is_visible()
             assert "viewport grid" in page.locator("#toolbar-tooltip").inner_text().lower()
 
-            page.click("#btn-create-atom-toggle")
+            open_editor_route(page, 'add-atoms')
             page.click("#add-atoms-tab-batch")
             page.fill(".add-atoms-entry-count", "2")
             page.click("#btn-add-atoms-scatter")

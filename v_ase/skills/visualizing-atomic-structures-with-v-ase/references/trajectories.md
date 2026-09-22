@@ -9,6 +9,10 @@ the GUI may label them from one. `set-playback` controls movie playback;
 Never guess array syntax: the catalog may return an ID such as
 `array::synthetic_response::scalar`. The native/CLI query returns data directly;
 no separate HTTP fetch is needed on the current interface.
+For human keyboard navigation, plain arrow keys orbit/tilt the camera;
+Option+Left/Right on macOS or Alt+Left/Right on Windows/Linux steps only the
+selected timeline. Space toggles its playback. Editable fields retain their
+native arrow behavior. Agent tools should set the frame explicitly.
 
 Read a scalar's values/range only when needed. Stored forces and charges are
 stored data, not a request to evaluate a calculator. Missing values are missing,
@@ -21,6 +25,14 @@ and bounds explicitly when comparing panels. Fixed bounds support cross-frame
 comparison; per-frame automatic bounds can hide magnitude changes. Keep user
 labels separate from array IDs and chemical elements. Preview custom maps only
 when requested; named maps are discovered through the colormap catalog.
+For comparable atom sizes, use `set-atom-radius-mapping` with
+`rangeMode:"trajectory"` and `fit:true`, then inspect the locked limits.
+Interpolated video samples interpolate continuous raw scalar values before
+mapping; tags/flags/masks use the nearest endpoint and missing properties use
+factor 1 with an explicit unavailable status.
+Optimization frames derive coordinate factors from displayed optimizer
+positions. A stored property absent from that optimizer frame uses neutral
+factor 1; it must not borrow a same-index value from the loaded trajectory.
 
 Displacements depend on reference frame, coordinate convention and MIC choice.
 Set those controls explicitly and refresh displacements for the intended frame.
@@ -55,3 +67,10 @@ The general `abc origin` header can omit boundary flags; such files use finite
 boundaries unless the user explicitly sets PBC. Fast View requires stable types;
 for changing species reopen in Edit with the safe reader. Rejected frame loads
 preserve the previous frame and return an actionable error.
+
+## Coordinate fidelity
+
+Browser frame transport requests float64 coordinates for both cached and streamed
+trajectories. Scientific edits and project/structure exports preserve those
+double-precision values. Scalar/vector visualization buffers may use float32;
+this does not replace original per-atom arrays in scientific exports.

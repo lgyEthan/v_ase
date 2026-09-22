@@ -1,7 +1,7 @@
 # Constraints and their visual guides
 
 Keep atoms fixed, restrict motion to a line or plane, or display an ASE Hookean
-restraint. Open **Edit > Structure > Constraints**. Constraint markers preserve
+restraint. Open **Build > Constraints**. Constraint markers preserve
 element colors, so a fixed layer can still have its own scientific color group.
 
 ## Read the guide before moving
@@ -16,7 +16,7 @@ element colors, so a fixed layer can still have its own scientific color group.
 
 ## Constraint enforcement
 
-Open **Structure > Constraints** in Edit. **Apply constraints** is enabled by
+Open **Build > Constraints** in Edit. **Apply constraints** is enabled by
 default. A viewport transform is previewed interactively, then the proposed
 coordinates are committed through ASE and the backend returns the constrained
 result.
@@ -194,3 +194,9 @@ the backend and records them in history. After any atom-count change:
 Temporary fixed-host markers during Batch Add Atoms are not committed ASE
 constraints. They exist only in the staging optimizer and disappear after
 **Finish** or **Cancel**.
+
+## Trajectory scope
+
+Constraint edits apply by atom index to every loaded trajectory frame where that
+index exists. They are not limited to the displayed frame. Inspect the selection
+before applying a constraint; undo restores the trajectory-wide change.

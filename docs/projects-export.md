@@ -34,7 +34,7 @@ selection remains aligned with visible atoms.
 
 ## Save Project
 
-**Export > Save Project** has two complete-project outputs.
+**Render → Project save** has two complete-project outputs.
 
 ### Compact `.vase`
 
@@ -68,6 +68,9 @@ v_ase gui project.html
 
 The HTML is larger than `.vase` because it contains renderer assets, scene
 data, poster pixels, and a Base64 project archive.
+After reopening in a workspace tab, Save retains the HTML output profile and
+its approved target. A child-tab reload restores both the latest visual state
+and its saved baseline, including a clean state after Save As.
 
 ## HTML View
 

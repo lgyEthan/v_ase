@@ -23,7 +23,7 @@ the underlying ASE constraint or change its force law.
 
 ## Constraint enforcement
 
-Open **Structure > Constraints** in Edit. **Apply constraints** is enabled by
+Open **Build > Constraints** in Edit. **Apply constraints** is enabled by
 default. A viewport transform is previewed interactively, then the proposed
 coordinates are committed through ASE and the backend returns the constrained
 result.
@@ -144,7 +144,7 @@ constraints. They exist only in the staging optimizer and disappear after
 
 ## Relaxation prerequisites
 
-Open **Structure > Relaxation** in Edit. Ordinary structure relaxation requires
+Open **Build > Relaxation** in Edit. Ordinary structure relaxation requires
 an attached ASE calculator. When a structure enters Edit without a calculator,
 v_ase attaches its built-in soft-repulsion fallback; View mode does not attach
 one. User-supplied ASE calculators are preserved.

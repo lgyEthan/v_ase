@@ -19,6 +19,7 @@ from .session import (
     append_session_frames,
     copy_atoms_with_calc,
     EditorSession,
+    create_workspace,
     create_workspace_session,
     finalize_workspace,
     get_session,
@@ -29,6 +30,11 @@ from .session import (
     workspaces,
 )
 from .serialization import atoms_to_json
+from .project_files import (
+    bind_project_source,
+    current_project_binding,
+    replace_bound_project,
+)
 from .websocket_manager import ws_manager
 from .io import (
     atom_labels,
@@ -455,6 +461,7 @@ def trajectory_position_array(
     session: EditorSession,
     *,
     layout_compatible: bool | None = None,
+    dtype=np.float32,
 ):
     if bool((session.config or {}).get("stream_trajectory", False)):
         return None
@@ -467,18 +474,28 @@ def trajectory_position_array(
     if not layout_compatible:
         return None
     if session.trajectory_source is not None:
-        array = np.empty((session.frame_count, natoms, 3), dtype=np.float32)
+        array = np.empty((session.frame_count, natoms, 3), dtype=dtype)
         for frame_index in range(session.frame_count):
             array[frame_index] = session.trajectory_source.read_positions(frame_index)
         return array
     return np.asarray(
         [frame.get_positions() for frame in session.trajectory_frames],
-        dtype=np.float32,
+        dtype=dtype,
     )
+
+
+def scientific_content_changed(
+    session: EditorSession, *, all_frames: bool = False, auxiliary: bool = False,
+) -> str:
+    """Invalidate affected persisted science and return its new identity."""
+    session.invalidate_scientific_content(all_frames=all_frames, auxiliary=auxiliary)
+    return session.scientific_content_identity()
 
 
 def session_atoms_to_json(session: EditorSession, include_inline_trajectory: bool = True):
     data = atoms_to_json(session.working_atoms)
+    data["metadata"]["scientific_content_identity"] = session.scientific_content_identity()
+    data["metadata"]["project_file_binding"] = current_project_binding(session)
     data["metadata"]["config"] = session.config
     data["metadata"]["frame_count"] = session.frame_count
     data["metadata"]["current_frame"] = session.current_frame
@@ -2056,6 +2073,8 @@ def configure_repulsion_calculators(
                 k_repulsion=k_repulsion,
             )
             configured = True
+    if configured:
+        scientific_content_changed(session, all_frames=True)
     return configured
 
 @app.get("/")
@@ -2108,6 +2127,26 @@ def workspace_session_payload(session: EditorSession) -> Dict[str, Any]:
         "title": str((session.config or {}).get("document_name") or "Untitled"),
         "empty": bool((session.config or {}).get("empty_workspace", False)),
         "viz_only": is_viz_only(session),
+    }
+
+
+@app.post("/api/workspace/adopt/{session_id}")
+async def adopt_direct_document_workspace(session_id: str):
+    """Add tabs around a live direct/notebook editor without reloading it."""
+    session = get_session(session_id)
+    with session.mode_transition_lock:
+        existing = str((session.config or {}).get("workspace_id") or "")
+        if existing:
+            workspace = get_workspace(existing)
+            if workspace.host_session_id != session_id:
+                raise HTTPException(status_code=409, detail="Only the original document can adopt this workspace.")
+        else:
+            workspace = create_workspace(session)
+    return {
+        "workspace_id": workspace.workspace_id,
+        "host_session_id": workspace.host_session_id,
+        "documents": [workspace_session_payload(sessions[item])
+                      for item in workspace.session_ids if item in sessions],
     }
 
 
@@ -2579,9 +2618,11 @@ async def update_session_mode(session_id: str, payload: Dict[str, Any]):
 
 
 @app.get("/api/trajectory/positions/{session_id}")
-async def get_trajectory_positions(session_id: str):
+async def get_trajectory_positions(session_id: str, precision: str = "float32"):
     session = get_session(session_id)
-    array = await asyncio.to_thread(trajectory_position_array, session)
+    if precision not in {"float32", "float64"}:
+        raise HTTPException(status_code=400, detail="Position precision must be float32 or float64.")
+    array = await asyncio.to_thread(trajectory_position_array, session, dtype=np.dtype(precision))
     if array is None:
         raise HTTPException(status_code=404, detail="Trajectory position cache is not available for this session.")
     return Response(
@@ -2590,14 +2631,16 @@ async def get_trajectory_positions(session_id: str):
         headers={
             "X-V-Ase-Frames": str(array.shape[0]),
             "X-V-Ase-Atoms": str(array.shape[1]),
-            "X-V-Ase-Dtype": "float32",
+            "X-V-Ase-Dtype": precision,
         },
     )
 
 
 @app.get("/api/frame/positions/{session_id}/{frame_index}")
-async def get_frame_positions(session_id: str, frame_index: int):
+async def get_frame_positions(session_id: str, frame_index: int, precision: str = "float32"):
     session = get_session(session_id)
+    if precision not in {"float32", "float64"}:
+        raise HTTPException(status_code=400, detail="Position precision must be float32 or float64.")
     if session.trajectory_source is None:
         raise HTTPException(status_code=404, detail="Virtual trajectory positions are not available for this session.")
     try:
@@ -2608,13 +2651,13 @@ async def get_frame_positions(session_id: str, frame_index: int):
     cell = np.asarray(frame_atoms.cell.array, dtype=float)
     pbc = np.asarray(frame_atoms.pbc, dtype=bool)
     return Response(
-        content=np.asarray(positions, dtype=np.float32).tobytes(order="C"),
+        content=np.asarray(positions, dtype=np.dtype(precision)).tobytes(order="C"),
         media_type="application/octet-stream",
         headers={
             "X-V-Ase-Frame": str(frame_index),
             "X-V-Ase-Frames": str(session.frame_count),
             "X-V-Ase-Atoms": str(len(session.working_atoms)),
-            "X-V-Ase-Dtype": "float32",
+            "X-V-Ase-Dtype": precision,
             "X-V-Ase-Cell": json.dumps(cell.tolist(), separators=(",", ":")),
             "X-V-Ase-Cell-Origin": json.dumps(np.asarray(frame_atoms.get_celldisp()).reshape(3).tolist()),
             "X-V-Ase-Pbc": json.dumps(pbc.tolist(), separators=(",", ":")),
@@ -3071,6 +3114,7 @@ async def _append_session_from_file(
                     for dataset in datasets
                     if _volumetric_matches_original_structure(session, dataset)
                 )
+                scientific_content_changed(session, auxiliary=True)
         data = session_atoms_to_json(session)
         data["loaded_file"] = {
             "filename": display_name,
@@ -3153,6 +3197,8 @@ async def load_structure_file(
             volumetric_precision=volumetric_precision,
             runtime_mode=runtime_mode,
         )
+        session.project_file_binding = None
+        data["metadata"]["project_file_binding"] = None
         return data
     except HTTPException:
         raise
@@ -3191,6 +3237,14 @@ async def load_structure_path(session_id: str, payload: Dict[str, Any]):
             volumetric_precision=volumetric_precision,
             runtime_mode=str(runtime_mode) if runtime_mode is not None else None,
         )
+        if data.get("loaded_file", {}).get("kind") == "project":
+            format = "html" if source_path.suffix.lower() in {".html", ".htm"} else "vase"
+            data["loaded_file"]["project_file_binding"] = bind_project_source(
+                session, source_path, format,
+            )
+        else:
+            session.project_file_binding = None
+        data["metadata"]["project_file_binding"] = current_project_binding(session)
         return data
     except HTTPException:
         raise
@@ -3293,10 +3347,12 @@ async def create_volumetric_difference(session_id: str, payload: Dict[str, Any])
             session.volumetric_datasets.append(combined)
             if _volumetric_matches_original_structure(session, combined):
                 session.original_volumetric_datasets.append(combined)
+            identity = scientific_content_changed(session, auxiliary=True)
     except (KeyError, TypeError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {
         "status": "ok",
+        "scientific_content_identity": identity,
         "dataset": combined.summary(),
         "volumetric_datasets": [
             dataset.summary()
@@ -3375,8 +3431,10 @@ async def delete_volumetric_dataset(session_id: str, payload: Dict[str, Any]):
             for dataset in session.original_volumetric_datasets
             if dataset.dataset_id != dataset_id
         ]
+        identity = scientific_content_changed(session, auxiliary=True)
     return {
         "status": "ok",
+        "scientific_content_identity": identity,
         "volumetric_datasets": [
             dataset.summary()
             for dataset in retained
@@ -3469,6 +3527,7 @@ def _enrich_commensurate_preview_visuals(
     geometry: Dict[str, Any],
     host: Atoms,
     guest: Atoms | None = None,
+    radius_mapping: Dict[str, Any] | None = None,
 ) -> Dict[str, Any]:
     if not geometry.get("positions"):
         return geometry
@@ -3488,6 +3547,39 @@ def _enrich_commensurate_preview_visuals(
         colors.append(str(source["visual"]["colors"][index]))
         radii.append(float(source["visual"]["radii"][index]))
         bond_radii.append(float(source["visual"]["bond_radii"][index]))
+    radius_factors = None
+    if radius_mapping is not None:
+        from .atom_radius import (
+            atom_radius_factors, atom_radius_factors_for_atoms,
+            normalize_atom_radius_mapping,
+        )
+        mapping = normalize_atom_radius_mapping(radius_mapping, strict=True)
+        if mapping["enabled"]:
+            field = mapping["field"]
+            scoped = set(mapping["indices"]) if mapping["scope"] == "indices" else None
+            if field in {"position:x", "position:y", "position:z"}:
+                axis = {"position:x": 0, "position:y": 1, "position:z": 2}[field]
+                values = [float(position[axis]) for position in geometry["positions"]]
+                all_scope = {**mapping, "scope": "all", "indices": []}
+                radius_factors = atom_radius_factors(values, all_scope).tolist()
+            else:
+                host_factors = atom_radius_factors_for_atoms(host, mapping)
+                guest_factors = (
+                    atom_radius_factors_for_atoms(guest, mapping)
+                    if guest is not None and scoped is None else None
+                )
+                radius_factors = [
+                    float(guest_factors[index]) if component == "guest" and guest_factors is not None
+                    else (1.0 if component == "guest" else float(host_factors[index]))
+                    for index, component in zip(geometry["atom_indices"], geometry["components"])
+                ]
+            if scoped is not None:
+                radius_factors = [
+                    factor if component != "guest" and int(index) in scoped else 1.0
+                    for factor, index, component in zip(
+                        radius_factors, geometry["atom_indices"], geometry["components"]
+                    )
+                ]
     return {
         **geometry,
         "labels": labels,
@@ -3495,6 +3587,7 @@ def _enrich_commensurate_preview_visuals(
         "colors": colors,
         "radii": radii,
         "bond_radii": bond_radii,
+        **({"radius_factors": radius_factors} if radius_factors is not None else {}),
     }
 
 
@@ -3643,7 +3736,9 @@ async def preview_commensurate_supercell(session_id: str, payload: Dict[str, Any
                 parent_lattice_preview=True,
                 parent_grid_radius=max(2, min(64, int(payload.get("parent_grid_radius", 4)))),
             )
-            geometry = _enrich_commensurate_preview_visuals(geometry, atoms, guest)
+            geometry = _enrich_commensurate_preview_visuals(
+                geometry, atoms, guest, payload.get("radius_mapping")
+            )
         else:
             geometry = await asyncio.to_thread(
                 commensurate_supercell_geometry,
@@ -3661,7 +3756,9 @@ async def preview_commensurate_supercell(session_id: str, payload: Dict[str, Any
                 parent_lattice_preview=True,
                 parent_grid_radius=max(2, min(64, int(payload.get("parent_grid_radius", 4)))),
             )
-            geometry = _enrich_commensurate_preview_visuals(geometry, atoms)
+            geometry = _enrich_commensurate_preview_visuals(
+                geometry, atoms, radius_mapping=payload.get("radius_mapping")
+            )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -3957,6 +4054,52 @@ async def save_project(session_id: str, payload: Dict[str, Any]):
         media_type=PROJECT_MIME,
         background=BackgroundTask(_remove_temporary_file, tmp.name),
     )
+
+
+@app.post("/api/project/write-current/{session_id}")
+async def write_current_project(session_id: str, payload: Dict[str, Any]):
+    """Save only to the private project path this session explicitly opened."""
+    session = get_session(session_id)
+    binding = current_project_binding(session)
+    binding_id = str(payload.get("binding_id") or "")
+    expected_version = str(payload.get("expected_version") or "")
+    requested_format = str(payload.get("format") or "")
+    if not binding or binding_id != binding["id"] or requested_format != binding["format"]:
+        raise HTTPException(status_code=403, detail="No matching opened project target. Use Save As.")
+    if expected_version != binding["version"]:
+        raise HTTPException(status_code=409, detail="Project binding changed. Reload or Save As.")
+    with session.mode_transition_lock:
+        if session.is_relaxing or session.atom_addition or session.registry_relaxation:
+            raise HTTPException(status_code=409, detail="Finish the active job before saving this project.")
+        sync_session_frame_from_payload(session, payload)
+        if not is_viz_only(session):
+            set_current_payload_positions(session, payload)
+        settings = payload.get("settings") or {}
+        artifact_path = None
+        try:
+            if requested_format == "vase":
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".vase") as temp:
+                    artifact_path = Path(temp.name)
+                write_project_archive(artifact_path, session, settings,
+                                      current_positions=payload.get("positions") if is_viz_only(session) else None)
+                artifact = artifact_path
+            else:
+                from .export import export_html_response
+                html_payload = dict(payload)
+                html_payload["embed_project"] = True
+                artifact = export_html_response(session, html_payload).body
+            return replace_bound_project(
+                session, binding_id, expected_version, requested_format, artifact,
+            )
+        except FileExistsError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except PermissionError as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
+        except (ValueError, OSError) as exc:
+            raise HTTPException(status_code=400, detail=f"Could not write opened project: {exc}") from exc
+        finally:
+            if artifact_path is not None:
+                artifact_path.unlink(missing_ok=True)
 
 
 @app.post("/api/project/load/{session_id}")

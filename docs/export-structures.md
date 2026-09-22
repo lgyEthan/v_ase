@@ -1,8 +1,9 @@
 # Export structures and 3D scenes
 
 Save physical structures for scientific programs, or export scene geometry
-for Blender, OBJ-compatible tools or Rhino. Open **Export** and choose the
-format required by the destination.
+for Blender, OBJ-compatible tools or Rhino. Open **Render → Renderer & export**
+and choose the format required by the destination. Structure-only POSCAR and
+ASE Pickle are also available from the File commands.
 
 ## Structure and data output
 

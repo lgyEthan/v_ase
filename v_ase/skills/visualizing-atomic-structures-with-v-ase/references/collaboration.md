@@ -7,6 +7,20 @@ identity, not the displayed title. `vase_documents` and `vase_activate` select
 workspace tabs. A document endpoint is scoped to its own tab. Keep one controlling
 browser per session/workspace to avoid ambiguous command dispatch.
 
+The ordinary and in-place-adopted notebook workspaces expose the same
+`documents`, `activate`, `newDocument`, `describe`, guarded `apply`, `render`
+and `export` browser/HTTP operations. Commands target the active document;
+after closing the original notebook tab, use the surviving child document ID.
+If an active child is still loading, wait for readiness before Save or another
+gesture-dependent command rather than assuming the original host is active.
+After a child reload, its `ready()` response waits for the parent to restore
+the current visual state and saved baseline; do not mutate it before readiness.
+The browser uses Command on macOS and Ctrl on Windows/Linux for document
+shortcuts; these are UI conveniences, not semantic-agent API calls. Browser-
+reserved keys may require top-level application fullscreen and Keyboard Lock,
+and File actions remain the fallback. An embedded notebook editor links to the
+same session in a full editor rather than owning Keyboard Lock inside its frame.
+
 Scene snapshots expose `revision`; legacy describe exposes
 `collaboration.revision`. Supply the observed revision and document ID to each
 ordinary mutation. Review a human event before editing. Do not force stale

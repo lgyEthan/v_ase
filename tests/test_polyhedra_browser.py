@@ -13,6 +13,7 @@ from playwright.sync_api import sync_playwright, expect
 
 from v_ase.ai_tools import FunctionTools
 from v_ase.viewer import find_free_port, view
+from tests.ui_navigation import open_editor_route
 from v_ase.session import sessions
 from v_ase.export import export_html_response
 
@@ -24,8 +25,7 @@ def material():
 def open_panel(page):
     if page.locator('body').evaluate("e=>e.classList.contains('inspector-collapsed')"):
         page.click('#btn-inspector-collapse')
-    page.click('[data-inspector-group="structure"]')
-    page.select_option('#structure-section-select','polyhedra')
+    open_editor_route(page, 'polyhedra')
     page.locator('#poly-add').scroll_into_view_if_needed()
 
 
@@ -69,11 +69,14 @@ def test_gui_colors_opacity_native_snapshot_and_exact_render(tmp_path):
             styled=tools.call('vase_scene_snapshot',{'sections':['polyhedra'],'limit':1})['polyhedra']['items'][0]
             assert styled['appearance']['color']=='#2288cc' and styled['appearance']['opacity']==.3
             assert styled['vertices']==poly['vertices']
-            rendered=tools.call('vase_render',{'width':960,'height':640})
-            _,data=tools.read_artifact(rendered['artifact']['uri']);assert Image.open(io.BytesIO(data)).size==(960,640)
             # Select a visible face with atoms hidden. Publication output must
             # remain identical even though the live document gains a highlight.
             page.click('#btn-inspector-collapse')
+            page.wait_for_function("document.getElementById('inspector').getBoundingClientRect().width <= 1")
+            render_args={'width':960,'height':640,'options':{
+                'scale_mode':'physical','pixels_per_angstrom':90}}
+            rendered=tools.call('vase_render',render_args)
+            _,data=tools.read_artifact(rendered['artifact']['uri']);assert Image.open(io.BytesIO(data)).size==(960,640)
             point=page.evaluate('''() => {
                 const r=window.__V_ASE_APP__.renderer,p=r.polyhedraRendered[0];
                 return r.projectWorldToClient(p.center);
@@ -81,7 +84,7 @@ def test_gui_colors_opacity_native_snapshot_and_exact_render(tmp_path):
             page.mouse.click(point['x'],point['y'])
             page.wait_for_function('window.__V_ASE_APP__.renderer.polyhedraSelectionGroup?.visible')
             assert page.evaluate('[...window.__V_ASE_APP__.renderer.polyhedraSelected]')==[1]
-            selected=tools.call('vase_render',{'width':960,'height':640})
+            selected=tools.call('vase_render',render_args)
             _,selected_data=tools.read_artifact(selected['artifact']['uri'])
             np.testing.assert_array_equal(np.array(Image.open(io.BytesIO(data))),np.array(Image.open(io.BytesIO(selected_data))))
             assert page.evaluate('window.__V_ASE_APP__.renderer.polyhedraSelectionGroup.visible')
@@ -136,6 +139,19 @@ def test_complete_periodic_sites_roles_connectors_and_mcp(mode,tmp_path):
             page.wait_for_function('window.__V_ASE_APP__.renderer.polyhedraExtraAtoms.length===0')
             page.check('#poly-complete')
             page.wait_for_function('window.__V_ASE_APP__.renderer.polyhedraExtraAtoms.length===3')
+            radii=page.evaluate('''() => {
+                const r=window.__V_ASE_APP__.renderer;
+                const oxygen=r.polyhedraExtraAtoms[0].index;
+                const before=r.atomVisualRadius(oxygen);
+                r.setAtomRadiusFactors(Float32Array.from([1,1,.5,.5,.5]));
+                const image=r.polyhedraGroup.children.find(mesh=>mesh.userData?.polyhedraAtomReferences?.length);
+                const imageScale=image.instanceMatrix.array[0];
+                const base=r.atomVisualRadius(oxygen);
+                r.setAtomRadiusFactors(null);
+                return {before,base,image:imageScale};
+            }''')
+            assert radii['base']==pytest.approx(radii['before']*.5)
+            assert radii['image']==pytest.approx(radii['base'])
             # Supplemental sites must remain selectable by their real image identity.
             selected=page.evaluate('''async()=>{
                 const a=window.__V_ASE_APP__,r=a.renderer;

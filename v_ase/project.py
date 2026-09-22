@@ -26,8 +26,10 @@ from ase.io.trajectory import Trajectory
 import numpy as np
 
 from ._version import __version__
+from .atom_radius import normalize_atom_radius_mapping
 from .io import atom_labels, set_atom_labels
-from .repulsion import VAseRepulsionCalculator, copy_calculator, is_vase_repulsion_calculator
+from .repulsion import (VAseRepulsionCalculator, copy_calculator,
+                        is_vase_repulsion_calculator, portable_repulsion_config)
 from .session import EditorSession, copy_atoms_with_calc, replace_session_frames
 from .volumetric import DEFAULT_MAX_GRID_POINTS, VolumetricData
 
@@ -45,11 +47,13 @@ MAX_VOLUMETRIC_MEMBER_BYTES = (
 )
 MAX_SIDECAR_NPZ_UNCOMPRESSED_BYTES = 8 * 1024 * 1024 * 1024
 HTML_PROJECT_SCRIPT_ID = "v-ase-project-data"
+HTML_SCENE_SCRIPT_ID = "v-ase-scene-data"
 HTML_PROJECT_FORMAT = "vase-html-project"
 _HTML_PROJECT_ID_MARKER = f'id="{HTML_PROJECT_SCRIPT_ID}"'.encode("ascii")
 _HTML_SCRIPT_END_MARKER = b"</script>"
 _BASE64_WHITESPACE = b" \t\r\n"
 _BASE64_DECODE_CHUNK_BYTES = 4 * 1024 * 1024
+MAX_HTML_SCENE_PROFILE_BYTES = 32 * 1024 * 1024
 LEGACY_PAIRWISE_CUTOFF_KEY = "elementBondCutoffs"
 LEGACY_LABEL_DISPLAY_KEYS = {
     "elementRadii": "labelRadii",
@@ -87,6 +91,11 @@ def normalize_visual_settings(settings: Any) -> dict[str, Any]:
         raise ValueError("Visual settings payload must contain an object.")
     clean = _json_copy(source)
     display = clean.get("display") if isinstance(clean.get("display"), dict) else clean
+    if "atomRadiusMapping" in display:
+        display["atomRadiusMapping"] = normalize_atom_radius_mapping(
+            display.get("atomRadiusMapping"),
+            strict=True,
+        )
     if (
         "pairwiseBondCutoffs" not in display
         and LEGACY_PAIRWISE_CUTOFF_KEY in display
@@ -446,27 +455,7 @@ def _write_calculator_sidecar(path: Path, frames: list[Atoms]) -> dict[str, Any]
         }
         if portable_repulsion:
             entry["kind"] = "v_ase_repulsion"
-            entry["parameters"] = _json_copy({
-                "min_bondinfo": calculator.min_bondinfo,
-                "region": list(calculator.region),
-                "set_region_as_prohibited": calculator.set_region_as_prohibited,
-                "k_boundary": calculator.k_boundary,
-                "k_repulsion": calculator.k_repulsion,
-                "cutoff_mode": calculator.cutoff_mode,
-                "cutoff_basis": calculator.cutoff_basis,
-                "cutoff_distance": (
-                    calculator.cutoff_distance
-                    if calculator._absolute_global_override
-                    else None
-                ),
-                "cutoff_scale": calculator.cutoff_scale,
-                "max_force_norm": calculator.max_force_norm,
-                "mic": calculator.mic,
-                "work_on_relax_atoms_too": calculator.work_on_relax_atoms_too,
-                "device": calculator.device_requested,
-                "cpu_threads": calculator.cpu_threads,
-                "backend": calculator.backend,
-            })
+            entry["parameters"] = _json_copy(portable_repulsion_config(calculator))
         for name, value in (results or {}).items():
             if name not in all_properties:
                 continue
@@ -932,12 +921,59 @@ def read_project_html(path: str | Path) -> VaseProject:
     temporary.close()
     try:
         extract_project_archive_from_html(path, temporary.name)
-        return read_project_archive(temporary.name)
+        project = read_project_archive(temporary.name)
+        if "projectSave" not in project.settings:
+            profile = _legacy_html_export_profile(path)
+            if profile is None:
+                profile = project.settings.get("imageExportProfile")
+            project.settings["projectSave"] = {
+                "schema": "v_ase.project_save.v1",
+                "format": "html",
+                "html": {
+                    "embedProject": True,
+                    "exportProfile": profile,
+                    "renderArea": project.settings.get("renderArea"),
+                    "migratedFromLegacyHtml": True,
+                },
+            }
+        return project
     finally:
         try:
             Path(temporary.name).unlink()
         except OSError:
             pass
+
+
+def _legacy_html_export_profile(path: str | Path) -> dict[str, Any] | None:
+    """Read inert Base64 scene metadata without evaluating an HTML document."""
+    marker = f'id="{HTML_SCENE_SCRIPT_ID}"'.encode("ascii")
+    try:
+        with Path(path).open("rb") as handle, mmap.mmap(handle.fileno(), 0, access=mmap.ACCESS_READ) as document:
+            identifier = document.find(marker)
+            if identifier < 0:
+                return None
+            tag_end = document.find(b">", identifier)
+            payload_end = document.find(_HTML_SCRIPT_END_MARKER, tag_end + 1)
+            if tag_end < 0 or payload_end < 0:
+                return None
+            encoded_size = payload_end - tag_end - 1
+            if encoded_size <= 0 or encoded_size > MAX_HTML_SCENE_PROFILE_BYTES * 4 // 3:
+                return None
+            encoded = bytes(document[tag_end + 1:payload_end]).translate(None, _BASE64_WHITESPACE)
+            scene = json.loads(base64.b64decode(encoded, validate=True))
+            profile = scene.get("exportProfile") if isinstance(scene, dict) else None
+            if not isinstance(profile, dict):
+                return None
+            width = profile.get("width")
+            height = profile.get("height")
+            options = profile.get("options")
+            if not isinstance(width, int) or not isinstance(height, int) or not isinstance(options, dict):
+                return None
+            if width < 1 or height < 1 or width > 32768 or height > 32768:
+                return None
+            return _json_copy(profile)
+    except (OSError, ValueError, UnicodeDecodeError, json.JSONDecodeError, binascii.Error):
+        return None
 
 
 def read_project_document(path: str | Path) -> VaseProject:
@@ -964,3 +1000,7 @@ def replace_session_from_project(session: EditorSession, project: VaseProject) -
     )
     session.commensurate_guest_name = project.commensurate_guest_name
     session.commensurate_search_cache = None
+    # A project archive supplied by upload has no authority to overwrite the
+    # previously opened server file. Path opens install their new binding only
+    # after this replacement has succeeded.
+    session.project_file_binding = None

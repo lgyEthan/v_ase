@@ -1,7 +1,7 @@
 # Commensurate cells and layer matching
 
 Find a common periodic cell for a selected layer or a separate host/guest
-structure. Open **Structure > Transform & Cell Match > Commensurate atoms**.
+structure. Open **Build > Transform & cell match > Commensurate atoms**.
 This is a bounded geometric search. Supply layer indices or select the intended
 layer; v_ase does not decide which atoms belong to a physical interface.
 
@@ -79,7 +79,7 @@ Before applying:
 
 ### Run a bounded match
 
-Open the host in Edit, then **Structure > Transform & Cell Match**. Enable the
+Open the host in Edit, then **Build > Transform & cell match**. Enable the
 commensurate workspace and load the guest. Start with area ratio 16 and maximum
 strain 1%; choose which side receives strain and inspect the cells-only preview.
 If no candidate passes, increase the area ceiling or reconsider the physically

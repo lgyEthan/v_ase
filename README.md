@@ -15,12 +15,15 @@
 [Issues](https://github.com/lgyEthan/v_ase/issues) ·
 [Software paper and LaTeX source](paper/joss/README.md)
 
-**0.3.8 · Rendering menu fix** · [Changes](https://v-ase.readthedocs.io/en/latest/whats-new.html)
+**v_ase 0.4.1 — redesigned scientific workspace** ·
+[Changes](https://v-ase.readthedocs.io/en/latest/whats-new.html)
 
 An ASE-native workspace for building, editing and visualizing atomic structures,
 trajectories and volumetric data.
 
 ![Phosphorene nanoribbon manipulation](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_phosphorene_twist.gif)
+
+Trajectory navigation retains double-precision coordinates through editing and scientific project exports. Renderer scale and atom radius remain independent.
 
 ## Installation And Launch
 
@@ -48,6 +51,49 @@ Use `v_ase gui` for an empty workspace or `--interactive` to edit a file.
 
 One HTML file for offline viewing and project recovery.
 [Project HTML](https://v-ase.readthedocs.io/en/latest/save-projects.html#project-html) · [Export HTML View](https://v-ase.readthedocs.io/en/latest/save-projects.html#html-view)
+
+The editor keeps the atomic viewport wide, with no permanent left navigator.
+The optional **Objects** drawer overlays the scene, while the right workbench
+has **Style / Build / Analyze / Render** tabs. Every workbench exposes its tools as visible, labelled buttons; Style includes
+Atoms, Bonds, Cell, Polyhedra and View & guides. Search in the header finds existing
+controls, and Select, Move, Orbit, Rotate, Scale, Measure and Add atoms sit below the
+viewport. **Fit view** or F frames the structure when the viewport has focus.
+Save
+reuses an approved writable project target; Save As chooses a new one. When
+the browser only supports downloads, v_ase labels the result a copy rather
+than implying it can overwrite the original. Closing a changed document
+offers Save, Discard and Cancel and keeps a replacement blank tab when the
+last tab closes. Direct and notebook editors adopt tabs in place without
+reloading the original document. Pending physical edits settle before Save,
+Close or Replace can discard anything; invalid scientific inputs block Save
+before a file destination is chosen. Uploaded project tabs retain their
+format and writable target after an internal-tab reload, including after
+Save As. Clean saved appearance and the latest unsaved visual edits survive
+child-tab reloads. Exact delivered Command shortcuts on macOS and Ctrl
+shortcuts on Windows/Linux are listed in
+[Keyboard shortcuts](https://v-ase.readthedocs.io/en/latest/shortcuts.html).
+Plain arrow keys orbit or tilt the structure view; Option+Left/Right on macOS
+or Alt+Left/Right on Windows/Linux steps the selected trajectory. A single
+atom's Measure readout leads with its chemical element and user label rather
+than a property count.
+Analysis plots open in a resizable dock below the canvas, with a full-work-area
+Back view on short windows.
+
+Render → Renderer exposes lighting, quality, output dimensions and an
+independent physical output scale (px/Å); changing that scale does not zoom the
+live viewport or resize atom glyphs. Image, Video and Interactive HTML each
+have format-specific settings next to their export action; changing an
+export draft and canceling its dialog leaves the project profile unchanged.
+Objects lists loaded field objects and opens their actual isosurface and plane
+property controls; Analyze retains field import, processing and combinations.
+Objects also links vector layers and their live style controls, while Build
+separates selection transforms from periodic-cell
+matching and rigid translation from Analyze's translation map. Command search
+can reveal a matching control directly. Replacing a dirty tab asks Save,
+Discard or Cancel; uploaded HTML projects keep their HTML save profile when
+opened in a new tab. Fullscreen editing requests Keyboard Lock where the browser
+permits it; the status distinguishes active, denied and unsupported capture.
+File-menu controls remain available when reserved keys cannot be captured.
 
 ![A self-contained v_ase HTML project with a static preview and offline 3D interaction](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_html_quicklook.gif)
 
@@ -145,8 +191,22 @@ Map registry or relax a selected rigid component.
 
 ### Ordered Geometry
 
-Select 2, 3 or 4 atoms for distance, angle or torsion.
+Click 2, 3 or 4 atoms deliberately in order for distance, angle or torsion.
+Marquee, label and Select all selections show a count without incidental geometry.
 [Measurements](https://v-ase.readthedocs.io/en/latest/selection.html#ordered-geometry-through-a-trajectory)
+
+### Property-based atom size
+
+The Atom appearance controls include a global-size slider with a numeric input
+and an independent per-atom property radius mapping. Select an available
+numeric field, input range, minimum/maximum size multipliers and exponent.
+Enabling the mapping first reveals the field picker; it does not apply a
+placeholder property. Custom and charge presets fit the displayed frame's
+finite values, including signed data and the frozen atom scope.
+The mapping multiplies existing label and selected-atom sizing; a zero factor
+hides the glyph, not its scientific atom or bonds. Current and trajectory fits
+lock their resulting limits until fitted again.
+[Field, scope, fit and export details](https://v-ase.readthedocs.io/en/latest/property-radius.html).
 
 ![Ordered distance angle and torsion measurement](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_measurement.gif)
 

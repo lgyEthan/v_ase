@@ -144,6 +144,26 @@ def test_minimal_scene_style_preserves_science_pair_policies_camera_and_retry(tm
         assert error.value.code == 'idempotency_conflict'
 
 
+def test_guarded_scene_radius_mapping_settles_effective_geometry(tmp_path):
+    with live_scene(tmp_path) as (client, page, apply):
+        result = apply('vase_apply_scene', patch={'display': {'atom_radius_mapping': {
+            'enabled': True, 'field': 'position:x', 'value_transform': 'identity',
+            'range_mode': 'manual', 'min': 0, 'max': 4,
+            'min_multiplier': 0, 'max_multiplier': 1,
+            'exponent': 1, 'scope': 'all', 'indices': []
+        }}})
+        assert result['transaction']['status'] == 'applied'
+        state = page.evaluate('''() => {
+            const app = window.__V_ASE_APP__;
+            return {ready: app.aiSceneReadiness().ready,
+                factors: [...app.renderer.atomRadiusFactors],
+                radii: [0, 1].map(i => app.renderer.atomVisualRadius(i))};
+        }''')
+        assert state['ready'] is True
+        assert state['factors'] == pytest.approx([0.5, 1])
+        assert state['radii'][0] > 0
+
+
 def test_scene_map_merge_and_mid_application_rollback(tmp_path):
     with live_scene(tmp_path) as (client, page, apply):
         apply('vase_apply_scene', patch={'display': {'label_colors': {'Cu':'#aa0000','O':'#0000aa'}}})

@@ -4,6 +4,14 @@ The visualizer is designed to be familiar to Blender users.
 
 Use the top-bar **View / Edit** switch to change between lightweight
 visualization and ASE-backed structural editing without reopening the file.
+The right workbench organizes controls under **Style**, **Build**,
+**Analyze**, and **Render**. Each tab exposes its tools as labelled buttons. Style groups Atoms, Bonds, Cell,
+Polyhedra and View & guides. The optional Objects drawer overlays the viewport.
+Selecting an atom does not steal the chosen workbench route.
+The File/Edit/View/Help menu and Save/Render actions sit in the command bar;
+canvas-local tools provide Select, Move, Orbit, Rotate, Scale, Measure and
+Add atoms. Grid and lighting remain beside the camera presets. At narrow widths, the workbench stacks below
+the viewport. The header search popover reveals existing controls.
 View applies materials by label. Edit can apply Standard, Metal, or Rubber to
 individual selected atoms and can merge them into an existing label by entering
 that exact label.
@@ -33,14 +41,46 @@ Press these keys to enter transformation mode:
 | **Z** | **Align / Lock Z** | In select mode, restore the canonical +Z pose, including screen-up orientation. Press Z again only from that exact pose to flip to -Z. During G/R/S, lock the transform to Z. |
 | **Esc** | **Cancel / Inspector** | Revert an active transform or close a modal. Otherwise, open a collapsed control panel; when the panel is open, commit its active field, close it, and return keyboard focus to the viewport. |
 | **Enter / Left Click** | **Confirm** | Confirm the current atom or Sun transform. |
-| **Ctrl+C** | **Copy** | Copy selected atoms to the editor clipboard. |
-| **Ctrl+V** | **Paste** | Paste copied atoms near the selected center. |
-| **Ctrl+Z** | **Undo** | Restore the previous structure or visualization-setting action. Camera navigation is intentionally excluded. |
-| **Ctrl+Shift+Z** | **Redo** | Reapply the next structure or visualization-setting action after undo. |
+| **Shift+A** | **Invert selection** | Invert the current visible atom selection. |
+| **Alt+A** | **Clear selection** | Deselect atoms without changing the structure. |
 | **Delete / Backspace** | **Hide / Delete** | Hide exact visual instances in View; physically delete base atoms and remap supported constraints in Edit. |
 | **Space** | **Play/Pause** | Toggle playback for the timeline selected below the viewport. |
-| **Left / Right Arrow** | **Previous / Next Frame** | Move one frame in the selected source or relaxation timeline. |
+| **F** | **Fit view** | Fit the structure with the existing camera when the viewport owns keyboard focus. |
+| **↑ / ↓ / ← / →** | **Orbit / Tilt view** | Rotate the view by the configured camera step; atom coordinates and the active frame do not change. |
 | **Tab** | **Inspector** | Open the control panel while it is collapsed. `Esc` can also open it. Once open, Tab remains normal form navigation and never closes the panel. |
+
+## Platform shortcuts
+
+| macOS | Windows / Linux | Action | Description |
+| --- | --- | --- | --- |
+| **⌘C** | **Ctrl+C** | **Copy** | In Edit, copy selected atoms to the editor clipboard. |
+| **⌘V** | **Ctrl+V** | **Paste** | In Edit, paste copied atoms near the selected center. |
+| **⌘Z** | **Ctrl+Z** | **Undo** | Restore the previous structure or visualization-setting action. Camera navigation is intentionally excluded. |
+| **⌘Shift+Z** | **Ctrl+Shift+Z** | **Redo** | Reapply the next structure or visualization-setting action after undo. |
+| **⌘Shift+B** | **Ctrl+Shift+B** | **Supercell** | Open Style → Cell → Supercell. |
+| **⌘Shift+P** | **Ctrl+Shift+P** | **Atom properties** | Open Style → Atoms, including color and radius mappings. |
+| **⌘B** | **Ctrl+B** | **Bonding** | Open Style → Bonds. |
+| **⌘Shift+A** | **Ctrl+Shift+A** | **Renderer** | Open Render → Renderer with lighting, quality, framing and output px/Å; focus framing or scale. Select All uses the unshifted chord. |
+| **⌘E** | **Ctrl+E** | **Cell transformation** | Open Build → Cell matrix in either mode; View shows disabled physical controls and a Switch to Edit action. |
+| **⌘W** | **Ctrl+W** | **Close document** | Close only the active internal tab after a Save/Discard/Cancel check. |
+| **⌘S** | **Ctrl+S** | **Save** | Reuse the retained writable project target when available. |
+| **⌘Shift+S** | **Ctrl+Shift+S** | **Save As** | Choose a new project target and keep the previous file. |
+| **⌘N** | **Ctrl+N** | **New document** | Add one new internal document tab. |
+| **⌘A** | **Ctrl+A** | **Select all** | Select all visible base atoms and eligible periodic images. |
+| **Option+← / Option+→** | **Alt+← / Alt+→** | **Previous / Next Frame** | Move one frame in the selected source or relaxation timeline. |
+
+Use Command (⌘) on macOS and Ctrl on Windows/Linux. The nine editor commands require
+the exact modifier and Shift state when the browser delivers them to the active document
+or workspace tab. A normal browser tab cannot universally override reserved
+shortcuts such as ⌘W/⌘N or Ctrl+W/Ctrl+N. **Fullscreen editing** requests
+application fullscreen and then Keyboard Lock where supported and permitted.
+Its status distinguishes an active lock, unavailable support, and denial; even
+an active lock cannot guarantee every OS shortcut. An embedded notebook editor
+offers **Open full editor** for the same session. Use visible File actions when
+the browser consumes a chord first. Modified letters do not fall through to
+unmodified G/R/S/axis commands.
+Arrow keys in input fields keep native text and number editing; finish or
+cancel an active transform before using camera or timeline arrows.
 
 ## Sun Direction Controls
 
@@ -58,7 +98,7 @@ Sun transforms support `X`/`Y`/`Z`, numeric input, `Enter`, and `Esc`.
 ## Visualization-Mode Replica Selection
 
 In the default visualization mode, repeated supercell atoms are selectable by
-click, Shift-click, box selection, element checkboxes, and `Ctrl+A`. Replica
+click, Shift-click, box selection, element checkboxes, and `⌘A`/`Ctrl+A`. Replica
 identities include their cell offset (for example `12@[1,0,0]`), so center,
 distance, and angle measurements use the positions actually shown on screen.
 For base-cell atoms, the inspector, viewport overlay, and retained Measure HUD
@@ -74,6 +114,10 @@ Five or more atoms show the selected total followed by stable per-label
 counts.
 Box selection uses a deterministic visible order. The separate Hover HUD
 continues to update atom metadata as the pointer moves.
+Click **Measure** with an existing ordered selection of two to four atoms to
+show its geometry. With no qualifying selection, Measure arms ordered picking:
+click up to four atoms in sequence. Ordinary bulk/box selection shows counts
+without unexpectedly adding measurement lines.
 
 Move and rotate snapping can be set in the right-side Transform section. A zero
 increment keeps motion continuous; non-zero increments make mouse transforms step
@@ -85,12 +129,12 @@ rotation. Commensurate or magnetic candidates use separate cyan guides.
 
 For a specific-atom pivot, select the moving atoms first, Shift-select the
 pivot atom last, and choose **Active atom (last selected)** under
-**Structure > Transform**. The active atom remains at the pivot while the
+**Build → Transform & cell match**. The active atom remains at the pivot while the
 selected geometry rotates around it.
 
 ## Saving
 
-The Export workspace keeps structure-independent settings separate from project
+The Render workspace keeps structure-independent settings separate from project
 state:
 
 - **Export ASE Pickle** writes the current ASE structure for Python use,
@@ -112,6 +156,9 @@ state:
   view-only handoff, with optional complete `.vase` embedding.
 - The **Save Project** dialog clearly reports `.vase` or `.html` before writing;
   HTML project output always includes complete `.vase` recovery.
+- Save reuses a previously approved writable file handle. Save As selects a new
+  target; on browsers without that capability, a download is a copy, not a
+  silently retained overwrite target.
 
 Start with `v_ase gui` to open an empty workspace, then use the top-bar **Open**
 command to launch the operating system file picker and load a structure,
@@ -138,7 +185,7 @@ translucent permitted-plane guide at its original position. Both clear when
 the move is confirmed or canceled.
 
 ## Calculator Controls
-- Repulsion controls live under **Structure > Relaxation** and appear only in
+- Repulsion controls live under **Build > Relaxation** and appear only in
   Edit mode with the built-in v_ase calculator.
 - `CPU` is the default device. `CUDA` is enabled only when torch and CUDA are
   available in the Python environment.

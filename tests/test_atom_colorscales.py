@@ -1,4 +1,5 @@
 import asyncio
+import os
 import subprocess
 import sys
 
@@ -22,6 +23,7 @@ from v_ase.colormaps import (
     normalize_custom_colormap,
 )
 from v_ase.export import _cad_scene_data
+from v_ase.io import set_atom_labels
 from v_ase.server import (
     per_atom_force_vectors,
     per_atom_properties,
@@ -31,6 +33,7 @@ from v_ase.server import (
 )
 from v_ase.session import EditorSession, sessions
 from v_ase.viewer import find_free_port, view
+from tests.ui_navigation import open_editor_route
 
 
 def _field(catalog, *, source, name, reduction, component=None):
@@ -139,6 +142,7 @@ def test_atom_property_api_uses_the_requested_trajectory_frame():
 
 def test_single_atom_measure_lists_current_frame_properties_lazily():
     first = Atoms("HO", positions=[[0, 0, 0], [1, 2, 3]], cell=[8, 8, 8], pbc=True)
+    set_atom_labels(first, ["H_bulk", "O_site"])
     first.set_tags([2, 5])
     first.set_initial_charges([-0.1, 0.2])
     first.set_initial_magnetic_moments([0.5, 1.5])
@@ -193,12 +197,13 @@ def test_single_atom_measure_lists_current_frame_properties_lazily():
             }""")
             page.wait_for_function("""() => (
                 document.getElementById('selected-measure').innerText.includes(
-                    'Per-atom properties (11):'
+                    '[ASE] atomic_number = 8'
                 )
             )""")
             first_measure = page.locator("#selected-measure").inner_text()
-            assert "a1=#1 O" in first_measure
+            assert "a1=#1 O_site" in first_measure
             assert "Element: O" in first_measure
+            assert "Label: O_site" in first_measure
             assert "Position (Cartesian): (1.000000, 2.000000, 3.000000) A" in first_measure
             assert "Position (fractional): (0.125000, 0.250000, 0.375000)" in first_measure
             assert "[ASE] atomic_number = 8" in first_measure
@@ -208,7 +213,11 @@ def test_single_atom_measure_lists_current_frame_properties_lazily():
             assert "[ASE array] site_name = acceptor" in first_measure
             assert "[Calculator] charges = 0.3 e" in first_measure
             assert "[Calculator] energies = -1.1 eV" in first_measure
-            assert "11 properties" in page.locator("#selection-measure-value").inner_text()
+            summary = page.locator("#selection-measure-value").inner_text()
+            assert summary.startswith("Element O | Label O_site | #1 | Position ")
+            assert "properties" not in summary.lower()
+            if path := os.environ.get("V_ASE_SINGLE_MEASURE_QA_SCREENSHOT"):
+                page.screenshot(path=path, full_page=True)
             assert len(property_requests) == 1
 
             page.evaluate("""() => {
@@ -525,8 +534,7 @@ def test_browser_colorscale_is_lazy_selection_scoped_frame_aware_and_reversible(
                 "element => element.classList.contains('inspector-collapsed')"
             ):
                 page.click("#btn-inspector-collapse")
-            page.click('[data-inspector-group="structure"]')
-            page.select_option("#structure-section-select", "appearance")
+            open_editor_route(page, 'appearance')
             page.wait_for_function(
                 "document.querySelector('[data-panel=\"appearance\"]')?.open === true"
             )

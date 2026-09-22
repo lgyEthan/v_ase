@@ -342,11 +342,12 @@ def test_image_export_has_exact_preview_and_option_modal_controls():
     assert "setPixelsPerAngstrom" in renderer_js
     assert "syncAtomicScaleFromCamera" in main_js
     assert "export-framing-mode" in main_js
-    assert "export-pixels-per-angstrom" not in main_js
+    assert "export-pixels-per-angstrom" in main_js
+    assert "export-copy-viewport-scale" in main_js
     assert "export-sphere-quality" in main_js
     assert "export-smoothness-scale" in main_js
     assert "normalizedImageExportProfile" in main_js
-    assert "setImageExportProfile(readImageProfile())" in main_js
+    assert "const profile = readImageProfile()" in main_js
     assert "const profile = this.state.exportPreviewProfile || this.currentImageExportProfile()" in main_js
     assert "options: profile.options" in main_js
     assert "this.renderer.exportPNGBlob(width, height, options)" in main_js
@@ -371,7 +372,7 @@ def test_image_export_has_exact_preview_and_option_modal_controls():
     assert "offsetX = Math.floor" not in renderer_js
     assert "offsetY = Math.floor" not in renderer_js
     assert "applyExportSphereQuality" in renderer_js
-    assert "this.updateCameraProjection(width / height)" not in renderer_js
+    assert "this.updateCameraProjection(width / height)" in renderer_js
     assert "alpha: true" in renderer_js
 
 
@@ -430,7 +431,7 @@ def test_rotate_preview_uses_stable_view_axis_and_rejects_nonfinite_positions():
 def test_selection_marquee_transform_increment_and_view_axis_shortcuts_are_wired():
     main_js = (ROOT / "v_ase/static/main.js").read_text()
     index_html = (ROOT / "v_ase/static/index.html").read_text()
-    style_css = (ROOT / "v_ase/static/style.css").read_text()
+    style_css = (ROOT / "v_ase/static/style.css").read_text() + (ROOT / "v_ase/static/editor.css").read_text()
 
     assert 'id="marquee"' in index_html
     assert "showMarquee(left, top, width, height)" in main_js
@@ -462,7 +463,7 @@ def test_frontend_renders_constraint_guides_and_blender_export_button():
     api_js = (ROOT / "v_ase/static/api.js").read_text()
     index_html = (ROOT / "v_ase/static/index.html").read_text()
     selection_js = (ROOT / "v_ase/static/selection.js").read_text()
-    style_css = (ROOT / "v_ase/static/style.css").read_text()
+    style_css = (ROOT / "v_ase/static/style.css").read_text() + (ROOT / "v_ase/static/editor.css").read_text()
 
     assert "constrainedMoveDelta" in main_js
     assert "fixed_line" in main_js
@@ -626,7 +627,7 @@ def test_frontend_has_radius_controls_loading_overlay_and_modern_panel_styles():
     main_js = (ROOT / "v_ase/static/main.js").read_text()
     renderer_js = (ROOT / "v_ase/static/renderer.js").read_text()
     index_html = (ROOT / "v_ase/static/index.html").read_text()
-    style_css = (ROOT / "v_ase/static/style.css").read_text()
+    style_css = (ROOT / "v_ase/static/style.css").read_text() + (ROOT / "v_ase/static/editor.css").read_text()
 
     assert "busy-overlay" in index_html
     assert "withBusy" in main_js
@@ -809,7 +810,7 @@ def test_camera_view_background_and_2d_display_controls_are_wired():
     renderer_js = (ROOT / "v_ase/static/renderer.js").read_text()
     main_js = (ROOT / "v_ase/static/main.js").read_text()
     index_html = (ROOT / "v_ase/static/index.html").read_text()
-    style_css = (ROOT / "v_ase/static/style.css").read_text()
+    style_css = (ROOT / "v_ase/static/style.css").read_text() + (ROOT / "v_ase/static/editor.css").read_text()
 
     assert 'id="view-toolbar"' in index_html
     assert 'id="view-rotate-step"' in index_html
@@ -990,9 +991,10 @@ def test_new_scientific_defaults_and_ai_control_contract_are_wired():
 def test_open_file_uses_the_native_system_picker_immediately():
     main_js = (ROOT / "v_ase/static/main.js").read_text()
     api_js = (ROOT / "v_ase/static/api.js").read_text()
-    style_css = (ROOT / "v_ase/static/style.css").read_text()
+    style_css = (ROOT / "v_ase/static/style.css").read_text() + (ROOT / "v_ase/static/editor.css").read_text()
 
     assert "chooseStructureFile() {\n        this.chooseSystemStructureFile();\n    }" in main_js
+    assert 'data-editor-menu-action="open"' in (ROOT / "v_ase/static/index.html").read_text()
     assert "chooseSystemStructureFile" in main_js
     assert "showLaunchDirectoryBrowser" not in main_js
     assert "browseStructureFiles(directory" not in api_js
@@ -1000,10 +1002,11 @@ def test_open_file_uses_the_native_system_picker_immediately():
     # Agent-only path loading remains restricted to the terminal launch
     # directory; the human Open workflow must still invoke the native picker.
     assert "appendStructurePath(" in api_js
-    assert "appendStructurePath" not in main_js[
-        main_js.index("chooseStructureFile()"):
-        main_js.index("chooseSystemStructureFile", main_js.index("chooseStructureFile()") + 1)
-    ]
+    picker = main_js.split("async chooseSystemStructureFile()", 1)[1].split(
+        "chooseStructureFile()", 1
+    )[0]
+    assert "window.showOpenFilePicker" in picker
+    assert "input.click()" in picker
     assert ".launch-file-list" not in style_css
 
 
@@ -1018,12 +1021,15 @@ def test_api_browser_close_and_python_view_autoclose_contract_are_wired():
     assert "this.ws = ws" in main_js
     assert "window.addEventListener('pagehide', this.handlePageTeardown" in main_js
     assert "this.closeSocket?.();" in main_js
-    assert "window.addEventListener('beforeunload', this.handlePageTeardown" in main_js
+    assert "window.addEventListener('beforeunload', this.handleBeforeUnload" in main_js
+    assert "window.addEventListener('beforeunload', this.handlePageTeardown" not in main_js
     assert "this.ws.close(1000, 'page closing')" in main_js
     assert "schedule_session_autoclose(session_id)" in server_py
     assert "finalize_session_from_browser_close(session_id)" in server_py
     assert "this.browserClientId" in workspace_js
     assert "navigator.sendBeacon(closeUrl" in workspace_js
+    assert "window.addEventListener('pagehide', closeWorkspace" in workspace_js
+    assert "window.addEventListener('beforeunload', closeWorkspace" not in workspace_js
     assert "/browser-close/" in workspace_js
     assert "client_id: this.browserClientId" in workspace_js
     assert "closing_client_id=normalized" in server_py
@@ -1034,7 +1040,7 @@ def test_frontend_reset_video_and_visual_settings_controls_are_wired():
     api_js = (ROOT / "v_ase/static/api.js").read_text()
     renderer_js = (ROOT / "v_ase/static/renderer.js").read_text()
     index_html = (ROOT / "v_ase/static/index.html").read_text()
-    style_css = (ROOT / "v_ase/static/style.css").read_text()
+    style_css = (ROOT / "v_ase/static/style.css").read_text() + (ROOT / "v_ase/static/editor.css").read_text()
 
     assert "btn-reset-coords" in index_html
     assert "confirmFullReset" in main_js
@@ -1100,7 +1106,7 @@ def test_frontend_reset_video_and_visual_settings_controls_are_wired():
 def test_trajectory_controls_update_live_and_space_toggles_playback():
     main_js = (ROOT / "v_ase/static/main.js").read_text()
     index_html = (ROOT / "v_ase/static/index.html").read_text()
-    style_css = (ROOT / "v_ase/static/style.css").read_text()
+    style_css = (ROOT / "v_ase/static/style.css").read_text() + (ROOT / "v_ase/static/editor.css").read_text()
 
     assert "queueFrameLoad" in main_js
     assert "flushFrameLoadQueue" in main_js
@@ -1135,8 +1141,9 @@ def test_trajectory_controls_update_live_and_space_toggles_playback():
     assert "this.state.trajectoryPlaybackTask = playbackTask" in main_js
     assert "setTimeout(tick, 1000 / this.currentPlaybackFps())" in main_js
     assert "e.code === 'Space'" in main_js
-    assert "e.key === 'ArrowLeft' || e.key === 'ArrowRight'" in main_js
-    assert "this.requestFrameStep(delta)" in main_js
+    assert "viewportNavigationForEvent(e)" in main_js
+    assert "this.rotateCameraView(navigation.direction" in main_js
+    assert "this.requestFrameStep(navigation.delta)" in main_js
     assert "Play or pause the selected timeline" in main_js
     assert "setupNumberInputHoldGuards" in main_js
     assert "bindNumberInputHoldGuard" in main_js
@@ -1173,7 +1180,7 @@ def test_persistent_constraint_guides_and_cell_style_controls_are_wired():
     index_html = (ROOT / "v_ase/static/index.html").read_text()
     main_js = (ROOT / "v_ase/static/main.js").read_text()
     renderer_js = (ROOT / "v_ase/static/renderer.js").read_text()
-    style_css = (ROOT / "v_ase/static/style.css").read_text()
+    style_css = (ROOT / "v_ase/static/style.css").read_text() + (ROOT / "v_ase/static/editor.css").read_text()
 
     assert 'id="cell-color"' in index_html
     assert 'id="cell-thickness"' in index_html
@@ -1547,52 +1554,47 @@ def test_bond_export_defaults_to_visible_cell_and_periodic_images_are_opt_in():
     assert periodic[0]["length"] == pytest.approx(1.2)
 
 
-def test_control_panel_uses_collapsible_default_hierarchy():
+def test_control_panel_uses_single_workbench_and_real_route_parity():
     index_html = (ROOT / "v_ase/static/index.html").read_text()
-    style_css = (ROOT / "v_ase/static/style.css").read_text()
+    style_css = (ROOT / "v_ase/static/style.css").read_text() + (ROOT / "v_ase/static/editor.css").read_text()
     main_js = (ROOT / "v_ase/static/main.js").read_text()
 
     assert 'id="btn-inspector-collapse"' in index_html
-    assert '<body class="inspector-collapsed" data-viewport-background="white">' in index_html
-    assert 'class="inspector-edge-chevron"' in index_html
-    assert 'viewBox="0 0 14 20"' in index_html
-    assert 'd="M1.6 4 12 10 1.6 16"' in index_html
-    assert 'inspector-collapse-glyph' not in index_html
-    assert '<strong>Workspace</strong>' not in index_html
-    assert 'data-inspector-group="inspect"' in index_html
-    assert 'data-inspector-group="structure"' in index_html
-    assert 'data-inspector-group="analysis"' in index_html
-    assert 'data-inspector-group="view"' in index_html
-    assert 'data-inspector-group="export"' in index_html
-    assert 'id="structure-section-select"' in index_html
-    assert '<option value="appearance">Atoms &amp; Appearance</option>' in index_html
-    assert '<option value="bonding">Bonding</option>' in index_html
-    assert 'class="structure-section-nav"' not in index_html
+    assert '<body class="editor-shell" data-viewport-background="white">' in index_html
+    assert 'id="editor-navigator"' in index_html  # hidden command-search compatibility
+    assert 'id="editor-search-toggle"' in index_html
+    assert 'id="objects-drawer"' in index_html
+    assert 'id="workbench-tabs"' in index_html
+    assert 'id="workbench-tools"' in index_html
+    assert 'id="workbench-tool-select"' not in index_html
+    assert 'data-workbench="style"' in index_html
+    assert 'data-workbench="build"' in index_html
+    assert 'data-workbench="analyze"' in index_html
+    assert 'data-workbench="render"' in index_html
+    assert 'data-editor-route="appearance"' in index_html
+    assert 'data-editor-route="bonding"' in index_html
+    assert 'id="btn-fit-view"' in index_html
+    assert 'body.editor-shell #editor-navigator { display: none !important; }' in style_css
+    assert 'grid-template-columns: minmax(0, 1fr) var(--inspector-width)' in style_css
     assert 'data-panel="structure-info" data-panel-group="inspect"' in index_html
     assert 'data-panel="selection" data-panel-group="inspect"' in index_html
     assert 'data-panel="view" data-panel-group="view"' in index_html
     assert 'data-panel="cell-replication" data-panel-group="structure"' in index_html
     assert 'data-panel="transform" data-panel-group="structure">' in index_html
     assert '<option value="transform">Transform &amp; Cell Match</option>' in index_html
-    assert '<div class="prop-row" data-edit-only>' in index_html
+    assert '<div class="prop-row transform-selection-control" data-edit-only>' in index_html
     assert 'id="chk-commensurate-guide"' in index_html
     assert 'data-panel="appearance" data-panel-group="structure"' in index_html
     assert 'data-panel="bonding" data-panel-group="structure"' in index_html
     assert 'data-panel="export" data-panel-group="export"' in index_html
-    assert 'data-panel="cell-transform" data-panel-group="structure" data-edit-only' in index_html
+    assert 'data-panel="cell-transform" data-panel-group="structure"' in index_html
+    assert 'id="btn-cell-transform-switch-edit"' in index_html
     assert 'data-panel="scientific-tools" data-panel-group="structure" data-edit-only' in index_html
-    assert "setupInspectorNavigation" in main_js
-    assert "setupStructureSectionNavigation" in main_js
-    assert "let collapsed = true" in main_js
-    assert "savedCollapsed === null ? true" in main_js
-    assert "button.setAttribute('aria-label'" in main_js
-    assert "glyph.textContent" not in main_js
-    assert "body.inspector-collapsed" in style_css
-    assert ".inspector-edge-toggle" in style_css
-    assert "--inspector-width: 0px" in style_css
-    assert "#inspector .group-hidden" in style_css
-    assert "details:not([open]) > summary.section-header" in style_css
-    assert "summary.section-header::after" in style_css
+    assert "syncWorkbenchRoute(route, description.title)" in main_js
+    assert "renderSceneNavigatorObjects()" in main_js
+    assert "fitEditorView()" in main_js
+    assert "v_ase.workbench.v1.width" in main_js
+    assert "body.editor-shell #app-viewport" in style_css
 
 
 def test_studio_sun_and_periodic_bond_controls_are_opt_in_and_exportable():
@@ -1673,7 +1675,7 @@ def test_studio_sun_and_periodic_bond_controls_are_opt_in_and_exportable():
 
 
 def test_application_chrome_uses_one_role_based_palette():
-    style_css = (ROOT / "v_ase/static/style.css").read_text()
+    style_css = (ROOT / "v_ase/static/style.css").read_text() + (ROOT / "v_ase/static/editor.css").read_text()
     renderer_js = (ROOT / "v_ase/static/renderer.js").read_text()
     transform_js = (ROOT / "v_ase/static/transform.js").read_text()
 
@@ -1695,10 +1697,9 @@ def test_application_chrome_uses_one_role_based_palette():
     # grey families.
     component_css = style_css.split("\n}\n", 1)[1]
     component_css = re.sub(
-        r'html\[data-ui-theme="light"\]\s*\{.*?\}\s*',
+        r'html\[data-ui-theme="(?:light|dark)"\](?:\s+body\.editor-shell)?\s*\{.*?\}\s*',
         "",
         component_css,
-        count=1,
         flags=re.DOTALL,
     )
     assert re.search(r"#[0-9A-Fa-f]{3,8}(?![0-9A-Za-z_-])", component_css) is None
@@ -1732,7 +1733,7 @@ def test_rotate_pivot_and_commensurate_cell_matching_are_wired():
     api_js = (ROOT / "v_ase/static/api.js").read_text()
     server_py = (ROOT / "v_ase/server.py").read_text()
     index_html = (ROOT / "v_ase/static/index.html").read_text()
-    style_css = (ROOT / "v_ase/static/style.css").read_text()
+    style_css = (ROOT / "v_ase/static/style.css").read_text() + (ROOT / "v_ase/static/editor.css").read_text()
     docs = (ROOT / "docs/unit_cell_aware_rotate.md").read_text()
 
     assert "rotate-pivot" in index_html

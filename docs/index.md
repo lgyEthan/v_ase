@@ -32,7 +32,8 @@ Each feature guide explains the controls first, then walks through a real exampl
 with its input file, settings and expected result. **View** changes presentation;
 **Edit** enables physical edits. [Workspace and modes](workspace.md).
 
-This manual describes **v_ase 0.3.8**.
+This manual describes **v_ase 0.4.1**. It includes the redesigned scientific
+workspace, property-dependent atom size, platform shortcuts and project saving.
 The [scientific source audit](scientific-source-audit.md) and
 [ChatGPT tunnel helper](chatgpt-local.md) describe the numerical fixes and personal connection setup in this release.
 
@@ -55,6 +56,7 @@ worked-examples
 :hidden:
 
 appearance
+property-radius
 bonds
 polyhedra
 camera

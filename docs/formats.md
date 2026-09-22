@@ -184,7 +184,7 @@ not unpickle executable Python objects.
 
 ## Project and HTML choices
 
-Use **Export > Save Project** for editable continuity:
+Use **Render → Project save** for editable continuity:
 
 - the default `.vase` is the smallest complete project;
 - enabling **Include interactive rendered view** produces a larger `.html`

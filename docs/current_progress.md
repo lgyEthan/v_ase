@@ -47,6 +47,10 @@ and documentation use `view()`.
 - `v_ase/server.py`: local FastAPI and WebSocket contract.
 - `v_ase/project.py`: visual-settings migration, validated `.vase` archives,
   and bounded extraction of project-embedded HTML.
+- `v_ase/project_files.py`: explicit session-bound project-source writes with
+  atomic replacement and external-modification checks.
+- `v_ase/atom_radius.py`: validated property-radius definitions shared by
+  project normalization and geometry exports.
 - `v_ase/serialization.py`: browser payloads and ASE visual defaults.
 - `v_ase/export.py`: scientific, image-supporting, Blender, 3DM, OBJ, and
   standalone offline HTML export with optional project recovery.
@@ -64,6 +68,18 @@ and documentation use `view()`.
 - `static/trajectory.js`: video-frame count and Cartesian/MIC interpolation.
 - `static/api.js`: typed local HTTP payload handling and download helpers.
 - `static/workspace.js`: independent multi-document shell.
+- `static/direct_workspace.js`: in-place multi-document adoption for direct
+  and notebook editors, retaining the first editor and its file handle.
+- `static/atom_properties.js`: bounded scalar catalog/value/range transport
+  shared by property color and property radius controls.
+- `static/radius_mapping.js`: browser-side radius validation, presets and
+  effective multiplicative factors.
+- `static/editor_ui.js` and `static/editor.css`: the viewport-first workbench,
+  visible tool shelves, contextual routes and responsive form geometry.
+- `static/editor_commands.js` and `static/shortcut_capture.js`: the shared
+  platform-aware command registry and explicit fullscreen keyboard capture.
+- `static/project_provenance.js` and `static/workspace_recovery.js`: project
+  destinations, output profiles, dirty-close decisions and child reload recovery.
 
 ## Core Invariants
 
@@ -127,7 +143,7 @@ and documentation use `view()`.
     stable first-seen label order.
 19. Browser Open invokes the operating system picker directly. If source and
     relaxation trajectories coexist, the explicit timeline selector determines
-    which source receives playback, Space, and Left/Right Arrow navigation;
+    which source receives playback, Space, and Option/Alt+Left/Right Arrow navigation;
     the inactive timeline remains visible in a second row.
 20. The default viewport clear color is exact white. Modeling lights lift atom
     midtones consistently without allocating rendered-mode shadows, and the
@@ -138,10 +154,9 @@ and documentation use `view()`.
 22. Metal materials allocate one shared low-resolution PMREM reflection
     environment on first use. Standard/rubber-only scenes do not pay that
     allocation or preprocessing cost.
-23. The control panel has five semantic workspaces: Inspect, Structure,
-    Analysis, View, and Export. Appearance and bonding are Structure sections
-    because both participate in atom identity and scientific structure
-    interpretation.
+23. The editor now uses a single Style/Build/Analyze/Render workbench with
+    one visible form at a time and an optional Objects overlay. Atom properties,
+    bonding and cell display are Style; physical construction is Build.
 24. Physical Cartesian or fractional `translate-all` applies to every
     trajectory frame and never changes the unit cell. Fractional vectors use
     the complete, potentially non-orthogonal cell matrix.
@@ -218,7 +233,7 @@ and documentation use `view()`.
     and `--hide-bonds` override this default without changing bond topology.
 40. Anti-aliasing and atom smoothness are viewport-quality controls under View.
     Label radius, color, visibility, chemical TYPE, label text, and material
-    remain under Structure > Atoms & Appearance.
+    remain under Style > Atoms.
 41. Camera toolbar tilt and orbit use the camera world quaternion to derive
     screen right, up, and forward. Their meaning stays screen-relative after
     cell transforms, axis views, roll, and arbitrary camera motion.
@@ -559,8 +574,10 @@ same implementation for compatibility.
   independent of atom count.
 - The renderer is request-driven and has no permanent animation loop.
 - Large numeric LAMMPS dumps are memory-mapped and byte-offset indexed.
-- Compatible trajectories are transferred once as contiguous float32
-  coordinates for playback.
+- Compatible trajectories are transferred once as contiguous float64
+  coordinates for playback and exact scientific round trips. GPU buffers use
+  float32; the transport endpoints retain their legacy float32 default for
+  older clients and accept an explicit float64 request from the editor.
 - Position-only frame updates modify instance translation columns rather than
   rebuilding geometry or complete matrices.
 - Auto and pairwise bonds use a cell-list search with a displacement-validated

@@ -123,3 +123,48 @@ bpy.ops.render.render(write_still=True)
     pixels = np.asarray(Image.open(render_path).convert("RGB"), dtype=np.int16)
     chroma = pixels.max(axis=2) - pixels.min(axis=2)
     assert int(np.count_nonzero(chroma > 24)) > 100
+
+
+@pytest.mark.skipif(BLENDER is None, reason="Blender executable is not available")
+@pytest.mark.parametrize("mode", ["objects", "instanced"])
+def test_blender_radius_mapping_changes_per_frame_without_radius_groups(tmp_path, mode):
+    atoms = Atoms("H2", positions=[[0, 0, 0], [2, 0, 0]])
+    data = atoms_to_json(atoms)
+    data["display"] = {"showBonds": False, "blenderExportMode": mode}
+    data["atom_radius_factors"] = [0.0, 1.0]
+    first = atoms_to_json(atoms)
+    second = atoms_to_json(atoms)
+    first["atom_radius_factors"] = [0.0, 1.0]
+    second["atom_radius_factors"] = [1.0, 0.5]
+    data["frames"] = [first, second]
+    validation = '''
+scene = bpy.context.scene
+scene.frame_set(1)
+if BLENDER_OBJECT_MODE == "objects":
+    atom_objects = [bpy.data.objects[f"atom_{index:04d}_H"] for index in range(2)]
+    assert abs(atom_objects[0].scale.x) < 1e-8
+    assert abs(atom_objects[1].scale.x - get_atom_radius(1, FRAMES[0])) < 1e-8
+    scene.frame_set(2)
+    assert abs(atom_objects[0].scale.x - get_atom_radius(0, FRAMES[1])) < 1e-8
+    assert abs(atom_objects[1].scale.x - get_atom_radius(1, FRAMES[1])) < 1e-8
+else:
+    groups = [obj for obj in bpy.data.objects if obj.get("v_ase_atom_group")]
+    assert len(groups) == 1
+    group = groups[0]
+    radii = [point.value for point in group.data.attributes["radius"].data]
+    assert abs(radii[0]) < 1e-8
+    assert abs(radii[1] - get_atom_radius(1, FRAMES[0])) < 1e-7
+    scene.frame_set(2)
+    radii = [point.value for point in group.data.attributes["radius"].data]
+    assert abs(radii[0] - get_atom_radius(0, FRAMES[1])) < 1e-7
+    assert abs(radii[1] - get_atom_radius(1, FRAMES[1])) < 1e-7
+'''
+    script_path = tmp_path / f"mapped_{mode}.py"
+    script_path.write_text(_blender_script(data) + validation, encoding="utf-8")
+    result = subprocess.run(
+        [BLENDER, "--background", "--factory-startup", "--python", str(script_path)],
+        cwd=tmp_path, capture_output=True, text=True, timeout=90, check=False,
+    )
+    log = result.stdout + "\n" + result.stderr
+    assert result.returncode == 0, log
+    assert "Traceback (most recent call last)" not in log, log

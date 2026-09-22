@@ -1,7 +1,7 @@
 # Bond display
 
 Choose which contacts to draw and style each label pair separately. Open
-**Structure > Bonding**. Displayed bonds are a visual topology, not a force field.
+**Style > Bonds**. Displayed bonds are a visual topology, not a force field.
 
 
 ## Example: show an oxide network above a Cu support

@@ -391,6 +391,7 @@ def view(
     stream_trajectory: bool = False,
     volumetric_datasets: Optional[Sequence[Any]] = None,
     volumetric_precision: str = "fp32",
+    _project_source_path: str | os.PathLike | None = None,
 ) -> Union[Atoms, ASEEditor, None]:
     """
     Open the v_ase structure viewer/editor.
@@ -516,6 +517,15 @@ def view(
             "stream_trajectory": bool(stream_trajectory),
         }
     )
+    opened_project_path = _project_source_path or (
+        source_path if source_path and source_path.lower().endswith((".vase", ".html", ".htm"))
+        else None
+    )
+    if opened_project_path is not None:
+        from .project_files import bind_project_source
+
+        project_format = "html" if str(opened_project_path).lower().endswith((".html", ".htm")) else "vase"
+        bind_project_source(session, opened_project_path, project_format)
     sessions[session_id] = session
     workspace = None
     

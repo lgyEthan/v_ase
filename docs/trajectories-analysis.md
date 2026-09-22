@@ -57,7 +57,7 @@ Use the bottom timeline or keyboard:
 | Control | Action |
 | --- | --- |
 | `Space` | Play or pause the active timeline |
-| Left/Right Arrow | Previous or next active-timeline frame |
+| Option+Left/Right Arrow (macOS); Alt+Left/Right Arrow (Windows/Linux) | Previous or next active-timeline frame |
 | Previous/Next buttons | Step one frame |
 | **FPS** | Playback rate |
 | **Skip** | Advance by more than one source frame |
@@ -69,7 +69,8 @@ v_ase can show several timeline kinds without merging them:
 - **Add Atoms** placement-relaxation frames; and
 - **Rigid Translation** registry-relaxation frames.
 
-The selected timeline alone receives playback and arrow-key input. Optimizer
+The selected timeline alone receives playback and modified-arrow input. Plain
+arrow keys orbit or tilt the structure view without changing frames. Optimizer
 timelines are mode state, not silently appended source trajectories.
 
 ### Add or replace frames
@@ -99,8 +100,8 @@ before a coordinate-dependent operation.
 
 Select atoms in the intended order:
 
-- one atom shows label, element, displayed Cartesian/fractional position, and
-  lazy per-atom properties;
+- one atom leads with element and label, then shows displayed
+  Cartesian/fractional position and lazy per-atom properties;
 - two show direct and minimum-image distances where applicable;
 - three show the `a1-a2-a3` angle at `a2`;
 - four show the signed `a1-a2-a3-a4` torsion; and
@@ -175,7 +176,7 @@ for measurement.
 
 ## Map numeric per-atom data
 
-Open **Structure > Appearance > Color scale**. Enable it, then select a field,
+Open **Style > Atoms > Color scale**. Enable it, then select a field,
 map, scope, range, and contrast.
 
 Available fields are discovered lazily. Built-ins include:

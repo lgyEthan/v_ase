@@ -20,6 +20,7 @@ from v_ase.project import read_project_archive, read_project_html
 from v_ase.server import load_visual_settings
 from v_ase.session import EditorSession, sessions
 from v_ase.viewer import find_free_port, view
+from tests.ui_navigation import open_editor_route
 
 
 def _embedded_base64(html, element_id):
@@ -41,7 +42,7 @@ class _BodyRequest:
 
 def _html_export_fixture(
     *, embed_project=True, atom_colorscale=False, custom_colormap=False,
-    view_identity=False,
+    view_identity=False, atom_radius_mapping=False,
 ):
     first = Atoms(
         "CuO",
@@ -174,6 +175,14 @@ def _html_export_fixture(
             "schema": "v_ase.view_identity.v1",
             "scope": "trajectory",
             "labels": ["Cu_substrate", "O_surface"],
+        }
+    if atom_radius_mapping:
+        settings["display"]["atomRadiusMapping"] = {
+            "enabled": True, "field": "array::mlip_uncertainty::scalar",
+            "valueTransform": "identity", "rangeMode": "manual",
+            "min": 0.15, "max": 0.95,
+            "minMultiplier": 0, "maxMultiplier": 1,
+            "exponent": 1, "scope": "all", "indices": [],
         }
     poster_buffer = io.BytesIO()
     Image.new("RGB", (640, 360), (242, 246, 244)).save(
@@ -329,6 +338,9 @@ def test_lightweight_html_omits_project_recovery_and_is_smaller(tmp_path):
     assert len(project.frames) == 2
     assert project.current_frame == 1
     assert project.settings["display"]["supercell"] == [2, 1, 1]
+    assert project.settings["projectSave"]["format"] == "html"
+    assert project.settings["projectSave"]["html"]["exportProfile"]["width"] == 1920
+    assert project.settings["projectSave"]["html"]["migratedFromLegacyHtml"] is True
 
     lightweight_path = tmp_path / "view-only.html"
     lightweight_path.write_bytes(lightweight.body)
@@ -357,6 +369,42 @@ def test_html_export_freezes_active_selected_atom_colorscale_for_offline_frames(
         assert re.fullmatch(r"#[0-9A-F]{6}", scale["colors"][1])
         frame_colors.append(scale["colors"][1])
     assert frame_colors[0] != frame_colors[1]
+
+
+def test_html_export_freezes_frame_specific_radius_factors_and_project_source_arrays(tmp_path):
+    response, _, settings = _html_export_fixture(atom_radius_mapping=True)
+    html = response.body.decode("utf-8")
+    scene = json.loads(base64.b64decode(
+        _embedded_base64(html, "v-ase-scene-data")
+    ).decode("utf-8"))
+    factors = [frame["metadata"]["atom_radius_factors"] for frame in scene["frames"]]
+    assert factors[0] == pytest.approx([0, 0.875])
+    assert factors[1] == pytest.approx([0.125, 1])
+    path = tmp_path / "mapped.html"
+    path.write_bytes(response.body)
+    project = read_project_html(path)
+    assert project.settings["display"]["atomRadiusMapping"] == settings["display"]["atomRadiusMapping"]
+    assert project.frames[0].arrays["mlip_uncertainty"].tolist() == pytest.approx([0.15, 0.85])
+
+
+def test_offline_html_uses_frame_specific_radius_factors(tmp_path):
+    response, _, _ = _html_export_fixture(atom_radius_mapping=True)
+    document = tmp_path / "mapped-offline.html"
+    document.write_bytes(response.body)
+    with sync_playwright() as playwright:
+        try:
+            browser = playwright.chromium.launch(headless=True)
+        except PlaywrightError as error:
+            pytest.skip(f"Playwright Chromium is not installed: {error}")
+        page = browser.new_page(viewport={"width": 1280, "height": 800})
+        page.goto(document.as_uri(), wait_until="load")
+        page.locator("html[data-v-ase-ready='true']").wait_for(state="attached")
+        assert page.evaluate("[...window.v_aseStandalone.renderer.atomRadiusFactors]") == pytest.approx([0.125, 1])
+        page.mouse.move(40, 40)
+        page.click("#previous-frame")
+        assert page.evaluate("[...window.v_aseStandalone.renderer.atomRadiusFactors]") == pytest.approx([0, 0.875])
+        assert page.evaluate("window.v_aseStandalone.renderer.atomMeshByIndex.get(0).visible") is False
+        browser.close()
 
 
 def test_html_export_freezes_custom_colormap_definition_and_colors():
@@ -598,7 +646,8 @@ def test_html_export_button_downloads_an_offline_document_that_reopens(tmp_path)
                 page.wait_for_function(
                     "!document.body.classList.contains('inspector-collapsed')"
                 )
-            page.click('[data-inspector-group="export"]')
+            open_editor_route(page, 'export')
+            open_editor_route(page, 'render-html')
             page.wait_for_function(
                 "document.querySelector('#btn-export-html')?.getBoundingClientRect().height > 0"
             )
@@ -733,15 +782,20 @@ def test_html_export_button_downloads_an_offline_document_that_reopens(tmp_path)
             assert after_rotation != pytest.approx(before_rotation)
 
             page.set_input_files("#project-file", exported)
+            page.locator('#modal-discard-document').click()
             page.wait_for_function(
-                "window.__ASE_APP__?.state?.atoms?.metadata?.frame_count === 2"
+                "window.__ASE_APP__?.projectFile?.filename === 'downloaded_view.html'"
             )
             assert page.evaluate(
                 "window.__ASE_APP__.state.display.supercell.join(',')"
             ) == "1,1,1"
 
+            page.evaluate("window.__ASE_APP__.openEditorRoute('project')")
             page.click("#btn-save-project")
             assert page.locator("#modal-content h2").inner_text() == "Save Project"
+            # Opening an editable HTML project retains its container format.
+            assert page.locator("#project-include-interactive-viewer").is_checked()
+            page.uncheck("#project-include-interactive-viewer")
             assert not page.locator("#project-include-interactive-viewer").is_checked()
             assert page.locator("#project-output-extension").inner_text() == ".vase"
             assert page.locator("#project-output-filename").inner_text().endswith(".vase")

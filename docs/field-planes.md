@@ -1,7 +1,9 @@
 # Volumetric planes
 
 Cut a scalar field with a crystallographic plane and color the sampled values.
-Use **Analysis > Volumetric Data > Planes**. Plane parameters work in View;
+Select a plane in **Objects → Fields** to edit its visibility, hkl orientation,
+offset, resolution and color properties. **Analyze → Fields → Planes** retains
+the multi-plane list and processing controls. Plane parameters work in View;
 Edit additionally provides `G`/`R` viewport transforms.
 
 ## Example: move a section through the graphene field
@@ -27,7 +29,8 @@ A moving crystallographic section through the analytic graphene field.
 
 ## Add planar sections
 
-Open **Analysis > Volumetric Data > Planes** and choose **Add Plane**. Each
+Open **Analyze → Fields → Planes** and choose **Add Plane**. The new plane
+also appears in **Objects → Fields** for its direct property controls. Each
 plane contains:
 
 - stable ID and editable name;

@@ -3,7 +3,7 @@
 Rotate a selected fragment around a chosen point. Use this to turn a ligand,
 tilt an adsorbate or construct a layer twist.
 
-**Where:** **Edit > Structure > Transform & Cell Match**.
+**Where:** **Edit > Build > Transform & cell match**.
 **Shortcut:** `R`, optional `X`/`Y`/`Z`, angle in degrees, then `Enter`.
 
 ## Choose the pivot before rotating

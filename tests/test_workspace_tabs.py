@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import time
 
 import numpy as np
@@ -23,6 +24,7 @@ from v_ase.session import (
     workspaces,
 )
 from v_ase.viewer import find_free_port, view
+from v_ase.project import write_project_archive
 from v_ase.websocket_manager import ws_manager
 
 
@@ -379,6 +381,282 @@ def test_workspace_browser_tabs_suspend_inactive_renderers_and_keep_settings_sep
             page.close()
             assert host.done_event.wait(timeout=4.0)
             assert workspace.workspace_id not in workspaces
+            browser.close()
+    finally:
+        finalize_workspace(workspace.workspace_id)
+        editor.close()
+
+
+def test_regular_workspace_new_project_tab_keeps_browser_handle_and_format(tmp_path):
+    sync_playwright = pytest.importorskip('playwright.sync_api').sync_playwright
+    atoms = Atoms('H', positions=[[0, 0, 0]])
+    source = tmp_path / 'new-project.vase'
+    seed = EditorSession('regular-project-seed', atoms.copy(), atoms.copy(), config={'viz_only': True})
+    write_project_archive(source, seed, {'display': {'showGrid': False}})
+    encoded = base64.b64encode(source.read_bytes()).decode('ascii')
+    editor = view(atoms, notebook=True, block=False, port=find_free_port(), close_on_disconnect=False)
+    host = sessions[editor.session_id]
+    workspace = create_workspace(host)
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            page = browser.new_page()
+            page.on('dialog', lambda dialog: dialog.dismiss())
+            page.set_default_timeout(10000)
+            page.goto(f'http://127.0.0.1:{editor.port}/workspace'
+                      f'?workspace_id={workspace.workspace_id}&session_id={host.session_id}')
+            page.wait_for_function('''() => document.querySelector('iframe')
+                ?.contentWindow?.__ASE_APP__?.collaborationReady''')
+            opened = page.evaluate('''async encoded => {
+                const bytes=Uint8Array.from(atob(encoded),char=>char.charCodeAt(0));
+                const host= document.querySelector('iframe').contentWindow;
+                const root=await host.navigator.storage.getDirectory();
+                const handle=await root.getFileHandle('new-project.vase',{create:true});
+                const writer=await handle.createWritable();
+                await writer.write(bytes);
+                await writer.close();
+                window.__newProjectHandle=handle;
+                await host.__ASE_APP__
+                    .openStructureFileInNewTab(await handle.getFile(),'',':','view',{handle});
+                return {tabs:window.__V_ASE_WORKSPACE__.tabs.size,
+                    active:window.__V_ASE_WORKSPACE__.activeSessionId,
+                    hostToast:host.document.getElementById('toast-container')?.innerText,
+                    error:document.getElementById('workspace-error-message')?.innerText};
+            }''', encoded)
+            assert opened['tabs'] == 2, opened
+            page.wait_for_function('''() => {
+                const workspace=window.__V_ASE_WORKSPACE__;
+                return workspace?.tabs?.size===2
+                    && workspace.tabs.get(workspace.activeSessionId)?.pane?.contentWindow
+                        ?.__ASE_APP__?.projectFile?.format==='vase';
+            }''')
+            assert page.evaluate('''async () => {
+                const workspace=window.__V_ASE_WORKSPACE__;
+                const app=workspace.tabs.get(workspace.activeSessionId).pane.contentWindow.__ASE_APP__;
+                return await app.projectFile.handle?.isSameEntry(window.__newProjectHandle);
+            }''') is True
+            assert page.evaluate('''() => {
+                const workspace=window.__V_ASE_WORKSPACE__;
+                const entry=workspace.tabs.get(workspace.activeSessionId);
+                const child=entry.pane.contentWindow.__ASE_APP__;
+                entry.dirty=false;
+                child.pendingApplyInFlight=true;
+                const event=new Event('beforeunload',{cancelable:true});
+                window.dispatchEvent(event);
+                child.pendingApplyInFlight=false;
+                return event.defaultPrevented;
+            }''') is True
+            page.evaluate('''() => {
+                const workspace=window.__V_ASE_WORKSPACE__;
+                const pane=workspace.tabs.get(workspace.activeSessionId).pane;
+                window.__oldProjectChild=pane.contentWindow.__ASE_APP__;
+                pane.contentWindow.location.reload();
+            }''')
+            page.wait_for_function('''() => {
+                const workspace=window.__V_ASE_WORKSPACE__;
+                const child=workspace.tabs.get(workspace.activeSessionId)?.pane
+                    ?.contentWindow?.__ASE_APP__;
+                return child && child!==window.__oldProjectChild
+                    && child.collaborationReady && child.projectFile.format==='vase';
+            }''')
+            assert page.evaluate('''async () => {
+                const workspace=window.__V_ASE_WORKSPACE__;
+                const app=workspace.tabs.get(workspace.activeSessionId).pane.contentWindow.__ASE_APP__;
+                return await app.projectFile.handle?.isSameEntry(window.__newProjectHandle);
+            }''') is True
+            page.evaluate('''() => {
+                const workspace=window.__V_ASE_WORKSPACE__;
+                workspace.tabs.get(workspace.activeSessionId).pane.contentWindow.__ASE_APP__
+                    .openEditorRoute('appearance');
+            }''')
+            active_frame = page.frame_locator('iframe.document-pane:not([hidden])')
+            active_frame.locator('#atom-radius-scale-number').fill('0.85')
+            active_frame.locator('#atom-radius-scale-number').press('Tab')
+            page.wait_for_function('''() => window.__V_ASE_WORKSPACE__.tabs
+                .get(window.__V_ASE_WORKSPACE__.activeSessionId).dirty''')
+            for value in ('0.90', '0.95'):
+                active_frame.locator('#atom-radius-scale-number').fill(value)
+                active_frame.locator('#atom-radius-scale-number').press('Tab')
+            page.evaluate('''() => {
+                const workspace=window.__V_ASE_WORKSPACE__;
+                const pane=workspace.tabs.get(workspace.activeSessionId).pane;
+                window.__oldProjectChild=pane.contentWindow.__ASE_APP__;
+                pane.contentWindow.location.reload();
+            }''')
+            page.wait_for_function('''() => {
+                const workspace=window.__V_ASE_WORKSPACE__;
+                const entry=workspace.tabs.get(workspace.activeSessionId);
+                const child=entry?.pane?.contentWindow?.__ASE_APP__;
+                return child && child!==window.__oldProjectChild
+                    && entry.appInstance===child && child.projectFile.format==='vase';
+            }''')
+            page.wait_for_timeout(350)  # A late activation must not reset restored saved state.
+            assert page.evaluate('''() => {
+                const workspace=window.__V_ASE_WORKSPACE__;
+                const entry=workspace.tabs.get(workspace.activeSessionId);
+                const child=entry.pane.contentWindow.__ASE_APP__;
+                return entry.dirty && child.projectFile.dirty
+                    && child.state.display.atomRadiusScale===0.95;
+            }''') is True
+            assert page.evaluate('''async () => {
+                const workspace=window.__V_ASE_WORKSPACE__;
+                const pane=workspace.tabs.get(workspace.activeSessionId).pane;
+                const child=pane.contentWindow.__ASE_APP__;
+                const root=await pane.contentWindow.navigator.storage.getDirectory();
+                const handle=await root.getFileHandle('new-project-copy.vase',{create:true});
+                window.__savedAsHandle=handle;
+                child.filePickerAdapter={showSaveFilePicker:async()=>handle};
+                return await child.saveCompactProject({saveAs:true});
+            }''') is True
+            page.wait_for_function('''() => window.__V_ASE_WORKSPACE__.tabs
+                .get(window.__V_ASE_WORKSPACE__.activeSessionId)
+                ?.provenance?.filename==='new-project-copy.vase' ''')
+            page.evaluate('''() => {
+                const workspace=window.__V_ASE_WORKSPACE__;
+                const pane=workspace.tabs.get(workspace.activeSessionId).pane;
+                window.__oldProjectChild=pane.contentWindow.__ASE_APP__;
+                pane.contentWindow.location.reload();
+            }''')
+            page.wait_for_function('''() => {
+                const workspace=window.__V_ASE_WORKSPACE__;
+                const entry=workspace.tabs.get(workspace.activeSessionId);
+                const child=entry?.pane?.contentWindow?.__ASE_APP__;
+                return child && child!==window.__oldProjectChild
+                    && entry.appInstance===child
+                    && child.projectFile.filename==='new-project-copy.vase';
+            }''')
+            assert page.evaluate('''() => {
+                const workspace=window.__V_ASE_WORKSPACE__;
+                const app=workspace.tabs.get(workspace.activeSessionId).pane.contentWindow.__ASE_APP__;
+                return app.state.display.atomRadiusScale===0.95
+                    && app.projectFile.dirty===false
+                    && app.projectFile.handle?.name==='new-project-copy.vase';
+            }''') is True
+            browser.close()
+    finally:
+        finalize_workspace(workspace.workspace_id)
+        editor.close()
+
+
+def test_regular_workspace_mac_parent_shortcut_targets_active_child_once():
+    sync_playwright = pytest.importorskip('playwright.sync_api').sync_playwright
+    editor = view(Atoms('H'), notebook=True, block=False, port=find_free_port(),
+                  close_on_disconnect=False)
+    host = sessions[editor.session_id]
+    workspace = create_workspace(host)
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            page = browser.new_page()
+            page.add_init_script("""Object.defineProperty(navigator, 'userAgentData', {
+                configurable:true, value:{platform:'macOS'}});
+                Object.defineProperty(navigator, 'platform', {
+                    configurable:true, value:'MacIntel'});""")
+            page.goto(f'http://127.0.0.1:{editor.port}/workspace'
+                      f'?workspace_id={workspace.workspace_id}&session_id={host.session_id}')
+            assert page.locator('#new-document').get_attribute('aria-keyshortcuts') == 'Meta+N'
+            page.wait_for_function('''() => document.querySelector('iframe')
+                ?.contentWindow?.__ASE_APP__?.collaborationReady''')
+            page.click('#new-document')
+            page.wait_for_function('''() => document.querySelectorAll('.document-tab').length===2
+                && document.querySelector('.document-pane:not([hidden])')
+                    ?.contentWindow?.__ASE_APP__?.collaborationReady''')
+            page.evaluate('''() => {
+                const workspace=window.__V_ASE_WORKSPACE__;
+                const child=workspace.tabs.get(workspace.activeSessionId).pane.contentWindow.__ASE_APP__;
+                window.__saveTargets=[];
+                child.saveDocument=async()=>window.__saveTargets.push('child');
+                document.querySelector('iframe').contentWindow.__ASE_APP__.saveDocument=
+                    async()=>window.__saveTargets.push('host');
+            }''')
+            page.locator('.document-tab.active .document-select').click()
+            before_camera = page.evaluate('''() => {
+                const workspace=window.__V_ASE_WORKSPACE__;
+                return workspace.tabs.get(workspace.activeSessionId).pane.contentWindow
+                    .__ASE_APP__.cameraSettingsSnapshot().position;
+            }''')
+            page.keyboard.press('ArrowUp')
+            after_camera = page.evaluate('''() => {
+                const workspace=window.__V_ASE_WORKSPACE__;
+                return workspace.tabs.get(workspace.activeSessionId).pane.contentWindow
+                    .__ASE_APP__.cameraSettingsSnapshot().position;
+            }''')
+            assert after_camera != pytest.approx(before_camera, abs=1e-8)
+            page.keyboard.press('Meta+s')
+            assert page.evaluate('window.__saveTargets') == ['child']
+            page.keyboard.press('Control+s')
+            assert page.evaluate('window.__saveTargets') == ['child']
+            page.keyboard.press('Meta+n')
+            page.wait_for_function("document.querySelectorAll('.document-tab').length===3")
+            page.wait_for_function('''() => document.querySelector('.document-pane:not([hidden])')
+                ?.contentWindow?.__ASE_APP__?.workspaceRecoveryAcknowledged''')
+            page.locator('.document-tab.active .document-select').click()
+            page.keyboard.press('Meta+w')
+            page.wait_for_function("document.querySelectorAll('.document-tab').length===2")
+            assert page.is_closed() is False
+            browser.close()
+    finally:
+        finalize_workspace(workspace.workspace_id)
+        editor.close()
+
+
+def test_last_workspace_tab_cancel_then_discard_keeps_workspace_alive():
+    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
+    playwright_error = pytest.importorskip("playwright._impl._errors").Error
+    editor = view(Atoms("H", positions=[[0, 0, 0]]), notebook=True,
+                  block=False, port=find_free_port(), viz_only=False,
+                  close_on_disconnect=False)
+    host = sessions[editor.session_id]
+    workspace = create_workspace(host)
+    try:
+        with sync_playwright() as playwright:
+            try:
+                browser = playwright.chromium.launch(headless=True)
+            except playwright_error as error:
+                pytest.skip(f"Playwright Chromium unavailable: {error}")
+            page = browser.new_page()
+            page.goto(
+                f"http://127.0.0.1:{editor.port}/workspace"
+                f"?workspace_id={workspace.workspace_id}&session_id={host.session_id}"
+            )
+            page.wait_for_function("document.querySelectorAll('.document-tab').length === 1")
+            frame = page.frame_locator(f'iframe[data-session-id="{host.session_id}"]')
+            frame.locator('#app-viewport').wait_for()
+            page.wait_for_function("""id => {
+                const app = document.querySelector(`iframe[data-session-id="${id}"]`)
+                    ?.contentWindow?.__ASE_APP__;
+                return app?.visualHistoryReady === true;
+            }""", arg=host.session_id)
+            page.evaluate("""id => {
+                const app = document.querySelector(`iframe[data-session-id="${id}"]`)
+                    .contentWindow.__ASE_APP__;
+                app.state.display.atomRadiusScale = 0.85;
+                app.scheduleVisualHistoryCommit('test-dirty');
+                app.flushVisualHistoryCommit();
+            }""", host.session_id)
+            page.wait_for_function("document.querySelector('.document-tab')?.classList.contains('dirty')")
+            page.locator('.document-tab .document-close').click()
+            frame.locator('#modal-keep-editing').click()
+            assert page.locator('.document-tab').count() == 1
+            assert host.session_id in sessions
+            page.evaluate("""id => {
+                const app = document.querySelector(`iframe[data-session-id="${id}"]`)
+                    .contentWindow.__ASE_APP__;
+                app.chooseSaveDestination = async () => null;
+            }""", host.session_id)
+            page.locator('.document-tab .document-close').click()
+            frame.locator('#modal-save-document').click()
+            page.wait_for_function("document.querySelector('.document-tab .document-close')?.disabled === false")
+            assert page.locator('.document-tab').count() == 1
+            page.locator('.document-tab .document-close').click()
+            frame.locator('#modal-discard-document').click()
+            page.wait_for_function("""id => {
+                const tab = document.querySelector('.document-tab');
+                return document.querySelectorAll('.document-tab').length === 1
+                    && tab?.dataset.sessionId !== id;
+            }""", arg=host.session_id)
+            assert host.session_id in sessions
+            assert workspace.workspace_id in workspaces
             browser.close()
     finally:
         finalize_workspace(workspace.workspace_id)

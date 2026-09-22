@@ -33,12 +33,12 @@ spacing uses a reduced-lattice minimum-image search.
 
 ## Example: reproduce the Ga insertion animation
 
-1. Run `v_ase gui`. Under **Structure > Cell & Replication**, set a diagonal
+1. Run `v_ase gui`. Under **Style > Cell**, set a diagonal
    9.2 Å cell and enable all three periodic axes.
 2. Open **+ Add atoms > Batch > Atoms**. Add one row: TYPE `Ga`, LABEL `Ga_amorphous`, count **54**.
 3. Choose **Random** and seed **20260813**.
 4. Scatter the batch. Verify 54 staged Ga atoms in the primary cell.
-5. Open **Structure > Relaxation**, inspect the independent repulsion pair
+5. Open **Build > Relaxation**, inspect the independent repulsion pair
    distances, and use absolute onset **2.55 Å**, strength **2.8 eV/Å²**,
    `fmax = 0.025 eV/Å` and **180 steps**. Run placement relaxation. The host-freezing option
    matters when inserting into an existing structure.

@@ -38,7 +38,7 @@ Use the bottom timeline or keyboard:
 | Control | Action |
 | --- | --- |
 | `Space` | Play or pause the active timeline |
-| Left/Right Arrow | Previous or next active-timeline frame |
+| Option+Left/Right Arrow (macOS); Alt+Left/Right Arrow (Windows/Linux) | Previous or next active-timeline frame |
 | Previous/Next buttons | Step one frame |
 | **FPS** | Playback rate |
 | **Skip** | Advance by more than one source frame |
@@ -50,7 +50,8 @@ v_ase can show several timeline kinds without merging them:
 - **Add Atoms** placement-relaxation frames; and
 - **Rigid Translation** registry-relaxation frames.
 
-The selected timeline alone receives playback and arrow-key input. Optimizer
+The selected timeline alone receives playback and modified-arrow input. Plain
+arrow keys orbit or tilt the structure view without changing frames. Optimizer
 timelines are mode state, not silently appended source trajectories.
 
 ### Add or replace frames
@@ -115,3 +116,9 @@ products use a bounded rolling window. A pending result may leave the previous
 curve visible until calculation completes, but semantic verification must
 confirm the reported result frame. A missing frame-associated volumetric field
 is hidden rather than reusing stale data.
+
+## Coordinate precision
+
+Cached and streamed browser coordinates retain the original double precision.
+Visiting a frame and then editing or exporting it does not replace its scientific
+coordinates with the GPU’s lower-precision vertex data.

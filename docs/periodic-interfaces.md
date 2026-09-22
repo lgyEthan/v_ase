@@ -18,7 +18,7 @@ different problems and should not be substituted for one another.
 
 ## Cell and periodic boundary conditions
 
-Under **Structure > Cell & Replication**, edit the complete 3×3 cell and the
+Under **Style > Cell**, edit the complete 3×3 cell and the
 three PBC flags. Setting a cell does not scale Cartesian atom coordinates. Wrap
 maps atoms into periodic directions of their own current frame.
 
@@ -91,7 +91,7 @@ Before applying:
 
 ### Run a bounded match
 
-Open the host in Edit, then **Structure > Transform & Cell Match**. Enable the
+Open the host in Edit, then **Build > Transform & cell match**. Enable the
 commensurate workspace and load the guest. Start with area ratio 16 and maximum
 strain 1%; choose which side receives strain and inspect the cells-only preview.
 If no candidate passes, increase the area ceiling or reconsider the physically

@@ -1,15 +1,87 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.3.8';
-import { ASERenderer } from './renderer.js?v=0.3.8';
-import { ASESelection } from './selection.js?v=0.3.8';
-import { ASETransform } from './transform.js?v=0.3.8';
-import { installPolyhedra } from './polyhedra.js?v=0.3.8';
-import { installAIScene } from './ai_scene.js?v=0.3.8';
+import { ASEApi } from './api.js?v=0.4.1';
+import { ASERenderer } from './renderer.js?v=0.4.1';
+import { ASESelection } from './selection.js?v=0.4.1';
+import { ASETransform } from './transform.js?v=0.4.1';
+
+import { installPolyhedra } from './polyhedra.js?v=0.4.1';
+import { installAIScene } from './ai_scene.js?v=0.4.1';
+import { AtomScalarStore } from './atom_properties.js?v=0.4.1';
+import { DirectWorkspace } from './direct_workspace.js?v=0.4.1';
+import { projectProvenanceFromLoad } from './project_provenance.js?v=0.4.1';
+import { installShortcutCapture } from './shortcut_capture.js?v=0.4.1';
+import { WORKBENCH_ROUTES, mountWorkbenchTools, syncWorkbenchRoute } from './editor_ui.js?v=0.4.1';
+import {
+    EDITOR_COMMANDS, commandIdForEvent, resolveShortcutPlatform,
+    editorShortcutLabel, editorAriaShortcut, editorShortcutSearchTerms,
+    viewportNavigationForEvent
+} from './editor_commands.js?v=0.4.1';
+import {
+    DEFAULT_ATOM_RADIUS_MAPPING,
+    atomRadiusFactors,
+    normalizeAtomRadiusMapping,
+    radiusMappingPreset
+} from './radius_mapping.js?v=0.4.1';
 import {
     interpolateTrajectoryFrames,
     interpolatedFrameCount,
     normalizeInterpolationMultiplier
-} from './trajectory.js?v=0.3.8';
+} from './trajectory.js?v=0.4.1';
+
+const EDITOR_ROUTES = Object.freeze({
+    'structure-info': { group: 'inspect', category: 'scene', title: 'Scene overview' },
+    selection: { group: 'inspect', category: 'analyze', title: 'Inspect & measure' },
+    appearance: { group: 'structure', category: 'style', title: 'Atoms' },
+    bonding: { group: 'structure', category: 'style', title: 'Bonds' },
+    'cell-replication': { group: 'structure', category: 'style', title: 'Cell' },
+    polyhedra: { group: 'structure', category: 'scene', title: 'Coordination polyhedra' },
+    'scene-fields': { group: 'analysis', category: 'scene', title: 'Scene fields', target: '#scene-field-list' },
+    'scene-vectors': { group: 'analysis', category: 'scene', title: 'Vector layers', target: '#scene-displacement-visible' },
+    view: { group: 'view', category: 'scene', title: 'View & guides' },
+    'add-atoms': { group: 'structure', category: 'build', title: 'Add atoms & molecules' },
+    transform: { group: 'structure', category: 'build', title: 'Transform selection', target: '#rotate-pivot' },
+    'cell-transform': { group: 'structure', category: 'build', title: 'Transform cell' },
+    constraints: { group: 'structure', category: 'build', title: 'Constraints' },
+    'scientific-tools': { group: 'structure', category: 'build', title: 'Relaxation' },
+    'build-match': { group: 'structure', category: 'build', title: 'Match periodic cells', panel: 'transform', target: '#chk-commensurate-guide' },
+    'build-rigid': { group: 'analysis', category: 'build', title: 'Rigid translation', panel: 'registry-map', target: '#registry-translation-space' },
+    rdf: { group: 'analysis', category: 'analyze', title: 'Distributions' },
+    displacement: { group: 'analysis', category: 'analyze', title: 'Displacements' },
+    forces: { group: 'analysis', category: 'analyze', title: 'Stored forces' },
+    volumetric: { group: 'analysis', category: 'analyze', title: 'Fields' },
+    'registry-map': { group: 'analysis', category: 'analyze', title: 'Rigid translation map', target: '#registry-metric' },
+    export: { group: 'export', category: 'render', title: 'Renderer' },
+    'render-image': { group: 'export', category: 'render', title: 'Image export', panel: 'export', target: '#btn-export-image' },
+    'render-video': { group: 'export', category: 'render', title: 'Video export', panel: 'export', target: '#btn-export-video' },
+    'render-html': { group: 'export', category: 'render', title: 'Interactive HTML', panel: 'export', target: '#btn-export-html' },
+    'render-geometry': { group: 'export', category: 'render', title: 'Geometry export', panel: 'export', target: '#btn-export-blender' },
+    project: { group: 'export', category: 'render', title: 'Project save' },
+    settings: { group: 'export', category: 'render', title: 'Visual defaults' },
+    'save-guide': { group: 'export', category: 'render', title: 'Format guide' }
+});
+const EDITOR_SEARCH = Object.freeze({
+    appearance: [['atom radius mapping property size scalar', '#atom-radius-mapping-field'],
+        ['color mapping material opacity atom size', '#atom-radius-scale-number']],
+    bonding: [['periodic bridges manual pairwise cutoff topology', '#bond-mode']],
+    'cell-replication': [['supercell repeat replication lattice abc', '#super-x']],
+    'cell-transform': [['matrix determinant make supercell physical cell', '#matrix-00']],
+    transform: [['pivot rotate snap move selection', '#rotate-pivot']],
+    'build-match': [['commensurate guest strain periodic matching', '#chk-commensurate-guide']],
+    'build-rigid': [['rigid translation component optimize plane', '#registry-translation-space']],
+    'registry-map': [['translation map metric grid', '#registry-metric']],
+    volumetric: [['field import precision fp32 fp64', '#volume-import-precision'],
+        ['isosurface histogram level', '#volume-level'], ['plane hkl', '#volume-plane-h']],
+    displacement: [['motion vectors reference minimum image', '#displacement-reference-mode']],
+    forces: [['stored forces vectors', '#chk-force-vectors']],
+    export: [['renderer lighting sun', '#renderer-lighting-mode'],
+        ['scale px/å pixels per angstrom physical framing', '#renderer-pixels-per-angstrom'],
+        ['antialias quality smoothness', '#renderer-sphere-quality'],
+        ['render area follow viewport frame', '#btn-preview-image']],
+    'render-image': [['png jpeg webp pdf image', '#btn-export-image']],
+    'render-video': [['video fps interpolation mov avi', '#btn-export-video']],
+    'render-html': [['interactive offline html embedded project', '#btn-export-html']],
+    'render-geometry': [['blender obj rhino 3dm geometry', '#btn-export-blender']]
+});
 
 const CHEMICAL_ELEMENT_SYMBOLS = Object.freeze([
     'H','He','Li','Be','B','C','N','O','F','Ne',
@@ -61,13 +133,59 @@ const DEFAULT_CUSTOM_COLORMAP = Object.freeze({
 class VAseApp {
     constructor() {
         const urlParams = new URLSearchParams(window.location.search);
+        this.shortcutPlatform = resolveShortcutPlatform();
         this.sessionId = urlParams.get('session_id');
         this.workspaceId = urlParams.get('workspace_id');
-        this.workspaceChild = urlParams.get('workspace_child') === '1';
+        this.workspaceChild = urlParams.get('workspace_child') === '1' && window.parent !== window;
+        this.workspaceRecoveryAcknowledged = !this.workspaceChild;
+        this.workspaceRecoveryReady = this.workspaceChild
+            ? new Promise(resolve => { this.resolveWorkspaceRecovery = resolve; })
+            : Promise.resolve();
+        if (this.workspaceChild) {
+            // The parent restores authoritative state before a reloaded child
+            // can receive human input. collaborationReady alone is too early.
+            document.body.inert = true;
+            document.body.setAttribute('aria-busy', 'true');
+        }
         this.workspaceActive = !this.workspaceChild;
         this.workspaceNeedsRefresh = false;
+        this.workspaceBaselineSettled = false;
+        this.workspaceRecoveryRestored = false;
+        this.userInteractionCount = 0;
+        this.countUserInteraction = () => { this.userInteractionCount += 1; };
+        window.addEventListener('pointerdown', this.countUserInteraction, true);
+        window.addEventListener('keydown', this.countUserInteraction, true);
+        this.workspaceBaselineTimer = null;
+        this.directWorkspace = null;
+        this.directWorkspacePromise = null;
         this.workspaceOpenRequests = new Map();
         this.workspaceRequestSequence = 0;
+        this.projectFile = {
+            format: null,
+            filename: null,
+            handle: null,
+            serverBinding: null,
+            contentVersion: null,
+            outputProfile: null,
+            saving: false,
+            savePromise: null,
+            lastSaveKind: null,
+            structureRevision: 0,
+            savedStructureRevision: 0,
+            savedVisualSignature: null,
+            savedScientificSignature: null,
+            error: null,
+            dirty: false
+        };
+        this.projectDirtyTimer = null;
+        this.projectLoadGeneration = 0;
+        this.recoveryGeneration = globalThis.crypto?.randomUUID?.()
+            || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+        this.recoveryRevision = 0;
+        this.lastRecoverySignature = null;
+        this.pendingScientificRequests = new Set();
+        this.pendingApplyInFlight = false;
+        this.pendingScientificError = null;
         this.disposed = false;
         this.cleanupCallbacks = [];
         this.undoTimeline = [];
@@ -88,6 +206,8 @@ class VAseApp {
         this.api = new ASEApi(this.sessionId);
         this.api.onUndoableMutation = ({ path } = {}) => {
             this.recordStructureHistoryAction(path);
+            this.projectFile.structureRevision += 1;
+            queueMicrotask(() => this.updateProjectDirtyState());
             const details = this.collaborationMutationDetails(path);
             this.scheduleCollaborationEvent({
                 ...details,
@@ -100,6 +220,23 @@ class VAseApp {
                 ...details,
                 source: this.currentCollaborationActor(path)
             });
+        };
+        this.api.onScientificRequestStart = () => {
+            const token = {};
+            token.promise = new Promise(resolve => { token.resolve = resolve; });
+            this.pendingScientificRequests.add(token);
+            this.updateProjectDirtyState();
+            return token;
+        };
+        this.api.onScientificRequestSettled = ({ token } = {}) => {
+            if (!token) return;
+            // Callers adopt the response identity in their next microtask.
+            // Keep the mutation pending until that adoption has run.
+            window.setTimeout(() => {
+                this.pendingScientificRequests.delete(token);
+                token.resolve();
+                this.updateProjectDirtyState();
+            }, 0);
         };
         this.pendingApply = Promise.resolve();
         
@@ -114,7 +251,9 @@ class VAseApp {
         this.pendingFrameIndex = null;
         this.timelineStepQueue = Promise.resolve();
         this.controlCommitState = new WeakMap();
+        this.invalidDraftInput = null;
         this.filePickerSuppressUntil = 0;
+        this.filePickerAdapter = null;
         this.renderer.onFrame = () => {
             this.updateOrientationWidget();
             this.updateSelectionMeasurementOverlay();
@@ -129,6 +268,7 @@ class VAseApp {
                 });
             }
             this.observeCollaborationCamera(event?.source || 'camera');
+            this.scheduleProjectDirtyStateUpdate();
         };
         this.renderer.controls.onGestureStart = () => this.flushVisualHistoryCommit();
         this.renderer.controls.onGestureEnd = () => {
@@ -141,11 +281,22 @@ class VAseApp {
             selected: new Set(),
             replicaSelected: new Map(),
             selectionOrder: [],
+            measurementIntent: { kind: 'none', keys: [] },
             originalPositions: [], // For preview transforms
             isDragging: false,
             pointerDownTime: 0,
-            lastPointer: new THREE.Vector2(window.innerWidth / 2, window.innerHeight / 2),
-            transformStartPointer: new THREE.Vector2(window.innerWidth / 2, window.innerHeight / 2),
+            lastPointer: new THREE.Vector2(
+                (document.getElementById('app-viewport')?.getBoundingClientRect().left || 0)
+                    + (document.getElementById('app-viewport')?.clientWidth || window.innerWidth) / 2,
+                (document.getElementById('app-viewport')?.getBoundingClientRect().top || 0)
+                    + (document.getElementById('app-viewport')?.clientHeight || window.innerHeight) / 2
+            ),
+            transformStartPointer: new THREE.Vector2(
+                (document.getElementById('app-viewport')?.getBoundingClientRect().left || 0)
+                    + (document.getElementById('app-viewport')?.clientWidth || window.innerWidth) / 2,
+                (document.getElementById('app-viewport')?.getBoundingClientRect().top || 0)
+                    + (document.getElementById('app-viewport')?.clientHeight || window.innerHeight) / 2
+            ),
             suppressNextPointerUp: false,
             clipboard: null,
             selectedAppearanceDirty: new Set(),
@@ -179,6 +330,7 @@ class VAseApp {
                 bondCustomColor: '#c8ccd0',
                 bondOpacity: 1,
                 atomRadiusScale: 0.6,
+                atomRadiusMapping: { ...DEFAULT_ATOM_RADIUS_MAPPING, indices: [] },
                 labelRadii: {},
                 labelColors: {},
                 labelOpacities: {},
@@ -289,7 +441,12 @@ class VAseApp {
             repulsionPairBasis: 'covalent',
             repulsionPairSourceSignature: '',
             calculatorApplyTimer: null,
-            rotationScreenPivot: new THREE.Vector2(window.innerWidth / 2, window.innerHeight / 2),
+            rotationScreenPivot: new THREE.Vector2(
+                (document.getElementById('app-viewport')?.getBoundingClientRect().left || 0)
+                    + (document.getElementById('app-viewport')?.clientWidth || window.innerWidth) / 2,
+                (document.getElementById('app-viewport')?.getBoundingClientRect().top || 0)
+                    + (document.getElementById('app-viewport')?.clientHeight || window.innerHeight) / 2
+            ),
             rotationLastAngle: 0,
             rotationPointerActive: false,
             rotationReferenceDirection: null,
@@ -414,6 +571,29 @@ class VAseApp {
             renderedFrame: -1,
             colormapMenu: null
         };
+        this.atomRadiusRuntime = {
+            requestToken: 0,
+            fitToken: 0,
+            generation: 0,
+            configuring: false,
+            status: 'idle',
+            error: null,
+            missing: 0,
+            applied: 0,
+            renderedFrame: -1,
+            refreshRequest: null
+        };
+        this.atomScalarStore = new AtomScalarStore(this.api, () => ({
+            documentId: this.sessionId || '',
+            dataGeneration: this.atomRadiusRuntime.generation,
+            timeline: this.state?.displayedTimelineSource || 'loaded',
+            frame: Number(this.state?.atoms?.metadata?.current_frame || 0),
+            atomCount: this.state?.atoms?.positions?.length || 0,
+            signature: '',
+            positions: this.transform?.mode !== 'IDLE'
+                ? this.currentPositionsFromScene?.()
+                : (this.renderer?.atomsData?.positions || this.state?.atoms?.positions || [])
+        }));
         this.selectionPropertyRuntime = {
             cache: new Map(),
             pending: new Map(),
@@ -455,11 +635,31 @@ class VAseApp {
         if (this.workspaceChild) {
             window.addEventListener('message', this.handleWorkspaceMessage);
         }
-        this.handlePageTeardown = () => this.dispose();
+        this.handlePageTeardown = () => {
+            if (this.workspaceChild && window.parent !== window) {
+                this.flushVisualHistoryCommit();
+                const workspace = window.parent.__V_ASE_WORKSPACE__;
+                workspace?.captureDocumentProvenance?.(workspace.tabs.get(this.sessionId), this);
+            }
+            this.dispose();
+        };
+        this.handleBeforeUnload = event => {
+            if (this.workspaceChild) return;
+            const dirty = this.directWorkspace
+                ? [...this.directWorkspace.tabs.values()].some(entry => {
+                    const app = entry.host ? this : entry.pane?.contentWindow?.__ASE_APP__;
+                    return entry.dirty || app?.projectFile?.dirty
+                        || app?.pendingApplyInFlight || app?.pendingScientificRequests?.size;
+                })
+                : Boolean(this.projectFile?.dirty);
+            if (!dirty) return;
+            event.preventDefault();
+            event.returnValue = '';
+        };
         window.addEventListener('pagehide', this.handlePageTeardown, { once: true });
-        window.addEventListener('beforeunload', this.handlePageTeardown, { once: true });
+        window.addEventListener('beforeunload', this.handleBeforeUnload);
 
-        this.ready = this.init();
+        this.ready = this.init().then(() => this.workspaceRecoveryReady);
     }
 
     async init() {
@@ -483,15 +683,54 @@ class VAseApp {
             this.setupRuntimeModeControls();
             this.setupSelectedAppearanceControls();
             this.setupAtomColorScaleControls();
+            this.setupAtomRadiusMappingControls();
             this.setupAseBulkBuilder();
             this.setupLightingControls();
+            this.setupRendererProperties();
             this.setupToolbarTooltips();
             this.setupCreateAtomWidget();
+            this.setupEditorNavigator();
+            if (!this.workspaceChild) {
+                this.disposeShortcutCapture = installShortcutCapture(
+                    document.getElementById('editor-fullscreen-editing'),
+                    document.getElementById('editor-shortcut-status')
+                );
+            } else {
+                document.getElementById('editor-fullscreen-editing')?.setAttribute('hidden', '');
+                document.getElementById('editor-shortcut-status')?.setAttribute('hidden', '');
+            }
             this.setupEventListeners();
+            this.setupRangeNumberCompanions();
             this.setupInputCommitBehavior();
             this.setupNumberInputHoldGuards();
             await this.loadUserVisualDefaults();
             await this.refresh();
+            const initialBinding = this.state.atoms?.metadata?.project_file_binding;
+            if (initialBinding?.id) {
+                this.projectFile.format = initialBinding.format;
+                this.projectFile.filename = initialBinding.filename;
+                this.projectFile.serverBinding = initialBinding;
+                this.projectFile.outputProfile = initialBinding.format === 'html'
+                    ? this.htmlExportProfile(
+                        this.state.atoms?.metadata?.config?.initial_design_settings?.projectSave?.html?.exportProfile
+                        || this.state.atoms?.metadata?.config?.initial_design_settings?.imageExportProfile
+                        || null
+                    ) : null;
+            } else {
+                const settings = this.state.atoms?.metadata?.config?.initial_design_settings;
+                const savedProject = settings?.projectSave;
+                if (['vase', 'html'].includes(savedProject?.format)) {
+                    this.projectFile.format = savedProject.format;
+                    this.projectFile.filename = this.state.atoms?.metadata?.config?.document_name
+                        || `Untitled.${savedProject.format === 'html' ? 'html' : 'vase'}`;
+                    this.projectFile.outputProfile = savedProject.format === 'html'
+                        ? this.htmlExportProfile(savedProject.html?.exportProfile
+                            || settings.imageExportProfile || null) : null;
+                    this.projectFile.lastSaveKind = 'download-copy';
+                }
+            }
+            this.resetVisualHistoryBaseline();
+            this.markProjectSavedContent();
             this.collaborationReady = true;
             this.collaborationSelectionSignature = this.collaborationSelectionKey();
             this.collaborationCameraSignature = this.collaborationCameraKey();
@@ -513,9 +752,166 @@ class VAseApp {
     }
 
     workspaceDocumentTitle() {
+        if (this.projectFile?.filename) return this.projectFile.filename;
         const configured = this.state.atoms?.metadata?.config?.document_name;
         const title = String(configured || 'Untitled').trim();
         return title || 'Untitled';
+    }
+
+    adoptProjectProvenance(provenance, { savedContent = null, deferBaseline = false } = {}) {
+        const project = provenance && ['vase', 'html'].includes(provenance.format)
+            ? provenance : null;
+        this.projectFile.format = project?.format || null;
+        this.projectFile.filename = project?.filename || null;
+        this.projectFile.handle = project?.handle || null;
+        this.projectFile.serverBinding = project?.serverBinding || null;
+        this.projectFile.contentVersion = project?.contentVersion || null;
+        this.projectFile.outputProfile = project?.format === 'html'
+            ? this.htmlExportProfile(project.outputProfile) : null;
+        this.projectFile.lastSaveKind = project
+            ? (project.handle ? 'writable-file'
+                : project.serverBinding ? 'server-source' : 'download-copy') : null;
+        this.projectFile.error = null;
+        this.projectFile.structureRevision = 0;
+        this.resetVisualHistoryBaseline();
+        if (savedContent?.scientific && savedContent?.visual) {
+            this.projectFile.savedScientificSignature = savedContent.scientific;
+            this.projectFile.savedVisualSignature = savedContent.visual;
+            this.updateProjectDirtyState();
+        } else if (!deferBaseline) {
+            this.markProjectSavedContent();
+        } else {
+            this.updateProjectDirtyState();
+        }
+        this.notifyWorkspaceDocument();
+    }
+
+    projectVisualSignature() {
+        const snapshot = this.visualHistorySnapshot();
+        delete snapshot.display.atomicScalePixelsPerAngstrom;
+        if (!this.volumetricDatasets().length
+            && (snapshot.display.volumetricLevel == null
+                || Number(snapshot.display.volumetricLevel) === 0)) {
+            // No scalar field exists to which the implicit zero level could
+            // apply. Loading a sparse HTML profile may materialize this 0.
+            delete snapshot.display.volumetricLevel;
+        }
+        const camera = this.cameraSettingsSnapshot();
+        const delta = camera.position.map((value, index) => value - camera.target[index]);
+        const length = Math.hypot(...delta) || 1;
+        snapshot.camera = {
+            target: camera.target,
+            direction: delta.map(value => Number((value / length).toFixed(10))),
+            up: camera.up,
+            projection: camera.projection,
+            fov: camera.fov,
+            // Camera-scale controls persist four decimal places on restore.
+            pixelsPerAngstrom: Number(this.renderer.currentPixelsPerAngstrom().toFixed(4))
+        };
+        snapshot.renderArea = {
+            followViewport: Boolean(this.state.exportPreviewFollowViewport),
+            camera: this.state.exportPreviewFollowViewport
+                ? null : this.clonePlain(this.state.exportPreviewCamera || null)
+        };
+        if (this.state.exportPreviewFollowViewport) {
+            delete snapshot.imageExportProfile?.options?.camera;
+        }
+        delete snapshot.renderArea.camera?.aspect;
+        delete snapshot.imageExportProfile?.options?.camera?.aspect;
+        return JSON.stringify(snapshot);
+    }
+
+    scheduleProjectDirtyStateUpdate(delay = 150) {
+        if (this.projectDirtyTimer !== null) clearTimeout(this.projectDirtyTimer);
+        this.projectDirtyTimer = window.setTimeout(() => {
+            this.projectDirtyTimer = null;
+            this.updateProjectDirtyState();
+        }, delay);
+    }
+
+    projectScientificSignature() {
+        const atoms = this.state.atoms || {};
+        const metadata = atoms.metadata || {};
+        if (metadata.scientific_content_identity) {
+            return `server:${metadata.scientific_content_identity}`;
+        }
+        const trajectory = atoms.trajectory_positions;
+        if (trajectory && (
+            this.projectFile.trajectorySignatureCache?.source !== trajectory
+            || this.projectFile.trajectorySignatureCache?.revision !== this.projectFile.structureRevision
+        )) {
+            this.projectFile.trajectorySignatureCache = {
+                source: trajectory,
+                revision: this.projectFile.structureRevision,
+                signature: JSON.stringify(trajectory)
+            };
+        }
+        return JSON.stringify({
+            positions: this.renderer.currentPositions(),
+            cell: atoms.cell,
+            cellOrigin: atoms.cell_origin,
+            pbc: atoms.pbc,
+            labels: atoms.labels || atoms.symbols,
+            chemicalSymbols: atoms.chemical_symbols,
+            atomicNumbers: atoms.atomic_numbers,
+            masses: atoms.masses,
+            tags: atoms.tags,
+            charges: atoms.charges,
+            magmoms: atoms.magmoms,
+            constraints: atoms.constraints,
+            trajectoryPositions: trajectory
+                ? this.projectFile.trajectorySignatureCache.signature : null,
+            frame: metadata.current_frame,
+            frameCount: metadata.frame_count,
+            calculator: metadata.calculator_details,
+            volumes: metadata.volumetric_datasets,
+            guest: metadata.commensurate_guest
+        });
+    }
+
+    adoptScientificContentIdentity(result) {
+        const identity = result?.scientific_content_identity
+            || result?.metadata?.scientific_content_identity;
+        if (!identity) throw new Error('The scientific mutation response has no content identity. Reload before saving.');
+        this.state.atoms.metadata.scientific_content_identity = identity;
+        this.projectFile.structureRevision += 1;
+        this.updateProjectDirtyState();
+    }
+
+    updateProjectDirtyState() {
+        if (!this.projectFile || !this.state?.atoms) return false;
+        const scientific = this.projectScientificSignature();
+        const visual = this.projectVisualSignature();
+        const recoverySignature = `${scientific}\n${visual}`;
+        const stateChanged = recoverySignature !== this.lastRecoverySignature;
+        if (stateChanged) {
+            this.lastRecoverySignature = recoverySignature;
+            this.recoveryRevision += 1;
+        }
+        const dirty = this.projectFile.savedVisualSignature !== null && (
+            this.pendingScientificRequests.size > 0
+            || this.pendingApplyInFlight
+            || Boolean(this.pendingScientificError)
+            ||
+            scientific !== this.projectFile.savedScientificSignature
+            || visual !== this.projectFile.savedVisualSignature
+        );
+        const dirtyChanged = dirty !== this.projectFile.dirty;
+        this.projectFile.dirty = dirty;
+        if (dirtyChanged) {
+            this.notifyWorkspaceDocument('v_ase:document-dirty');
+        } else if (stateChanged && this.collaborationReady) {
+            this.notifyWorkspaceDocument('v_ase:document-state');
+        }
+        return dirty;
+    }
+
+    markProjectSavedContent() {
+        if (this.pendingScientificRequests.size || this.pendingApplyInFlight) return;
+        this.projectFile.savedStructureRevision = this.projectFile.structureRevision;
+        this.projectFile.savedScientificSignature = this.projectScientificSignature();
+        this.projectFile.savedVisualSignature = this.projectVisualSignature();
+        this.updateProjectDirtyState();
     }
 
     projectFilename() {
@@ -542,11 +938,27 @@ class VAseApp {
     notifyWorkspaceDocument(type = 'v_ase:document-title') {
         const title = this.workspaceDocumentTitle();
         document.title = `${title} - v_ase`;
+        const headerTitle = document.getElementById('editor-document-name');
+        if (headerTitle) {
+            headerTitle.textContent = `${this.projectFile?.dirty ? '● ' : ''}${title}`;
+            headerTitle.title = `${title}${this.projectFile?.dirty ? ' · Unsaved changes' : ''}`;
+        }
+        const status = document.getElementById('project-save-status');
+        const errorText = document.getElementById('project-save-error-text');
+        if (status) status.classList.toggle('hidden', !this.projectFile?.error);
+        if (errorText) errorText.textContent = this.projectFile?.error
+            ? `Save failed: ${this.projectFile.error}` : '';
+        this.directWorkspace?.updateHost();
         if (!this.workspaceChild || window.parent === window) return;
         window.parent.postMessage({
             type,
             sessionId: this.sessionId,
             title,
+            dirty: Boolean(this.projectFile?.dirty),
+            saving: Boolean(this.projectFile?.saving),
+            error: this.projectFile?.error || null,
+            generation: this.recoveryGeneration,
+            recoveryRevision: this.recoveryRevision,
         }, window.location.origin);
     }
 
@@ -568,12 +980,30 @@ class VAseApp {
             this.renderer.onResize();
             this.renderer.requestRender();
         }
+        if (this.workspaceChild && !this.workspaceBaselineSettled) {
+            this.workspaceBaselineSettled = true;
+            const userActions = this.userInteractionCount;
+            this.workspaceBaselineTimer = window.setTimeout(() => {
+                this.workspaceBaselineTimer = null;
+                if (!this.disposed && !this.workspaceRecoveryRestored
+                    && this.userInteractionCount === userActions
+                    && this.projectFile.structureRevision === 0 && !this.undoTimeline.length
+                    && !this.visualHistoryPending) this.markProjectSavedContent();
+            }, 250);
+        }
     }
 
     handleWorkspaceMessage(event) {
         if (event.origin !== window.location.origin || event.source !== window.parent) return;
         const message = event.data || {};
         if (message.type === 'v_ase:workspace-active') {
+            if (message.recoveryReady) {
+                this.workspaceRecoveryAcknowledged = true;
+                document.body.inert = false;
+                document.body.removeAttribute('aria-busy');
+                this.resolveWorkspaceRecovery?.();
+                this.resolveWorkspaceRecovery = null;
+            }
             this.setWorkspaceActive(message.active).catch(err => {
                 console.error('Failed to activate workspace document:', err);
             });
@@ -597,6 +1027,23 @@ class VAseApp {
             this.workspaceOpenRequests.delete(message.requestId);
             if (message.ok) pending.resolve(message);
             else pending.reject(new Error(message.error || 'Could not open a new structure tab.'));
+        } else if (message.type === 'v_ase:workspace-request-close') {
+            this.confirmDocumentClose().then(allowed => {
+                window.parent.postMessage({
+                    type: 'v_ase:document-close-result',
+                    sessionId: this.sessionId,
+                    requestId: message.requestId,
+                    allowed
+                }, window.location.origin);
+            }).catch(error => {
+                this.toast(`Close check failed: ${error.message}`, 'error');
+                window.parent.postMessage({
+                    type: 'v_ase:document-close-result',
+                    sessionId: this.sessionId,
+                    requestId: message.requestId,
+                    allowed: false
+                }, window.location.origin);
+            });
         } else if (message.type === 'v_ase:workspace-theme') {
             window.v_aseTheme?.apply(message.preference, {
                 persist: false,
@@ -642,9 +1089,12 @@ class VAseApp {
         const addAtomsActive = this.addAtomsSessionActive();
         document.body.dataset.vizOnly = this.state.vizOnly ? 'true' : 'false';
         document.body.dataset.addAtomsActive = addAtomsActive ? 'true' : 'false';
+        this.syncWorkbenchEditingAvailability();
         document.querySelectorAll('[data-edit-only]').forEach(el => {
             if ('disabled' in el) el.disabled = this.state.vizOnly;
         });
+        document.querySelectorAll('#make-supercell-matrix input, #btn-apply-supercell-matrix')
+            .forEach(control => { control.disabled = this.state.vizOnly; });
         const sectionSelect = document.getElementById('structure-section-select');
         if (
             ['structure', 'analysis', 'export'].includes(this.inspectorGroup)
@@ -692,6 +1142,7 @@ class VAseApp {
         const colorInput = document.getElementById('selected-atom-color');
         const opacityInput = document.getElementById('selected-atom-opacity');
         const radiusScaleInput = document.getElementById('selected-atom-radius-scale');
+        const radiusScaleNumber = document.getElementById('selected-atom-radius-scale-number');
         const radiusScaleOutput = document.getElementById('selected-atom-radius-scale-value');
         const bondToggle = document.getElementById('selected-atom-update-bonds');
         const applyButton = document.getElementById('btn-apply-selected-label');
@@ -723,13 +1174,50 @@ class VAseApp {
                 this.toast(`Appearance update failed: ${err.message}`, 'error');
             });
         });
-        radiusScaleInput?.addEventListener('input', () => {
-            const value = Number(radiusScaleInput.value);
-            if (radiusScaleOutput && Number.isFinite(value)) {
-                radiusScaleOutput.textContent = `${value.toFixed(2)}x`;
+        let radiusGestureActive = false;
+        const endRadiusGesture = () => {
+            if (!radiusGestureActive) return;
+            radiusGestureActive = false;
+            this.flushVisualHistoryCommit();
+        };
+        const previewRadius = value => {
+            const numeric = Number(value);
+            const indices = this.selectedAtomIndices();
+            if (!indices.length || !Number.isFinite(numeric) || numeric < 0.25 || numeric > 2.5) return;
+            if (radiusScaleInput) radiusScaleInput.value = String(numeric);
+            if (radiusScaleNumber) radiusScaleNumber.value = String(numeric);
+            if (radiusScaleOutput) radiusScaleOutput.textContent = `${numeric.toFixed(2)}x`;
+            const scales = { ...(this.state.display.atomRadiusScales || {}) };
+            indices.forEach(index => {
+                if (Math.abs(numeric - 1) <= 1e-9) delete scales[index];
+                else scales[index] = numeric;
+            });
+            this.state.display.atomRadiusScales = scales;
+            this.renderer.setDisplayOptions({ atomRadiusScales: scales });
+            this.scheduleVisualHistoryCommit('selected-radius-scale');
+            if (radiusGestureActive && this.visualHistoryTimer !== null) {
+                clearTimeout(this.visualHistoryTimer);
+                this.visualHistoryTimer = null;
             }
-            markDirty('radiusScale');
+        };
+        radiusScaleInput?.addEventListener('pointerdown', () => {
+            this.flushVisualHistoryCommit();
+            radiusGestureActive = true;
         });
+        radiusScaleInput?.addEventListener('pointerup', endRadiusGesture);
+        radiusScaleInput?.addEventListener('pointercancel', endRadiusGesture);
+        radiusScaleInput?.addEventListener('keydown', () => { radiusGestureActive = true; });
+        radiusScaleInput?.addEventListener('keyup', endRadiusGesture);
+        radiusScaleInput?.addEventListener('blur', endRadiusGesture);
+        radiusScaleInput?.addEventListener('input', () => previewRadius(radiusScaleInput.value));
+        radiusScaleInput?.addEventListener('change', endRadiusGesture);
+        radiusScaleNumber?.addEventListener('focus', () => {
+            this.flushVisualHistoryCommit();
+            radiusGestureActive = true;
+        });
+        radiusScaleNumber?.addEventListener('input', () => previewRadius(radiusScaleNumber.value));
+        radiusScaleNumber?.addEventListener('blur', endRadiusGesture);
+        radiusScaleNumber?.addEventListener('change', endRadiusGesture);
         bondToggle?.addEventListener('change', () => {
             this.state.display.selectedAppearanceAffectsBonds = bondToggle.checked;
             this.scheduleVisualHistoryCommit('selected-appearance-bond-link');
@@ -1438,6 +1926,7 @@ class VAseApp {
             trajectoryButton.disabled = Number(this.state.atoms?.metadata?.frame_count || 1) <= 1;
         }
         if (!enabled) document.getElementById('atom-colorscale-legend')?.classList.add('hidden');
+        this.syncRangeNumberCompanions();
     }
 
     setAtomColorScaleStatus(message, kind = '') {
@@ -1481,6 +1970,445 @@ class VAseApp {
         this.renderer.atomColorScaleColors = null;
     }
 
+    normalizedAtomRadiusMapping(value = this.state.display.atomRadiusMapping, options = {}) {
+        return normalizeAtomRadiusMapping(value, options).mapping;
+    }
+
+    setupAtomRadiusMappingControls() {
+        const byId = id => document.getElementById(id);
+        const enabled = byId('chk-atom-radius-mapping');
+        const field = byId('atom-radius-mapping-field');
+        const preset = byId('atom-radius-mapping-preset');
+        const useSelection = byId('btn-atom-radius-mapping-use-selection');
+        const fitCurrent = byId('btn-atom-radius-mapping-fit-current');
+        const fitTrajectory = byId('btn-atom-radius-mapping-fit-trajectory');
+        const commit = ({ history = true } = {}) => {
+            const previous = this.normalizedAtomRadiusMapping();
+            const numberInput = id => {
+                const raw = byId(id)?.value?.trim();
+                if (!raw) throw new Error('Enter a finite value for each radius mapping control.');
+                const value = Number(raw);
+                if (!Number.isFinite(value)) throw new Error('Radius mapping controls require finite numbers.');
+                return value;
+            };
+            let min;
+            let max;
+            let minMultiplier;
+            let maxMultiplier;
+            let exponent;
+            try {
+                min = numberInput('atom-radius-mapping-min');
+                max = numberInput('atom-radius-mapping-max');
+                minMultiplier = numberInput('atom-radius-mapping-output-min');
+                maxMultiplier = numberInput('atom-radius-mapping-output-max');
+                exponent = numberInput('atom-radius-mapping-exponent');
+            } catch (error) {
+                this.setAtomRadiusStatus(error.message, 'error');
+                return false;
+            }
+            const draft = {
+                ...previous,
+                enabled: enabled?.checked === true,
+                field: field?.value || '',
+                valueTransform: byId('atom-radius-mapping-transform')?.value || 'identity',
+                scope: byId('atom-radius-mapping-scope')?.value || 'all',
+                rangeMode: min !== previous.min
+                    || max !== previous.max
+                    ? 'manual' : previous.rangeMode,
+                indices: previous.scope !== 'indices'
+                    && byId('atom-radius-mapping-scope')?.value === 'indices'
+                    ? [...new Set(this.selectionEntries().map(reference => reference.index))]
+                        .sort((a, b) => a - b)
+                    : [...previous.indices],
+                min,
+                max,
+                minMultiplier,
+                maxMultiplier,
+                exponent
+            };
+            try {
+                if (draft.scope === 'indices' && !draft.indices.length) {
+                    throw new Error('Select at least one atom before freezing the radius scope.');
+                }
+                this.state.display.atomRadiusMapping = normalizeAtomRadiusMapping(
+                    draft,
+                    { strict: true }
+                ).mapping;
+                this.atomRadiusRuntime.fitToken += 1;
+                this.atomRadiusRuntime.configuring = false;
+                this.setAtomRadiusStatus('Updating atom sizes...', 'loading');
+                this.scheduleAtomRadiusRefresh();
+                if (history) this.scheduleVisualHistoryCommit('atom-radius-mapping');
+                this.syncAtomRadiusMappingControls();
+                return true;
+            } catch (error) {
+                this.setAtomRadiusStatus(error.message, 'error');
+                if (draft.scope !== previous.scope) {
+                    const scope = byId('atom-radius-mapping-scope');
+                    if (scope) scope.value = previous.scope;
+                }
+                return false;
+            }
+        };
+
+        enabled?.addEventListener('change', () => {
+            if (enabled.checked && !this.normalizedAtomRadiusMapping().field) {
+                this.atomRadiusRuntime.configuring = true;
+                this.syncAtomRadiusMappingControls();
+                this.setAtomRadiusStatus('Choose a per-atom property to enable radius mapping.');
+                this.ensureAtomRadiusCatalog().catch(error => this.setAtomRadiusStatus(error.message, 'error'));
+                field?.focus();
+                return;
+            }
+            if (!enabled.checked) this.atomRadiusRuntime.configuring = false;
+            if (!commit()) enabled.checked = this.normalizedAtomRadiusMapping().enabled;
+        });
+        field?.addEventListener('change', () => {
+            const candidate = {
+                ...this.normalizedAtomRadiusMapping(),
+                field: field.value,
+                enabled: Boolean(field.value),
+                rangeMode: 'current'
+            };
+            if (!candidate.field) {
+                this.setAtomRadiusStatus('Choose a per-atom property.', 'error');
+                return;
+            }
+            this.fitAtomRadiusMappingRange('current', candidate)
+                .catch(error => this.setAtomRadiusStatus(error.message, 'error'));
+        });
+        preset?.addEventListener('change', async () => {
+            const selectedField = field?.value || this.normalizedAtomRadiusMapping().field;
+            if (!selectedField) {
+                this.setAtomRadiusStatus('Choose a per-atom property before applying a preset.', 'error');
+                return;
+            }
+            const current = this.normalizedAtomRadiusMapping();
+            const next = {
+                ...radiusMappingPreset(preset.value, selectedField),
+                enabled: true,
+                scope: current.scope,
+                indices: [...current.indices]
+            };
+            if (preset.value !== 'fraction' && preset.value !== 'fraction-volume') {
+                this.fitAtomRadiusMappingRange('current', next)
+                    .catch(error => this.handleAtomRadiusError(error));
+                return;
+            }
+            this.atomRadiusRuntime.fitToken += 1;
+            this.atomRadiusRuntime.configuring = false;
+            this.state.display.atomRadiusMapping = next;
+            this.syncAtomRadiusMappingControls();
+            this.scheduleAtomRadiusRefresh();
+            this.scheduleVisualHistoryCommit('atom-radius-preset');
+        });
+        [
+            'atom-radius-mapping-transform', 'atom-radius-mapping-scope',
+            'atom-radius-mapping-min', 'atom-radius-mapping-max',
+            'atom-radius-mapping-output-min', 'atom-radius-mapping-output-max',
+            'atom-radius-mapping-exponent'
+        ].forEach(id => byId(id)?.addEventListener('change', () => commit()));
+        useSelection?.addEventListener('click', () => {
+            const indices = [...new Set(this.selectionEntries().map(reference => Number(reference.index)))]
+                .filter(Number.isInteger)
+                .sort((a, b) => a - b);
+            if (!indices.length) {
+                this.setAtomRadiusStatus('Select at least one atom before freezing the radius scope.', 'error');
+                return;
+            }
+            this.state.display.atomRadiusMapping = {
+                ...this.normalizedAtomRadiusMapping(),
+                scope: 'indices',
+                indices
+            };
+            this.syncAtomRadiusMappingControls();
+            this.scheduleAtomRadiusRefresh();
+            this.scheduleVisualHistoryCommit('atom-radius-scope');
+        });
+        fitCurrent?.addEventListener('click', () => {
+            this.fitAtomRadiusMappingRange('current').catch(error => this.handleAtomRadiusError(error));
+        });
+        fitTrajectory?.addEventListener('click', () => {
+            const frames = Number(this.state.atoms?.metadata?.frame_count || 1);
+            const mode = frames > 1 ? 'trajectory' : 'current';
+            const run = () => this.fitAtomRadiusMappingRange(mode);
+            const task = mode === 'trajectory'
+                ? this.withBusy(`Scanning ${frames} trajectory frames for radius limits...`, run)
+                : run();
+            task.catch(error => this.handleAtomRadiusError(error));
+        });
+        this.syncAtomRadiusMappingControls();
+    }
+
+    populateAtomRadiusFields(fields = []) {
+        const select = document.getElementById('atom-radius-mapping-field');
+        if (!select) return;
+        const requested = this.normalizedAtomRadiusMapping().field;
+        const groups = new Map();
+        fields.forEach(descriptor => {
+            const group = descriptor.group || 'Other';
+            if (!groups.has(group)) groups.set(group, []);
+            groups.get(group).push(descriptor);
+        });
+        select.replaceChildren(new Option('Choose property', ''));
+        groups.forEach((descriptors, label) => {
+            const optgroup = document.createElement('optgroup');
+            optgroup.label = label;
+            descriptors.forEach(descriptor => {
+                const option = document.createElement('option');
+                option.value = descriptor.id;
+                option.textContent = descriptor.unit
+                    ? `${descriptor.label} (${descriptor.unit})`
+                    : descriptor.label;
+                optgroup.appendChild(option);
+            });
+            select.appendChild(optgroup);
+        });
+        select.value = fields.some(descriptor => descriptor.id === requested) ? requested : '';
+    }
+
+    async ensureAtomRadiusCatalog({ refresh = false } = {}) {
+        const catalog = await this.atomScalarStore.catalog({ refresh });
+        this.populateAtomRadiusFields(catalog?.fields || []);
+        return catalog;
+    }
+
+    atomRadiusScope() {
+        const mapping = this.normalizedAtomRadiusMapping();
+        return mapping.scope === 'indices' ? new Set(mapping.indices) : null;
+    }
+
+    async fitAtomRadiusMappingRange(mode = 'current', candidate = null) {
+        const mapping = this.normalizedAtomRadiusMapping(candidate || this.state.display.atomRadiusMapping);
+        if (!mapping.field) throw new Error('Choose a per-atom property before fitting the range.');
+        const token = ++this.atomRadiusRuntime.fitToken;
+        const generation = this.atomRadiusRuntime.generation;
+        const documentId = this.sessionId;
+        const current = () => token === this.atomRadiusRuntime.fitToken
+            && generation === this.atomRadiusRuntime.generation
+            && documentId === this.sessionId && !this.disposed;
+        const allFrames = mode === 'trajectory';
+        const optimizerSource = this.state.displayedTimelineSource === 'relax';
+        if (optimizerSource && !mapping.field.startsWith('position:')) {
+            throw new Error('Stored per-atom properties are unavailable on optimizer frames; choose a coordinate field or the loaded timeline.');
+        }
+        const scope = mapping.scope === 'indices' ? new Set(mapping.indices) : null;
+        let minimum = Infinity;
+        let maximum = -Infinity;
+        let finiteValues = 0;
+        const frameCount = allFrames
+            ? optimizerSource
+                ? this.state.relaxTrajectory?.frames?.length || 1
+                : Number(this.state.atoms?.metadata?.frame_count || 1)
+            : 1;
+        const currentFrame = Number(this.state.atoms?.metadata?.current_frame || 0);
+        for (let offset = 0; offset < frameCount; offset += 1) {
+            const frame = allFrames ? offset : currentFrame;
+            let result;
+            try {
+                // A trajectory fit is an explicit bounded scan. The all-frames
+                // endpoint may legally fall back to one frame at its cache cap.
+                if (optimizerSource && allFrames) {
+                    const component = { 'position:x': 0, 'position:y': 1, 'position:z': 2 }[mapping.field];
+                    const positions = this.state.relaxTrajectory?.frames?.[frame] || [];
+                    result = {
+                        values: Float64Array.from(positions, position => Number(position?.[component])),
+                        atoms: positions.length, frames: 1, startFrame: frame
+                    };
+                } else {
+                    result = allFrames
+                        ? await this.api.fetchAtomScalarValues(mapping.field, frame, false)
+                        : await this.atomScalarStore.values(mapping.field, { frame });
+                }
+            } catch (error) {
+                if (!current()) return false;
+                if (allFrames && /not available|unavailable|unknown per-atom/i.test(String(error.message))) continue;
+                throw error;
+            }
+            if (!current()) return false;
+            const atoms = Number(result.atoms || this.state.atoms?.positions?.length || 0);
+            const start = (frame - Number(result.startFrame || 0)) * atoms;
+            if (start < 0 || start + atoms > result.values.length) {
+                throw new Error('The requested scalar frame was not returned by the data source.');
+            }
+            for (let index = 0; index < atoms; index += 1) {
+                if (scope && !scope.has(index)) continue;
+                let value = Number(result.values[start + index]);
+                if (!Number.isFinite(value)) continue;
+                if (mapping.valueTransform === 'absolute') value = Math.abs(value);
+                minimum = Math.min(minimum, value);
+                maximum = Math.max(maximum, value);
+                finiteValues += 1;
+            }
+        }
+        if (!finiteValues) throw new Error('The selected property has no finite values in the requested range.');
+        if (minimum === maximum) {
+            const padding = Math.max(1e-12, Math.abs(minimum) * 1e-6);
+            minimum -= padding;
+            maximum += padding;
+        }
+        if (!current()) return false;
+        const previous = this.state.display.atomRadiusMapping;
+        this.state.display.atomRadiusMapping = {
+            ...mapping,
+            rangeMode: mode,
+            min: minimum,
+            max: maximum
+        };
+        this.atomRadiusRuntime.configuring = false;
+        this.syncAtomRadiusMappingControls();
+        try {
+            await this.updateAtomRadiusMapping();
+        } catch (error) {
+            if (current()) {
+                this.state.display.atomRadiusMapping = previous;
+                this.scheduleAtomRadiusRefresh();
+                this.syncAtomRadiusMappingControls();
+            }
+            throw error;
+        }
+        if (!current()) return false;
+        this.scheduleVisualHistoryCommit(`atom-radius-range-${mode}`);
+        return true;
+    }
+
+    scheduleAtomRadiusRefresh(options = {}) {
+        if (options.coordinatesOnly && !this.state.display.atomRadiusMapping?.enabled) return;
+        if (options.coordinatesOnly && !String(
+            this.state.display.atomRadiusMapping?.field || ''
+        ).startsWith('position:')) return;
+        if (this.atomRadiusRuntime.refreshRequest !== null) return;
+        this.atomRadiusRuntime.refreshRequest = requestAnimationFrame(() => {
+            this.atomRadiusRuntime.refreshRequest = null;
+            this.updateAtomRadiusMapping(options).catch(error => this.handleAtomRadiusError(error));
+        });
+    }
+
+    async updateAtomRadiusMapping({ refreshCatalog = false } = {}) {
+        const mapping = this.normalizedAtomRadiusMapping();
+        const token = ++this.atomRadiusRuntime.requestToken;
+        if (!mapping.enabled || !mapping.field) {
+            this.renderer.setAtomRadiusFactors(null, { generation: this.atomRadiusRuntime.generation });
+            this.atomRadiusRuntime.status = 'idle';
+            this.atomRadiusRuntime.error = null;
+            this.atomRadiusRuntime.renderedFrame = -1;
+            this.setAtomRadiusStatus('Values load only while this option is enabled.');
+            this.syncAtomRadiusMappingLegend();
+            return;
+        }
+        this.atomRadiusRuntime.status = 'pending';
+        this.atomRadiusRuntime.error = null;
+        this.setAtomRadiusStatus('Loading per-atom radius values...', 'loading');
+        try {
+            await this.ensureAtomRadiusCatalog({ refresh: refreshCatalog });
+            if (token !== this.atomRadiusRuntime.requestToken || this.disposed) return;
+            const result = await this.atomScalarStore.values(mapping.field);
+            if (token !== this.atomRadiusRuntime.requestToken || this.disposed) return;
+            const atomCount = this.state.atoms?.positions?.length || 0;
+            const computed = atomRadiusFactors(result.values, mapping, atomCount);
+            if (token !== this.atomRadiusRuntime.requestToken || this.disposed) return;
+            this.renderer.setAtomRadiusFactors(computed.factors, {
+                generation: this.atomRadiusRuntime.generation
+            });
+            this.atomRadiusRuntime.status = 'ready';
+            this.atomRadiusRuntime.missing = computed.missing;
+            this.atomRadiusRuntime.applied = computed.applied;
+            this.atomRadiusRuntime.renderedFrame = Number(this.state.atoms?.metadata?.current_frame || 0);
+            const missing = computed.missing
+                ? ` ${computed.missing} atom${computed.missing === 1 ? '' : 's'} used factor 1 because the value was missing.`
+                : '';
+            this.setAtomRadiusStatus(`${result.unavailable
+                ? 'Optimizer frame has no stored value for this property; factor 1 was used. '
+                : ''}Applied to ${computed.applied} atom${computed.applied === 1 ? '' : 's'}.${missing}`);
+            this.syncAtomRadiusMappingLegend();
+        } catch (error) {
+            if (token !== this.atomRadiusRuntime.requestToken || this.disposed) return;
+            error.radiusRequestToken = token;
+            throw error;
+        }
+    }
+
+    handleAtomRadiusError(error) {
+        if (this.disposed || (error?.radiusRequestToken !== undefined
+            && error.radiusRequestToken !== this.atomRadiusRuntime.requestToken)) return;
+        if (error?.radiusRequestToken === undefined) {
+            this.setAtomRadiusStatus(error?.message || 'Radius mapping could not be fitted.', 'error');
+            return;
+        }
+        this.atomRadiusRuntime.status = 'error';
+        this.atomRadiusRuntime.error = error?.message || 'Property radius mapping could not be applied.';
+        this.renderer.setAtomRadiusFactors(null, { generation: this.atomRadiusRuntime.generation });
+        this.setAtomRadiusStatus(this.atomRadiusRuntime.error, 'error');
+    }
+
+    invalidateAtomRadiusData() {
+        this.atomRadiusRuntime.requestToken += 1;
+        this.atomRadiusRuntime.fitToken += 1;
+        this.atomRadiusRuntime.generation += 1;
+        this.atomRadiusRuntime.renderedFrame = -1;
+        if (this.atomRadiusRuntime.refreshRequest !== null) {
+            cancelAnimationFrame(this.atomRadiusRuntime.refreshRequest);
+            this.atomRadiusRuntime.refreshRequest = null;
+        }
+        this.atomScalarStore.invalidate();
+        this.renderer.atomRadiusFactors = null;
+    }
+
+    setAtomRadiusStatus(message, kind = '') {
+        const status = document.getElementById('atom-radius-mapping-status');
+        if (!status) return;
+        status.textContent = message;
+        status.classList.toggle('is-error', kind === 'error');
+        status.classList.toggle('is-loading', kind === 'loading');
+    }
+
+    syncAtomRadiusMappingLegend() {
+        const legend = document.getElementById('atom-radius-mapping-legend');
+        if (!legend) return;
+        const mapping = this.normalizedAtomRadiusMapping();
+        legend.replaceChildren();
+        for (let step = 0; step < 7; step += 1) {
+            const t = step / 6;
+            const factor = mapping.minMultiplier
+                + (mapping.maxMultiplier - mapping.minMultiplier) * (t ** mapping.exponent);
+            const dot = document.createElement('span');
+            dot.style.setProperty('--sample-radius', `${Math.max(0, factor) * 8}px`);
+            dot.title = `${factor.toFixed(3)}x`;
+            legend.appendChild(dot);
+        }
+    }
+
+    syncAtomRadiusMappingControls() {
+        const mapping = this.normalizedAtomRadiusMapping();
+        this.state.display.atomRadiusMapping = mapping;
+        const setValue = (id, value) => {
+            const element = document.getElementById(id);
+            if (element && document.activeElement !== element) element.value = `${value}`;
+        };
+        const enabled = document.getElementById('chk-atom-radius-mapping');
+        if (enabled) enabled.checked = mapping.enabled || this.atomRadiusRuntime.configuring;
+        setValue('atom-radius-mapping-field', mapping.field);
+        setValue('atom-radius-mapping-transform', mapping.valueTransform);
+        setValue('atom-radius-mapping-scope', mapping.scope);
+        setValue('atom-radius-mapping-min', mapping.min);
+        setValue('atom-radius-mapping-max', mapping.max);
+        setValue('atom-radius-mapping-output-min', mapping.minMultiplier);
+        setValue('atom-radius-mapping-output-max', mapping.maxMultiplier);
+        setValue('atom-radius-mapping-exponent', mapping.exponent);
+        document.getElementById('atom-radius-mapping-controls')?.classList.toggle(
+            'hidden', !mapping.enabled && !this.atomRadiusRuntime.configuring
+        );
+        const count = document.getElementById('atom-radius-mapping-scope-count');
+        if (count) count.textContent = mapping.scope === 'indices'
+            ? `${mapping.indices.length} frozen atom${mapping.indices.length === 1 ? '' : 's'}`
+            : 'All atoms';
+        const replace = document.getElementById('btn-atom-radius-mapping-use-selection');
+        if (replace) replace.hidden = mapping.scope !== 'indices';
+        const fitTrajectory = document.getElementById('btn-atom-radius-mapping-fit-trajectory');
+        if (fitTrajectory) fitTrajectory.disabled = Number(this.state.atoms?.metadata?.frame_count || 1) <= 1;
+        this.syncAtomRadiusMappingLegend();
+    }
+
     populateAtomScalarFields(fields = []) {
         const select = document.getElementById('atom-colorscale-field');
         if (!select) return;
@@ -1506,6 +2434,7 @@ class VAseApp {
         const available = fields.some(descriptor => descriptor.id === requested);
         this.state.display.atomColorScaleField = available ? requested : 'position:z';
         select.value = this.state.display.atomColorScaleField;
+        this.populateAtomRadiusFields(fields);
     }
 
     populateColormaps(catalog = {}) {
@@ -1554,9 +2483,7 @@ class VAseApp {
         }
         if (!runtime.catalog) {
             if (!runtime.catalogPromise) {
-                runtime.catalogPromise = this.api.fetchAtomScalarCatalog(
-                    Number(this.state.atoms?.metadata?.current_frame || 0)
-                ).then(catalog => {
+                runtime.catalogPromise = this.atomScalarStore.catalog({ refresh }).then(catalog => {
                     runtime.catalog = catalog;
                     runtime.catalogPromise = null;
                     return catalog;
@@ -1646,17 +2573,7 @@ class VAseApp {
                 runtime.prefetchFrame = -1;
                 return;
             }
-            runtime.prefetchPromise = this.api.fetchAtomScalarValues(fieldId, targetFrame, false)
-                .then(result => {
-                    if (result.frames === 1 && result.atoms === atomCount) {
-                        this.cacheAtomColorScaleFrame(
-                            fieldId,
-                            targetFrame,
-                            atomCount,
-                            result.values
-                        );
-                    }
-                })
+            runtime.prefetchPromise = this.atomScalarStore.values(fieldId, { frame: targetFrame })
                 .catch(() => {
                     // The foreground frame request remains authoritative.
                 })
@@ -1685,35 +2602,12 @@ class VAseApp {
             const offset = (frame - cached.startFrame) * atomCount;
             return { values: cached.values.subarray(offset, offset + atomCount), cache: cached.cache };
         }
-        const frameCacheKey = this.atomColorScaleFrameCacheKey(fieldId, frame, atomCount);
-        const frameCached = runtime.frameValueCaches.get(frameCacheKey);
-        if (frameCached) {
-            this.scheduleAtomColorScaleFramePrefetch(fieldId, frame);
-            return { values: frameCached, cache: 'frame' };
-        }
-        if (!runtime.valuePromises) runtime.valuePromises = new Map();
-        const key = `${fieldId}:${frame}`;
-        let promise = runtime.valuePromises.get(key);
-        if (!promise) {
-            promise = this.api.fetchAtomScalarValues(fieldId, frame, false)
-                .then(result => {
-                    if (result.frames > 1) runtime.valueCaches.set(fieldId, result);
-                    runtime.valuePromises.delete(key);
-                    return result;
-                })
-                .catch(error => {
-                    runtime.valuePromises.delete(key);
-                    throw error;
-                });
-            runtime.valuePromises.set(key, promise);
-        }
-        const result = await promise;
+        const result = await this.atomScalarStore.values(fieldId, { frame });
         const offset = (frame - result.startFrame) * atomCount;
         if (offset < 0 || offset + atomCount > result.values.length) {
             throw new Error('The selected per-atom property is unavailable for this trajectory frame.');
         }
         const values = result.values.subarray(offset, offset + atomCount);
-        this.cacheAtomColorScaleFrame(fieldId, frame, atomCount, values);
         this.scheduleAtomColorScaleFramePrefetch(fieldId, frame);
         return { values, cache: result.cache };
     }
@@ -1973,8 +2867,9 @@ class VAseApp {
         const frames = Number(this.state.atoms?.metadata?.frame_count || 1);
         const atoms = Number(this.state.atoms?.positions?.length || 0);
         if (!this.atomColorScaleTrajectoryCacheEligible(fieldId)) return false;
-        const result = await this.api.fetchAtomScalarValues(fieldId, 0, true);
+        const result = await this.atomScalarStore.values(fieldId, { frame: 0, allFrames: true });
         if (result.frames !== frames || result.atoms !== atoms) return false;
+        runtime.valueCaches.clear();
         runtime.valueCaches.set(fieldId, result);
         return true;
     }
@@ -2151,6 +3046,7 @@ class VAseApp {
         const color = document.getElementById('selected-atom-color');
         const opacity = document.getElementById('selected-atom-opacity');
         const radiusScale = document.getElementById('selected-atom-radius-scale');
+        const radiusNumber = document.getElementById('selected-atom-radius-scale-number');
         const radiusOutput = document.getElementById('selected-atom-radius-scale-value');
         const bondToggle = document.getElementById('selected-atom-update-bonds');
         const count = document.getElementById('selected-appearance-count');
@@ -2160,6 +3056,20 @@ class VAseApp {
         ) return;
 
         const indices = this.selectedAtomIndices();
+        document.body.classList.toggle('has-atom-selection', indices.length > 0);
+        this.syncAppearanceScope();
+        const selectionBadge = document.getElementById('workbench-selection');
+        selectionBadge?.classList.toggle('hidden', indices.length === 0);
+        const selectionLabel = document.getElementById('workbench-selection-label');
+        if (selectionLabel && indices.length) {
+            const index = indices[0];
+            const element = this.state.atoms?.chemical_symbols?.[index]
+                || this.state.atoms?.symbols?.[index] || 'Atom';
+            const label = this.state.atoms?.symbols?.[index] || element;
+            selectionLabel.textContent = indices.length === 1
+                ? `${element} · ${label} selected`
+                : `${indices.length} atoms selected`;
+        }
         const selectionKey = indices.join(',');
         if (this.state.selectedAppearanceSelectionKey !== selectionKey) {
             this.state.selectedAppearanceSelectionKey = selectionKey;
@@ -2177,6 +3087,7 @@ class VAseApp {
         color.disabled = !enabled;
         opacity.disabled = !enabled;
         radiusScale.disabled = !enabled;
+        if (radiusNumber) radiusNumber.disabled = !enabled;
         bondToggle.disabled = !enabled;
 
         const labels = [...new Set(indices.map(index => this.state.atoms?.symbols?.[index]).filter(Boolean))];
@@ -2223,12 +3134,17 @@ class VAseApp {
         if (!dirty.has('radiusScale')) {
             if (!indices.length) {
                 radiusScale.value = '1';
+                if (radiusNumber) radiusNumber.value = '';
                 radiusOutput.textContent = '—';
             } else {
                 const scales = this.commonSelectedAppearanceValue(
                     indices, index => Number(this.atomRadiusScaleOverride(index).toFixed(6))
                 );
                 radiusScale.value = scales.mixed ? '1' : String(scales.value ?? 1);
+                if (radiusNumber) {
+                    radiusNumber.value = scales.mixed ? '' : String(scales.value ?? 1);
+                    radiusNumber.placeholder = scales.mixed ? 'Mixed' : '';
+                }
                 radiusOutput.textContent = scales.mixed
                     ? 'Mixed'
                     : `${Number(scales.value ?? 1).toFixed(2)}x`;
@@ -2448,6 +3364,7 @@ class VAseApp {
         }
         if (this.transform.mode !== 'IDLE') this.cancelTransform();
         this.stopPlayback();
+        const cameraBeforeModeSwitch = this.cameraSettingsSnapshot();
 
         const plan = vizOnly
             ? this.viewModeIdentityPlan()
@@ -2487,6 +3404,8 @@ class VAseApp {
                 this.state.replicaSelected.clear();
             }
             this.setAtomsData(data, { preserveDisplay: false });
+            this.applyCameraSettings(cameraBeforeModeSwitch, { syncScale: false });
+            this.syncAtomicScaleFromCamera({ forceInput: true });
             (data.mode_transition_warnings || []).forEach(message => {
                 this.toast(message, 'warning');
             });
@@ -3387,16 +4306,30 @@ class VAseApp {
             return;
         }
         if (this.addAtomsUI.active.is_relaxing) return;
+        const ui = this.addAtomsUI;
+        const payload = {
+            regions: this.addAtomsRegions().map(region => ({ ...region, bounds: [...region.bounds] })),
+            region_mic: document.getElementById('add-atoms-mic')?.checked !== false,
+            constrain_to_domain: document.getElementById('add-atoms-constrain-domain')?.checked === true
+        };
+        const signature = JSON.stringify(payload);
+        const previous = ui.pendingRegionCommit || Promise.resolve();
+        const commit = previous.catch(() => {}).then(async () => {
+            if (ui.lastRegionCommitSignature === signature) return;
+            try {
+                const data = await this.api.updateAtomAdditionRegion(payload);
+                this.syncAddAtomsSessionFromData(data);
+                ui.lastRegionCommitSignature = signature;
+            } catch (error) {
+                this.toast(`Insertion-domain update failed: ${error.message}`, 'error');
+                this.syncAddAtomsSessionFromData({ metadata: { atom_addition: ui.active } });
+            }
+        });
+        ui.pendingRegionCommit = commit;
         try {
-            const data = await this.api.updateAtomAdditionRegion({
-                regions: this.addAtomsRegions(),
-                region_mic: document.getElementById('add-atoms-mic')?.checked !== false,
-                constrain_to_domain: document.getElementById('add-atoms-constrain-domain')?.checked === true
-            });
-            this.syncAddAtomsSessionFromData(data);
-        } catch (error) {
-            this.toast(`Insertion-domain update failed: ${error.message}`, 'error');
-            this.syncAddAtomsSessionFromData({ metadata: { atom_addition: this.addAtomsUI.active } });
+            await commit;
+        } finally {
+            if (ui.pendingRegionCommit === commit) ui.pendingRegionCommit = null;
         }
     }
 
@@ -3436,6 +4369,16 @@ class VAseApp {
         const scatter = document.getElementById('btn-add-atoms-scatter');
         const cancel = document.getElementById('btn-add-atoms-cancel');
         const finish = document.getElementById('btn-add-atoms-finish');
+        const persistentActions = document.getElementById('active-add-session-controls');
+        const formActions = document.querySelector('.add-atoms-session-actions');
+        persistentActions?.classList.toggle('hidden', !active);
+        if (active && persistentActions) {
+            if (cancel) persistentActions.appendChild(cancel);
+            if (finish) persistentActions.appendChild(finish);
+        } else if (formActions) {
+            if (cancel) formActions.appendChild(cancel);
+            if (finish) formActions.appendChild(finish);
+        }
         const selectAdded = document.getElementById('btn-add-atoms-select-added');
         if (scatter) scatter.disabled = running;
         if (cancel) cancel.disabled = !active || running;
@@ -3464,6 +4407,7 @@ class VAseApp {
 
     syncAddAtomsSessionFromData(data) {
         if (!this.addAtomsUI) return;
+        if (!this.addAtomsUI.pendingRegionCommit) this.addAtomsUI.lastRegionCommitSignature = null;
         const summary = data?.metadata?.atom_addition || null;
         const sameSession = Boolean(
             summary?.active
@@ -3557,6 +4501,7 @@ class VAseApp {
             return;
         }
         try {
+            await this.addAtomsUI?.pendingRegionCommit;
             if (!this.addAtomsHistoryToken) {
                 this.addAtomsHistoryToken = `add-atoms:${crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`}`;
             }
@@ -3984,7 +4929,18 @@ class VAseApp {
     }
 
     commitInputValue(element, { dispatchChange = true } = {}) {
-        if (!this.isCommittableInput(element)) return;
+        if (!this.isCommittableInput(element)) return true;
+        const validity = element.validity;
+        // step is a spinner increment, not a scientific precision constraint.
+        const invalid = validity && (validity.badInput || validity.rangeUnderflow
+            || validity.rangeOverflow || validity.valueMissing || validity.patternMismatch
+            || validity.typeMismatch || validity.customError);
+        if (invalid) {
+            this.invalidDraftInput = element;
+            this.toast('Finish the invalid field before leaving this control.', 'warning');
+            element.focus({ preventScroll: true });
+            return false;
+        }
         const record = this.controlCommitState.get(element);
         const dirty = !record || record.dirty || record.value !== element.value;
         this.controlCommitState.set(element, { value: element.value, dirty: false });
@@ -3995,11 +4951,29 @@ class VAseApp {
             try {
                 this.applyDisplayOptions();
             } catch (error) {
+                this.invalidDraftInput = element;
+                this.controlCommitState.set(element, { value: element.value, dirty: true });
                 this.toast(error.message, 'error');
+                element.focus({ preventScroll: true });
+                return false;
             }
         } else if (element.matches('#sun-position-x, #sun-position-y, #sun-position-z, #sun-target-x, #sun-target-y, #sun-target-z')) {
             this.applyLightingControls();
         }
+        if (element.id === 'bond-thickness-number' && this.state.bondApplyRequest !== null) {
+            cancelAnimationFrame(this.state.bondApplyRequest);
+            this.state.bondApplyRequest = null;
+            try {
+                this.applyBondOptions();
+            } catch (error) {
+                this.invalidDraftInput = element;
+                this.toast(error.message, 'error');
+                element.focus({ preventScroll: true });
+                return false;
+            }
+        }
+        if (this.invalidDraftInput === element) this.invalidDraftInput = null;
+        return true;
     }
 
     setupInputCommitBehavior() {
@@ -4020,13 +4994,12 @@ class VAseApp {
         document.addEventListener('keydown', event => {
             if (!this.isCommittableInput(event.target)) return;
             if (event.key === 'Tab') {
-                this.commitInputValue(event.target);
+                if (!this.commitInputValue(event.target)) event.preventDefault();
                 return;
             }
             if (event.key !== 'Enter' || event.target instanceof HTMLTextAreaElement) return;
             event.preventDefault();
-            this.commitInputValue(event.target);
-            event.target.blur();
+            if (this.commitInputValue(event.target)) event.target.blur();
         });
         document.addEventListener('focusout', event => {
             if (!this.isCommittableInput(event.target)) return;
@@ -4035,8 +5008,8 @@ class VAseApp {
     }
 
     clampInspectorWidth(width) {
-        const minWidth = 356;
-        const maxWidth = Math.max(minWidth, Math.min(760, window.innerWidth - 260));
+        const minWidth = 320;
+        const maxWidth = Math.max(minWidth, Math.min(420, window.innerWidth - 260));
         return Math.max(minWidth, Math.min(maxWidth, Math.round(width)));
     }
 
@@ -4046,7 +5019,7 @@ class VAseApp {
         document.body.classList.toggle('inspector-wide', clamped >= 520);
         if (persist) {
             try {
-                window.localStorage?.setItem('v_ase.inspectorWidth', String(clamped));
+                window.localStorage?.setItem('v_ase.workbench.v1.width', String(clamped));
             } catch {
                 // Local storage may be unavailable in restricted browser contexts.
             }
@@ -4059,11 +5032,16 @@ class VAseApp {
         if (!resizer) return;
         let savedWidth = null;
         try {
-            savedWidth = Number(window.localStorage?.getItem('v_ase.inspectorWidth'));
+            savedWidth = Number(window.localStorage?.getItem('v_ase.workbench.v1.width'));
         } catch {
             savedWidth = null;
         }
-        this.setInspectorWidth(Number.isFinite(savedWidth) && savedWidth > 0 ? savedWidth : 416);
+        this.inspectorWidthCustom = Number.isFinite(savedWidth) && savedWidth > 0;
+        this.setInspectorWidth(this.inspectorWidthCustom ? savedWidth
+            : (window.innerWidth <= 1050 ? 324 : 352));
+        window.addEventListener('resize', () => {
+            if (!this.inspectorWidthCustom) this.setInspectorWidth(window.innerWidth <= 1050 ? 324 : 352);
+        });
         const onMove = event => {
             this.setInspectorWidth(window.innerWidth - event.clientX, false);
         };
@@ -4076,6 +5054,7 @@ class VAseApp {
         };
         resizer.addEventListener('pointerdown', event => {
             if (document.body.classList.contains('inspector-collapsed')) return;
+            this.inspectorWidthCustom = true;
             event.preventDefault();
             event.stopPropagation();
             document.body.classList.add('resizing-inspector');
@@ -4088,7 +5067,12 @@ class VAseApp {
 
     setInspectorCollapsed(collapsed, persist = true) {
         const next = Boolean(collapsed);
+        if (!next && window.matchMedia('(max-width: 860px)').matches) {
+            document.body.classList.remove('navigator-expanded');
+            document.getElementById('editor-navigator-toggle')?.setAttribute('aria-expanded', 'false');
+        }
         document.body.classList.toggle('inspector-collapsed', next);
+        this.rehomeLightingWidget?.();
         const button = document.getElementById('btn-inspector-collapse');
         if (button) {
             button.setAttribute('aria-expanded', next ? 'false' : 'true');
@@ -4097,7 +5081,7 @@ class VAseApp {
         }
         if (persist) {
             try {
-                window.localStorage?.setItem('v_ase.inspectorCollapsed', next ? '1' : '0');
+                window.localStorage?.setItem('v_ase.workbench.v1.collapsed', next ? '1' : '0');
             } catch {
                 // Local storage may be unavailable in restricted browser contexts.
             }
@@ -4118,7 +5102,7 @@ class VAseApp {
         const requested = migrations[group] || group;
         const next = available.has(requested) ? requested : 'inspect';
         this.inspectorGroup = next;
-        document.querySelectorAll('[data-inspector-group]').forEach(button => {
+        document.querySelectorAll('#inspector [data-inspector-group]').forEach(button => {
             const active = button.dataset.inspectorGroup === next;
             button.setAttribute('aria-selected', active ? 'true' : 'false');
             button.tabIndex = active ? 0 : -1;
@@ -4147,6 +5131,18 @@ class VAseApp {
         if (hasSectionNavigation) {
             requestAnimationFrame(() => this.syncStructureSectionNavigation());
         }
+        if (document.body.classList.contains('editor-shell')
+            && !this.editorRouteNavigation && this.editorRoute) {
+            const route = {
+                inspect: 'selection',
+                structure: 'appearance',
+                analysis: this.state.selectedVolumetricPlanes?.size
+                    || this.state.display.showVolumetric ? 'volumetric' : 'displacement',
+                view: 'view',
+                export: 'export'
+            }[next];
+            if (route) this.openEditorRoute(route);
+        }
     }
 
     inspectorSectionCatalog(group = this.inspectorGroup) {
@@ -4154,7 +5150,7 @@ class VAseApp {
             structure: [
                 ['appearance', 'Atoms & Appearance'],
                 ['cell-replication', 'Cell & Replication'],
-                ['cell-transform', 'Cell Transform', true],
+                ['cell-transform', 'Cell Transform'],
                 ['transform', 'Transform & Cell Match'],
                 ['constraints', 'Constraints', true],
                 ['bonding', 'Bonding'],
@@ -4221,6 +5217,11 @@ class VAseApp {
     }
 
     openInspectorSection(group, section) {
+        if (document.body.classList.contains('editor-shell') && EDITOR_ROUTES[section]) {
+            this.openEditorRoute(section);
+            return;
+        }
+        this.inspectorRouteHoldUntil = performance.now() + 500;
         this.setInspectorCollapsed(false);
         this.setInspectorGroup(group);
         const select = document.getElementById('structure-section-select');
@@ -4230,6 +5231,7 @@ class VAseApp {
     }
 
     syncStructureSectionNavigation() {
+        if (performance.now() < (this.inspectorRouteHoldUntil || 0)) return;
         if (!['structure', 'analysis', 'export'].includes(this.inspectorGroup)) return;
         const content = document.getElementById('inspector-content');
         const select = document.getElementById('structure-section-select');
@@ -4255,6 +5257,10 @@ class VAseApp {
         const select = document.getElementById('structure-section-select');
         if (!content || !select) return;
         select.addEventListener('change', () => {
+            if (document.body.classList.contains('editor-shell') && EDITOR_ROUTES[select.value]) {
+                this.openEditorRoute(select.value);
+                return;
+            }
             this.inspectorSectionSelections ||= {};
             this.inspectorSectionSelections[this.inspectorGroup] = select.value;
             const panel = document.querySelector(
@@ -4267,7 +5273,7 @@ class VAseApp {
                 0,
                 content.scrollTop + panel.getBoundingClientRect().top - contentTop
             );
-            content.scrollTo({ top, behavior: 'smooth' });
+            content.scrollTo({ top, behavior: 'instant' });
         });
         let frame = null;
         content.addEventListener('scroll', () => {
@@ -4281,14 +5287,14 @@ class VAseApp {
 
     setupInspectorNavigation() {
         let savedGroup = 'inspect';
-        let collapsed = true;
+        let collapsed = false;
         try {
-            savedGroup = window.localStorage?.getItem('v_ase.inspectorGroup') || 'inspect';
-            const savedCollapsed = window.localStorage?.getItem('v_ase.inspectorCollapsed');
-            collapsed = savedCollapsed === null ? true : savedCollapsed === '1';
+            savedGroup = 'structure';
+            const savedCollapsed = window.localStorage?.getItem('v_ase.workbench.v1.collapsed');
+            collapsed = savedCollapsed === null ? false : savedCollapsed === '1';
         } catch {
             savedGroup = 'inspect';
-            collapsed = true;
+            collapsed = false;
         }
         document.querySelectorAll('[data-inspector-group]').forEach(button => {
             button.addEventListener('click', () => this.setInspectorGroup(button.dataset.inspectorGroup));
@@ -4299,6 +5305,872 @@ class VAseApp {
         this.setupStructureSectionNavigation();
         this.setInspectorGroup(savedGroup, false);
         this.setInspectorCollapsed(collapsed, false);
+    }
+
+    setupEditorNavigator() {
+        mountWorkbenchTools();
+        document.getElementById('workbench-switch-edit')?.addEventListener('click', () => {
+            this.switchRuntimeMode(false).catch(error => this.toast(`Mode change failed: ${error.message}`, 'error'));
+        });
+        document.getElementById('appearance-material')?.addEventListener('change', event => {
+            this.applyAppearanceSurfaceValue('material', event.currentTarget.value);
+        });
+        document.getElementById('appearance-opacity')?.addEventListener('change', event => {
+            this.applyAppearanceSurfaceValue('opacity', event.currentTarget.value);
+        });
+        document.getElementById('appearance-scope-select')?.addEventListener('change', event => {
+            const scope = event.target.value;
+            if (scope === 'selected') {
+                document.getElementById('selected-appearance')?.scrollIntoView({ block: 'nearest' });
+                document.getElementById('selected-atom-radius-scale-number')?.focus({ preventScroll: true });
+            }
+            this.syncAppearanceScope();
+        });
+        document.querySelectorAll('#workbench-tabs [data-workbench]').forEach(tab => {
+            tab.addEventListener('click', () => this.openEditorRoute(WORKBENCH_ROUTES[tab.dataset.workbench][0]));
+            tab.addEventListener('keydown', event => {
+                if (!['ArrowLeft', 'ArrowRight'].includes(event.key)) return;
+                event.preventDefault();
+                event.stopPropagation();
+                const groups = Object.keys(WORKBENCH_ROUTES);
+                const next = groups[(groups.indexOf(tab.dataset.workbench)
+                    + (event.key === 'ArrowRight' ? 1 : groups.length - 1)) % groups.length];
+                this.openEditorRoute(WORKBENCH_ROUTES[next][0]);
+                document.querySelector(`#workbench-tabs [data-workbench="${next}"]`)?.focus();
+            });
+        });
+        document.getElementById('workbench-context-back')?.addEventListener('click', () =>
+            this.openEditorRoute(this.previousWorkbenchRoute || 'appearance'));
+        document.getElementById('workbench-selection-inspect')?.addEventListener('click', () =>
+            this.openEditorRoute('selection'));
+        document.getElementById('workbench-add-visualization')?.addEventListener('click', () =>
+            this.openEditorRoute('polyhedra'));
+        const objects = document.getElementById('objects-drawer');
+        const toggleObjects = open => {
+            objects?.classList.toggle('hidden', !open);
+            document.getElementById('btn-objects')?.setAttribute('aria-expanded', String(open));
+            if (open) this.renderSceneNavigatorObjects();
+        };
+        document.getElementById('btn-objects')?.addEventListener('click', () =>
+            toggleObjects(objects?.classList.contains('hidden')));
+        document.getElementById('btn-objects-close')?.addEventListener('click', () => toggleObjects(false));
+        document.getElementById('btn-fit-view')?.addEventListener('click', () => this.fitEditorView());
+        document.getElementById('editor-search-toggle')?.addEventListener('click', () => {
+            const open = document.body.classList.toggle('editor-search-open');
+            document.getElementById('editor-search-toggle')?.setAttribute('aria-expanded', String(open));
+            if (open) document.getElementById('editor-command-search')?.focus();
+        });
+        this.lastPropertiesRoute = 'structure-info';
+        document.getElementById('inspector-selection-tab')?.addEventListener('click', () => {
+            this.openEditorRoute('selection');
+        });
+        document.getElementById('inspector-properties-tab')?.addEventListener('click', () => {
+            this.openEditorRoute(this.lastPropertiesRoute || 'structure-info');
+        });
+        document.getElementById('editor-navigator-toggle')?.addEventListener('click', event => {
+            const expanded = document.body.classList.toggle('navigator-expanded');
+            event.currentTarget.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+            event.currentTarget.setAttribute('aria-label', expanded
+                ? 'Close section navigator' : 'Open section navigator');
+            if (expanded) {
+                this.setInspectorCollapsed(true, false);
+                document.getElementById('editor-command-search')?.focus();
+            } else {
+                this.renderer.domElement?.focus({ preventScroll: true });
+            }
+        });
+        document.querySelectorAll('#editor-navigator [data-editor-category] > summary').forEach(summary => {
+            summary.addEventListener('click', event => {
+                if (!window.matchMedia('(max-width: 1180px)').matches
+                    || document.body.classList.contains('navigator-expanded')) return;
+                event.preventDefault();
+                document.getElementById('editor-navigator-toggle')?.click();
+                summary.parentElement.open = true;
+            });
+        });
+        const cameraTools = document.getElementById('viewport-camera-tools');
+        const cameraMore = document.getElementById('camera-more-content');
+        ['view-toolbar'].forEach(id => {
+            const element = document.getElementById(id);
+            if (element && cameraMore) cameraMore.appendChild(element);
+        });
+        ['btn-grid-toggle', 'lighting-widget'].forEach(id => {
+            const element = document.getElementById(id);
+            if (element && cameraTools) cameraTools.appendChild(element);
+        });
+        cameraTools?.querySelectorAll('[data-camera-preset]').forEach(button => {
+            button.addEventListener('click', () => {
+                const preset = button.dataset.cameraPreset;
+                if (preset === '3d') {
+                    const camera = this.renderer.camera;
+                    const target = this.renderer.controls.target;
+                    const distance = Math.max(camera.position.distanceTo(target), 4);
+                    camera.up.set(0, 0, 1);
+                    camera.position.copy(target).addScaledVector(new THREE.Vector3(1, 1, 1).normalize(), distance);
+                    this.completeCameraViewChange('camera-3d');
+                } else this.setAIAxisView(preset === 'top' ? '+Z' : '-Y');
+            });
+        });
+        this.rehomeLightingWidget();
+        window.addEventListener('resize', () => this.rehomeLightingWidget());
+        const viewport = document.getElementById('app-viewport');
+        const orientation = document.getElementById('orientation-widget');
+        if (viewport && orientation) viewport.appendChild(orientation);
+        const scalarLegend = document.getElementById('atom-colorscale-legend');
+        if (viewport && scalarLegend) viewport.appendChild(scalarLegend);
+        const widget = document.getElementById('create-atom-widget');
+        const content = document.getElementById('inspector-content');
+        if (widget && content) {
+            widget.dataset.panel = 'add-atoms';
+            widget.dataset.panelGroup = 'structure';
+            content.appendChild(widget);
+        }
+        const structureExports = document.querySelector('[data-panel="export"] .export-structure-data');
+        const projectPanel = document.querySelector('[data-panel="project"]');
+        if (structureExports && projectPanel) projectPanel.appendChild(structureExports);
+        document.querySelectorAll('[data-editor-route]').forEach(button => {
+            button.addEventListener('click', () => this.openEditorRoute(button.dataset.editorRoute));
+        });
+        document.getElementById('scene-field-import')?.addEventListener('click', () =>
+            document.getElementById('btn-volume-add')?.click());
+        [['scene-displacement-visible', 'chk-displacement'],
+            ['scene-force-visible', 'chk-force-vectors']].forEach(([proxyId, sourceId]) => {
+            document.getElementById(proxyId)?.addEventListener('change', event => {
+                const source = document.getElementById(sourceId);
+                if (!source) return;
+                source.checked = event.target.checked;
+                source.dispatchEvent(new Event('change', { bubbles: true }));
+            });
+        });
+        const search = document.getElementById('editor-command-search');
+        const filterRoutes = () => {
+            const query = String(search?.value || '').trim().toLocaleLowerCase();
+            let total = 0;
+            document.querySelectorAll('#editor-navigator [data-editor-category]').forEach(category => {
+                let matched = 0;
+                category.querySelectorAll('[data-editor-route]').forEach(button => {
+                    const route = button.dataset.editorRoute;
+                    const shortcuts = Object.entries(EDITOR_COMMANDS)
+                        .filter(([, command]) => command.section === route)
+                        .map(([id]) => editorShortcutSearchTerms(id, this.shortcutPlatform));
+                    const terms = [button.textContent, route,
+                        ...(EDITOR_SEARCH[route] || []).map(item => item[0]), ...shortcuts]
+                        .join(' ').toLocaleLowerCase();
+                    const visible = !query || query.split(/\s+/).every(word => terms.includes(word));
+                    button.hidden = !visible;
+                    if (visible) matched += 1;
+                });
+                category.hidden = Boolean(query && !matched);
+                if (query && matched) category.open = true;
+                total += matched;
+            });
+            document.getElementById('editor-command-empty')?.classList.toggle('hidden', total > 0);
+        };
+        search?.addEventListener('input', filterRoutes);
+        search?.addEventListener('keydown', event => {
+            if (event.key === 'Escape') {
+                event.preventDefault();
+                event.stopPropagation();
+                search.value = '';
+                filterRoutes();
+                document.body.classList.remove('editor-search-open');
+                document.getElementById('editor-search-toggle')?.setAttribute('aria-expanded', 'false');
+                document.getElementById('editor-search-toggle')?.focus();
+                return;
+            }
+            if (event.key !== 'Enter') return;
+            const button = [...document.querySelectorAll('#editor-navigator [data-editor-route]')]
+                .find(candidate => !candidate.hidden && !candidate.closest('[data-editor-category]')?.hidden);
+            if (!button) return;
+            event.preventDefault();
+            const route = button.dataset.editorRoute;
+            const query = search.value.trim().toLocaleLowerCase();
+            const match = (EDITOR_SEARCH[route] || []).find(([terms]) => terms.includes(query));
+            const commandMatch = Object.entries(EDITOR_COMMANDS).find(([id, command]) =>
+                command.section === route
+                    && editorShortcutSearchTerms(id, this.shortcutPlatform).toLocaleLowerCase().includes(query));
+            this.openEditorRoute(route, { focus: match?.[1] || commandMatch?.[1]?.focus
+                || EDITOR_ROUTES[route]?.target || null });
+        });
+        document.querySelectorAll('[data-editor-menu-action]').forEach(button => {
+            button.addEventListener('click', () => {
+                button.closest('details')?.removeAttribute('open');
+                const action = button.dataset.editorMenuAction;
+                if (action === 'open') this.chooseStructureFile();
+                else if (EDITOR_COMMANDS[action]) this.executeEditorCommand(action);
+                else if (action === 'export-poscar') document.getElementById('btn-export-poscar')?.click();
+                else if (action === 'export-pickle') document.getElementById('btn-export-pickle')?.click();
+                else if (action === 'undo') this.performUndo().catch(error => this.toast(error.message, 'error'));
+                else if (action === 'redo') this.performRedo().catch(error => this.toast(error.message, 'error'));
+                else if (action === 'reset-coordinates') document.getElementById('btn-reset-coords')?.click();
+                else if (action === 'reset-all') document.getElementById('btn-reset')?.click();
+                else if (action === 'shortcuts') this.showShortcutsModal();
+            });
+        });
+        document.querySelectorAll('[data-editor-menu-route]').forEach(button => {
+            button.addEventListener('click', () => {
+                button.closest('details')?.removeAttribute('open');
+                const route = button.dataset.editorMenuRoute;
+                const commandId = Object.keys(EDITOR_COMMANDS).find(id =>
+                    EDITOR_COMMANDS[id].section === route);
+                if (commandId) this.executeEditorCommand(commandId);
+                else this.openEditorRoute(route);
+            });
+        });
+        document.querySelectorAll('#editor-menu-bar details').forEach(menu => {
+            menu.addEventListener('toggle', () => {
+                if (!menu.open) return;
+                document.querySelectorAll('#editor-menu-bar details').forEach(other => {
+                    if (other !== menu) other.open = false;
+                });
+            });
+            menu.addEventListener('keydown', event => {
+                if (event.key === 'Escape' && menu.open) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    menu.open = false;
+                    menu.querySelector('summary')?.focus();
+                    return;
+                }
+                if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+                const buttons = [...menu.querySelectorAll('button:not(:disabled)')];
+                if (!buttons.length) return;
+                event.preventDefault();
+                if (!menu.open) menu.open = true;
+                const index = buttons.indexOf(document.activeElement);
+                const next = event.key === 'ArrowDown'
+                    ? (index + 1) % buttons.length
+                    : (index < 0 ? buttons.length - 1 : (index - 1 + buttons.length) % buttons.length);
+                buttons[next].focus();
+            });
+        });
+        document.addEventListener('pointerdown', event => {
+            if (event.target.closest?.('#editor-menu-bar')) return;
+            document.querySelectorAll('#editor-menu-bar details[open]').forEach(menu => { menu.open = false; });
+        });
+        document.getElementById('editor-save')?.addEventListener('click', () =>
+            this.executeEditorCommand('save'));
+        document.getElementById('project-retry-save')?.addEventListener('click', () => {
+            this.executeEditorCommand('save');
+        });
+        document.getElementById('project-error-save-as')?.addEventListener('click', () => {
+            this.executeEditorCommand('save-as');
+        });
+        document.getElementById('editor-render')?.addEventListener('click', () =>
+            this.executeEditorCommand('renderer'));
+        document.getElementById('tool-measure')?.addEventListener('click', () => this.armMeasurementTool());
+        document.getElementById('tool-add')?.addEventListener('click', () => this.openEditorRoute('add-atoms'));
+        document.getElementById('tool-orbit')?.addEventListener('click', () => {
+            this.orbitToolActive = true;
+            document.getElementById('tool-orbit')?.setAttribute('aria-pressed', 'true');
+            document.getElementById('tool-select')?.setAttribute('aria-pressed', 'false');
+            this.renderer.domElement?.focus({ preventScroll: true });
+        });
+        this.setupEditorShortcutHints();
+        this.openEditorRoute('appearance');
+    }
+
+    setupEditorShortcutHints() {
+        Object.entries(EDITOR_COMMANDS).forEach(([id, command]) => {
+            const label = editorShortcutLabel(id, this.shortcutPlatform);
+            const aria = editorAriaShortcut(id, this.shortcutPlatform);
+            document.querySelectorAll(`[data-editor-command="${id}"]`).forEach(hint => {
+                hint.textContent = label;
+                const button = hint.closest('button') || hint;
+                button.setAttribute('aria-keyshortcuts', aria);
+                button.title = `${command.label} (${label})`;
+            });
+            document.querySelectorAll(`[data-editor-route="${command.section}"], [data-editor-menu-route="${command.section}"]`)
+                .forEach(button => {
+                    button.setAttribute('aria-keyshortcuts', aria);
+                    if (!button.title) button.title = `${command.label} (${label})`;
+                });
+        });
+        [['editor-save', 'save'], ['editor-render', 'renderer']].forEach(([elementId, id]) => {
+            const button = document.getElementById(elementId);
+            if (!button) return;
+            button.setAttribute('aria-keyshortcuts', editorAriaShortcut(id, this.shortcutPlatform));
+            button.title = `${EDITOR_COMMANDS[id].label} (${editorShortcutLabel(id, this.shortcutPlatform)})`;
+        });
+        const editModifier = this.shortcutPlatform === 'mac' ? '⌘' : 'Ctrl+';
+        const ariaModifier = this.shortcutPlatform === 'mac' ? 'Meta' : 'Control';
+        [['btn-undo', 'Undo', 'Z', false], ['btn-redo', 'Redo', 'Z', true]]
+            .forEach(([id, action, key, shift]) => {
+                const button = document.getElementById(id);
+                if (!button) return;
+                button.title = `${action} (${editModifier}${shift ? 'Shift+' : ''}${key})`;
+                button.setAttribute('aria-keyshortcuts', `${ariaModifier}+${shift ? 'Shift+' : ''}${key}`);
+            });
+    }
+
+    rehomeLightingWidget() {
+        const widget = document.getElementById('lighting-widget');
+        const target = document.getElementById('viewport-camera-tools');
+        if (widget && target && widget.parentElement !== target) target.appendChild(widget);
+    }
+
+    renderSceneContextObjects() {
+        const root = document.getElementById('scene-field-list');
+        if (!root) return;
+        root.replaceChildren();
+        const datasets = this.volumetricDatasets();
+        if (!datasets.length) {
+            const empty = document.createElement('p');
+            empty.className = 'panel-note';
+            empty.textContent = 'No field datasets loaded.';
+            root.appendChild(empty);
+        }
+        datasets.forEach(dataset => {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.dataset.objectId = dataset.id;
+            button.textContent = `${dataset.name} · ${dataset.shape?.join(' × ') || 'scalar field'}`;
+            button.addEventListener('click', () => {
+                this.openEditorRoute('scene-fields', { focus: '#volume-level' });
+                const select = document.getElementById('volume-dataset');
+                if (!select) return;
+                select.value = dataset.id;
+                select.dispatchEvent(new Event('change', { bubbles: true }));
+                this.setVolumetricToolView('surface');
+            });
+            root.appendChild(button);
+        });
+        this.volumetricPlanes().forEach(plane => {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.dataset.objectId = plane.id;
+            button.textContent = `${plane.visible === false ? '○' : '●'} ${plane.name} · plane`;
+            button.addEventListener('click', () => {
+                this.openEditorRoute('scene-fields', { focus: '#volume-plane-h' });
+                this.setVolumetricPlaneSelection([plane.id]);
+            });
+            root.appendChild(button);
+        });
+    }
+
+    rehomeSceneFieldProperties(sceneRoute = false) {
+        const surface = document.getElementById('volume-tool-surface');
+        const planeEditor = document.getElementById('volume-plane-editor');
+        const surfaceTarget = document.getElementById(sceneRoute
+            ? 'scene-field-surface-properties' : 'volume-controls');
+        const planeTarget = document.getElementById(sceneRoute
+            ? 'scene-field-plane-properties' : 'volume-tool-planes');
+        if (surface && surfaceTarget && surface.parentElement !== surfaceTarget) {
+            if (sceneRoute) surfaceTarget.appendChild(surface);
+            else surfaceTarget.insertBefore(surface, document.getElementById('volume-tool-planes'));
+        }
+        if (planeEditor && planeTarget && planeEditor.parentElement !== planeTarget) {
+            if (sceneRoute) planeTarget.appendChild(planeEditor);
+            else planeTarget.insertBefore(planeEditor, document.getElementById('volume-plane-status'));
+        }
+        if (sceneRoute) {
+            if (surfaceTarget) surfaceTarget.hidden = this.volumetricDatasets().length === 0;
+            if (planeTarget) planeTarget.hidden = this.state.selectedVolumetricPlanes.size === 0;
+        }
+    }
+
+    rehomeSceneVectorProperties(sceneRoute = false) {
+        [
+            ['displacement-style-controls', 'scene-displacement-style', 'displacement-status'],
+            ['force-style-controls', 'scene-force-style', 'force-vector-status']
+        ].forEach(([controlsId, sceneId, statusId]) => {
+            const controls = document.getElementById(controlsId);
+            const target = sceneRoute
+                ? document.getElementById(sceneId)
+                : document.getElementById(statusId)?.parentElement;
+            if (!controls || !target || controls.parentElement === target) return;
+            if (sceneRoute) target.appendChild(controls);
+            else target.insertBefore(controls, document.getElementById(statusId));
+        });
+    }
+
+    renderSceneNavigatorObjects() {
+        const root = document.getElementById('objects-list');
+        if (!root || !this.state.atoms) return;
+        const caption = document.getElementById('viewport-scene-caption');
+        if (caption) caption.textContent = `${[...new Set(this.state.atoms.symbols || [])].slice(0, 4).join(' · ')} · ${this.state.atoms.positions.length} atoms`;
+        const entries = [
+            { id: 'atoms', label: `Atoms · ${this.state.atoms.positions.length}`, route: 'structure-info', focus: '#prop-natoms' }
+        ];
+        const bondCount = this.renderer.bondPairs?.length || 0;
+        if (bondCount) entries.push({
+            id: 'bonds', label: `Bonds · ${bondCount}`, route: 'bonding',
+            focus: '#bond-mode', visibility: 'chk-bonds'
+        });
+        if (this.hasUsableCell()) entries.push({
+            id: 'cell', label: 'Cell', route: 'cell-replication', focus: '#chk-cell', visibility: 'chk-cell'
+        });
+        if (this.state.display.polyhedraRules?.length || this.state.display.showPolyhedra) entries.push({
+            id: 'polyhedra', label: 'Polyhedra', route: 'polyhedra', visibility: 'poly-enabled'
+        });
+        this.volumetricDatasets().forEach(dataset => entries.push({
+            id: `dataset:${dataset.id}`, label: `Field · ${dataset.name}`,
+            route: 'scene-fields', focus: '#volume-level', visibility: 'chk-volume-visible',
+            activate: () => {
+                const select = document.getElementById('volume-dataset');
+                if (select) {
+                    select.value = dataset.id;
+                    select.dispatchEvent(new Event('change', { bubbles: true }));
+                }
+                this.setVolumetricToolView('surface');
+            }
+        }));
+        this.volumetricPlanes().forEach(plane => entries.push({
+            id: `plane:${plane.id}`, label: `${plane.name} · plane`,
+            route: 'scene-fields', focus: '#volume-plane-h',
+            checked: () => plane.visible !== false,
+            setVisibility: checked => {
+                this.setVolumetricPlaneSelection([plane.id]);
+                const source = document.getElementById('chk-volume-plane-visible');
+                source.checked = checked;
+                source.dispatchEvent(new Event('change', { bubbles: true }));
+            },
+            activate: () => {
+                this.setVolumetricPlaneSelection([plane.id]);
+            }
+        }));
+        this.addAtomsRegions().forEach(region => entries.push({
+            id: `region:${region.id}`, label: `${region.role === 'reject' ? 'Reject' : 'Allow'} · ${region.name}`,
+            route: 'add-atoms', focus: '#add-atoms-region-name',
+            activate: () => {
+                this.setAddAtomsPane('batch');
+                this.selectAddAtomsRegion(region.id);
+            }
+        }));
+        if (this.state.atoms.metadata?.commensurate_guest) entries.push({
+            id: 'guest', label: 'Guest structure', route: 'build-match',
+            focus: '#commensurate-guest-angle'
+        });
+        if (this.state.display.lightingMode !== 'modeling') entries.push({
+            id: 'sun', label: 'Sun lighting', route: 'export', focus: '#renderer-sun-position-x'
+        });
+        if (this.state.exportPreviewEnabled) entries.push({
+            id: 'render-area', label: 'Render Area', route: 'export', focus: '#btn-preview-image'
+        });
+        if (this.state.display.showDisplacements
+            || Number(this.state.atoms.metadata?.frame_count || 1) > 1) entries.push({
+            id: 'displacements', label: 'Displacement vectors', route: 'scene-vectors',
+            focus: '#scene-displacement-visible', visibility: 'scene-displacement-visible'
+        });
+        if (this.state.display.showForceVectors || this.state.atoms.forces?.length) entries.push({
+            id: 'forces', label: 'Stored force vectors', route: 'scene-vectors',
+            focus: '#scene-force-visible', visibility: 'scene-force-visible'
+        });
+        const signature = JSON.stringify(entries.map(entry => [entry.id, entry.label,
+            entry.checked?.() ?? document.getElementById(entry.visibility)?.checked]));
+        if (root.dataset.signature === signature) return;
+        root.dataset.signature = signature;
+        root.replaceChildren();
+        entries.forEach(entry => {
+            const row = document.createElement('div');
+            row.className = 'objects-row';
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.dataset.objectId = entry.id;
+            button.dataset.editorRoute = entry.route;
+            button.textContent = entry.label;
+            button.addEventListener('click', () => {
+                this.openEditorRoute(entry.route, { focus: entry.focus });
+                entry.activate?.();
+                document.getElementById('objects-drawer')?.classList.add('hidden');
+                document.getElementById('btn-objects')?.setAttribute('aria-expanded', 'false');
+            });
+            row.appendChild(button);
+            if (entry.visibility || entry.setVisibility) {
+                const source = document.getElementById(entry.visibility);
+                const eye = document.createElement('input');
+                eye.type = 'checkbox';
+                eye.checked = entry.checked?.() ?? Boolean(source?.checked);
+                eye.setAttribute('aria-label', `Show ${entry.label}`);
+                eye.addEventListener('change', () => {
+                    if (entry.setVisibility) { entry.setVisibility(eye.checked); return; }
+                    if (!source) return;
+                    source.checked = eye.checked;
+                    source.dispatchEvent(new Event('change', { bubbles: true }));
+                });
+                row.appendChild(eye);
+            }
+            root.appendChild(row);
+        });
+        document.getElementById('editor-command-search')?.dispatchEvent(new Event('input'));
+    }
+
+    syncSceneVectorControls() {
+        const displacement = document.getElementById('scene-displacement-visible');
+        const forces = document.getElementById('scene-force-visible');
+        if (displacement) displacement.checked = Boolean(document.getElementById('chk-displacement')?.checked);
+        if (forces) forces.checked = Boolean(document.getElementById('chk-force-vectors')?.checked);
+    }
+
+    syncRendererProperties({ force = false } = {}) {
+        const display = this.state.display;
+        const profile = this.currentImageExportProfile();
+        const set = (id, value) => {
+            const input = document.getElementById(id);
+            if (input && (force || document.activeElement !== input)) input.value = `${value}`;
+        };
+        set('renderer-lighting-mode', display.lightingMode || 'modeling');
+        set('renderer-sun-intensity', Number(display.sunIntensity ?? 2.2));
+        ['x', 'y', 'z'].forEach((axis, index) => {
+            set(`renderer-sun-position-${axis}`, Number(display.sunPosition?.[index] ?? [8, -10, 14][index]));
+            set(`renderer-sun-target-${axis}`, Number(display.sunTarget?.[index] ?? 0));
+        });
+        set('renderer-sphere-quality', display.imageSphereQuality || this.state.sphereQuality || 'high');
+        const aa = document.getElementById('renderer-antialias');
+        if (aa) aa.checked = document.getElementById('chk-antialias')?.checked !== false;
+        set('renderer-framing-mode', profile.options.scaleMode);
+        set('renderer-pixels-per-angstrom', Number(profile.options.pixelsPerAngstrom).toFixed(2));
+        [['renderer-include-grid', 'includeGrid'], ['renderer-include-axes', 'includeAxes'],
+            ['renderer-include-cell', 'includeCell']].forEach(([id, key]) => {
+            const input = document.getElementById(id);
+            if (input) input.checked = Boolean(profile.options[key]);
+        });
+        set('renderer-background', profile.options.backgroundColor || '#ffffff');
+        set('image-width', profile.width);
+        set('image-height', profile.height);
+    }
+
+    syncProjectHtmlProfileFromRenderer() {
+        if (this.projectFile.format !== 'html' || !this.projectFile.outputProfile) return;
+        const rendererProfile = this.currentImageExportProfile();
+        this.projectFile.outputProfile = this.htmlExportProfile({
+            ...this.projectFile.outputProfile,
+            width: rendererProfile.width,
+            height: rendererProfile.height,
+            options: { ...this.projectFile.outputProfile.options, ...rendererProfile.options }
+        });
+    }
+
+    syncRendererFormatProperties() {
+        const imageFormat = document.getElementById('renderer-image-format');
+        if (imageFormat) imageFormat.value = this.imageExportDraftFormat
+            || this.currentImageExportProfile().format;
+        if (!this.videoExportDraft) {
+            const display = this.state.display;
+            this.videoExportDraft = {
+                format: ['mov', 'avi'].includes(display.videoFormat) ? display.videoFormat : 'mov',
+                fps: Math.min(60, Math.max(1, Number(display.videoFps) || this.currentPlaybackFps())),
+                interpolationMultiplier: normalizeInterpolationMultiplier(display.videoInterpolationMultiplier),
+                interpolationMic: display.videoInterpolationMic !== false
+            };
+        }
+        const draft = this.videoExportDraft;
+        const set = (id, value) => {
+            const input = document.getElementById(id);
+            if (input && document.activeElement !== input) input.value = `${value}`;
+        };
+        set('renderer-video-format', draft.format);
+        set('renderer-video-fps', draft.fps);
+        set('renderer-video-interpolation', draft.interpolationMultiplier);
+        const mic = document.getElementById('renderer-video-mic');
+        if (mic) {
+            mic.checked = draft.interpolationMic;
+            mic.disabled = draft.interpolationMultiplier <= 1;
+        }
+        const count = Math.max(1, Number(this.state.atoms?.metadata?.frame_count) || 1);
+        const outputCount = interpolatedFrameCount(count, draft.interpolationMultiplier);
+        const estimate = document.getElementById('renderer-video-estimate');
+        if (estimate) estimate.textContent = count < 2
+            ? 'Load at least two trajectory frames to export video.'
+            : `${count} source frames → ${outputCount} output frames · ${(outputCount / draft.fps).toFixed(2)} s at ${draft.fps} fps.`;
+        const htmlFrame = document.getElementById('renderer-html-frame-note');
+        if (htmlFrame) {
+            const profile = this.currentImageExportProfile();
+            htmlFrame.textContent = `Offline view with a ${profile.width} × ${profile.height} poster and the same Render Area crop. WebGL adapts to the viewer window.`;
+        }
+        const embed = document.getElementById('renderer-html-embed-project');
+        if (embed) embed.checked = this.htmlExportEmbedProjectDraft === true;
+    }
+
+    setupRendererProperties() {
+        const lightingIds = ['renderer-lighting-mode', 'renderer-sun-intensity',
+            ...['position', 'target'].flatMap(kind => ['x', 'y', 'z'].map(axis => `renderer-sun-${kind}-${axis}`))];
+        const commitLighting = () => {
+            const copy = (source, target) => {
+                const value = document.getElementById(source)?.value;
+                if (value !== undefined && document.getElementById(target)) {
+                    document.getElementById(target).value = value;
+                }
+            };
+            copy('renderer-lighting-mode', 'lighting-mode');
+            copy('renderer-sun-intensity', 'sun-intensity');
+            ['position', 'target'].forEach(kind => ['x', 'y', 'z'].forEach(axis =>
+                copy(`renderer-sun-${kind}-${axis}`, `sun-${kind}-${axis}`)));
+            this.applyLightingControls();
+            this.syncProjectHtmlProfileFromRenderer();
+            this.syncRendererProperties();
+        };
+        lightingIds.forEach(id => document.getElementById(id)?.addEventListener('change', commitLighting));
+        document.getElementById('renderer-sphere-quality')?.addEventListener('change', event => {
+            this.state.display.imageSphereQuality = event.target.value;
+            const profile = this.currentImageExportProfile();
+            profile.options.sphereQuality = event.target.value;
+            this.setImageExportProfile(profile);
+            this.syncProjectHtmlProfileFromRenderer();
+            this.scheduleVisualHistoryCommit('renderer-quality');
+        });
+        document.getElementById('renderer-antialias')?.addEventListener('change', event => {
+            const main = document.getElementById('chk-antialias');
+            if (main) main.checked = event.target.checked;
+            this.safeApplyDisplayOptions();
+        });
+        const commitOutput = () => {
+            const profile = this.currentImageExportProfile();
+            profile.options.scaleMode = document.getElementById('renderer-framing-mode')?.value === 'physical'
+                ? 'physical' : 'viewport';
+            profile.options.pixelsPerAngstrom = Math.max(0.1, Math.min(5000,
+                Number(document.getElementById('renderer-pixels-per-angstrom')?.value)
+                    || profile.options.pixelsPerAngstrom));
+            this.state.display.imageFramingMode = profile.options.scaleMode;
+            this.setImageExportProfile(profile);
+            this.syncProjectHtmlProfileFromRenderer();
+            this.scheduleVisualHistoryCommit('renderer-output');
+            this.syncRendererProperties();
+        };
+        ['renderer-framing-mode', 'renderer-pixels-per-angstrom'].forEach(id =>
+            document.getElementById(id)?.addEventListener('change', commitOutput));
+        const commitOverlays = () => {
+            const profile = this.currentImageExportProfile();
+            profile.options.includeGrid = Boolean(document.getElementById('renderer-include-grid')?.checked);
+            profile.options.includeAxes = Boolean(document.getElementById('renderer-include-axes')?.checked);
+            profile.options.includeCell = Boolean(document.getElementById('renderer-include-cell')?.checked);
+            profile.options.backgroundColor = document.getElementById('renderer-background')?.value || '#ffffff';
+            const geometryCell = document.getElementById('export-include-cell');
+            if (geometryCell) geometryCell.checked = profile.options.includeCell;
+            this.state.display.exportIncludeCell = profile.options.includeCell;
+            this.setImageExportProfile(profile);
+            this.syncProjectHtmlProfileFromRenderer();
+            this.scheduleVisualHistoryCommit('renderer-overlays');
+        };
+        ['renderer-include-grid', 'renderer-include-axes', 'renderer-include-cell',
+            'renderer-background'].forEach(id =>
+            document.getElementById(id)?.addEventListener('change', commitOverlays));
+        document.getElementById('renderer-image-format')?.addEventListener('change', event => {
+            this.imageExportDraftFormat = event.target.value;
+        });
+        const updateVideoDraft = () => {
+            const previous = this.videoExportDraft || {};
+            this.videoExportDraft = {
+                format: document.getElementById('renderer-video-format')?.value === 'avi' ? 'avi' : 'mov',
+                fps: Math.min(60, Math.max(1,
+                    Number(document.getElementById('renderer-video-fps')?.value) || previous.fps || 12)),
+                interpolationMultiplier: normalizeInterpolationMultiplier(
+                    document.getElementById('renderer-video-interpolation')?.value
+                        || previous.interpolationMultiplier || 1),
+                interpolationMic: Boolean(document.getElementById('renderer-video-mic')?.checked)
+            };
+            this.syncRendererFormatProperties();
+        };
+        ['renderer-video-format', 'renderer-video-fps', 'renderer-video-interpolation',
+            'renderer-video-mic'].forEach(id => {
+            document.getElementById(id)?.addEventListener('input', updateVideoDraft);
+            document.getElementById(id)?.addEventListener('change', updateVideoDraft);
+        });
+        document.getElementById('renderer-html-embed-project')?.addEventListener('change', event => {
+            this.htmlExportEmbedProjectDraft = event.target.checked;
+        });
+        this.syncRendererProperties();
+        this.syncRendererFormatProperties();
+    }
+
+    requestWorkspaceDocumentCommand(action) {
+        if (this.workspaceChild && window.parent !== window) {
+            window.parent.postMessage({
+                type: 'v_ase:document-command',
+                sessionId: this.sessionId,
+                requestId: `${this.sessionId}:${++this.workspaceRequestSequence}`,
+                command: action
+            }, window.location.origin);
+        } else {
+            this.ensureDirectWorkspace().then(workspace => (
+                action === 'new' ? workspace.createDocument() : workspace.closeDocument(this.sessionId)
+            )).catch(error => this.toast(`Document command failed: ${error.message}`, 'error'));
+        }
+    }
+
+    async ensureDirectWorkspace() {
+        if (this.directWorkspace) return this.directWorkspace;
+        if (this.directWorkspacePromise) return await this.directWorkspacePromise;
+        const workspace = new DirectWorkspace(this);
+        this.directWorkspacePromise = workspace.adopt();
+        try {
+            this.directWorkspace = await this.directWorkspacePromise;
+            return this.directWorkspace;
+        } finally {
+            this.directWorkspacePromise = null;
+        }
+    }
+
+    armMeasurementTool() {
+        const keys = this.selectionEntries().map(reference => reference.key);
+        if (keys.length >= 2 && keys.length <= 4) {
+            this.state.measurementIntent = { kind: 'ordered', keys };
+            this.measureToolArmed = false;
+            document.getElementById('tool-measure')?.setAttribute('aria-pressed', 'false');
+            this.updateSelectionVisuals();
+            this.updateUI();
+            return;
+        }
+        this.measureToolArmed = true;
+        document.getElementById('tool-measure')?.setAttribute('aria-pressed', 'true');
+        this.toast('Click 2–4 atoms in order to measure them.', 'info');
+    }
+
+    fitEditorView() {
+        if (this.transform.mode !== 'IDLE' || !document.getElementById('modal-container')?.classList.contains('hidden')) return;
+        this.renderer.fitCameraToStructure();
+        this.completeCameraViewChange('fit-view');
+    }
+
+    syncWorkbenchEditingAvailability() {
+        const blocked = WORKBENCH_ROUTES.build.includes(this.editorRoute) && this.state.vizOnly;
+        document.getElementById('workbench-edit-notice')?.classList.toggle('hidden', !blocked);
+        const content = document.getElementById('inspector-content');
+        if (content) {
+            // Cell tools gate physical inputs individually. Periodic matching
+            // also has a view-only preview; only materialization requires Edit.
+            content.inert = blocked && !['cell-transform', 'build-match'].includes(this.editorRoute);
+            content.classList.toggle('workbench-readonly', content.inert);
+        }
+    }
+
+    openEditorRoute(route, { focus = null } = {}) {
+        const description = EDITOR_ROUTES[route];
+        if (!description) return false;
+        document.body.classList.remove('editor-search-open');
+        document.getElementById('editor-search-toggle')?.setAttribute('aria-expanded', 'false');
+        if (route === 'constraints' && !this.state.vizOnly
+            && !this.canEditAtoms()) {
+            this.editOnlyToast();
+            return false;
+        }
+        this.setInspectorCollapsed(false);
+        this.editorRouteNavigation = true;
+        try {
+            this.setInspectorGroup(description.group, false);
+        } finally {
+            this.editorRouteNavigation = false;
+        }
+        if (this.editorRoute && !document.body.classList.contains('workbench-contextual')) {
+            this.previousWorkbenchRoute = this.editorRoute;
+        }
+        this.editorRoute = route;
+        syncWorkbenchRoute(route, description.title);
+        this.syncWorkbenchEditingAvailability();
+        this.rehomeSceneFieldProperties(route === 'scene-fields');
+        this.rehomeSceneVectorProperties(route === 'scene-vectors');
+        if (route !== 'selection') this.lastPropertiesRoute = route;
+        document.body.dataset.currentEditorRoute = route;
+        document.getElementById('inspector-selection-tab')?.setAttribute(
+            'aria-selected', route === 'selection' ? 'true' : 'false'
+        );
+        document.getElementById('inspector-properties-tab')?.setAttribute(
+            'aria-selected', route === 'selection' ? 'false' : 'true'
+        );
+        const panelKey = description.panel || route;
+        document.querySelectorAll('#inspector-content [data-panel]').forEach(panel => {
+            const active = panel.dataset.panel === panelKey;
+            panel.classList.toggle('editor-route-current', active);
+            if (active && panel.tagName === 'DETAILS') panel.open = true;
+        });
+        document.querySelectorAll('[data-editor-route]').forEach(button => {
+            const active = button.dataset.editorRoute === route;
+            button.classList.toggle('active', active);
+            button.setAttribute('aria-current', active ? 'page' : 'false');
+        });
+        const title = document.getElementById('inspector-context');
+        if (title) title.textContent = description.title;
+        if (route === 'add-atoms') document.getElementById('create-atom-widget')?.classList.remove('collapsed');
+        if (['export', 'render-image', 'render-video', 'render-html'].includes(route)) {
+            this.syncRendererProperties();
+            this.syncRendererFormatProperties();
+        }
+        if (route === 'scene-fields') this.renderSceneContextObjects();
+        if (route === 'scene-vectors') this.syncSceneVectorControls();
+        const picker = document.getElementById('structure-section-select');
+        if (picker && [...picker.options].some(option => option.value === route)) picker.value = route;
+        const content = document.getElementById('inspector-content');
+        if (content) content.scrollTop = 0;
+        if (description.target) requestAnimationFrame(() => {
+            document.querySelector(description.target)?.scrollIntoView({ block: 'nearest' });
+        });
+        const focusTarget = route === 'cell-transform' && this.state.vizOnly
+            ? '#btn-cell-transform-switch-edit' : focus;
+        if (focusTarget) requestAnimationFrame(() => requestAnimationFrame(() => {
+            const target = document.querySelector(focusTarget);
+            if (!target || target.disabled || target.offsetParent === null) return;
+            target.scrollIntoView({ block: 'nearest' });
+            target.focus({ preventScroll: true });
+        }));
+        this.renderer?.onResize?.();
+        return true;
+    }
+
+    handleEditorShortcut(event) {
+        const commandId = commandIdForEvent(event, this.shortcutPlatform);
+        if (!commandId) return false;
+        event.preventDefault();
+        event.stopPropagation();
+        return this.executeEditorCommand(commandId, {
+            repeat: event.repeat, target: event.target
+        });
+    }
+
+    executeEditorCommand(commandId, { repeat = false, target = null } = {}) {
+        const command = EDITOR_COMMANDS[commandId];
+        if (!command) return false;
+        if (repeat) return true;
+        if (!this.collaborationReady) {
+            this.toast('The document is still loading. Try again when it is ready.', 'warning');
+            return true;
+        }
+        const modal = document.getElementById('modal-container');
+        if (modal && !modal.classList.contains('hidden')) return true;
+        if (this.transform.mode !== 'IDLE') {
+            this.toast('Finish or cancel the active transform before using a document command.', 'warning');
+            return true;
+        }
+        const active = this.isCommittableInput(target) ? target : document.activeElement;
+        if (this.isCommittableInput(active) && !this.commitInputValue(active)) return true;
+        if (this.invalidDraftInput?.isConnected && this.invalidDraftInput !== active
+            && !this.commitInputValue(this.invalidDraftInput)) return true;
+        if (command.section) {
+            const focus = commandId === 'renderer'
+                && this.currentImageExportProfile().options.scaleMode === 'physical'
+                ? '#renderer-pixels-per-angstrom'
+                : command.focus;
+            this.openEditorRoute(command.section, { focus });
+            return true;
+        }
+        if (command.action === 'save') {
+            this.saveDocument().catch(error => this.toast(`Save failed: ${error.message}`, 'error'));
+            return true;
+        }
+        if (command.action === 'save-as') {
+            this.showHtmlExportModal({ projectSave: true, saveAs: true });
+            return true;
+        }
+        this.requestWorkspaceDocumentCommand(command.action);
+        return true;
+    }
+
+    executeViewportNavigation(navigation) {
+        if (!navigation) return false;
+        if (!this.collaborationReady || (this.workspaceChild && !this.workspaceRecoveryAcknowledged)
+            || !document.getElementById('modal-container')?.classList.contains('hidden')
+            || this.transform.mode !== 'IDLE') return true;
+        if (navigation.kind === 'camera') {
+            this.rotateCameraView(navigation.direction, this.state.display.viewRotationStepDeg);
+            return true;
+        }
+        if (navigation.kind === 'frame') {
+            if (this.timelineFrameCount(this.primaryTimelineSource()) > 1) {
+                this.requestFrameStep(navigation.delta)
+                    .catch(err => this.toast(`Frame change failed: ${err.message}`, 'error'));
+            }
+            return true;
+        }
+        return false;
     }
 
     setupDisplacementAnalysis() {
@@ -5082,6 +6954,7 @@ class VAseApp {
 
     renderVolumetricControls() {
         const datasets = this.volumetricDatasets();
+        if (this.editorRoute === 'scene-fields') this.renderSceneContextObjects();
         const empty = document.getElementById('volume-empty');
         const controls = document.getElementById('volume-controls');
         empty?.classList.toggle('hidden', datasets.length > 0);
@@ -5489,6 +7362,7 @@ class VAseApp {
             else next.add(id);
         });
         this.state.selectedVolumetricPlanes = next;
+        if (this.editorRoute === 'scene-fields') this.rehomeSceneFieldProperties(true);
         this.renderer.setVolumetricPlaneSelection([...next]);
         if (next.size) {
             this.setSunSelected(false, { update: false });
@@ -6250,6 +8124,7 @@ class VAseApp {
             try {
                 const result = await this.api.deleteVolumetricDataset(dataset.id);
                 this.state.atoms.metadata.volumetric_datasets = result.volumetric_datasets || [];
+                this.adoptScientificContentIdentity(result);
                 const removedPlaneIds = this.volumetricPlanes()
                     .filter(plane => plane.datasetId === dataset.id)
                     .map(plane => plane.id);
@@ -6486,6 +8361,7 @@ class VAseApp {
                     })
                 );
                 this.state.atoms.metadata.volumetric_datasets = result.volumetric_datasets || [];
+                this.adoptScientificContentIdentity(result);
                 this.state.display.volumetricDatasetId = result.dataset.id;
                 this.state.display.volumetricLevel = this.defaultVolumetricLevel(result.dataset);
                 this.renderVolumetricControls();
@@ -7756,8 +9632,14 @@ class VAseApp {
                     210,
                     Math.min(window.innerHeight * 0.62, startHeight + startY - moveEvent.clientY)
                 );
-                drawer.style.height = `${height}px`;
-                window.Plotly?.Plots?.resize?.(this.analysisPlotElement());
+                if (document.body.classList.contains('editor-shell')) {
+                    document.body.style.setProperty('--results-height', `${height}px`);
+                } else {
+                    drawer.style.height = `${height}px`;
+                }
+                requestAnimationFrame(() => {
+                    window.Plotly?.Plots?.resize?.(this.analysisPlotElement());
+                });
             };
             const onUp = () => {
                 window.removeEventListener('pointermove', onMove);
@@ -7807,6 +9689,10 @@ class VAseApp {
         });
         document.getElementById('btn-analysis-drawer-close')?.addEventListener('click', () => {
             this.closeAnalysisDrawer();
+        });
+        document.getElementById('btn-results-back')?.addEventListener('click', () => {
+            this.closeAnalysisDrawer();
+            this.renderer.domElement?.focus({ preventScroll: true });
         });
         document.getElementById('btn-analysis-export')?.addEventListener('click', () => {
             this.exportActiveAnalysisData().catch(error => {
@@ -8965,7 +10851,13 @@ class VAseApp {
             sphereQuality: this.state.sphereQuality || 'auto',
             moveIncrement: Number(this.state.moveIncrement) || 0,
             rotateIncrementDeg: Number(this.state.rotateIncrementDeg) || 0,
-            imageExportProfile: this.clonePlain(this.currentImageExportProfile())
+            imageExportProfile: this.clonePlain(this.currentImageExportProfile()),
+            renderArea: {
+                followViewport: Boolean(this.state.exportPreviewFollowViewport),
+                camera: this.clonePlain(this.state.exportPreviewCamera || null)
+            },
+            projectHtmlOutputProfile: this.projectFile?.format === 'html'
+                ? this.clonePlain(this.projectFile.outputProfile) : null
         };
     }
 
@@ -9024,6 +10916,7 @@ class VAseApp {
         if (!action || this.visualHistorySnapshotsEqual(action.before, action.after)) return;
         this.visualHistoryBaseline = this.clonePlain(action.after);
         this.recordHistoryAction(action);
+        this.updateProjectDirtyState();
         const changedPaths = this.collaborationChangedPaths(
             action.before,
             action.after
@@ -9032,7 +10925,8 @@ class VAseApp {
         if (changedPaths.some(path => path.startsWith('applyConstraints'))) {
             categories.add('constraints');
         }
-        if (changedPaths.some(path => path.startsWith('imageExportProfile'))) {
+        if (changedPaths.some(path => path.startsWith('imageExportProfile')
+            || path.startsWith('projectHtmlOutputProfile'))) {
             categories.add('export');
         }
         this.scheduleCollaborationEvent({
@@ -9049,6 +10943,20 @@ class VAseApp {
         this.historyReplay = true;
         try {
             this.applyDesignSettings(this.clonePlain(snapshot));
+            // applyDesignSettings merges defaults. Recovery must retain the
+            // original presence/absence of optional display fields as well;
+            // in particular an absent volumetric level is not a new level 0.
+            for (const key of ['volumetricLevel', 'antiAliasing', 'sphereQuality']) {
+                if (!Object.prototype.hasOwnProperty.call(snapshot.display || {}, key)) {
+                    delete this.state.display[key];
+                }
+            }
+            if (this.projectFile.format === 'html'
+                && Object.prototype.hasOwnProperty.call(snapshot, 'projectHtmlOutputProfile')) {
+                this.projectFile.outputProfile = this.clonePlain(snapshot.projectHtmlOutputProfile);
+            }
+            this.syncRendererProperties({ force: true });
+            this.syncRendererFormatProperties();
             this.visualHistoryBaseline = this.visualHistorySnapshot();
             this.visualHistoryPending = null;
         } finally {
@@ -9077,6 +10985,8 @@ class VAseApp {
             }
             const data = await this.api.undo();
             this.setAtomsData(data);
+            this.projectFile.structureRevision += 1;
+            this.updateProjectDirtyState();
             this.scheduleCollaborationEvent({
                 source: this.currentCollaborationActor(),
                 categories: ['structure'],
@@ -9100,6 +11010,7 @@ class VAseApp {
                 }
                 const data = await this.api.undo();
                 this.setAtomsData(data);
+                this.projectFile.structureRevision += 1;
                 if (
                     action.visualBefore
                     && !this.visualHistorySnapshotsEqual(action.visualBefore, action.visualAfter)
@@ -9109,7 +11020,9 @@ class VAseApp {
                     this.resetVisualHistoryBaseline();
                 }
                 this.toast('Undo.', 'success');
+                this.updateProjectDirtyState();
             }
+            this.updateProjectDirtyState();
             this.redoTimeline.push(action);
             this.scheduleCollaborationEvent({
                 source: this.currentCollaborationActor(),
@@ -9135,6 +11048,8 @@ class VAseApp {
             }
             const data = await this.api.redo();
             this.setAtomsData(data);
+            this.projectFile.structureRevision += 1;
+            this.updateProjectDirtyState();
             this.scheduleCollaborationEvent({
                 source: this.currentCollaborationActor(),
                 categories: ['structure'],
@@ -9155,6 +11070,7 @@ class VAseApp {
                 this.historyReplay = true;
                 const data = await this.api.redo();
                 this.setAtomsData(data);
+                this.projectFile.structureRevision += 1;
                 if (
                     action.visualAfter
                     && !this.visualHistorySnapshotsEqual(action.visualBefore, action.visualAfter)
@@ -9164,7 +11080,9 @@ class VAseApp {
                     this.resetVisualHistoryBaseline();
                 }
                 this.toast('Redo.', 'success');
+                this.updateProjectDirtyState();
             }
+            this.updateProjectDirtyState();
             this.undoTimeline.push(action);
             this.scheduleCollaborationEvent({
                 source: this.currentCollaborationActor(),
@@ -9296,6 +11214,14 @@ class VAseApp {
         this.state.display.sunPosition = this.lightingVectorFromInputs('sun-position', fallbackPosition);
         this.state.display.sunTarget = this.lightingVectorFromInputs('sun-target', fallbackTarget);
         this.state.display.sunGizmo = Boolean(document.getElementById('chk-sun-gizmo')?.checked);
+        const exportProfile = this.currentImageExportProfile();
+        if (exportProfile.options.renderModeSelection === 'current') {
+            exportProfile.options.renderMode = this.state.display.lightingMode;
+            exportProfile.options.sunIntensity = this.state.display.sunIntensity;
+            exportProfile.options.sunPosition = [...this.state.display.sunPosition];
+            exportProfile.options.sunTarget = [...this.state.display.sunTarget];
+            this.setImageExportProfile(exportProfile, { syncInputs: false, syncPreview: false });
+        }
         this.renderer.setLightingOptions(this.state.display);
         if (!this.sunIsSelectable()) {
             if (this.state.transformSubject === 'sun' && this.transform.mode !== 'IDLE') this.cancelTransform();
@@ -9304,6 +11230,7 @@ class VAseApp {
             this.renderer.setSunGizmoSelected(this.state.sunSelected);
         }
         this.syncLightingControls();
+        this.syncProjectHtmlProfileFromRenderer();
         if (this.state.exportPreviewEnabled) this.syncImageExportPreview();
         this.scheduleVisualHistoryCommit('lighting');
     }
@@ -9482,6 +11409,7 @@ class VAseApp {
         const meta = this.state.atoms.metadata;
         const selectedEntries = this.selectionEntries();
         const setHtml = (id, val) => { const el = document.getElementById(id); if (el) el.innerText = val; };
+        setHtml('scene-status-readout', `${this.state.atoms.positions.length} atoms · ${selectedEntries.length} selected`);
         
         setHtml('prop-natoms', meta.natoms);
         const calcDetails = meta.calculator_details || {};
@@ -9541,6 +11469,69 @@ class VAseApp {
         if (hoverReadout) hoverReadout.innerText = this.atomHoverText(this.state.hoveredReference);
 
         document.body.dataset.mode = this.transform.mode.toLowerCase();
+        this.syncRangeNumberCompanions();
+        this.renderSceneNavigatorObjects();
+    }
+
+    setupRangeNumberCompanions() {
+        // Timeline scrubbers and scalar-field position sliders already have
+        // dedicated numeric/frame editors. Other continuous controls share a
+        // small, editable number without creating a second settings source.
+        const dedicated = new Set([
+            'frame-slider', 'secondary-frame-slider',
+            'volume-level-slider', 'volume-plane-offset-slider',
+            'atom-radius-scale', 'selected-atom-radius-scale'
+        ]);
+        this.rangeNumberCompanions = [];
+        document.querySelectorAll('input[type="range"][id]').forEach(range => {
+            if (dedicated.has(range.id)) return;
+            const number = document.createElement('input');
+            number.type = 'number';
+            number.id = `${range.id}-number`;
+            number.className = 'range-number-companion';
+            number.required = true;
+            number.min = range.min;
+            number.max = range.max;
+            number.step = range.step || 'any';
+            number.value = range.value;
+            number.disabled = range.disabled;
+            const label = document.querySelector(`label[for="${range.id}"]`)
+                || range.closest('label');
+            number.setAttribute('aria-label', `${label?.textContent?.trim() || range.id} value`);
+            const wrapper = document.createElement('span');
+            wrapper.className = 'range-with-number range-auto-number';
+            range.replaceWith(wrapper);
+            wrapper.append(range, number);
+            this.rangeNumberCompanions.push({ range, number });
+            range.addEventListener('input', () => {
+                number.value = range.value;
+                delete number.dataset.draft;
+            });
+            number.addEventListener('input', () => { number.dataset.draft = 'true'; });
+            number.addEventListener('change', () => {
+                if (!number.value.trim() || !number.validity.valid) {
+                    number.reportValidity();
+                    return;
+                }
+                range.value = number.value;
+                number.value = range.value;
+                delete number.dataset.draft;
+                range.dispatchEvent(new Event('input', { bubbles: true }));
+                range.dispatchEvent(new Event('change', { bubbles: true }));
+            });
+        });
+    }
+
+    syncRangeNumberCompanions() {
+        this.rangeNumberCompanions?.forEach(({ range, number }) => {
+            if (!number) return;
+            number.disabled = range.disabled;
+            if (document.activeElement === number || number.dataset.draft === 'true') return;
+            number.min = range.min;
+            number.max = range.max;
+            number.step = range.step || 'any';
+            number.value = range.value;
+        });
     }
 
     updateDistributionPanelTitle() {
@@ -9589,6 +11580,12 @@ class VAseApp {
         const readout = document.getElementById('selection-measure-readout');
         const readoutValue = document.getElementById('selection-measure-value');
         if (!readout || !readoutValue) return;
+        const readoutLabel = readout.querySelector('.selection-measure-label');
+        if (readoutLabel) {
+            readoutLabel.textContent = selectedEntries.length === 1
+                ? 'ATOM'
+                : (this.canShowAutomaticGeometry(selectedEntries) ? 'MEASURE' : 'SELECT');
+        }
         const summary = this.getSelectionMeasureSummary(selectedEntries);
         readoutValue.innerText = summary;
         readoutValue.title = selectedEntries.length === 1 ? detail : summary;
@@ -10309,7 +12306,8 @@ class VAseApp {
             preserveDisplay = true,
             preserveRdf = false,
             resetTrajectoryIdentity = false,
-            preserveColorScaleRange = false
+            preserveColorScaleRange = false,
+            radiusScopeRemap = null
         } = {}
     ) {
         const refreshActiveRdf = Boolean(
@@ -10320,6 +12318,7 @@ class VAseApp {
         this.clearCommensurateSupercellProposal({ keepStatus: true });
         this.invalidateSelectionPropertyData();
         this.invalidateAtomColorScaleData({ preserveRange: preserveColorScaleRange });
+        this.invalidateAtomRadiusData();
         this.invalidateForceVectorData();
         if (!preserveRdf) {
             this.invalidateRdfResult(
@@ -10340,6 +12339,46 @@ class VAseApp {
         const latticeChanged = previousLatticeSignature !== nextLatticeSignature;
         const topologyChanged = JSON.stringify(this.state.atoms?.symbols || [])
             !== JSON.stringify(data?.symbols || []);
+        if (topologyChanged) this.state.measurementIntent = { kind: 'none', keys: [] };
+        const previousCount = this.state.atoms?.positions?.length || 0;
+        const nextCount = data?.positions?.length || 0;
+        if (previousCount && this.state.display.atomRadiusMapping?.scope === 'indices') {
+            const mapping = this.normalizedAtomRadiusMapping();
+            const previous = new Set(mapping.indices);
+            let remapped = null;
+            if (radiusScopeRemap?.kind === 'delete') {
+                const deleted = new Set(radiusScopeRemap.indices || []);
+                const survivors = Array.from({ length: previousCount }, (_, index) => index)
+                    .filter(index => !deleted.has(index));
+                if (survivors.length === nextCount) {
+                    remapped = survivors.flatMap((source, index) => previous.has(source) ? [index] : []);
+                }
+            } else if (radiusScopeRemap?.kind === 'duplicate') {
+                remapped = [...previous];
+                (radiusScopeRemap.sourceIndices || []).forEach((source, position) => {
+                    if (previous.has(source)) remapped.push(radiusScopeRemap.newIndices?.[position]);
+                });
+            } else if (radiusScopeRemap?.kind === 'repeat' && nextCount % previousCount === 0) {
+                remapped = Array.from({ length: nextCount }, (_, index) => index)
+                    .filter(index => previous.has(index % previousCount));
+            } else if (nextCount === previousCount && !resetTrajectoryIdentity) {
+                // A label-only edit or compatible trajectory frame keeps base-atom identity.
+                remapped = [...previous];
+            }
+            if (remapped !== null) {
+                this.state.display.atomRadiusMapping = {
+                    ...mapping,
+                    indices: [...new Set(remapped.filter(index => Number.isInteger(index)
+                        && index >= 0 && index < nextCount))].sort((a, b) => a - b)
+                };
+            } else {
+                this.state.display.atomRadiusMapping = { ...mapping, enabled: false, indices: [] };
+                this.setAtomRadiusStatus(
+                    'The document identity changed without an atom provenance map; frozen radius scope was cleared.',
+                    'error'
+                );
+            }
+        }
         if (latticeChanged) this.clearCommensurateRotation({ keepStatus: true, clearSearch: true });
         if (this.state.registryResult && (latticeChanged || topologyChanged)) {
             this.invalidateRegistryResult('Cell, labels, or atom topology changed. Calculate the map again.');
@@ -10420,12 +12459,17 @@ class VAseApp {
         this.updateSelectionVisuals();
         this.updateUI();
         this.syncAtomColorScaleControls();
+        this.syncAtomRadiusMappingControls();
         if (this.state.display.atomColorScaleEnabled && data?.positions?.length) {
             queueMicrotask(() => {
                 this.updateAtomColorScale({ refreshCatalog: true }).catch(error => {
                     this.handleAtomColorScaleError(error);
                 });
             });
+        }
+        if (this.state.display.atomRadiusMapping?.enabled && data?.positions?.length) {
+            queueMicrotask(() => this.updateAtomRadiusMapping({ refreshCatalog: true })
+                .catch(error => this.handleAtomRadiusError(error)));
         }
         if (latticeChanged && this.state.display.commensurateGuide) {
             queueMicrotask(() => {
@@ -10438,6 +12482,7 @@ class VAseApp {
         this.scheduleDisplacementAnalysisRefresh();
         this.updateForceVectorStatus();
         this.observeCollaborationFrame();
+        this.scheduleProjectDirtyStateUpdate();
         if (refreshActiveRdf) {
             this.scheduleActiveStructureAnalysisRefresh(
                 'The structure changed.',
@@ -10906,6 +12951,13 @@ class VAseApp {
         this.state.replicaSelected.forEach((reference, key) => {
             if (!this.replicaReferenceIsSelectable(reference)) this.state.replicaSelected.delete(key);
         });
+        const intent = this.state.measurementIntent;
+        if (intent?.kind === 'ordered') {
+            const keys = new Set(this.selectionEntries().map(reference => reference.key));
+            if (keys.size !== intent.keys.length || intent.keys.some(key => !keys.has(key))) {
+                this.state.measurementIntent = { kind: 'none', keys: [] };
+            }
+        }
     }
 
     applyInitialDisplayConfig(data) {
@@ -11041,6 +13093,8 @@ class VAseApp {
         document.getElementById('sphere-quality').value = this.state.sphereQuality;
         const radiusScale = document.getElementById('atom-radius-scale');
         if (radiusScale) radiusScale.value = this.state.display.atomRadiusScale;
+        const radiusNumber = document.getElementById('atom-radius-scale-number');
+        if (radiusNumber) radiusNumber.value = this.state.display.atomRadiusScale;
         document.getElementById('rotate-pivot').value = this.state.display.rotatePivot;
         document.getElementById('chk-commensurate-guide').checked = this.state.display.commensurateGuide;
         document.getElementById('chk-commensurate-snap').checked = this.state.display.commensurateSnap;
@@ -11714,6 +13768,75 @@ class VAseApp {
         this.state.selected.clear();
         this.state.replicaSelected.clear();
         this.state.selectionOrder = [];
+        this.state.measurementIntent = { kind: 'none', keys: [] };
+    }
+
+    applySelectionAction({ references = [], mode = 'replace', origin = 'semantic', measurement = 'bulk' } = {}) {
+        const items = Array.from(references || []);
+        const previous = this.state.measurementIntent || { kind: 'none', keys: [] };
+        const normalized = new Map();
+        for (const item of items) {
+            const original = this.normalizeSelectionReference(item);
+            const valid = original
+                && original.index >= 0
+                && original.index < (this.state.atoms?.positions?.length || 0)
+                && this.isSelectionReferenceVisible(original)
+                && (original.kind !== 'replica' || this.replicaReferenceIsSelectable(original));
+            if (!valid) {
+                if (origin === 'semantic') {
+                    throw new Error(`Selection reference is invalid or unavailable: ${JSON.stringify(item)}.`);
+                }
+                continue;
+            }
+            const editable = this.editableSelectionReference(original);
+            if (!editable) continue;
+            if (normalized.has(editable.key) && origin === 'semantic') {
+                throw new Error(`Selection contains duplicate atom identity: ${editable.key}.`);
+            }
+            normalized.set(editable.key, editable);
+        }
+        if (mode === 'replace') this.clearAtomSelection();
+        normalized.forEach(reference => {
+            if (mode === 'toggle') this.toggleSelectionReference(reference);
+            else this.addSelectionReference(reference);
+        });
+        const entries = this.selectionEntries();
+        const keys = entries.map(reference => reference.key);
+        if (origin === 'pointer-single' && measurement === 'ordered' && entries.length <= 4) {
+            let ordered = [];
+            if (mode === 'toggle' && previous.kind === 'ordered') {
+                ordered = previous.keys.filter(key => keys.includes(key));
+                keys.forEach(key => { if (!ordered.includes(key)) ordered.push(key); });
+            } else if (mode !== 'toggle' || (!previous.keys.length && items.length && keys.length === 1)) {
+                ordered = [...keys];
+            }
+            this.state.measurementIntent = ordered.length
+                ? { kind: 'ordered', keys: ordered }
+                : { kind: 'none', keys: [] };
+        } else if (measurement === 'ordered' && origin === 'semantic' &&
+            normalized.size >= 2 && normalized.size <= 4 && mode === 'replace' && keys.length === normalized.size) {
+            this.state.measurementIntent = { kind: 'ordered', keys: [...keys] };
+        } else {
+            this.state.measurementIntent = { kind: 'none', keys: [] };
+        }
+        this.updateSelectionVisuals();
+        this.updateUI();
+    }
+
+    measurementReferences(selectedReferences = this.selectionEntries()) {
+        if (selectedReferences.length <= 1) return selectedReferences;
+        const intent = this.state.measurementIntent;
+        if (intent?.kind !== 'ordered' || selectedReferences.length > 4) return [];
+        const references = new Map(selectedReferences.map(reference => [reference.key, reference]));
+        if (intent.keys.length !== selectedReferences.length ||
+            !intent.keys.every(key => references.has(key))) return [];
+        return intent.keys.map(key => references.get(key));
+    }
+
+    canShowAutomaticGeometry(selectedReferences = this.selectionEntries()) {
+        return selectedReferences.length >= 2
+            && selectedReferences.length <= 4
+            && this.measurementReferences(selectedReferences).length === selectedReferences.length;
     }
 
     replicaReferenceIsSelectable(reference) {
@@ -11841,6 +13964,13 @@ class VAseApp {
         return normalized ? (this.state.atoms?.symbols?.[normalized.index] || '-') : '-';
     }
 
+    selectionReferenceElement(reference) {
+        const normalized = this.normalizeSelectionReference(reference);
+        return normalized
+            ? (this.state.atoms?.chemical_symbols?.[normalized.index]
+                || this.state.atoms?.symbols?.[normalized.index] || '-') : '-';
+    }
+
     getSelectionCenterText() {
         const selected = this.selectionEntries();
         if (!this.state.atoms || selected.length === 0) return '-';
@@ -11965,7 +14095,8 @@ class VAseApp {
         const position = this.selectionReferencePosition(normalized);
         if (!normalized || !position) return ['Position: unavailable'];
         const lines = [
-            `Element: ${this.state.atoms?.chemical_symbols?.[normalized.index] || '-'}`,
+            `Element: ${this.selectionReferenceElement(normalized)}`,
+            `Label: ${this.selectionReferenceSymbol(normalized)}`,
             `Position (Cartesian): ${this.formatVectorTuple(position.toArray(), 6)} A`
         ];
         if (this.renderer?.hasValidCell?.()) {
@@ -11987,7 +14118,7 @@ class VAseApp {
             calculator: 'Calculator'
         };
         return [
-            `Per-atom properties (${properties.length}):`,
+            'Per-atom properties:',
             ...properties.map(property => {
                 const source = sourceLabels[property.source] || property.source || 'Property';
                 const unit = property.unit ? ` ${property.unit}` : '';
@@ -12010,6 +14141,10 @@ class VAseApp {
 
     getSelectionMeasureText(selectedReferences = this.selectionEntries()) {
         if (!this.state.atoms || selectedReferences.length === 0) return '-';
+        if (selectedReferences.length > 1) {
+            if (!this.canShowAutomaticGeometry(selectedReferences)) return this.selectionCountText(selectedReferences);
+            selectedReferences = this.measurementReferences(selectedReferences);
+        }
         const referenceMap = this.selectionMeasurementMap(selectedReferences);
         if (selectedReferences.length === 1) {
             return [
@@ -12062,19 +14197,20 @@ class VAseApp {
 
     getSelectionMeasureSummary(selectedReferences = this.selectionEntries()) {
         if (!this.state.atoms || selectedReferences.length === 0) return '-';
+        if (selectedReferences.length > 1) {
+            if (!this.canShowAutomaticGeometry(selectedReferences)) return this.selectionCountText(selectedReferences);
+            selectedReferences = this.measurementReferences(selectedReferences);
+        }
         if (selectedReferences.length === 1) {
             const reference = selectedReferences[0];
             const position = this.selectionReferencePosition(reference);
             const positionText = position
                 ? this.formatVectorTuple(position.toArray(), 4)
                 : 'unavailable';
-            const snapshot = this.singleSelectionPropertySnapshot(reference);
-            const propertyCount = Array.isArray(snapshot?.properties)
-                ? snapshot.properties.length
-                : null;
-            return `a1 #${this.selectionReferenceLabel(reference)} | Position ${positionText} A | ${
-                propertyCount === null ? 'properties loading' : `${propertyCount} properties`
-            }`;
+            return `Element ${this.selectionReferenceElement(reference)}`
+                + ` | Label ${this.selectionReferenceSymbol(reference)}`
+                + ` | #${this.selectionReferenceLabel(reference)}`
+                + ` | Position ${positionText} A`;
         }
         if (selectedReferences.length === 2) {
             const direct = this.selectionDistance(selectedReferences[0], selectedReferences[1], { mic: false });
@@ -12110,19 +14246,24 @@ class VAseApp {
 
     worldToScreen(vec) {
         const projected = vec.clone().project(this.renderer.camera);
+        const rect = this.renderer.domElement.getBoundingClientRect();
         return new THREE.Vector2(
-            (projected.x + 1) * window.innerWidth / 2,
-            (-projected.y + 1) * window.innerHeight / 2
+            rect.left + (projected.x + 1) * rect.width / 2,
+            rect.top + (-projected.y + 1) * rect.height / 2
         );
     }
 
     updateSelectionMeasurementOverlay(selectedReferences = this.selectionEntries()) {
         const overlay = document.getElementById('measurement-overlay');
         if (!overlay) return;
+        const viewport = document.getElementById('app-viewport');
+        if (overlay.parentElement !== viewport) viewport?.appendChild(overlay);
         const count = selectedReferences.length;
         const enabled = this.state.display.showOverlays !== false &&
             !this.state.exportPreviewEnabled &&
-            count > 0 && count <= 4;
+            count > 0 && count <= 4 &&
+            (count === 1 || this.canShowAutomaticGeometry(selectedReferences));
+        if (count > 1 && enabled) selectedReferences = this.measurementReferences(selectedReferences);
         overlay.replaceChildren();
         overlay.classList.toggle('hidden', !enabled);
         overlay.dataset.measureCount = enabled ? String(count) : '0';
@@ -12131,8 +14272,7 @@ class VAseApp {
             : 'none';
         if (!enabled) return;
 
-        const width = window.innerWidth;
-        const height = window.innerHeight;
+        const { width, height } = this.renderer.containerSize();
         overlay.setAttribute('viewBox', `0 0 ${width} ${height}`);
         overlay.setAttribute('width', `${width}`);
         overlay.setAttribute('height', `${height}`);
@@ -13070,6 +15210,7 @@ class VAseApp {
         this.renderer.updateHookeanPositions();
         this.updateSelectionMeasureUI();
         this.scheduleAtomColorScaleRefresh({ coordinatesOnly: true });
+        this.scheduleAtomRadiusRefresh({ coordinatesOnly: true });
         this.scheduleActiveStructureAnalysisRefresh(
             'The atom transform preview changed.',
             120
@@ -13119,6 +15260,7 @@ class VAseApp {
                 this.renderer.updateHookeanPositions();
                 this.updateSelectionMeasureUI();
                 this.scheduleAtomColorScaleRefresh({ coordinatesOnly: true });
+                this.scheduleAtomRadiusRefresh({ coordinatesOnly: true });
                 this.scheduleActiveStructureAnalysisRefresh(
                     'The constrained atom positions changed.',
                     80
@@ -13215,15 +15357,27 @@ class VAseApp {
         this.updateSelectionVisuals();
         this.updateUI();
 
+        this.pendingApplyInFlight = true;
+        this.pendingScientificError = null;
+        this.updateProjectDirtyState();
         this.pendingApply = this.api.applyPositions(newPositions, this.state.applyConstraints).then(async data => {
             this.setAtomsData(data);
             if (proposalContext) {
                 await this.prepareCommensurateSupercellProposal(proposalContext);
             }
             return data;
-        }).catch(err => {
+        }).catch(async err => {
+            this.pendingScientificError = err;
+            try {
+                await this.refresh();
+            } catch {
+                // The failed optimistic edit remains guarded until recovery.
+            }
             this.toast(`Apply failed: ${err.message}`, 'error');
             throw err;
+        }).finally(() => {
+            this.pendingApplyInFlight = false;
+            this.updateProjectDirtyState();
         });
         return this.pendingApply;
     }
@@ -13348,6 +15502,7 @@ class VAseApp {
         this.renderer.clearConstraintMotionGuides?.();
         this.transform.exit();
         this.state.transformSubject = null;
+        this.scheduleAtomRadiusRefresh({ coordinatesOnly: true });
         if (this.state.registryTransformStartCoordinates) {
             this.updateRegistryMapMarker(this.state.registryTransformStartCoordinates);
         }
@@ -14023,7 +16178,10 @@ class VAseApp {
             });
         }
 
-        ids.forEach((id, i) => { document.getElementById(id).value = reps[i]; });
+        ids.forEach((id, i) => {
+            const input = document.getElementById(id);
+            if (input && document.activeElement !== input) input.value = reps[i];
+        });
         return reps;
     }
 
@@ -14112,6 +16270,7 @@ class VAseApp {
         if (opacityOutput) opacityOutput.textContent = `${Math.round(style.opacity * 100)}%`;
         const thicknessOutput = document.getElementById('bond-pair-thickness-value');
         if (thicknessOutput) thicknessOutput.textContent = `${style.thickness.toFixed(2)} A`;
+        this.syncRangeNumberCompanions();
     }
 
     bondPairStyleFromEditor() {
@@ -14959,7 +17118,36 @@ class VAseApp {
                 this.updateSelectedAppearanceControls();
             });
 
-            row.append(typeSelect, visibleBox, selectBox, nameInput, color, input, opacity, material);
+            const header = document.createElement('div');
+            header.className = 'atom-type-header';
+            nameInput.setAttribute('aria-label', `Label for ${symbol}`);
+            const count = document.createElement('span');
+            count.className = 'atom-type-count';
+            count.textContent = String(labelAtomIndices.length);
+            count.title = `${labelAtomIndices.length} atoms`;
+            const toggle = (control, text) => {
+                const label = document.createElement('label');
+                label.className = 'atom-type-toggle';
+                const caption = document.createElement('span');
+                caption.textContent = text;
+                label.append(control, caption);
+                return label;
+            };
+            header.append(color, nameInput, count);
+            const fields = document.createElement('div');
+            fields.className = 'atom-type-fields';
+            [[typeSelect, 'Element'], [input, 'Radius / Å'], [opacity, 'Opacity'], [material, 'Material']]
+                .forEach(([control, caption]) => {
+                    const label = document.createElement('label');
+                    const text = document.createElement('span');
+                    text.textContent = caption;
+                    label.append(text, control);
+                    fields.appendChild(label);
+                });
+            const visibility = document.createElement('div');
+            visibility.className = 'atom-type-visibility';
+            visibility.append(toggle(visibleBox, 'Visible'), toggle(selectBox, 'Select type'));
+            row.append(header, visibility, fields);
             root.appendChild(row);
         });
         const focusMatch = [...root.querySelectorAll('[data-atom-label][data-appearance-field]')]
@@ -14968,6 +17156,87 @@ class VAseApp {
                 && element.dataset.appearanceField === existingFocus.field
             ));
         focusMatch?.focus();
+        this.syncAppearanceScope();
+    }
+
+    syncAppearanceScope() {
+        const select = document.getElementById('appearance-scope-select');
+        if (!select || !this.state.atoms?.symbols) return;
+        const previous = select.value;
+        const labels = this.uniqueAtomLabels();
+        const signature = labels.join('\u0000');
+        if (select.dataset.labels !== signature) {
+            [...select.options].filter(option => option.value !== 'all' && option.value !== 'selected')
+                .forEach(option => option.remove());
+            labels.forEach(label => {
+                const option = new Option(`${label} · ${this.labelIndices(label).length} atoms`, label);
+                select.add(option, select.options[select.options.length - 1]);
+            });
+            select.dataset.labels = signature;
+            select.value = [...select.options].some(option => option.value === previous) ? previous : 'all';
+        }
+        const selectedOption = [...select.options].find(option => option.value === 'selected');
+        if (selectedOption) {
+            const count = this.selectedAtomIndices().length;
+            selectedOption.disabled = count === 0;
+            selectedOption.textContent = count ? `Selected · ${count} atoms` : 'Selected atoms';
+            if (!count && select.value === 'selected') select.value = 'all';
+        }
+        document.body.dataset.appearanceScope = select.value === 'selected' ? 'selected' : 'types';
+        const scopedIndices = select.value === 'all'
+            ? this.state.atoms.symbols.map((_, index) => index)
+            : [...this.labelIndices(select.value)];
+        const materials = [...new Set(scopedIndices.map(index => this.atomMaterialPreset(index)))];
+        const opacities = [...new Set(scopedIndices.map(index => this.atomManualOpacity(index)))];
+        const materialControl = document.getElementById('appearance-material');
+        if (materialControl && document.activeElement !== materialControl) {
+            materialControl.value = materials.length === 1 ? materials[0] : 'mixed';
+        }
+        const opacityControl = document.getElementById('appearance-opacity');
+        if (opacityControl && document.activeElement !== opacityControl) {
+            opacityControl.value = opacities.length === 1 ? opacities[0].toFixed(2) : '';
+            opacityControl.placeholder = opacities.length > 1 ? 'Mixed' : '';
+        }
+        const note = document.getElementById('appearance-surface-scope-note');
+        if (note) note.textContent = select.value === 'all'
+            ? `All ${scopedIndices.length} atoms; explicit per-atom overrides in this scope are replaced.`
+            : `${scopedIndices.length} ${select.value} atom${scopedIndices.length === 1 ? '' : 's'}; explicit per-atom overrides in this scope are replaced.`;
+    }
+
+    applyAppearanceSurfaceValue(kind, value) {
+        const select = document.getElementById('appearance-scope-select');
+        const scope = select?.value;
+        if (!scope || scope === 'selected' || !this.state.atoms?.symbols) return;
+        const labels = scope === 'all' ? this.uniqueAtomLabels() : [scope];
+        const indices = labels.flatMap(label => [...this.labelIndices(label)]);
+        if (kind === 'material') {
+            if (!ATOM_MATERIAL_PRESETS.includes(value)) return;
+            this.state.display.labelMaterials = { ...(this.state.display.labelMaterials || {}) };
+            labels.forEach(label => { this.state.display.labelMaterials[label] = value; });
+            const overrides = { ...(this.state.display.atomMaterials || {}) };
+            indices.forEach(index => { delete overrides[index]; });
+            this.state.display.atomMaterials = overrides;
+            document.querySelectorAll('#appearance-table-body .appearance-material-select').forEach(control => {
+                if (labels.includes(control.dataset.atomLabel)) control.value = value;
+            });
+        } else if (kind === 'opacity') {
+            const opacity = Number(value);
+            if (value === '' || !Number.isFinite(opacity) || opacity < 0 || opacity > 1) {
+                this.toast('Opacity must be between 0 and 1.', 'warning');
+                this.syncAppearanceScope();
+                return;
+            }
+            this.state.display.labelOpacities = { ...(this.state.display.labelOpacities || {}) };
+            labels.forEach(label => { this.state.display.labelOpacities[label] = opacity; });
+            const overrides = { ...(this.state.display.atomOpacities || {}) };
+            indices.forEach(index => { delete overrides[index]; });
+            this.state.display.atomOpacities = overrides;
+            document.querySelectorAll('#appearance-table-body .label-opacity-input').forEach(control => {
+                if (labels.includes(control.dataset.atomLabel)) control.value = opacity.toFixed(2);
+            });
+        } else return;
+        this.safeApplyDisplayOptions();
+        this.syncAppearanceScope();
     }
 
     parseLabelRadii() {
@@ -15039,6 +17308,7 @@ class VAseApp {
                 else this.removeSelectionReference(reference);
             });
         }
+        this.state.measurementIntent = { kind: 'none', keys: [] };
         this.updateSelectionVisuals();
         this.updateLabelSelectionControls();
         this.updateUI();
@@ -16279,6 +18549,17 @@ class VAseApp {
                 ? display[key].length
                 : Object.keys(display[key] || {}).length
         ]));
+        const radiusMapping = this.normalizedAtomRadiusMapping(display.atomRadiusMapping);
+        compact.atomRadiusMapping = this.clonePlain(radiusMapping);
+        compact.atomRadiusMappingState = {
+            status: this.atomRadiusRuntime.status,
+            renderedFrame: this.atomRadiusRuntime.renderedFrame,
+            appliedAtoms: this.atomRadiusRuntime.applied,
+            missingAtoms: this.atomRadiusRuntime.missing,
+            ...(this.atomRadiusRuntime.error
+                ? { error: String(this.atomRadiusRuntime.error.message || this.atomRadiusRuntime.error) }
+                : {})
+        };
         if (includeOverrides) {
             overrideFields.forEach(key => {
                 compact[key] = this.clonePlain(display[key] || (key === 'hiddenAtomReferences' ? [] : {}));
@@ -17120,8 +19401,8 @@ class VAseApp {
         if (radiusAngstrom !== null && (!Number.isFinite(radiusAngstrom) || radiusAngstrom <= 0)) {
             throw new Error('style-atoms radiusAngstrom must be positive.');
         }
-        if (radiusScale !== null && (!Number.isFinite(radiusScale) || radiusScale <= 0)) {
-            throw new Error('style-atoms radiusScale must be positive.');
+        if (radiusScale !== null && (!Number.isFinite(radiusScale) || radiusScale < 0.25 || radiusScale > 2.5)) {
+            throw new Error('style-atoms radiusScale must be between 0.25 and 2.5.');
         }
 
         const display = this.clonePlain(this.state.display);
@@ -17142,9 +19423,16 @@ class VAseApp {
                     ?? display.atomRadiusScales?.[String(index)]
                     ?? 1
                 );
-                const currentRadius = Math.max(1e-12, this.renderer.atomVisualRadius(index));
+                const currentRadius = this.renderer.atomVisualRadius(index);
+                if (!Number.isFinite(currentRadius) || currentRadius <= 0) {
+                    throw new Error(`style-atoms cannot set a positive final radius for atom ${index} while its mapped radius factor is zero; change or disable the radius mapping first.`);
+                }
                 const sourceRadius = currentRadius / Math.max(1e-12, currentOverride * globalScale);
-                atomRadiusScales[index] = radiusAngstrom / Math.max(1e-12, sourceRadius * globalScale);
+                const requiredScale = radiusAngstrom / (sourceRadius * globalScale);
+                if (!Number.isFinite(requiredScale) || requiredScale < 0.25 || requiredScale > 2.5) {
+                    throw new Error(`style-atoms radiusAngstrom for atom ${index} requires a radiusScale outside the supported 0.25–2.5 range.`);
+                }
+                atomRadiusScales[index] = requiredScale;
             }
             if (operation.affectBonds === true) {
                 const style = { ...(atomBondStyles[index] || atomBondStyles[String(index)] || {}) };
@@ -17514,7 +19802,7 @@ class VAseApp {
             'remove-volumetric-planes',
             'combine-volumetric', 'remove-volumetric', 'calculate-rdf',
             'set-interface-theme', 'set-personal-visual-default',
-            'restore-app-visual-defaults', 'set-atom-colorscale',
+            'restore-app-visual-defaults', 'set-atom-colorscale', 'set-atom-radius-mapping',
             'load-structure', 'append-structure', 'duplicate-selection',
             'configure-calculator', 'set-playback', 'load-settings',
             'apply-scene', 'select-volumetric-planes'
@@ -17686,10 +19974,7 @@ class VAseApp {
     }
 
     aiSelectIndices(indices) {
-        this.clearAtomSelection();
-        indices.forEach(index => this.addSelectionReference(index));
-        this.updateSelectionVisuals();
-        this.updateUI();
+        this.applySelectionAction({ references: indices, mode: 'replace', origin: 'semantic' });
     }
 
     aiCommensurateConfig(operation = {}) {
@@ -17896,7 +20181,8 @@ class VAseApp {
                 throw new Error('load-structure replaces this tab. Review the user intent and set confirmReplace:true.');
             }
             const file = { name: path.split(/[\\/]/).pop() };
-            const args = [file, operation.format || '', operation.index || ':', operation.runtimeMode || null, { path, throwErrors: true }];
+            const args = [file, operation.format || '', operation.index || ':', operation.runtimeMode || null,
+                { path, throwErrors: true, confirmedIntent: operation.confirmReplace === true }];
             if (name === 'load-structure') await this.loadStructureFile(...args);
             else await this.appendStructureFile(...args);
             return;
@@ -17972,6 +20258,62 @@ class VAseApp {
         }
         if (name === 'style-atoms') {
             this.applyAIAtomStyle(operation);
+            return;
+        }
+        if (name === 'set-atom-radius-mapping') {
+            const previous = this.normalizedAtomRadiusMapping();
+            if (operation.enabled === false) {
+                this.atomRadiusRuntime.fitToken += 1;
+                this.state.display.atomRadiusMapping = { ...previous, enabled: false };
+                this.syncAtomRadiusMappingControls();
+                await this.updateAtomRadiusMapping();
+                this.scheduleVisualHistoryCommit('ai-atom-radius-mapping');
+                return;
+            }
+            const field = String(operation.field || previous.field || '');
+            const catalog = await this.ensureAtomRadiusCatalog();
+            if (!(catalog?.fields || []).some(item => item.id === field)) {
+                throw new Error(`Per-atom radius field '${field}' is unavailable; inspect the scalar catalog first.`);
+            }
+            const scope = operation.scope || previous.scope;
+            const indices = scope === 'indices'
+                ? (operation.indices === undefined
+                    ? [...new Set(this.selectionEntries().map(reference => reference.index))]
+                    : operation.indices)
+                : [];
+            if (scope === 'indices' && !indices.length) {
+                throw new Error('set-atom-radius-mapping needs at least one frozen index.');
+            }
+            const rangeMode = operation.rangeMode || previous.rangeMode || 'current';
+            const candidate = normalizeAtomRadiusMapping({
+                ...previous,
+                enabled: true,
+                field,
+                valueTransform: operation.valueTransform ?? previous.valueTransform,
+                rangeMode,
+                min: operation.minimum ?? previous.min,
+                max: operation.maximum ?? previous.max,
+                minMultiplier: operation.minMultiplier ?? previous.minMultiplier,
+                maxMultiplier: operation.maxMultiplier ?? previous.maxMultiplier,
+                exponent: operation.exponent ?? previous.exponent,
+                scope,
+                indices
+            }, { strict: true }).mapping;
+            if (rangeMode !== 'manual' && operation.fit !== false) {
+                await this.fitAtomRadiusMappingRange(rangeMode, candidate);
+                return;
+            }
+            this.atomRadiusRuntime.fitToken += 1;
+            this.state.display.atomRadiusMapping = candidate;
+            try {
+                await this.updateAtomRadiusMapping();
+            } catch (error) {
+                this.state.display.atomRadiusMapping = previous;
+                await this.updateAtomRadiusMapping();
+                throw error;
+            }
+            this.syncAtomRadiusMappingControls();
+            this.scheduleVisualHistoryCommit('ai-atom-radius-mapping');
             return;
         }
         if (name === 'configure-bonds') {
@@ -19100,6 +21442,7 @@ class VAseApp {
                         : undefined
             });
             this.state.atoms.metadata.volumetric_datasets = result.volumetric_datasets || [];
+            this.adoptScientificContentIdentity(result);
             this.state.display.volumetricDatasetId = result.dataset.id;
             this.state.display.volumetricLevel = this.defaultVolumetricLevel(result.dataset);
             this.renderVolumetricControls();
@@ -19110,6 +21453,7 @@ class VAseApp {
             if (!datasetId) throw new Error('remove-volumetric requires datasetId.');
             const result = await this.api.deleteVolumetricDataset(datasetId);
             this.state.atoms.metadata.volumetric_datasets = result.volumetric_datasets || [];
+            this.adoptScientificContentIdentity(result);
             if (this.state.display.volumetricDatasetId === datasetId) {
                 this.state.display.volumetricDatasetId = '';
                 this.state.display.showVolumetric = false;
@@ -19309,6 +21653,14 @@ class VAseApp {
                 }
                 this.completeCameraViewChange('ai-fit');
             }
+            // Optical settings are independent of pose and must also work in a
+            // scale-only request. Explicit scale takes precedence over auto-fit.
+            const optics = Object.fromEntries(['ortho_scale', 'fov', 'zoom', 'near', 'far']
+                .filter(key => cameraCommand[key] !== undefined)
+                .map(key => [key, cameraCommand[key]]));
+            if (Object.keys(optics).length) {
+                this.applyCameraSettings({ ...this.cameraSettingsSnapshot(), ...optics });
+            }
             if (cameraCommand.orbit) {
                 this.rotateCameraView(
                     cameraCommand.orbit.direction,
@@ -19348,21 +21700,24 @@ class VAseApp {
             if (!selection || typeof selection !== 'object' || Array.isArray(selection)) {
                 throw new Error('selection must be an object.');
             }
-            if (selection.clear !== false) this.clearAtomSelection();
             const atomCount = this.state.atoms?.positions?.length || 0;
-            (selection.indices || []).forEach(index => {
+            const indices = selection.indices || [];
+            const references = selection.references || [];
+            indices.forEach(index => {
                 if (!Number.isInteger(index) || index < 0 || index >= atomCount) {
                     throw new Error(`selection index ${index} is outside 0..${Math.max(0, atomCount - 1)}.`);
                 }
-                this.addSelectionReference(index);
             });
-            (selection.references || []).forEach(reference => {
-                if (!this.addSelectionReference(reference)) {
-                    throw new Error(`Selection reference could not be selected: ${JSON.stringify(reference)}.`);
-                }
+            if (selection.intent === 'measure' && (selection.clear === false ||
+                indices.length + references.length < 2 || indices.length + references.length > 4)) {
+                throw new Error('Measured selection needs 2–4 explicitly ordered indices/references and replacement selection.');
+            }
+            this.applySelectionAction({
+                references: [...indices, ...references],
+                mode: selection.clear === false ? 'add' : 'replace',
+                origin: 'semantic',
+                measurement: selection.intent === 'measure' ? 'ordered' : 'bulk'
             });
-            this.updateSelectionVisuals();
-            this.updateUI();
         }
         if (command.operation !== undefined) {
             await this.aiApplyOperation(command.operation);
@@ -19980,6 +22335,10 @@ class VAseApp {
             display.atomMaterials = {};
             display.atomBondStyles = {};
             display.hiddenAtomReferences = [];
+            if (display.atomRadiusMapping?.scope === 'indices') {
+                display.atomRadiusMapping.scope = 'all';
+                display.atomRadiusMapping.indices = [];
+            }
         }
         const snapshot = {
             schema: 'v_ase.visual_settings.v3',
@@ -20004,6 +22363,20 @@ class VAseApp {
         }
         if (includeCamera) snapshot.camera = this.currentCameraForExport();
         return snapshot;
+    }
+
+    projectSettingsSnapshot(format, profile = null) {
+        const settings = this.designSettingsSnapshot({ includeIdentityOverrides: true });
+        settings.projectSave = {
+            schema: 'v_ase.project_save.v1',
+            format,
+            html: format === 'html' ? {
+                embedProject: true,
+                exportProfile: this.clonePlain(profile),
+                renderArea: this.clonePlain(settings.renderArea)
+            } : null
+        };
+        return settings;
     }
 
     geometryExportDisplaySnapshot() {
@@ -20108,6 +22481,7 @@ class VAseApp {
         setValue('bond-opacity', Math.max(0.05, Math.min(1, Number(display.bondOpacity) || 1)));
         setValue('blender-export-mode', display.blenderExportMode || 'instanced');
         setValue('atom-radius-scale', display.atomRadiusScale || 0.6);
+        setValue('atom-radius-scale-number', display.atomRadiusScale || 0.6);
         setChecked(
             'selected-atom-update-bonds',
             display.selectedAppearanceAffectsBonds !== false
@@ -20129,6 +22503,8 @@ class VAseApp {
         this.updateBondAppearanceUI();
         this.syncCommensurateWorkspaceControls();
         this.syncAtomColorScaleControls();
+        this.syncAtomRadiusMappingControls();
+        this.syncRangeNumberCompanions();
     }
 
     reconcileDesignDisplay(nextDisplay = {}) {
@@ -20385,6 +22761,15 @@ class VAseApp {
             labelOpacities,
             labelVisible,
             labelMaterials,
+            atomRadiusMapping: (() => {
+                const mapping = this.normalizedAtomRadiusMapping(
+                    nextDisplay.atomRadiusMapping ?? DEFAULT_ATOM_RADIUS_MAPPING
+                );
+                if (mapping.scope === 'indices') {
+                    mapping.indices = mapping.indices.filter(index => index < atomCount);
+                }
+                return mapping;
+            })(),
             atomRadiusScales,
             atomColors,
             atomOpacities,
@@ -20566,6 +22951,7 @@ class VAseApp {
 
     applyDesignSettings(settings, { render = true } = {}) {
         if (!settings) return;
+        this.atomRadiusRuntime.fitToken += 1;
         const source = settings.settings || settings;
         const identityChanged = Object.prototype.hasOwnProperty.call(
             source,
@@ -20630,20 +23016,25 @@ class VAseApp {
         this.renderAppearanceRows();
         this.syncRdfControls();
         this.syncDesignControls();
-        if (source.camera) this.applyCameraSettings(source.camera, { syncScale: false });
-        if (Number.isFinite(requestedAtomicScale) && requestedAtomicScale > 0) {
-            this.renderer.setPixelsPerAngstrom(requestedAtomicScale);
-        } else {
-            this.syncAtomicScaleFromCamera({ forceInput: true });
-        }
+        const restoreCameraScale = () => {
+            if (source.camera) this.applyCameraSettings(source.camera, { syncScale: false });
+            if (Number.isFinite(requestedAtomicScale) && requestedAtomicScale > 0) {
+                this.renderer.setPixelsPerAngstrom(requestedAtomicScale);
+            } else {
+                this.syncAtomicScaleFromCamera({ forceInput: true });
+            }
+        };
+        if (!render) restoreCameraScale();
         if (render) {
             this.renderer.setDisplayOptions(this.state.display);
+            this.scheduleAtomRadiusRefresh();
             if (identityChanged) {
                 this.renderer.rebuildAtoms(
                     this.state.atoms,
                     this.state.atoms?.metadata?.custom_colors || {}
                 );
             }
+            restoreCameraScale();
             this.renderVolumetricControls();
             if (this.state.display.showVolumetric) {
                 this.updateVolumetricSurface({ recordHistory: false }).catch(error => {
@@ -20670,6 +23061,8 @@ class VAseApp {
             }
         }
         if (this.state.exportPreviewEnabled) this.syncImageExportPreview();
+        this.syncRendererProperties({ force: true });
+        this.syncRendererFormatProperties();
         this.scheduleVisualHistoryCommit('visual-settings');
     }
 
@@ -20693,13 +23086,82 @@ class VAseApp {
                 if (settled) return;
                 settled = true;
                 container?.removeEventListener('pointerdown', cancelOnBackdrop);
+                this.modalDismiss = null;
                 this.closeModal();
                 resolve(value);
             };
+            this.modalDismiss = () => done(false);
             document.getElementById('modal-cancel-confirm')?.addEventListener('click', () => done(false), { once: true });
             document.getElementById('modal-confirm-action')?.addEventListener('click', () => done(true), { once: true });
             container?.addEventListener('pointerdown', cancelOnBackdrop);
         });
+    }
+
+    showSaveDiscardCancelModal() {
+        this.showModal(`
+            <h2>Unsaved changes</h2>
+            <p class="modal-intro">Save this document before closing it?</p>
+        `, `
+            <button id="modal-keep-editing" class="btn">Cancel</button>
+            <button id="modal-discard-document" class="btn danger">Discard changes</button>
+            <button id="modal-save-document" class="btn primary">Save</button>
+        `);
+        return new Promise(resolve => {
+            let settled = false;
+            const done = choice => {
+                if (settled) return;
+                settled = true;
+                this.modalDismiss = null;
+                this.closeModal();
+                resolve(choice);
+            };
+            this.modalDismiss = () => done('cancel');
+            document.getElementById('modal-keep-editing')?.addEventListener('click', () => done('cancel'), { once: true });
+            document.getElementById('modal-discard-document')?.addEventListener('click', () => done('discard'), { once: true });
+            document.getElementById('modal-save-document')?.addEventListener('click', () => done('save'), { once: true });
+        });
+    }
+
+    async settleScientificMutations() {
+        while (this.pendingScientificRequests.size) {
+            await Promise.all([...this.pendingScientificRequests].map(token => token.promise));
+        }
+        await this.pendingApply;
+        if (this.pendingScientificError) {
+            throw new Error(`The last scientific edit failed: ${this.pendingScientificError.message}`);
+        }
+    }
+
+    async confirmDocumentClose() {
+        if (this.transform.mode !== 'IDLE' || this.addAtomsSessionActive()
+            || this.state.isRelaxing || this.state.atoms?.metadata?.relaxation?.active
+            || this.state.registryRelaxation
+            || this.state.videoExportId || this.projectFile.saving) {
+            this.toast('Finish or cancel the active transform, job, export, or save before closing this tab.', 'warning');
+            return false;
+        }
+        try {
+            await this.settleScientificMutations();
+        } catch (error) {
+            this.toast(`${error.message} Resolve the edit before closing.`, 'error');
+            return false;
+        }
+        this.flushVisualHistoryCommit();
+        if (!this.updateProjectDirtyState()) return true;
+        const choice = await this.showSaveDiscardCancelModal();
+        if (choice === 'discard') return true;
+        if (choice !== 'save') return false;
+        try {
+            const saved = this.projectFile.format === 'html'
+                ? await this.saveHtmlProject()
+                : await this.saveCompactProject();
+            return Boolean(saved) && !this.updateProjectDirtyState();
+        } catch (error) {
+            this.projectFile.error = String(error?.message || error);
+            this.notifyWorkspaceDocument('v_ase:document-dirty');
+            this.toast(`Save failed; the document remains open: ${this.projectFile.error}`, 'error');
+            return false;
+        }
     }
 
     hiddenAnalysisSignature() {
@@ -20922,7 +23384,10 @@ class VAseApp {
                 `Applying ${reps.join(' x ')} supercell to ${this.state.atoms.metadata.frame_count || 1} frame${(this.state.atoms.metadata.frame_count || 1) > 1 ? 's' : ''}...`,
                 () => this.api.applySupercell(this.backendPositionsPayload(), reps, this.state.applyConstraints)
             );
-            this.setAtomsData(data, { clearSelection: true });
+            this.setAtomsData(data, {
+                clearSelection: true,
+                radiusScopeRemap: { kind: 'repeat' }
+            });
             this.finalizeMaterializedSupercellDisplay();
             this.toast(`Set ${reps.join(' x ')} supercell as editable cell for all frames.`, 'success');
         } catch (err) {
@@ -21121,7 +23586,10 @@ class VAseApp {
                 `Applying make_supercell matrix to ${frameCount} frame${frameCount > 1 ? 's' : ''}...`,
                 () => this.api.applySupercellMatrix(this.backendPositionsPayload(), matrix, this.state.applyConstraints)
             );
-            this.setAtomsData(data, { clearSelection: true });
+            this.setAtomsData(data, {
+                clearSelection: true,
+                radiusScopeRemap: { kind: 'repeat' }
+            });
             this.setSupercellMatrixInputs();
             this.toast('Applied make_supercell matrix to all frames.', 'success');
         } catch (err) {
@@ -21181,7 +23649,10 @@ class VAseApp {
                 });
                 this.state.display[key] = next;
             });
-            this.setAtomsData(data, { clearSelection: true });
+            this.setAtomsData(data, {
+                clearSelection: true,
+                radiusScopeRemap: { kind: 'duplicate', sourceIndices, newIndices }
+            });
             newIndices.forEach(index => this.addSelectionReference(index));
             this.updateSelectionVisuals();
             this.updateUI();
@@ -21209,7 +23680,10 @@ class VAseApp {
         }
         try {
             const data = await this.api.deleteAtoms(indices);
-            this.setAtomsData(data, { clearSelection: true });
+            this.setAtomsData(data, {
+                clearSelection: true,
+                radiusScopeRemap: { kind: 'delete', indices }
+            });
             this.toast(`Deleted ${indices.length} atom${indices.length > 1 ? 's' : ''}.`, 'success');
         } catch (err) {
             this.toast(`Delete failed: ${err.message}`, 'error');
@@ -21820,7 +24294,10 @@ class VAseApp {
     }
 
     commensurateProposalPayload(context, positions = this.backendPositionsPayload()) {
-        return this.commensurateRequestPayload(context, positions);
+        return {
+            ...this.commensurateRequestPayload(context, positions),
+            radius_mapping: this.normalizedAtomRadiusMapping()
+        };
     }
 
     renderCommensurateSupercellProposal(proposal) {
@@ -22670,10 +25147,12 @@ class VAseApp {
     }
 
     async chooseSaveDestination(filename, mimeType = 'application/octet-stream') {
-        const canUseSavePicker = window.showSaveFilePicker && window.isSecureContext && !navigator.webdriver;
-        if (canUseSavePicker) {
+        const picker = this.filePickerAdapter?.showSaveFilePicker?.bind(this.filePickerAdapter)
+            || (window.isSecureContext && !navigator.webdriver
+                ? window.showSaveFilePicker?.bind(window) : null);
+        if (picker) {
             try {
-                const handle = await window.showSaveFilePicker({
+                const handle = await picker({
                     suggestedName: filename,
                     types: this.filePickerTypes(filename, mimeType)
                 });
@@ -22696,8 +25175,13 @@ class VAseApp {
         if (!selected) return false;
         if (selected.handle) {
             const writable = await selected.handle.createWritable();
-            await writable.write(blob);
-            await writable.close();
+            try {
+                await writable.write(blob);
+                await writable.close();
+            } catch (error) {
+                try { await writable.abort?.(); } catch {}
+                throw error;
+            }
             return true;
         }
         this.downloadBlob(blob, filename, mimeType);
@@ -22712,7 +25196,13 @@ class VAseApp {
     }
 
     closeModal() {
+        const dismiss = this.modalDismiss;
+        this.modalDismiss = null;
+        dismiss?.();
         document.getElementById('modal-container')?.classList.add('hidden');
+        const returnFocus = this.modalReturnFocus;
+        this.modalReturnFocus = null;
+        if (returnFocus?.isConnected) returnFocus.focus({ preventScroll: true });
     }
 
     showModal(contentHtml, actionsHtml = '<button id="modal-close" class="btn">Close</button>') {
@@ -22720,6 +25210,7 @@ class VAseApp {
         const content = document.getElementById('modal-content');
         const actions = document.querySelector('#modal-container .modal-actions');
         if (!container || !content || !actions) return;
+        if (container.classList.contains('hidden')) this.modalReturnFocus = document.activeElement;
         container.querySelector('.modal')?.classList.remove(
             'export-image-modal',
             'html-export-modal',
@@ -22728,11 +25219,16 @@ class VAseApp {
             'help-modal'
         );
         content.innerHTML = contentHtml;
+        const heading = content.querySelector('h2');
+        if (heading) heading.id = 'modal-title';
         content.scrollTop = 0;
         content.tabIndex = 0;
         actions.innerHTML = actionsHtml;
         container.classList.remove('hidden');
         actions.querySelector('#modal-close')?.addEventListener('click', () => this.closeModal());
+        requestAnimationFrame(() => {
+            if (!container.classList.contains('hidden')) content.focus({ preventScroll: true });
+        });
     }
 
     htmlExportProfile(profile = null) {
@@ -22786,31 +25282,239 @@ class VAseApp {
         };
     }
 
-    async saveCompactProject() {
-        try {
-            this.applyDisplayOptions();
-            const saved = await this.saveBlobFromAction(
-                () => this.api.saveProject(
-                    this.backendPositionsPayload(),
-                    this.designSettingsSnapshot({ includeIdentityOverrides: true }),
-                    this.state.applyConstraints
-                ),
-                this.projectFilename(),
-                'application/vnd.v-ase.project+zip',
-                'Saving compact v_ase project...'
+    async projectSaveDestination(format, filename, { saveAs = false } = {}) {
+        if (!saveAs && this.projectFile.format === format && this.projectFile.serverBinding) {
+            return { serverBinding: this.projectFile.serverBinding };
+        }
+        if (!saveAs && this.projectFile.format === format && this.projectFile.handle) {
+            const handle = this.projectFile.handle;
+            if (this.projectFile.contentVersion) {
+                const current = await handle.getFile();
+                if (current.size !== this.projectFile.contentVersion.size
+                    || current.lastModified !== this.projectFile.contentVersion.lastModified) {
+                    throw new Error('The project changed outside v_ase. Reload it or use Save As.');
+                }
+            }
+            const permission = await handle.queryPermission?.({ mode: 'readwrite' });
+            if (permission && permission !== 'granted') {
+                const requested = await handle.requestPermission?.({ mode: 'readwrite' });
+                if (requested !== 'granted') {
+                    throw new Error('Write permission for the current project was denied. Use Save As.');
+                }
+            }
+            return {
+                handle,
+                browserDownload: false,
+                expectedContentVersion: this.projectFile.contentVersion
+                    ? { ...this.projectFile.contentVersion } : null
+            };
+        }
+        const destination = await this.chooseSaveDestination(
+            filename,
+            format === 'html' ? 'text/html' : 'application/vnd.v-ase.project+zip'
+        );
+        if (saveAs && destination?.handle && this.projectFile.handle
+            && await destination.handle.isSameEntry?.(this.projectFile.handle)) {
+            throw new Error('Save As requires a different file. The original project was left unchanged.');
+        }
+        if (saveAs && destination?.handle && this.projectFile.serverBinding
+            && destination.handle.name === this.projectFile.filename) {
+            throw new Error('Choose a different filename for Save As; the opened server project must remain unchanged.');
+        }
+        return destination;
+    }
+
+    async writeProjectFile(format, filename, buildBlob, {
+        saveAs = false,
+        outputProfile = null,
+        buildServerPayload = null,
+        busyMessage = 'Saving v_ase project...'
+    } = {}) {
+        if (this.projectFile.savePromise) return await this.projectFile.savePromise;
+        const work = (async () => {
+            await this.prepareProjectSave();
+            const destination = await this.projectSaveDestination(format, filename, { saveAs });
+            if (!destination) return false;
+            this.projectFile.saving = true;
+            this.notifyWorkspaceDocument('v_ase:document-dirty');
+            const savedRevision = this.projectFile.structureRevision;
+            const savedScientificSignature = this.projectScientificSignature();
+            const savedVisualSignature = this.projectVisualSignature();
+            let saved = false;
+            let serverResult = null;
+            if (destination.serverBinding) {
+                if (!buildServerPayload) throw new Error('Server project saving is unavailable for this format.');
+                const payload = await this.withBusy(busyMessage, buildServerPayload);
+                serverResult = await this.api.writeCurrentProject({
+                    ...payload,
+                    format,
+                    binding_id: destination.serverBinding.id,
+                    expected_version: destination.serverBinding.version
+                });
+                saved = Boolean(serverResult?.version);
+            } else {
+                const blob = await this.withBusy(busyMessage, buildBlob);
+                if (destination.handle && destination.expectedContentVersion) {
+                    const current = await destination.handle.getFile();
+                    if (current.size !== destination.expectedContentVersion.size
+                        || current.lastModified !== destination.expectedContentVersion.lastModified) {
+                        throw new Error('The project changed outside v_ase while saving. Reload it or use Save As.');
+                    }
+                }
+                saved = await this.savePreparedBlob(
+                    blob, filename,
+                    format === 'html' ? 'text/html' : 'application/vnd.v-ase.project+zip',
+                    destination
+                );
+            }
+            if (!saved) return false;
+            this.projectFile.format = format;
+            this.projectFile.filename = serverResult?.filename || destination.handle?.name || filename;
+            this.projectFile.handle = destination.handle || null;
+            this.projectFile.serverBinding = serverResult || null;
+            if (destination.handle) {
+                const written = await destination.handle.getFile();
+                this.projectFile.contentVersion = {
+                    size: written.size,
+                    lastModified: written.lastModified
+                };
+            } else {
+                this.projectFile.contentVersion = null;
+            }
+            this.projectFile.outputProfile = outputProfile
+                ? this.clonePlain(outputProfile) : null;
+            this.projectFile.lastSaveKind = serverResult ? 'server-source'
+                : destination.handle ? 'writable-file' : 'download-copy';
+            this.projectFile.savedStructureRevision = savedRevision;
+            this.projectFile.savedScientificSignature = savedScientificSignature;
+            const savedVisualState = JSON.parse(savedVisualSignature);
+            savedVisualState.projectHtmlOutputProfile = format === 'html'
+                ? this.clonePlain(outputProfile) : null;
+            this.projectFile.savedVisualSignature = JSON.stringify(savedVisualState);
+            if (!this.visualHistoryPending) this.visualHistoryBaseline = this.visualHistorySnapshot();
+            this.projectFile.error = null;
+            this.updateProjectDirtyState();
+            this.notifyWorkspaceDocument();
+            this.toast(
+                serverResult
+                    ? `Saved ${this.projectFile.filename} to its opened server file.`
+                    : destination.handle
+                    ? `Saved ${this.projectFile.filename}.`
+                    : `Downloaded ${this.projectFile.filename} as a copy; this browser has no retained writable target.`,
+                'success'
             );
-            if (saved) this.toast('Complete .vase project saved.', 'success');
-        } catch (err) {
-            this.toast(`Save project failed: ${err.message}`, 'error');
+            return true;
+        })();
+        this.projectFile.savePromise = work;
+        try {
+            return await work;
+        } catch (error) {
+            this.projectFile.error = String(error?.message || error);
+            this.notifyWorkspaceDocument('v_ase:document-dirty');
+            throw error;
+        } finally {
+            this.projectFile.saving = false;
+            this.projectFile.savePromise = null;
+            this.notifyWorkspaceDocument('v_ase:document-dirty');
         }
     }
 
-    showHtmlExportModal({ projectSave = false } = {}) {
+    async saveCompactProject({ saveAs = false } = {}) {
+        try {
+            return await this.writeProjectFile('vase', this.projectFilename(), async () => {
+                return await this.api.saveProject(
+                    this.backendPositionsPayload(),
+                    this.projectSettingsSnapshot('vase'),
+                    this.state.applyConstraints
+                );
+            }, {
+                saveAs,
+                buildServerPayload: async () => {
+                    return {
+                        positions: this.backendPositionsPayload(),
+                        settings: this.projectSettingsSnapshot('vase'),
+                        apply_constraint: this.state.applyConstraints
+                    };
+                },
+                busyMessage: 'Saving compact v_ase project...'
+            });
+        } catch (err) {
+            this.toast(`Save project failed: ${err.message}`, 'error');
+            return false;
+        }
+    }
+
+    async saveHtmlProject(profile = this.projectFile.outputProfile, { saveAs = false } = {}) {
+        if (!profile) throw new Error('The HTML project has no saved output profile. Use Save As.');
+        return await this.writeProjectFile('html', this.htmlProjectFilename(), async () => {
+            const rendered = await this.renderHtmlCompositionPreview(profile, { poster: true });
+            return await this.api.exportHtml(
+                this.backendPositionsPayload(),
+                this.projectSettingsSnapshot('html', rendered.contract),
+                this.state.applyConstraints,
+                [...this.state.selected],
+                this.workspaceDocumentTitle(),
+                true,
+                rendered.contract,
+                rendered.url
+            );
+        }, {
+            saveAs,
+            outputProfile: profile,
+            buildServerPayload: async () => {
+                const rendered = await this.renderHtmlCompositionPreview(profile, { poster: true });
+                return {
+                    positions: this.backendPositionsPayload(),
+                    settings: this.projectSettingsSnapshot('html', rendered.contract),
+                    apply_constraint: this.state.applyConstraints,
+                    selection: [...this.state.selected],
+                    document_name: this.workspaceDocumentTitle(),
+                    export_profile: rendered.contract,
+                    poster_data_url: rendered.url
+                };
+            },
+            busyMessage: 'Saving HTML project with editable recovery...'
+        });
+    }
+
+    async saveDocument() {
+        if (!this.projectFile.format) {
+            this.showHtmlExportModal({ projectSave: true });
+            return false;
+        }
+        return this.projectFile.format === 'html'
+            ? await this.saveHtmlProject()
+            : await this.saveCompactProject();
+    }
+
+    async prepareProjectSave() {
+        if (this.transform.mode !== 'IDLE' || this.addAtomsSessionActive()
+            || this.state.isRelaxing || this.state.atoms?.metadata?.relaxation?.active
+            || this.state.registryRelaxation || this.state.videoExportId) {
+            throw new Error('Finish or cancel the active transform, job, or export before saving.');
+        }
+        const activeDraft = this.invalidDraftInput?.isConnected
+            ? this.invalidDraftInput : document.activeElement;
+        if (this.isCommittableInput(activeDraft)
+            && !this.commitInputValue(activeDraft)) {
+            throw new Error('Correct the invalid scientific field before saving.');
+        }
+        await this.settleScientificMutations();
+        await this.stopPlayback();
+        await this.timelineStepQueue;
+        await this.settleScientificMutations();
+        this.applyDisplayOptions();
+        this.flushVisualHistoryCommit();
+        await this.updateAtomRadiusMapping();
+    }
+
+    showHtmlExportModal({ projectSave = false, saveAs = false } = {}) {
         const title = projectSave ? 'Save Project' : 'Export HTML View';
         const intro = projectSave
             ? 'Save the complete editable state as a compact v_ase project, or include an offline interactive rendered view in an HTML file.'
             : 'Export a lightweight, offline 3D view. It uses the same composition as Render Area and remains orbitable after opening.';
-        const initialProfile = this.htmlExportProfile();
+        const initialProfile = this.htmlExportProfile(projectSave && this.projectFile.format === 'html'
+            ? this.projectFile.outputProfile : null);
         this.showModal(`
             <h2>${title}</h2>
             <p class="modal-intro">${intro}</p>
@@ -22827,7 +25531,7 @@ class VAseApp {
                     <p id="project-output-format-detail"></p>
                 </div>
                 <label class="project-viewer-option" for="project-include-interactive-viewer">
-                    <input id="project-include-interactive-viewer" type="checkbox">
+                    <input id="project-include-interactive-viewer" type="checkbox" ${this.projectFile.format === 'html' ? 'checked' : ''}>
                     <span>
                         <strong>Include interactive rendered view</strong>
                         <small>Adds an offline rotatable 3D scene and rendered poster. The complete editable project remains embedded, and the output format changes to HTML.</small>
@@ -22871,7 +25575,7 @@ class VAseApp {
                 </div>
                 ${projectSave ? '' : `
                     <label class="html-project-option" for="html-embed-project">
-                        <input id="html-embed-project" type="checkbox">
+                        <input id="html-embed-project" type="checkbox" ${this.htmlExportEmbedProjectDraft === true ? 'checked' : ''}>
                         <span>
                             <strong>Embed editable .vase project</strong>
                             <small id="html-embed-project-detail"></small>
@@ -22907,7 +25611,9 @@ class VAseApp {
         let previewTimer = null;
 
         const readProfile = () => {
-            const current = this.currentImageExportProfile();
+            const current = projectSave && this.projectFile.format === 'html'
+                ? this.htmlExportProfile(this.projectFile.outputProfile)
+                : this.currentImageExportProfile();
             return this.htmlExportProfile({
                 ...current,
                 options: {
@@ -22972,8 +25678,7 @@ class VAseApp {
         const refreshPreview = async () => {
             if (htmlOptions?.hidden) return;
             const generation = ++previewGeneration;
-            const profile = this.setImageExportProfile(readProfile());
-            if (this.state.exportPreviewEnabled) this.syncImageExportPreview();
+            const profile = readProfile();
             previewFigure?.classList.add('loading');
             previewFigure?.classList.remove('unavailable');
             if (previewCaption) {
@@ -22998,7 +25703,11 @@ class VAseApp {
             if (previewTimer !== null) window.clearTimeout(previewTimer);
             previewTimer = window.setTimeout(refreshPreview, 120);
         };
-        embed?.addEventListener('change', syncProjectOption);
+        embed?.addEventListener('change', () => {
+            this.htmlExportEmbedProjectDraft = embed.checked;
+            this.syncRendererFormatProperties();
+            syncProjectOption();
+        });
         interactiveViewer?.addEventListener('change', () => {
             syncProjectOption({ refresh: true });
         });
@@ -23018,20 +25727,29 @@ class VAseApp {
             { once: true }
         );
         document.getElementById('html-export-confirm')?.addEventListener('click', async () => {
+            if (confirmButton?.disabled) return;
+            if (confirmButton) confirmButton.disabled = true;
             const includeViewer = !projectSave || interactiveViewer?.checked === true;
             if (projectSave && !includeViewer) {
                 previewGeneration += 1;
                 if (previewTimer !== null) window.clearTimeout(previewTimer);
-                this.closeModal();
-                await this.saveCompactProject();
+                const saved = await this.saveCompactProject({ saveAs });
+                if (saved) this.closeModal();
+                else if (confirmButton?.isConnected) confirmButton.disabled = false;
                 return;
             }
             const embedProject = projectSave || embed?.checked === true;
-            const profile = this.setImageExportProfile(readProfile());
+            const profile = readProfile();
             previewGeneration += 1;
             if (previewTimer !== null) window.clearTimeout(previewTimer);
-            this.closeModal();
+            if (!projectSave) this.closeModal();
             try {
+                if (projectSave) {
+                    const saved = await this.saveHtmlProject(profile, { saveAs });
+                    if (saved) this.closeModal();
+                    else if (confirmButton?.isConnected) confirmButton.disabled = false;
+                    return;
+                }
                 this.applyDisplayOptions();
                 const saved = await this.saveBlobFromAction(
                     async () => {
@@ -23066,8 +25784,9 @@ class VAseApp {
                 }
             } catch (err) {
                 this.toast(`HTML export failed: ${err.message}`, 'error');
+                if (confirmButton?.isConnected) confirmButton.disabled = false;
             }
-        }, { once: true });
+        });
     }
 
     formatFileSize(bytes) {
@@ -23078,8 +25797,23 @@ class VAseApp {
         return `${(value / 1024 ** 3).toFixed(2)} GB`;
     }
 
-    chooseSystemStructureFile() {
+    async chooseSystemStructureFile() {
         if (performance.now() < this.filePickerSuppressUntil) return;
+        if (window.isSecureContext && !navigator.webdriver && window.showOpenFilePicker) {
+            try {
+                const [handle] = await window.showOpenFilePicker({
+                    multiple: false,
+                    types: [{ description: 'Atomic structures and v_ase projects', accept: {
+                        'application/octet-stream': ['.vase', '.traj', '.xyz', '.extxyz', '.vasp', '.cif'],
+                        'text/html': ['.html', '.htm']
+                    } }]
+                });
+                if (handle) this.showOpenFileModal(await handle.getFile(), { handle });
+            } catch (err) {
+                if (err?.name !== 'AbortError') this.toast(`Open file failed: ${err.message}`, 'error');
+            }
+            return;
+        }
         const input = document.getElementById('structure-file');
         if (!input) return;
         if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
@@ -23091,8 +25825,8 @@ class VAseApp {
         this.chooseSystemStructureFile();
     }
 
-    showOpenFileModal(file) {
-        const newTabAvailable = this.workspaceChild && window.parent !== window;
+    showOpenFileModal(file, { handle = null } = {}) {
+        const newTabAvailable = Boolean(this.sessionId);
         const hasDocument = this.hasScratchContent();
         const currentRuntimeMode = this.state.vizOnly ? 'view' : 'edit';
         this.showModal(`
@@ -23190,15 +25924,18 @@ class VAseApp {
             if (mode === 'append') {
                 await this.appendStructureFile(file, inputFormat, index, runtimeMode);
             } else if (mode === 'new-tab') {
-                await this.openStructureFileInNewTab(file, inputFormat, index, runtimeMode);
+                await this.openStructureFileInNewTab(file, inputFormat, index, runtimeMode, { handle });
             } else {
-                await this.loadStructureFile(file, inputFormat, index, runtimeMode);
+                await this.loadStructureFile(file, inputFormat, index, runtimeMode, { handle });
             }
         }, { once: true });
     }
 
-    async loadStructureFile(file, inputFormat = '', index = ':', runtimeMode = null, { path = null, throwErrors = false } = {}) {
+    async loadStructureFile(file, inputFormat = '', index = ':', runtimeMode = null, { path = null, handle = null, throwErrors = false, confirmedIntent = false } = {}) {
+        const loadGeneration = ++this.projectLoadGeneration;
         try {
+            if (!confirmedIntent && this.updateProjectDirtyState()
+                && !await this.confirmDocumentClose()) return false;
             this.stopPlayback();
             if (this.transform.mode !== 'IDLE') this.cancelTransform();
             const hadLoadedAtoms = this.hasLoadedAtoms();
@@ -23226,10 +25963,18 @@ class VAseApp {
                     runtimeMode
                 )
             );
+            if (loadGeneration !== this.projectLoadGeneration) return false;
             this.resetHistoryTimeline();
             const isProject = data.loaded_file?.kind === 'project' || Boolean(data.project);
             const projectSettings = data.project?.settings || data.metadata?.config?.initial_design_settings;
             const settings = isProject ? projectSettings : inheritedSettings;
+            if (!isProject && settings?.display?.atomRadiusMapping?.scope === 'indices') {
+                settings.display.atomRadiusMapping = {
+                    ...settings.display.atomRadiusMapping,
+                    enabled: false,
+                    indices: []
+                };
+            }
             this.state.labelOrder = [];
             this.state.trajectoryBinaryCache = null;
             this.state.trajectoryBinaryPromise = null;
@@ -23266,6 +26011,24 @@ class VAseApp {
                 await this.switchRuntimeMode(runtimeMode === 'view');
             }
             this.resetVisualHistoryBaseline();
+            this.adoptProjectProvenance(projectProvenanceFromLoad(data, {
+                filename: file.name, file, handle
+            }), { deferBaseline: true });
+            const expectedScientific = this.projectScientificSignature();
+            const expectedVisual = this.projectVisualSignature();
+            const expectedRevision = this.projectFile.structureRevision;
+            const expectedInteractions = this.userInteractionCount;
+            await this.settleScientificMutations();
+            if (loadGeneration === this.projectLoadGeneration
+                && expectedScientific === this.projectScientificSignature()
+                && expectedVisual === this.projectVisualSignature()
+                && expectedRevision === this.projectFile.structureRevision
+                && expectedInteractions === this.userInteractionCount) {
+                this.resetVisualHistoryBaseline();
+                this.markProjectSavedContent();
+            } else {
+                this.updateProjectDirtyState();
+            }
             const frameCount = data.metadata?.frame_count || 1;
             this.toast(
                 `Opened ${data.loaded_file?.filename || file.name}${frameCount > 1 ? ` (${frameCount} frames)` : ''}.`,
@@ -23365,9 +26128,18 @@ class VAseApp {
         }
     }
 
-    async openStructureFileInNewTab(file, inputFormat = '', index = ':', runtimeMode = null) {
+    async openStructureFileInNewTab(file, inputFormat = '', index = ':', runtimeMode = null, { handle = null } = {}) {
         if (!this.workspaceChild || window.parent === window) {
-            this.toast('New structure tabs are available in the v_ase workspace.', 'warning');
+            try {
+                const workspace = await this.ensureDirectWorkspace();
+                const result = await workspace.openFileInNewTab(
+                    file, inputFormat, index, runtimeMode,
+                    { handle, volumetricPrecision: this.volumetricImportPrecision() }
+                );
+                this.toast(`Opened ${result.title || file.name} in a new tab.`, 'success');
+            } catch (error) {
+                this.toast(`Open new tab failed: ${error.message}`, 'error');
+            }
             return;
         }
         const requestId = `${this.sessionId}:${Date.now()}:${++this.workspaceRequestSequence}`;
@@ -23381,6 +26153,7 @@ class VAseApp {
                         sessionId: this.sessionId,
                         requestId,
                         file,
+                        handle,
                         serverPath: null,
                         fileName: file.name,
                         inputFormat,
@@ -23398,18 +26171,26 @@ class VAseApp {
     }
 
     showShortcutsModal() {
+        const primary = this.shortcutPlatform === 'mac' ? '⌘' : 'Ctrl+';
+        const timelineModifier = this.shortcutPlatform === 'mac' ? 'Option' : 'Alt';
+        const editorShortcuts = Object.entries(EDITOR_COMMANDS)
+            .map(([id, command]) => `<span>${editorShortcutLabel(id, this.shortcutPlatform)}</span><label>${command.label}</label>`)
+            .join('');
         this.showModal(`
             <h2>Shortcuts</h2>
             <div class="shortcut-grid">
                 <span>Left click</span><label>Select / confirm transform</label>
                 <span>Shift + click / drag</span><label>Invert selection for clicked atoms or every atom inside the box</label>
                 <span>Left drag</span><label>Box select</label>
-                <span>Ctrl+A</span><label>Select all visible atoms</label>
-                <span>Shift+Ctrl+A</span><label>Invert selection for all visible atoms</label>
+                <span>${primary}A</span><label>Select all visible atoms</label>
+                <span>Shift+A</span><label>Invert selection for all visible atoms</label>
+                <span>Alt+A</span><label>Clear selection</label>
+                ${editorShortcuts}
                 <span>Middle drag</span><label>Orbit viewport</label>
                 <span>Shift + middle drag</span><label>Pan viewport</label>
                 <span>Space</span><label>Play or pause the selected timeline</label>
-                <span>&larr; / &rarr;</span><label>Previous or next frame in the selected timeline</label>
+                <span>&uarr; / &darr; / &larr; / &rarr;</span><label>Orbit or tilt the structure view using the configured camera step</label>
+                <span>${timelineModifier}+&larr; / ${timelineModifier}+&rarr;</span><label>Previous or next frame in the selected timeline</label>
                 <span>Tab / Esc</span><label>Open the control panel while it is collapsed</label>
                 <span>G</span><label>Move selected atoms or Sun handle</label>
                 <span>R</span><label>Rotate selected atoms or Sun direction</label>
@@ -23421,9 +26202,11 @@ class VAseApp {
                 <span>X / Y / Z</span><label>Lock the global Cartesian axis in G/R/S mode</label>
                 <span>Enter</span><label>Confirm transform</label>
                 <span>Esc</span><label>Cancel a transform, close a modal, or close the open control panel and return focus to the viewport</label>
-                <span>Ctrl+C / V / Z</span><label>Copy, paste, undo an edit or visual setting</label>
-                <span>Delete</span><label>Delete selected atoms</label>
+                <span>${primary}C / V / Z</span><label>Copy, paste, undo an edit or visual setting</label>
+                <span>Measure tool</span><label>Click 2–4 atoms in order; bulk selection shows counts without geometry</label>
+                <span>Delete</span><label>Hide the exact visual selection in View; delete atoms in Edit</label>
             </div>
+            <p class="panel-note">Browser or operating-system reserved ${this.shortcutPlatform === 'mac' ? 'Command' : 'Control'} keys may not reach an ordinary tab. Fullscreen Keyboard Lock may help where supported; File and navigator controls remain available.</p>
             <h3 class="help-section-title">Opening Files</h3>
             <div class="help-save-grid">
                 <strong>Replace this tab</strong>
@@ -23491,7 +26274,8 @@ class VAseApp {
     defaultImageExportOptions() {
         const display = this.state.display;
         const pixelsPerAngstrom = Math.max(0.1, Math.min(5000,
-            Number(this.renderer.currentPixelsPerAngstrom()) || 100));
+            Number(this.state.imageExportProfile?.options?.pixelsPerAngstrom)
+            || Number(this.renderer.currentPixelsPerAngstrom()) || 100));
         return {
             transparentBackground: false,
             backgroundColor: '#ffffff',
@@ -23626,7 +26410,8 @@ class VAseApp {
         this.state.exportPreviewProfile = null;
         const initialProfile = this.currentImageExportProfile();
         if (this.state.exportPreviewEnabled) this.syncImageExportPreview();
-        const { width, height, format: imageFormat, options: imageOptions } = initialProfile;
+        const { width, height, format: profileImageFormat, options: imageOptions } = initialProfile;
+        const imageFormat = this.imageExportDraftFormat || profileImageFormat;
         const position = imageOptions.sunPosition;
         const target = imageOptions.sunTarget;
         const scaleMode = imageOptions.scaleMode;
@@ -23673,9 +26458,12 @@ class VAseApp {
                         <label for="export-framing-mode">Frame</label>
                         <select id="export-framing-mode">
                             <option value="viewport" ${selected('viewport', scaleMode)}>Current viewport</option>
-                            <option value="physical" ${selected('physical', scaleMode)}>Atomic scale from View</option>
+                            <option value="physical" ${selected('physical', scaleMode)}>Physical scale</option>
                         </select>
+                        <label for="export-pixels-per-angstrom">Output scale</label>
+                        <span class="unit-input"><input type="number" id="export-pixels-per-angstrom" value="${pixelsPerAngstrom.toFixed(2)}" min="0.1" max="5000" step="0.1" aria-label="Output pixels per angstrom"><span>px/Å</span></span>
                     </div>
+                    <button id="export-copy-viewport-scale" type="button" class="btn">Copy viewport scale</button>
                     <p id="export-scale-note" class="export-note"></p>
                 </div>
                 <div class="export-render-section">
@@ -23730,6 +26518,10 @@ class VAseApp {
             <button id="modal-export-image" class="btn primary">Export</button>
         `);
         document.querySelector('#modal-container .modal')?.classList.add('export-image-modal');
+        this.modalDismiss = () => {
+            this.state.exportPreviewProfile = null;
+            if (this.state.exportPreviewEnabled) this.syncImageExportPreview();
+        };
 
         const readImageProfile = () => {
             const renderModeSelection = document.getElementById('export-render-mode')?.value || 'current';
@@ -23747,7 +26539,7 @@ class VAseApp {
                         ? 'physical'
                         : 'viewport',
                     pixelsPerAngstrom: Math.max(0.1, Math.min(5000,
-                        Number(this.renderer.currentPixelsPerAngstrom()) || pixelsPerAngstrom)),
+                        Number(document.getElementById('export-pixels-per-angstrom')?.value) || pixelsPerAngstrom)),
                     sphereQuality: document.getElementById('export-sphere-quality')?.value || 'viewport',
                     sphereQualityScale: Math.max(0.5, Math.min(2,
                         Number(document.getElementById('export-smoothness-scale')?.value) || smoothnessScale)),
@@ -23766,7 +26558,9 @@ class VAseApp {
         };
 
         const updateExportSummary = () => {
-            const profile = this.setImageExportProfile(readImageProfile());
+            const profile = readImageProfile();
+            this.state.exportPreviewProfile = profile;
+            if (this.state.exportPreviewEnabled) this.syncImageExportPreview();
             const transparency = document.getElementById('export-transparent');
             if (transparency) {
                 const supportsTransparency = this.imageFormatSupportsTransparency(profile.format);
@@ -23787,7 +26581,7 @@ class VAseApp {
                     ? 'Perspective scale is defined at the camera target plane.'
                     : 'Orthographic scale is uniform at every depth.';
                 scaleNote.textContent = mode === 'physical'
-                    ? `Uses View > Atomic scale (${ppa.toFixed(2)} px/Å). Frame span: ${(outputWidth / ppa).toFixed(2)} Å × ${(outputHeight / ppa).toFixed(2)} Å. ${projectionNote}`
+                    ? `Output scale ${ppa.toFixed(2)} px/Å. Frame span: ${(outputWidth / ppa).toFixed(2)} Å × ${(outputHeight / ppa).toFixed(2)} Å. ${projectionNote}`
                     : 'Uses the Render Area camera direction and scale, then crops its projection to fill the requested output aspect ratio.';
             }
 
@@ -23808,12 +26602,17 @@ class VAseApp {
             }
         };
         [
-            'export-width', 'export-height', 'export-smoothness-scale',
+            'export-width', 'export-height', 'export-pixels-per-angstrom', 'export-smoothness-scale',
             'export-sun-intensity', 'export-sun-position-0', 'export-sun-position-1',
             'export-sun-position-2', 'export-sun-target-0', 'export-sun-target-1',
             'export-sun-target-2'
         ]
             .forEach(id => document.getElementById(id)?.addEventListener('input', updateExportSummary));
+        document.getElementById('export-copy-viewport-scale')?.addEventListener('click', () => {
+            const input = document.getElementById('export-pixels-per-angstrom');
+            if (input) input.value = this.renderer.currentPixelsPerAngstrom().toFixed(2);
+            updateExportSummary();
+        });
         [
             'export-image-format', 'export-transparent', 'export-grid', 'export-axes', 'export-cell', 'export-framing-mode',
             'export-sphere-quality', 'export-render-mode'
@@ -23823,18 +26622,12 @@ class VAseApp {
 
         document.getElementById('modal-export-image')?.addEventListener('click', async () => {
             try {
-                const profile = this.setImageExportProfile(readImageProfile());
+                const profile = readImageProfile();
                 const { width: exportWidth, height: exportHeight, format, options } = profile;
                 const mimeType = this.imageMimeType(format);
                 const filename = `v_ase-${exportWidth}x${exportHeight}.${format}`;
                 const destination = await this.chooseSaveDestination(filename, mimeType);
                 if (!destination) return;
-                Object.assign(this.state.display, {
-                    imageFramingMode: options.scaleMode,
-                    atomicScalePixelsPerAngstrom: options.pixelsPerAngstrom,
-                    imageSphereQuality: options.sphereQuality,
-                    imageSmoothnessScale: options.sphereQualityScale
-                });
                 const startedAt = performance.now();
                 const updateProgress = (progress, message, complete = false) => {
                     this.setBusyProgress(progress, {
@@ -23885,6 +26678,10 @@ class VAseApp {
                 );
                 this.syncImageExportPreview();
                 if (saved) {
+                    this.setImageExportProfile(profile);
+                    this.imageExportDraftFormat = profile.format;
+                    this.syncRendererFormatProperties();
+                    this.updateProjectDirtyState();
                     updateProgress(100, 'Image export saved.', true);
                     await new Promise(resolve => window.setTimeout(resolve, 120));
                     this.closeModal();
@@ -23907,20 +26704,20 @@ class VAseApp {
         }
         const width = Math.max(256, parseInt(document.getElementById('image-width').value || '1920', 10));
         const height = Math.max(256, parseInt(document.getElementById('image-height').value || '1080', 10));
-        const fps = Math.min(60, Math.max(1, Number(this.state.display.videoFps) || this.currentPlaybackFps()));
-        const format = ['mov', 'avi'].includes(this.state.display.videoFormat)
-            ? this.state.display.videoFormat
+        const routeDraft = this.videoExportDraft || this.state.display;
+        const fps = Math.min(60, Math.max(1, Number(routeDraft.fps ?? routeDraft.videoFps) || this.currentPlaybackFps()));
+        const format = ['mov', 'avi'].includes(routeDraft.format ?? routeDraft.videoFormat)
+            ? (routeDraft.format ?? routeDraft.videoFormat)
             : 'mov';
         const interpolationMultiplier = normalizeInterpolationMultiplier(
-            this.state.display.videoInterpolationMultiplier
+            routeDraft.interpolationMultiplier ?? routeDraft.videoInterpolationMultiplier
         );
-        const interpolationMic = this.state.display.videoInterpolationMic !== false;
+        const interpolationMic = (routeDraft.interpolationMic ?? routeDraft.videoInterpolationMic) !== false;
         const lighting = this.state.display;
         const position = lighting.sunPosition || [8, -10, 14];
         const target = lighting.sunTarget || [0, 0, 0];
         const scaleMode = lighting.imageFramingMode === 'physical' ? 'physical' : 'viewport';
-        const pixelsPerAngstrom = Math.max(0.1, Math.min(5000,
-            Number(this.renderer.currentPixelsPerAngstrom()) || 100));
+        const pixelsPerAngstrom = this.currentImageExportProfile().options.pixelsPerAngstrom;
         const sphereQuality = ['viewport', 'auto', 'low', 'medium', 'high', 'ultra'].includes(
             lighting.imageSphereQuality
         ) ? lighting.imageSphereQuality : 'viewport';
@@ -23973,9 +26770,12 @@ class VAseApp {
                             <label for="video-framing-mode">Frame</label>
                             <select id="video-framing-mode">
                                 <option value="viewport" ${selected('viewport', scaleMode)}>Current viewport</option>
-                                <option value="physical" ${selected('physical', scaleMode)}>Atomic scale from View</option>
+                                <option value="physical" ${selected('physical', scaleMode)}>Physical scale</option>
                             </select>
+                            <label for="video-pixels-per-angstrom">Output scale</label>
+                            <span class="unit-input"><input type="number" id="video-pixels-per-angstrom" value="${pixelsPerAngstrom.toFixed(2)}" min="0.1" max="5000" step="0.1" aria-label="Video pixels per angstrom"><span>px/Å</span></span>
                         </div>
+                        <button id="video-copy-viewport-scale" type="button" class="btn">Copy viewport scale</button>
                         <p id="video-scale-note" class="export-note"></p>
                     </div>
                     <div class="export-render-section">
@@ -24062,7 +26862,7 @@ class VAseApp {
                     ? 'physical'
                     : 'viewport',
                 pixelsPerAngstrom: Math.max(0.1, Math.min(5000,
-                    Number(this.renderer.currentPixelsPerAngstrom()) || pixelsPerAngstrom)),
+                    Number(document.getElementById('video-pixels-per-angstrom')?.value) || pixelsPerAngstrom)),
                 sphereQuality: document.getElementById('video-sphere-quality')?.value || 'viewport',
                 sphereQualityScale: Math.max(0.5, Math.min(2,
                     Number(document.getElementById('video-smoothness-scale')?.value) || smoothnessScale)),
@@ -24110,12 +26910,17 @@ class VAseApp {
             if (this.state.exportPreviewEnabled) this.syncImageExportPreview();
         };
         [
-            'video-width', 'video-height', 'video-fps', 'video-interpolation-multiplier',
+            'video-width', 'video-height', 'video-pixels-per-angstrom', 'video-fps', 'video-interpolation-multiplier',
             'video-smoothness-scale',
             'video-sun-intensity', 'video-sun-position-0', 'video-sun-position-1',
             'video-sun-position-2', 'video-sun-target-0', 'video-sun-target-1',
             'video-sun-target-2'
         ].forEach(id => document.getElementById(id)?.addEventListener('input', updateVideoPreview));
+        document.getElementById('video-copy-viewport-scale')?.addEventListener('click', () => {
+            const input = document.getElementById('video-pixels-per-angstrom');
+            if (input) input.value = this.renderer.currentPixelsPerAngstrom().toFixed(2);
+            updateVideoPreview();
+        });
         [
             'video-format', 'video-interpolation-mic', 'video-grid', 'video-axes',
             'video-cell', 'video-framing-mode',
@@ -24128,7 +26933,6 @@ class VAseApp {
                 const options = readVideoOptions();
                 Object.assign(this.state.display, {
                     imageFramingMode: options.scaleMode,
-                    atomicScalePixelsPerAngstrom: options.pixelsPerAngstrom,
                     imageSphereQuality: options.sphereQuality,
                     imageSmoothnessScale: options.sphereQualityScale,
                     videoFormat: options.format,
@@ -24136,6 +26940,13 @@ class VAseApp {
                     videoInterpolationMultiplier: options.interpolationMultiplier,
                     videoInterpolationMic: options.interpolationMic
                 });
+                this.videoExportDraft = {
+                    format: options.format,
+                    fps: options.fps,
+                    interpolationMultiplier: options.interpolationMultiplier,
+                    interpolationMic: options.interpolationMic
+                };
+                this.syncRendererFormatProperties();
                 const imageWidthInput = document.getElementById('image-width');
                 const imageHeightInput = document.getElementById('image-height');
                 if (imageWidthInput) imageWidthInput.value = `${options.width}`;
@@ -24157,7 +26968,7 @@ class VAseApp {
         }, { once: true });
     }
 
-    videoFrameSnapshot() {
+    async videoFrameSnapshot() {
         const positions = this.renderer?.atomsData?.positions || this.state.atoms?.positions || [];
         const flattened = new Float64Array(positions.length * 3);
         positions.forEach((position, index) => {
@@ -24166,7 +26977,7 @@ class VAseApp {
             flattened[offset + 1] = Number(position?.[1]) || 0;
             flattened[offset + 2] = Number(position?.[2]) || 0;
         });
-        return {
+        const snapshot = {
             positions: flattened,
             count: positions.length,
             cell: Array.isArray(this.state.atoms?.cell)
@@ -24177,6 +26988,70 @@ class VAseApp {
             cell_origin: [...(this.state.atoms?.cell_origin || [0, 0, 0])],
             labels: [...(this.state.atoms?.symbols || [])]
         };
+        const mapping = this.normalizedAtomRadiusMapping();
+        if (mapping.enabled && mapping.field && !mapping.field.startsWith('position:')) {
+            try {
+                const frame = Number(this.state.atoms?.metadata?.current_frame || 0);
+                const result = await this.atomScalarStore.values(mapping.field, { frame });
+                const atomCount = Number(result.atoms || snapshot.count);
+                const start = (frame - Number(result.startFrame || 0)) * atomCount;
+                if (start < 0 || start + snapshot.count > result.values.length) {
+                    throw new Error('Scalar frame is unavailable.');
+                }
+                snapshot.radiusScalarValues = Float64Array.from(
+                    result.values.slice(start, start + snapshot.count)
+                );
+            } catch (error) {
+                snapshot.radiusScalarValues = null;
+                snapshot.radiusScalarUnavailable = String(error.message || error);
+            }
+        }
+        return snapshot;
+    }
+
+    videoSampleRadiusValues(sample, mapping = this.normalizedAtomRadiusMapping()) {
+        const coordinate = { 'position:x': 0, 'position:y': 1, 'position:z': 2 }[mapping.field];
+        if (coordinate !== undefined) {
+            return Float64Array.from({ length: sample.count }, (_, index) => (
+                Number(sample.positions[index * 3 + coordinate])
+            ));
+        }
+        return sample.radiusScalarValues || null;
+    }
+
+    applyVideoSampleRadiusFactors(sample) {
+        const mapping = this.normalizedAtomRadiusMapping();
+        if (!mapping.enabled || !mapping.field) return;
+        const values = this.videoSampleRadiusValues(sample, mapping);
+        const factors = values
+            ? atomRadiusFactors(values, mapping, sample.count).factors
+            : Float32Array.from({ length: sample.count }, () => 1);
+        this.renderer.setAtomRadiusFactors(factors, {
+            generation: this.atomRadiusRuntime.generation
+        });
+        if (!values) this.setAtomRadiusStatus(
+            `Radius property is unavailable for this video frame; factor 1 is used. ${sample.radiusScalarUnavailable || ''}`,
+            'error'
+        );
+    }
+
+    interpolateVideoRadiusScalars(first, second, amount, sample) {
+        const mapping = this.normalizedAtomRadiusMapping();
+        if (!mapping.enabled || !mapping.field || mapping.field.startsWith('position:')) return;
+        const left = first.radiusScalarValues;
+        const right = second.radiusScalarValues;
+        if (!left || !right) {
+            sample.radiusScalarValues = null;
+            sample.radiusScalarUnavailable = 'One or both source frames have no stored property.';
+            return;
+        }
+        const discrete = /^array::(?:tags?|flags?|masks?|bool(?:ean)?)::/i.test(mapping.field);
+        sample.radiusScalarValues = Float64Array.from({ length: sample.count }, (_, index) => {
+            const a = Number(left[index]);
+            const b = Number(right[index]);
+            if (!Number.isFinite(a) || !Number.isFinite(b)) return Number.NaN;
+            return discrete ? (amount < 0.5 ? a : b) : a + (b - a) * amount;
+        });
     }
 
     videoFramesAreInterpolable(first, second) {
@@ -24258,6 +27133,7 @@ class VAseApp {
     async renderVideoCaptureSample(capture, sequence, sample, outputIndex, outputCount, outputFps, startedAt) {
         this.applyFrameLattice(sample.cell, sample.pbc, sample.cell_origin);
         this.renderer.updatePositionsFlat(sample.positions, 0, sample.count);
+        this.applyVideoSampleRadiusFactors(sample);
         await this.synchronizeVideoAnalysis(sample);
         await this.captureCurrentVideoFrame(capture, sequence, outputIndex, outputCount, outputFps, startedAt);
     }
@@ -24312,20 +27188,24 @@ class VAseApp {
             if (interpolationFactor <= 1) {
                 for (let frame = 0; frame < frameCount; frame++) {
                     await this.loadFrame(frame);
-                    await this.synchronizeVideoAnalysis(this.videoFrameSnapshot());
+                    const sample = await this.videoFrameSnapshot();
+                    this.applyVideoSampleRadiusFactors(sample);
+                    await this.synchronizeVideoAnalysis(sample);
                     await this.captureCurrentVideoFrame(capture, sequence, ++outputIndex, outputFrameCount, outputFps, startedAt);
                 }
             } else {
                 await this.loadFrame(0);
-                let first = this.videoFrameSnapshot();
+                let first = await this.videoFrameSnapshot();
+                this.applyVideoSampleRadiusFactors(first);
                 await this.synchronizeVideoAnalysis(first);
                 await this.captureCurrentVideoFrame(capture, sequence, ++outputIndex, outputFrameCount, outputFps, startedAt);
                 for (let frame = 1; frame < frameCount; frame++) {
                     await this.loadFrame(frame);
-                    const second = this.videoFrameSnapshot();
+                    const second = await this.videoFrameSnapshot();
                     this.videoFramesAreInterpolable(first, second);
                     for (let subframe = 1; subframe < interpolationFactor; subframe++) {
                         const sample = interpolateTrajectoryFrames(first, second, subframe / interpolationFactor, {useMic: interpolationMic});
+                        this.interpolateVideoRadiusScalars(first, second, subframe / interpolationFactor, sample);
                         if (interpolationMic && !sample.micApplied) micFallback = true;
                         await this.renderVideoCaptureSample(capture, sequence, sample, ++outputIndex, outputFrameCount, outputFps, startedAt);
                     }
@@ -24359,7 +27239,8 @@ class VAseApp {
             if (capture) this.renderer.endExportCapture(capture);
             try {
                 await this.loadFrame(originalFrame);
-                await this.synchronizeVideoAnalysis(this.videoFrameSnapshot());
+                await this.synchronizeVideoAnalysis(await this.videoFrameSnapshot());
+                await this.updateAtomRadiusMapping();
             } finally {
                 this.state.videoExportId = null;
                 this.state.videoExportStartedAt = null;
@@ -24408,6 +27289,9 @@ class VAseApp {
                 quiet: true,
                 refreshBonds: !this.state.trajectoryTimer
             });
+        }
+        if (this.state.display.atomRadiusMapping?.enabled) {
+            await this.updateAtomRadiusMapping();
         }
         if (this.state.display.showForceVectors) {
             await this.updateForceVectorsForCurrentFrame();
@@ -25012,12 +27896,14 @@ class VAseApp {
                 this.captureRenderAreaCamera({ syncPreview: false });
             }
             this.syncImageExportPreview();
+            if (this.editorRoute === 'export') this.syncProjectHtmlProfileFromRenderer();
             this.scheduleVisualHistoryCommit('render-area-follow');
         });
         document.getElementById('btn-render-area-from-view')?.addEventListener('click', () => {
             this.state.exportPreviewFollowViewport = false;
             this.captureRenderAreaCamera({ syncPreview: false });
             this.syncImageExportPreview();
+            if (this.editorRoute === 'export') this.syncProjectHtmlProfileFromRenderer();
             this.scheduleVisualHistoryCommit('render-area-camera');
         });
         document.getElementById('render-area-eye')?.addEventListener('click', event => {
@@ -25035,6 +27921,7 @@ class VAseApp {
                     width: dimensions.width,
                     height: dimensions.height
                 }, { syncInputs: false });
+                if (this.editorRoute === 'export') this.syncProjectHtmlProfileFromRenderer();
             });
         });
         document.getElementById('btn-export-video').onclick = () => {
@@ -25223,8 +28110,50 @@ class VAseApp {
         atomicScale.addEventListener('blur', () => this.flushVisualHistoryCommit());
         document.getElementById('chk-antialias').onchange = () => this.safeApplyDisplayOptions();
         document.getElementById('sphere-quality').onchange = () => this.safeApplyDisplayOptions();
-        document.getElementById('atom-radius-scale').oninput = () => this.safeApplyDisplayOptions();
-        document.getElementById('atom-radius-scale').onchange = () => this.safeApplyDisplayOptions();
+        const radiusSlider = document.getElementById('atom-radius-scale');
+        const radiusNumber = document.getElementById('atom-radius-scale-number');
+        let radiusGestureActive = false;
+        const finishRadiusGesture = () => {
+            if (!radiusGestureActive) return;
+            radiusGestureActive = false;
+            this.flushVisualHistoryCommit();
+        };
+        radiusSlider.addEventListener('pointerdown', () => {
+            this.flushVisualHistoryCommit();
+            radiusGestureActive = true;
+        });
+        radiusSlider.addEventListener('pointerup', finishRadiusGesture);
+        radiusSlider.addEventListener('pointercancel', finishRadiusGesture);
+        radiusSlider.addEventListener('keydown', () => { radiusGestureActive = true; });
+        radiusSlider.addEventListener('keyup', finishRadiusGesture);
+        radiusSlider.addEventListener('blur', finishRadiusGesture);
+        radiusSlider.oninput = () => {
+            if (radiusNumber) radiusNumber.value = radiusSlider.value;
+            this.state.display.atomRadiusScale = Number(radiusSlider.value);
+            this.renderer.setDisplayOptions({ atomRadiusScale: this.state.display.atomRadiusScale });
+            this.updateRadiusScaleLabel();
+            this.scheduleVisualHistoryCommit('atom-radius-scale');
+            if (radiusGestureActive && this.visualHistoryTimer !== null) {
+                clearTimeout(this.visualHistoryTimer);
+                this.visualHistoryTimer = null;
+            }
+        };
+        radiusSlider.onchange = () => {
+            finishRadiusGesture();
+            this.flushVisualHistoryCommit();
+        };
+        radiusNumber?.addEventListener('change', () => {
+            const value = Number(radiusNumber.value);
+            if (!Number.isFinite(value) || value < 0.25 || value > 2.5) {
+                radiusNumber.setCustomValidity('Enter a size multiplier from 0.25 to 2.5.');
+                radiusNumber.reportValidity();
+                return;
+            }
+            radiusNumber.setCustomValidity('');
+            radiusSlider.value = String(value);
+            radiusSlider.oninput();
+            this.flushVisualHistoryCommit();
+        });
         document.getElementById('chk-constraints').onchange = () => {
             this.safeApplyDisplayOptions();
             this.updateSelectionVisuals();
@@ -25329,11 +28258,32 @@ class VAseApp {
         document.getElementById('btn-set-unit-cell').onclick = () => this.setUnitCellFromControls();
         document.getElementById('btn-set-supercell').onclick = () => this.setSupercellAsCell();
         document.getElementById('btn-apply-supercell-matrix').onclick = () => this.applyMakeSupercellMatrix();
+        document.getElementById('btn-cell-transform-switch-edit')?.addEventListener('click', () => {
+            this.switchRuntimeMode(false).catch(error => this.toast(`Mode change failed: ${error.message}`, 'error'));
+        });
         document.getElementById('btn-shortcuts').onclick = () => {
             this.showShortcutsModal();
         };
         document.getElementById('modal-close')?.addEventListener('click', () => this.closeModal());
         const modalContainer = document.getElementById('modal-container');
+        modalContainer?.addEventListener('keydown', event => {
+            if (event.key !== 'Tab' || modalContainer.classList.contains('hidden')) return;
+            const focusables = [...modalContainer.querySelectorAll(
+                'button:not(:disabled), input:not(:disabled), select:not(:disabled), '
+                + 'textarea:not(:disabled), a[href], [tabindex]:not([tabindex="-1"])'
+            )].filter(element => element.getBoundingClientRect().height > 0);
+            if (!focusables.length) return;
+            const first = focusables[0];
+            const last = focusables[focusables.length - 1];
+            if (event.shiftKey && (document.activeElement === first
+                || document.activeElement === document.getElementById('modal-content'))) {
+                event.preventDefault();
+                last.focus();
+            } else if (!event.shiftKey && document.activeElement === last) {
+                event.preventDefault();
+                first.focus();
+            }
+        });
         modalContainer?.addEventListener('pointerdown', (e) => {
             if (!modalContainer.classList.contains('hidden')) {
                 e.stopPropagation();
@@ -25378,7 +28328,11 @@ class VAseApp {
         movieSkip.oninput = () => this.currentPlaybackSkip();
         movieSkip.onchange = () => this.currentPlaybackSkip();
         document.getElementById('tool-select')?.addEventListener('click', () => {
+            this.orbitToolActive = false;
+            document.getElementById('tool-orbit')?.setAttribute('aria-pressed', 'false');
             if (this.transform.mode !== 'IDLE') this.cancelTransform();
+            this.measureToolArmed = false;
+            document.getElementById('tool-measure')?.setAttribute('aria-pressed', 'false');
         });
         document.getElementById('tool-move')?.addEventListener('click', () => this.enterTransformMode('MOVE'));
         document.getElementById('tool-rotate')?.addEventListener('click', () => this.enterTransformMode('ROTATE'));
@@ -25525,6 +28479,7 @@ class VAseApp {
             if (e.button !== 0) return; // Left click only
             if (document.activeElement && document.activeElement !== canvas) document.activeElement.blur?.();
             canvas.focus({ preventScroll: true });
+            if (this.orbitToolActive && this.transform.mode === 'IDLE') return;
             if (this.transform.mode !== 'IDLE') {
                 e.preventDefault();
                 this.state.suppressNextPointerUp = true;
@@ -25583,8 +28538,9 @@ class VAseApp {
 
         canvas.addEventListener('pointermove', (e) => {
             if (this.transform.mode !== 'IDLE') {
-                this.transform.pointerDelta.x = (e.clientX - this.state.transformStartPointer.x) / window.innerWidth;
-                this.transform.pointerDelta.y = -(e.clientY - this.state.transformStartPointer.y) / window.innerHeight;
+                const size = this.renderer.containerSize();
+                this.transform.pointerDelta.x = (e.clientX - this.state.transformStartPointer.x) / size.width;
+                this.transform.pointerDelta.y = -(e.clientY - this.state.transformStartPointer.y) / size.height;
                 if (this.transform.mode === 'ROTATE' && this.transform.getNumericValue() === null) {
                     this.updateRotationFromPointer(e.clientX, e.clientY);
                 }
@@ -25609,6 +28565,7 @@ class VAseApp {
 
         canvas.addEventListener('pointerup', (e) => {
             if (e.button !== 0) return;
+            if (this.orbitToolActive && this.transform.mode === 'IDLE') return;
             if (this.state.suppressNextPointerUp) {
                 this.state.suppressNextPointerUp = false;
                 this.state.isDragging = false;
@@ -25654,14 +28611,18 @@ class VAseApp {
                 if (!e.shiftKey && this.state.selectedVolumetricPlanes.size) {
                     this.setVolumetricPlaneSelection([], { update: false });
                 }
-                if (!e.shiftKey) this.clearAtomSelection();
-
-                if (picked !== null) {
-                    if (e.shiftKey) this.toggleSelectionReference(picked);
-                    else this.addSelectionReference(picked);
+                this.applySelectionAction({
+                    references: picked === null ? [] : [picked],
+                    mode: this.measureToolArmed
+                        ? (this.selectionCount() ? 'add' : 'replace')
+                        : e.shiftKey ? 'toggle' : 'replace',
+                    origin: 'pointer-single',
+                    measurement: 'ordered'
+                });
+                if (this.measureToolArmed && this.selectionCount() >= 4) {
+                    this.measureToolArmed = false;
+                    document.getElementById('tool-measure')?.setAttribute('aria-pressed', 'false');
                 }
-                this.updateSelectionVisuals();
-                this.updateUI();
             } else if (dist >= 5) {
                 // Box Select
                 const rect = {
@@ -25678,16 +28639,14 @@ class VAseApp {
                     true
                 );
 
-                if (!e.shiftKey) {
-                    this.clearAtomSelection();
-                    if (this.state.selectedVolumetricPlanes.size) {
-                        this.setVolumetricPlaneSelection([], { update: false });
-                    }
+                if (!e.shiftKey && this.state.selectedVolumetricPlanes.size) {
+                    this.setVolumetricPlaneSelection([], { update: false });
                 }
-                if (e.shiftKey) this.toggleSelectionReferences(newSelected);
-                else newSelected.forEach(reference => this.addSelectionReference(reference));
-                this.updateSelectionVisuals();
-                this.updateUI();
+                this.applySelectionAction({
+                    references: newSelected,
+                    mode: e.shiftKey ? 'toggle' : 'replace',
+                    origin: 'pointer-box'
+                });
             }
         });
 
@@ -25698,10 +28657,47 @@ class VAseApp {
         });
 
         window.addEventListener('keydown', (e) => {
+            if (e.isComposing || e.keyCode === 229 || e.getModifierState?.('AltGraph')) return;
+            const modal = document.getElementById('modal-container');
+            if (modal && !modal.classList.contains('hidden')) {
+                if (commandIdForEvent(e, this.shortcutPlatform)) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    return;
+                }
+                if (e.key === 'Escape') {
+                    e.preventDefault();
+                    this.closeModal();
+                } else if ((e.ctrlKey || e.metaKey || e.altKey)
+                    && !(e.target instanceof Element
+                        && e.target.closest('input, textarea, select, [contenteditable=""], [contenteditable="true"]'))) {
+                    e.preventDefault();
+                }
+                return;
+            }
+            if (this.handleEditorShortcut(e)) return;
             const tag = e.target?.tagName?.toLowerCase();
-            const isFormControl = ['input', 'textarea', 'select', 'button'].includes(tag) || e.target?.isContentEditable;
+            const isEditableControl = ['input', 'textarea', 'select'].includes(tag)
+                || e.target?.isContentEditable
+                || (e.target instanceof Element && Boolean(e.target.closest(
+                    '[contenteditable]:not([contenteditable="false"]), [role="textbox"], [role="spinbutton"]'
+                )));
+            const isFormControl = isEditableControl || tag === 'button';
             const inspectorCollapsed = document.body.classList.contains('inspector-collapsed');
             if (e.key === 'Escape' && this.transform.mode === 'IDLE') {
+                const objects = document.getElementById('objects-drawer');
+                if (objects && !objects.classList.contains('hidden')) {
+                    e.preventDefault(); objects.classList.add('hidden');
+                    document.getElementById('btn-objects')?.setAttribute('aria-expanded', 'false');
+                    document.getElementById('btn-objects')?.focus();
+                    return;
+                }
+                if (document.body.classList.contains('editor-search-open')) {
+                    e.preventDefault(); document.body.classList.remove('editor-search-open');
+                    document.getElementById('editor-search-toggle')?.setAttribute('aria-expanded', 'false');
+                    document.getElementById('editor-search-toggle')?.focus();
+                    return;
+                }
                 const modal = document.getElementById('modal-container');
                 if (modal && !modal.classList.contains('hidden')) {
                     e.preventDefault();
@@ -25710,7 +28706,8 @@ class VAseApp {
                 }
                 if (!inspectorCollapsed) {
                     e.preventDefault();
-                    if (this.isCommittableInput(e.target)) this.commitInputValue(e.target);
+                    if (this.isCommittableInput(e.target)
+                        && !this.commitInputValue(e.target)) return;
                     e.target?.blur?.();
                     this.setInspectorCollapsed(true);
                     canvas.focus({ preventScroll: true });
@@ -25726,23 +28723,18 @@ class VAseApp {
                 this.setInspectorCollapsed(false);
                 return;
             }
-            if (['input', 'textarea', 'select'].includes(tag)) return;
-            const modalOpen = !document.getElementById('modal-container')?.classList.contains('hidden');
-            if (
-                !modalOpen
-                && !isFormControl
-                && this.transform.mode === 'IDLE'
-                && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')
-                && !e.ctrlKey
-                && !e.metaKey
-                && !e.altKey
-            ) {
-                if (this.timelineFrameCount(this.primaryTimelineSource()) > 1) {
-                    e.preventDefault();
-                    const delta = e.key === 'ArrowLeft' ? -1 : 1;
-                    this.requestFrameStep(delta)
-                        .catch(err => this.toast(`Frame change failed: ${err.message}`, 'error'));
-                }
+            const navigation = viewportNavigationForEvent(e);
+            if (navigation && !isEditableControl && !e.defaultPrevented) {
+                e.preventDefault();
+                this.executeViewportNavigation(navigation);
+                return;
+            }
+            if (isFormControl) return;
+            if (!e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey
+                && this.transform.mode === 'IDLE' && e.code === 'KeyF'
+                && (e.target === canvas || e.target === document.body)) {
+                e.preventDefault();
+                this.fitEditorView();
                 return;
             }
             if ((e.ctrlKey || e.metaKey) && this.transform.mode === 'IDLE') {
@@ -25765,6 +28757,14 @@ class VAseApp {
                     return;
                 }
             }
+            const selectAllChord = (e.ctrlKey || e.metaKey) && !e.altKey
+                && !e.shiftKey && this.transform.mode === 'IDLE'
+                && this.isPhysicalKey(e, 'KeyA', ['a']);
+            const clearSelectionChord = e.altKey && !e.ctrlKey && !e.metaKey
+                && !e.shiftKey && this.transform.mode === 'IDLE'
+                && this.isPhysicalKey(e, 'KeyA', ['a']);
+            if ((e.ctrlKey || e.metaKey || e.altKey)
+                && !selectAllChord && !clearSelectionChord) return;
             // Typing in buffer
             if (this.transform.mode !== 'IDLE') {
                 const axis = this.axisFromKey(e);
@@ -25921,6 +28921,16 @@ class VAseApp {
     dispose() {
         if (this.disposed) return;
         this.disposed = true;
+        if (this.projectDirtyTimer !== null) {
+            clearTimeout(this.projectDirtyTimer);
+            this.projectDirtyTimer = null;
+        }
+        if (this.workspaceBaselineTimer !== null) {
+            clearTimeout(this.workspaceBaselineTimer);
+            this.workspaceBaselineTimer = null;
+        }
+        window.removeEventListener('pointerdown', this.countUserInteraction, true);
+        window.removeEventListener('keydown', this.countUserInteraction, true);
 
         const clearTimer = value => {
             if (value !== null && value !== undefined) {
@@ -25947,14 +28957,22 @@ class VAseApp {
         }
 
         this.atomColorScaleRuntime.requestToken += 1;
+        this.atomRadiusRuntime.requestToken += 1;
+        this.atomRadiusRuntime.fitToken += 1;
+        if (this.atomRadiusRuntime.refreshRequest !== null) {
+            cancelAnimationFrame(this.atomRadiusRuntime.refreshRequest);
+            this.atomRadiusRuntime.refreshRequest = null;
+        }
+        this.atomScalarStore.invalidate();
         this.forceVectorRuntime.requestToken += 1;
-        this.displacementRuntime.requestToken += 1;
+        if (this.displacementRuntime) this.displacementRuntime.requestToken += 1;
         this.volumetricHistogramObserver?.disconnect?.();
         this.volumetricHistogramObserver = null;
         this.hideToolbarTooltip?.();
         this.cleanupCallbacks.splice(0).forEach(callback => {
             try { callback(); } catch { /* page teardown */ }
         });
+        this.disposeShortcutCapture?.();
 
         this.closeSocket?.();
         if (this.ws) {
@@ -25966,7 +28984,7 @@ class VAseApp {
         window.removeEventListener('resize', this.handleWindowResize);
         window.removeEventListener('v_ase-theme-change', this.handleThemeChange);
         window.removeEventListener('pagehide', this.handlePageTeardown);
-        window.removeEventListener('beforeunload', this.handlePageTeardown);
+        window.removeEventListener('beforeunload', this.handleBeforeUnload);
         if (this.workspaceChild) {
             window.removeEventListener('message', this.handleWorkspaceMessage);
         }
@@ -25974,8 +28992,10 @@ class VAseApp {
         this.renderer?.dispose?.();
         if (window.__V_ASE_APP__ === this) window.__V_ASE_APP__ = null;
         if (window.__ASE_APP__ === this) window.__ASE_APP__ = null;
-        window.v_aseAI = null;
-        window.__V_ASE_AI__ = null;
+        if (!this.directWorkspace) {
+            window.v_aseAI = null;
+            window.__V_ASE_AI__ = null;
+        }
     }
 }
 

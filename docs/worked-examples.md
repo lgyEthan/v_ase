@@ -28,7 +28,7 @@ To keep Fe fixed while rotating a cyclopentadienyl ring:
 
 1. Select the five ring atoms and any other atoms that should move.
 2. Shift-select Fe last, making it the active atom.
-3. Choose **Structure > Transform & Cell Match > Active atom (last selected)**.
+3. Choose **Build > Transform & cell match > Active atom (last selected)**.
 4. Press `R`, optionally lock `X`, `Y`, or `Z`, type an exact angle, and press
    `Enter`.
 5. Inspect the Fe coordinate after commit; it must be unchanged.
@@ -155,7 +155,7 @@ a doubled rectangular 14/4 match at the same strain; see the
 [source audit](scientific-source-audit.md#commensurate-cells).
 The fixtures also include a 192-atom Cu(111) slab for lateral neighbor shells.
 
-1. Open **Structure > Transform & Cell Match**.
+1. Open **Build > Transform & cell match**.
 2. Load the guest without replacing the host.
 3. Choose the global Z projection and explicit strain target.
 4. Search within bounded area/index limits.

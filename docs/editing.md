@@ -86,16 +86,16 @@ During any transform, press `X`, `Y`, or `Z` to lock the global Cartesian
 axis. Type a value for an exact operation, then confirm with `Enter` or
 left-click. `Esc` or right-click restores the pre-transform coordinates.
 Nonzero **Move increment / Å** and **Rotate increment / deg** values under
-**Structure > Transform & Cell Match** snap pointer-driven transforms; a zero
+**Build > Transform & cell match** snap pointer-driven transforms; a zero
 value keeps them continuous.
 
 `S` scales coordinates only. It never changes atom radii, bond diameter, or
-the unit cell. Use **Structure > Appearance** for atom size and **Cell &
-Replication** for cell operations.
+the unit cell. Use **Style > Atoms** for atom size and **Style → Cell** for
+display repetition; use **Build → Cell matrix** for physical cell operations.
 
 ### Rotation and scaling pivots
 
-Choose the pivot under **Structure > Transform & Cell Match**:
+Choose the pivot under **Build > Transform & cell match**:
 
 - **Selection COM** uses the arithmetic mean of selected editable coordinates (not a mass-weighted center of mass);
 - **Active atom (last selected)** keeps the last-selected atom fixed;
@@ -113,7 +113,7 @@ separate guides and do not alter the requested free rotation.
 ### Constraint-aware commits
 
 The viewport provides a responsive preview, but committed positions come back
-from the ASE backend. With **Structure > Constraints > Apply constraints**
+from the ASE backend. With **Build > Constraints > Apply constraints**
 enabled, FixAtoms, FixedLine, FixedPlane, FixScaled, and compatible Cartesian
 constraints can modify the final displacement. Disabling the switch allows a
 free commit for that operation; it does not delete the saved constraints. See
@@ -163,7 +163,7 @@ v_ase gui
 
 The empty document starts in Edit. A typical periodic workflow is:
 
-1. Open **Structure > Cell & Replication**.
+1. Open **Style > Cell**.
 2. Enter the Cartesian `3 x 3` cell matrix and choose the three PBC axes.
 3. Select **Set Unit Cell**. This defines the ASE cell without scaling or
    moving any atom.
@@ -304,7 +304,7 @@ immutable host only inside the staging optimizer and adds a temporary visual
 overlay; it does not modify committed ASE constraints or saved atom
 appearance.
 
-Use **Open Relaxation** to configure the common settings under **Structure >
+Use **Open Relaxation** to configure the common settings under **Build >
 Relaxation**, then start placement relaxation. After it becomes inactive:
 
 - edit regions and append another batch;

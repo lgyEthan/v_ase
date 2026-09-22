@@ -222,7 +222,7 @@ active, stopped session rebuilds both the backend domain and rendered images;
 the control is locked while its optimizer is running.
 
 Placement may initially contain short contacts. The placement card links to
-the same **Structure > Relaxation** controls used by ordinary optimization:
+the same **Build > Relaxation** controls used by ordinary optimization:
 calculator, bonding-relative or absolute cutoff, strength, device, CPU threads,
 `fmax`, and steps have one source of truth. When an Add session is active, the
 common Start action routes those values through the Add placement adapter. It
@@ -461,7 +461,7 @@ without per-frame HTTP, JSON, geometry rebuilds, or complete matrix rewrites.
 Manual scrubbing still synchronizes the backend frame.
 
 The fallback repulsion calculator exposes two alternative onset definitions
-and one force strength under Structure > Relaxation. **Bonding** mode applies
+and one force strength under Build > Relaxation. **Bonding** mode applies
 the default `0.70` multiplier to each active label-pair cutoff from the current
 Bonding setup. Automatic same-class pairs suppressed only from visual bond
 rendering use a covalent contact cutoff so overlapping scratch atoms still
@@ -517,7 +517,8 @@ groups.
 Relaxation has its own timeline. For a loaded trajectory, each source frame can
 own a relaxation path. When both source and relaxation trajectories exist, a
 timeline selector chooses which one receives transport controls, Space-bar
-playback, and Left/Right Arrow frame stepping. The other source remains visible
+playback, and Option+Left/Right Arrow (macOS) or Alt+Left/Right Arrow
+(Windows/Linux) frame stepping. Plain arrows orbit or tilt the view. The other source remains visible
 as a secondary timeline. A loaded source frame still uses its relaxed override
 when one exists.
 

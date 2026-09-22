@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.4.1
+
+- **Redesign the complete editor UI** around a wide atomic viewport and one
+  right-side Style/Build/Analyze/Render workbench. Expose scientific tools as
+  visible labelled buttons, retain direct atom manipulation, and show scene
+  objects and analysis results where they are used.
+- Reflow atom-type properties and unit-bearing inputs for narrow panels; keep
+  fields, units and actions inside their bounds at desktop and mobile sizes.
+- Add exact editor commands, deliberate ordered measurement, live global and
+  selected atom sizing, and property-based radius mapping with frame-aware
+  scalar fitting, frozen scope and export parity.
+- Match the nine document commands with Command on macOS and Ctrl on
+  Windows/Linux; share their labels across menus, Help and search. Report
+  application-fullscreen Keyboard Lock support and fallbacks accurately.
+- Show element and atom label first for a single-atom Measure readout instead
+  of a property count; use plain arrows to orbit/tilt and Option/Alt+Left/Right
+  to step the selected trajectory.
+- Separate output px/Å from viewport zoom and atom size; retain project
+  destinations and output profiles for Save/Save As with conflict-safe
+  write-back, dirty tracking, safe close and in-place notebook tab adoption.
+- Restore the latest committed visual/camera state after child-tab reload,
+  including clean Save As state, and settle same-tab load baselines without
+  clearing subsequent edits.
+- Preserve double-precision coordinates across cached/streamed trajectory visits,
+  subsequent edits and scientific exports; honor standalone camera scale requests
+  and explicit optical settings after automatic fitting.
+- Synchronize the user and agent guides and recapture README examples.
+
 ## 0.3.8
 
 - Fix the toolbar clipping Render Lighting controls; keep the panel clickable, keyboard-accessible and within resized windows.

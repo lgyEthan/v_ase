@@ -8,6 +8,8 @@ export class ASEApi {
         this.mockState = this.mock ? this.createMockState() : null;
         this.onUndoableMutation = null;
         this.onCollaborationMutation = null;
+        this.onScientificRequestStart = null;
+        this.onScientificRequestSettled = null;
         this.currentFrameProvider = null;
         this.mockCollaborationRevision = 0;
         this.mockVisualDefaults = null;
@@ -176,6 +178,15 @@ export class ASEApi {
         options = {},
         { expect = 'json', needsSession = true, emitMutation = true } = {}
     ) {
+        const tracked = emitMutation && (
+            this.isUndoableMutation(path, options)
+            || this.isCollaborationMutation(path, options)
+            || ['/api/volumetric/difference/', '/api/volumetric/delete/']
+                .some(prefix => path.includes(prefix))
+        );
+        const token = tracked ? this.onScientificRequestStart?.({ path }) : null;
+        let failure = null;
+        try {
         if (this.mock) {
             const result = await this.handleMockRequest(path, options, { expect, needsSession });
             if (emitMutation) this.emitMutationCallbacks(path, options);
@@ -217,6 +228,12 @@ export class ASEApi {
         else result = await res.json();
         if (emitMutation) this.emitMutationCallbacks(path, options);
         return result;
+        } catch (error) {
+            failure = error;
+            throw error;
+        } finally {
+            if (tracked) this.onScientificRequestSettled?.({ path, token, failure });
+        }
     }
 
     emitMutationCallbacks(path, options = {}) {
@@ -941,7 +958,7 @@ export class ASEApi {
     }
 
     async fetchTrajectoryPositions() {
-        const apiPath = this.sessionPath(`/api/trajectory/positions/{session_id}`);
+        const apiPath = this.sessionPath(`/api/trajectory/positions/{session_id}?precision=float64`);
         const res = await fetch(new URL(apiPath, this.baseUrl));
         if (!res.ok) {
             let message = '';
@@ -956,7 +973,8 @@ export class ASEApi {
         const frames = parseInt(res.headers.get('X-V-Ase-Frames') || '0', 10);
         const atoms = parseInt(res.headers.get('X-V-Ase-Atoms') || '0', 10);
         const buffer = await res.arrayBuffer();
-        const values = new Float32Array(buffer);
+        const values = res.headers.get('X-V-Ase-Dtype') === 'float64'
+            ? new Float64Array(buffer) : new Float32Array(buffer);
         if (!frames || !atoms || values.length !== frames * atoms * 3) {
             throw new Error('Trajectory cache shape does not match the received binary payload.');
         }
@@ -964,7 +982,7 @@ export class ASEApi {
     }
 
     async fetchFramePositions(index) {
-        const apiPath = this.sessionPath(`/api/frame/positions/{session_id}/${index}`);
+        const apiPath = this.sessionPath(`/api/frame/positions/{session_id}/${index}?precision=float64`);
         const res = await fetch(new URL(apiPath, this.baseUrl));
         if (!res.ok) {
             let message = '';
@@ -986,7 +1004,8 @@ export class ASEApi {
         try { cell_origin = JSON.parse(res.headers.get('X-V-Ase-Cell-Origin') || 'null'); } catch { cell_origin = null; }
         try { pbc = JSON.parse(res.headers.get('X-V-Ase-Pbc') || 'null'); } catch { pbc = null; }
         const buffer = await res.arrayBuffer();
-        const values = new Float32Array(buffer);
+        const values = res.headers.get('X-V-Ase-Dtype') === 'float64'
+            ? new Float64Array(buffer) : new Float32Array(buffer);
         if (!atoms || values.length !== atoms * 3) {
             throw new Error('Frame position payload shape does not match the loaded structure.');
         }
@@ -1818,6 +1837,13 @@ export class ASEApi {
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify(payload)
         }, { expect: 'blob' });
+    }
+
+    async writeCurrentProject(payload) {
+        return await this.jsonPost(
+            '/api/project/write-current/{session_id}',
+            this.framePayload(payload)
+        );
     }
 
     async fetchDisplacements(options = {}) {

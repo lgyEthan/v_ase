@@ -1,12 +1,12 @@
 # Unit cells, PBC and supercells
 
 Set boundary conditions, repeat a physical structure or display more periodic
-images. Open **Structure > Cell & Replication**. Choose the operation according
+images. Open **Style > Cell**. Choose the operation according
 to whether the exported ASE structure should change.
 
 ## Cell and periodic boundary conditions
 
-Under **Structure > Cell & Replication**, edit the complete 3×3 cell and the
+Under **Style > Cell**, edit the complete 3×3 cell and the
 three PBC flags. Setting a cell does not scale Cartesian atom coordinates. Wrap
 maps atoms into periodic directions of their own current frame.
 

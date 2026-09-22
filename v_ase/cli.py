@@ -754,6 +754,7 @@ def run_gui(args: argparse.Namespace) -> int:
         close_on_disconnect=not keep_alive,
         stream_trajectory=args.stream_frames,
         volumetric_datasets=volumetric_datasets,
+        _project_source_path=path if (is_vase_project or is_html_project) else None,
     )
 
     if keep_alive:

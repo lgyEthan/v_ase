@@ -116,7 +116,8 @@ Numeric LAMMPS text dumps use:
 1. memory-mapped frame boundary indexing;
 2. one ASE template from the first requested frame;
 3. byte-range numeric parsing through NumPy;
-4. one contiguous float32 trajectory payload for browser playback;
+4. one contiguous float64 coordinate payload for browser playback, preserving
+   scientific coordinate precision across later editing and exports;
 5. translation-only instance-matrix updates for each frame.
 
 The initial browser JSON never embeds every trajectory frame. Manual frame

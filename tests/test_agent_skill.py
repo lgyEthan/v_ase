@@ -503,7 +503,7 @@ def test_skill_trigger_evaluation_has_positive_and_negative_boundaries():
         "persistent Render Area",
         "deduplicated base index",
         "exactly identical coordinates",
-        "horizontal scroll track",
+        "workbench below",
     ):
         assert regression in evaluation
 

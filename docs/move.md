@@ -22,7 +22,7 @@ Type a number **after choosing an axis** for an unambiguous distance. The axes
 are Cartesian x/y/z, not the a/b/c vectors of a skewed cell. Outside a transform,
 `X`, `Y`, and `Z` align the **camera** instead.
 
-For pointer movement in fixed steps, set **Structure > Transform & Cell Match >
+For pointer movement in fixed steps, set **Build > Transform & cell match >
 Move increment / A**. `0` means continuous movement; `0.1` snaps pointer movement
 to 0.1 Å steps. Typed distances bypass this increment.
 

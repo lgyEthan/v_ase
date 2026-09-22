@@ -358,31 +358,44 @@ def open_panels(page, panels):
     )
 
 
-def configure_inspector(page, group: str, panels, width=416):
-    selected_section = None
+def open_editor_route(page, route: str):
+    """Use the shipped workbench when capturing a human-facing workflow."""
+    handle = page.locator('#btn-inspector-collapse')
+    if handle.is_visible() and handle.get_attribute('aria-expanded') == 'false':
+        handle.click()
+    if route in {'appearance', 'bonding', 'cell-replication', 'polyhedra', 'view'}:
+        page.locator('#workbench-tabs [data-workbench="style"]').click()
+        page.locator(f'#workbench-tools [data-editor-route="{route}"]').click()
+    elif route in {'add-atoms', 'transform', 'cell-transform', 'constraints',
+                   'build-match', 'scientific-tools', 'build-rigid'}:
+        page.locator('#workbench-tabs [data-workbench="build"]').click()
+        page.locator(f'#workbench-tools [data-editor-route="{route}"]').click()
+    elif route in {'selection', 'rdf', 'displacement', 'forces', 'volumetric', 'registry-map'}:
+        page.locator('#workbench-tabs [data-workbench="analyze"]').click()
+        page.locator(f'#workbench-tools [data-editor-route="{route}"]').click()
+    elif route in {'export', 'render-image', 'render-video', 'render-html', 'render-geometry'}:
+        page.locator('#workbench-tabs [data-workbench="render"]').click()
+        page.locator(f'#workbench-tools [data-editor-route="{route}"]').click()
+    else:
+        page.locator('#editor-search-toggle').click()
+        page.locator('#editor-command-search').fill(route)
+        page.locator(f'#editor-navigator [data-editor-route="{route}"]').click()
+
+
+def configure_inspector(page, group: str, panels, width=352):
+    # README figures represent the approved default, not a manually widened panel.
+    width = min(width, 352)
     page.evaluate(
-        """({ group, width }) => {
+        """({ group, width, route }) => {
             const app = window.__V_ASE_APP__;
             app.setInspectorCollapsed(false, false);
-            app.setInspectorGroup(group, false);
             app.setInspectorWidth(width, false);
+            if (route) app.openEditorRoute(route);
+            else app.setInspectorGroup(group, false);
         }""",
-        {"group": group, "width": width},
+        {"group": group, "width": width, "route": panels[0] if panels else None},
     )
     open_panels(page, panels)
-    if group == "structure" and panels:
-        section = panels[0]
-        if section in {
-            "appearance",
-            "cell-replication",
-            "cell-transform",
-            "transform",
-            "constraints",
-            "bonding",
-            "scientific-tools",
-        }:
-            page.select_option("#structure-section-select", section)
-            selected_section = section
     page.wait_for_function(
         """(minimumWidth) => {
             const inspector = document.getElementById('inspector');
@@ -390,17 +403,9 @@ def configure_inspector(page, group: str, panels, width=416):
                 && !document.body.classList.contains('inspector-collapsed')
                 && inspector.getBoundingClientRect().width >= minimumWidth;
         }""",
-        arg=max(336, width - 2),
+        arg=max(320, width - 2),
     )
     page.wait_for_timeout(100)
-    if selected_section:
-        page.evaluate(
-            """(section) => {
-                const selector = document.getElementById('structure-section-select');
-                if (selector) selector.value = section;
-            }""",
-            selected_section,
-        )
 
 
 def collapse_inspector(page):
@@ -603,17 +608,18 @@ def capture_logo(browser):
         editor.close()
 
 
-def set_selection(page, indices):
+def set_selection(page, indices, *, intent=None):
     page.evaluate(
-        """(indices) => {
+        """({ indices, intent }) => {
             const app = window.__V_ASE_APP__;
-            app.clearAtomSelection();
-            indices.forEach(index => app.addSelectionReference(index));
-            app.updateSelectionVisuals();
-            app.renderer.syncConstraintGuides();
-            app.updateUI();
+            app.applySelectionAction({
+                references: indices,
+                mode: 'replace',
+                origin: 'semantic',
+                measurement: intent === 'measure' ? 'ordered' : 'bulk'
+            });
         }""",
-        indices,
+        {"indices": indices, "intent": intent},
     )
 
 
@@ -700,7 +706,8 @@ def set_camera(page, *, target, position, up=(0, 0, 1), fov=38, wait_ms=250):
     page.evaluate(
         """({ target, position, up, fov }) => {
             const app = window.__V_ASE_APP__;
-            const camera = app.renderer.camera;
+            const r = app.renderer;
+            const camera = r.camera;
             camera.fov = fov;
             camera.up.set(up[0], up[1], up[2]);
             camera.position.set(position[0], position[1], position[2]);
@@ -811,7 +818,8 @@ def projected_atom_points(page) -> list[dict[str, float | int]]:
     return page.evaluate(
         """() => {
             const app = window.__V_ASE_APP__;
-            const camera = app.renderer.camera;
+            const r = app.renderer;
+            const camera = r.camera;
             camera.updateMatrixWorld(true);
             const points = [];
             app.renderer.forEachAtomProxy((mesh, index) => {
@@ -821,8 +829,10 @@ def projected_atom_points(page) -> list[dict[str, float | int]]:
                     || point.z < -1 || point.z > 1) return;
                 points.push({
                     index,
-                    x: (point.x + 1) * window.innerWidth / 2,
-                    y: (-point.y + 1) * window.innerHeight / 2
+                    x: r.domElement.getBoundingClientRect().left
+                        + (point.x + 1) * r.domElement.getBoundingClientRect().width / 2,
+                    y: r.domElement.getBoundingClientRect().top
+                        + (-point.y + 1) * r.domElement.getBoundingClientRect().height / 2
                 });
             });
             return points;
@@ -844,7 +854,11 @@ def tail_selection_rectangle(page, indices: list[int]) -> dict[str, float]:
 
     target_mean = float(np.mean([point["x"] for point in selected]))
     excluded_mean = float(np.mean([point["x"] for point in excluded]))
-    width, height = MEDIA_SIZE
+    viewport = page.locator('#app-viewport').bounding_box()
+    if not viewport:
+        raise AssertionError('The editor viewport has no visible bounds.')
+    viewport_left, viewport_right = viewport['x'], viewport['x'] + viewport['width']
+    viewport_top, viewport_bottom = viewport['y'], viewport['y'] + viewport['height']
     vertical_margin = 28.0
     if target_mean > excluded_mean:
         boundary = 0.5 * (
@@ -852,16 +866,16 @@ def tail_selection_rectangle(page, indices: list[int]) -> dict[str, float]:
             + max(float(point["x"]) for point in excluded)
         )
         left = boundary
-        right = min(width - 8.0, max(float(point["x"]) for point in selected) + 34.0)
+        right = min(viewport_right - 8.0, max(float(point["x"]) for point in selected) + 34.0)
     else:
         boundary = 0.5 * (
             max(float(point["x"]) for point in selected)
             + min(float(point["x"]) for point in excluded)
         )
-        left = max(8.0, min(float(point["x"]) for point in selected) - 34.0)
+        left = max(viewport_left + 8.0, min(float(point["x"]) for point in selected) - 34.0)
         right = boundary
-    top = max(72.0, min(float(point["y"]) for point in selected) - vertical_margin)
-    bottom = min(height - 22.0, max(float(point["y"]) for point in selected) + vertical_margin)
+    top = max(viewport_top + 44.0, min(float(point["y"]) for point in selected) - vertical_margin)
+    bottom = min(viewport_bottom - 22.0, max(float(point["y"]) for point in selected) + vertical_margin)
     return {"left": left, "right": right, "top": top, "bottom": bottom}
 
 
@@ -910,8 +924,7 @@ def open_transform_panel_for_capture(page, output_frames: list[Image.Image], *, 
     )
     if detailed:
         append_hold(output_frames, page, 1)
-    page.click('[data-inspector-group="structure"]')
-    page.select_option("#structure-section-select", "transform")
+    open_editor_route(page, 'transform')
     page.evaluate("""() => {
         const panel = document.querySelector('[data-panel="transform"]');
         const content = document.getElementById('inspector-content');
@@ -1385,6 +1398,7 @@ def capture_commensurate_media(browser) -> None:
             "commensurateGuestAngleDeg": 17.0,
         })
         configure_inspector(page, "structure", ["transform"], width=470)
+        open_editor_route(page, 'build-match')
         page.add_style_tag(content="""
             #measurement-overlay,
             #selection-measure-readout,
@@ -1693,6 +1707,7 @@ def capture_commensurate_media(browser) -> None:
             "commensurateGuestAngleDeg": 8.0,
         })
         configure_inspector(page, "structure", ["transform"], width=470)
+        open_editor_route(page, 'build-match')
         page.add_style_tag(content="""
             #measurement-overlay,
             #selection-measure-readout,
@@ -2427,7 +2442,7 @@ def capture_bond_media(browser) -> None:
         configure_inspector(page, "structure", ["bonding"], width=560)
         center = np.mean(atoms.positions, axis=0)
         center[:2] = 0.5 * (atoms.cell[0, :2] + atoms.cell[1, :2])
-        camera_target = center + np.array([4.8, 0.0, 0.0])
+        camera_target = center + np.array([-1.3, 0.0, 0.0])
         settle_view(
             page,
             target=camera_target.tolist(),
@@ -2441,7 +2456,7 @@ def capture_bond_media(browser) -> None:
             up=(0, 1, 0),
             fov=34,
         )
-        set_atomic_scale(page, 42.0)
+        set_atomic_scale(page, 37.0)
         set_readme_lighting(
             page,
             center.tolist(),
@@ -2537,7 +2552,7 @@ def capture_material_media(browser) -> None:
         }""")
         configure_inspector(page, "structure", ["appearance"], width=560)
         scene_center = np.mean(atoms.positions, axis=0)
-        target = scene_center + np.array([3.8, 0.0, 0.0])
+        target = scene_center + np.array([2.8, 0.0, 0.0])
         settle_view(
             page,
             target=target.tolist(),
@@ -2557,6 +2572,32 @@ def capture_material_media(browser) -> None:
         editor.close()
 
     capture_cu5o4_view_appearance_media(browser)
+
+
+def capture_lighting_controls_media(browser) -> None:
+    atoms, _ = make_cu5o4_appearance_scene()
+    editor, page = open_scene(browser, atoms, show_bonds=True, viz_only=True)
+    try:
+        set_display(page, {
+            "atomRadiusScale": 0.55,
+            "showGrid": False,
+            "showAxes": False,
+            "showCell": False,
+            "viewportBackground": "white",
+        })
+        center = atoms.positions.mean(axis=0)
+        settle_view(page, target=center.tolist(),
+                    position=(center + np.array([17., -23., 18.])).tolist(), fov=34)
+        page.evaluate("window.__V_ASE_APP__.renderer.fitCameraToStructure()")
+        set_atomic_scale(page, 34.0)
+        configure_inspector(page, "export", ["export"], width=470)
+        page.click("#btn-lighting-toggle")
+        page.wait_for_function("document.getElementById('lighting-widget').classList.contains('open')")
+        page.wait_for_timeout(150)
+        page.screenshot(path=ASSET_DIR / "render-lighting-controls.png")
+    finally:
+        page.close()
+        editor.close()
 
 
 def capture_cu5o4_view_appearance_media(browser) -> None:
@@ -3132,6 +3173,7 @@ def capture_ai_collaboration_figure(browser) -> None:
         child.evaluate("""() => {
             const radius = document.getElementById('atom-radius-scale');
             radius.value = '0.64';
+            radius.dispatchEvent(new Event('input', {bubbles: true}));
             radius.dispatchEvent(new Event('change', {bubbles: true}));
         }""")
         child.wait_for_function(
@@ -3376,7 +3418,7 @@ def capture_constraint_media(browser) -> None:
         )
         # Align the channel axis with the wide viewport so the complete CNT,
         # moving ion, and centerline stay visible throughout the trajectory.
-        set_atomic_scale(page, 68.0)
+        set_atomic_scale(page, 34.0)
         set_readme_lighting(
             page,
             target.tolist(),
@@ -3386,6 +3428,8 @@ def capture_constraint_media(browser) -> None:
         collapse_inspector(page)
         set_view_toggles(page, grid=False, axes=False, cell=False)
         set_selection(page, [])
+        page.evaluate("window.__V_ASE_APP__.renderer.renderNow()")
+        page.wait_for_timeout(180)
         page.screenshot(path=ASSET_DIR / "readme_constraints.png")
         fixedline_frames: list[Image.Image] = []
         append_hold(fixedline_frames, page, 6)
@@ -3727,15 +3771,8 @@ def _capture_add_atoms_variant(
             expected_fixed=False,
         )
 
-        page.click("#btn-create-atom-toggle")
+        open_editor_route(page, 'add-atoms')
         page.click("#add-atoms-tab-batch")
-        page.evaluate("""() => {
-            const widget = document.getElementById('create-atom-widget');
-            widget.style.left = '22px';
-            widget.style.right = 'auto';
-            widget.style.top = '82px';
-            widget.style.bottom = 'auto';
-        }""")
 
         _add_insertion_region(
             page,
@@ -3974,15 +4011,8 @@ def _capture_scratch_amorphous_media(browser) -> None:
         append_hold(frames, page, 7)
         collapse_inspector(page)
 
-        page.click("#btn-create-atom-toggle")
+        open_editor_route(page, 'add-atoms')
         page.click("#add-atoms-tab-batch")
-        page.evaluate("""() => {
-            const widget = document.getElementById('create-atom-widget');
-            widget.style.left = '22px';
-            widget.style.right = 'auto';
-            widget.style.top = '82px';
-            widget.style.bottom = 'auto';
-        }""")
         row = page.locator("#add-atoms-entries .add-atoms-entry-row").first
         row.locator(".add-atoms-entry-type").select_option("Ga")
         row.locator(".add-atoms-entry-label").fill("Ga_amorphous")
@@ -4155,18 +4185,13 @@ def _capture_add_molecules_media(browser) -> None:
             expected_fixed=False,
         )
 
-        page.click("#btn-create-atom-toggle")
+        open_editor_route(page, 'add-atoms')
         page.click("#add-atoms-tab-batch")
         page.click("#add-atoms-content-molecules")
         page.wait_for_function(
             "document.querySelector('#add-molecule-entries select')?.options.length >= 150"
         )
         page.evaluate("""() => {
-            const widget = document.getElementById('create-atom-widget');
-            widget.style.left = '22px';
-            widget.style.right = 'auto';
-            widget.style.top = '82px';
-            widget.style.bottom = 'auto';
             const overlay = document.createElement('div');
             overlay.id = 'readme-molecule-stage';
             overlay.innerHTML = `
@@ -4519,12 +4544,12 @@ def capture_measurement_media(browser) -> None:
             position=(center + np.array([4.2, -5.6, 3.5])).tolist(),
             fov=31,
         )
-        set_atomic_scale(page, 275.0)
+        set_atomic_scale(page, 115.0)
         set_readme_lighting(page, center.tolist(), intensity=2.85, position_offset=(-6.0, -8.0, 10.0))
         rendered_frames: list[Image.Image] = []
         ordered = indices["ordered_selection"]
         for selection_size in (2, 3, 4, 3):
-            set_selection(page, ordered[:selection_size])
+            set_selection(page, ordered[:selection_size], intent="measure")
             page.wait_for_timeout(140)
             frame = screenshot_frame(page)
             rendered_frames.extend([frame.copy() for _ in range(5)])
@@ -4533,7 +4558,7 @@ def capture_measurement_media(browser) -> None:
             ASSET_DIR / "readme_measurement.gif",
             duration=125,
         )
-        set_selection(page, ordered)
+        set_selection(page, ordered, intent="measure")
         page.wait_for_timeout(120)
         screenshot_frame(page).save(
             ASSET_DIR / "readme_measurement.png",
@@ -5113,9 +5138,9 @@ def capture_rdf_media(browser) -> None:
         )
         page.evaluate(
             """() => {
-                const drawer = document.getElementById('analysis-drawer');
-                drawer.style.height = '390px';
-                window.Plotly?.Plots?.resize?.(document.getElementById('rdf-plot'));
+                document.body.style.setProperty('--results-height', '390px');
+                requestAnimationFrame(() => window.Plotly?.Plots?.resize?.(
+                    document.getElementById('rdf-plot')));
             }"""
         )
         center = np.mean(atoms.positions, axis=0)
@@ -5125,7 +5150,7 @@ def capture_rdf_media(browser) -> None:
             position=(center + np.array([37.0, -42.0, 34.0])).tolist(),
             fov=34,
         )
-        set_atomic_scale(page, 23.0)
+        set_atomic_scale(page, 13.0)
         set_readme_lighting(
             page,
             center.tolist(),
@@ -5237,7 +5262,7 @@ def capture_polyhedra_media(browser) -> None:
         try:
             page.set_viewport_size({'width':1000,'height':800})
             collapse_inspector(page)
-            page.wait_for_function('window.__V_ASE_APP__.renderer.domElement.clientWidth===1000')
+            page.wait_for_function('window.__V_ASE_APP__.renderer.domElement.clientWidth>0')
             for mode in ('2d','3d'):
                 result=page.evaluate("""async ({mode,element,direction,cutoff})=>{
                     const a=window.__V_ASE_APP__,r=a.renderer;
@@ -5299,6 +5324,7 @@ def capture_html_media(browser) -> None:
             box.expandByScalar(radius);r.fitCameraToStructure(box,{margin:1.08});r.renderNow();
         }''')
         configure_inspector(page,"export",["export"],width=470)
+        open_editor_route(page, 'render-html')
         page.fill('#image-width','1280');page.fill('#image-height','720')
         page.click('#btn-export-html');page.locator('#html-export-confirm').wait_for(state='visible')
         page.check('#html-embed-project')
@@ -5352,6 +5378,7 @@ def main() -> int:
             "registry",
             "bonds",
             "materials",
+            "lighting",
             "ai",
             "collaboration",
             "scratch",
@@ -5392,6 +5419,7 @@ def main() -> int:
                 "registry": capture_registry_media,
                 "bonds": capture_bond_media,
                 "materials": capture_material_media,
+                "lighting": capture_lighting_controls_media,
                 "ai": capture_ai_edit_media,
                 "collaboration": capture_ai_collaboration_figure,
                 "scratch": _capture_scratch_amorphous_media,

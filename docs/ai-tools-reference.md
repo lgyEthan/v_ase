@@ -148,6 +148,8 @@ revision. See [connection and recovery](ai-tools.md#read-edit-verify).
   - Load saved visual settings from a relative JSON path below the GUI launch directory. Restores appearance, camera and render profile without replacing atom coordinates.
 * - `vase_duplicate_selection`
   - Duplicate selected base atoms in Edit mode, preserving per-atom arrays, constraints, and appearance. Newly inserted atoms become selected.
+* - `vase_set_atom_radius_mapping`
+  - Set property-based atom size using an actual scalar catalog ID. For current or trajectory rangeMode, fit=true (default) atomically scans that source and locks finite limits. Manual mode requires valid minimum/maximum. scope=indices…
 * - `vase_configure_polyhedra`
   - Configure coordination hulls without changing atoms or bonds. Rules explicitly select centers and ligands with cutoff distances or exact periodic vertex references. Read scene-snapshot section polyhedra to verify membership and…
 ```
@@ -203,7 +205,7 @@ revision. See [connection and recovery](ai-tools.md#read-edit-verify).
 * - Tool
   - Purpose
 * - `vase_set_display`
-  - Set display in the same live document. Partial visual settings. Common keys include showBonds, showCell, showAxes, showGrid, viewportBackground, atomDisplayMode, atomRadiusScale, labelRadii, labelColors, labelOpacities,…
+  - Set display in the same live document. Partial typed visual settings, including labelOpacities, atomRadiusScales and atomBondStyles. Discover the focused display schema for other fields and scalar mappings. Review changedPaths in the…
 * - `vase_set_visual_label`
   - Assigns a visualization-only label to exact zero-based atom indices while preserving ASE elements, coordinates, order, cell, PBC, and constraints. A topology-compatible trajectory receives the same index mapping in every frame;…
 * - `vase_style_atoms`

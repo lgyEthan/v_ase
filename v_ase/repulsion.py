@@ -194,7 +194,8 @@ def _valid_repulsion_strength(value: Any | None) -> float:
     return min(1000.0, max(0.0, strength))
 
 
-def _copy_calc_config(source: "VAseRepulsionCalculator") -> dict[str, Any]:
+def portable_repulsion_config(source: "VAseRepulsionCalculator") -> dict[str, Any]:
+    """Parameters written to a project and used for scientific identity."""
     return {
         "min_bondinfo": source.min_bondinfo,
         "region": list(source.region),
@@ -220,7 +221,7 @@ def _copy_calc_config(source: "VAseRepulsionCalculator") -> dict[str, Any]:
 
 def copy_calculator(calc):
     if isinstance(calc, VAseRepulsionCalculator):
-        return VAseRepulsionCalculator(**_copy_calc_config(calc))
+        return VAseRepulsionCalculator(**portable_repulsion_config(calc))
     return calc
 
 

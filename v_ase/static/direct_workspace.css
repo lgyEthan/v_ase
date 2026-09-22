@@ -1,0 +1,106 @@
+/* In-place tabs for a direct or notebook editor. The first app is never reloaded. */
+body.editor-shell.direct-workspace {
+    height: calc(100dvh - 34px);
+    min-height: 0;
+    margin-top: 34px;
+}
+#direct-document-bar {
+    position: fixed;
+    z-index: 10000;
+    inset: 0 0 auto;
+    height: 34px;
+    display: flex;
+    align-items: stretch;
+    overflow-x: auto;
+    overflow-y: hidden;
+    border-bottom: 1px solid var(--line);
+    background: var(--chrome);
+    color: var(--text);
+    pointer-events: auto;
+}
+.direct-document-tab {
+    flex: 0 1 220px;
+    min-width: 104px;
+    max-width: 250px;
+    display: flex;
+    align-items: center;
+    border-right: 1px solid var(--line);
+    background: var(--panel);
+}
+.direct-document-tab.active { background: var(--panel-raised); border-bottom: 2px solid var(--teal); }
+.direct-document-select {
+    min-width: 0;
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 4px 8px;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+.direct-document-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.direct-document-indicator {
+    flex: 0 0 7px;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--teal);
+}
+.direct-document-tab.dirty .direct-document-indicator { background: var(--amber); }
+.direct-document-tab.saving .direct-document-indicator { background: transparent; border: 1px solid var(--teal); }
+.direct-document-tab.error .direct-document-indicator { background: var(--danger); }
+.direct-document-close,
+#direct-document-new {
+    flex: 0 0 29px;
+    border: 0;
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 17px;
+}
+.direct-document-close:hover,
+#direct-document-new:hover { background: var(--panel-raised); color: var(--text); }
+#direct-document-new { align-self: center; height: 29px; }
+#direct-fullscreen-editing {
+    flex: 0 0 auto;
+    align-self: center;
+    height: 27px;
+    margin: 0 5px;
+    border: 1px solid var(--line);
+    border-radius: 5px;
+    background: var(--panel);
+    color: var(--muted);
+    font-size: 10px;
+    cursor: pointer;
+}
+#direct-shortcut-status {
+    align-self: center;
+    max-width: 200px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--muted);
+    font-size: 10px;
+}
+#direct-document-panes {
+    position: fixed;
+    z-index: 9999;
+    inset: 34px 0 0;
+    pointer-events: none;
+}
+.direct-document-pane {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    border: 0;
+    background: var(--panel);
+    pointer-events: auto;
+}
+.direct-document-pane[hidden] { display: none; }
+body.direct-host-closed > :not(#direct-document-bar):not(#direct-document-panes) {
+    visibility: hidden;
+}

@@ -543,7 +543,12 @@ export class ASERenderer {
         this.exportCaptureActive = false;
         this.suspended = false;
         this.renderCount = 0;
+        this.atomRadiusFactors = null;
         this.setupScene();
+        this.resizeObserver = typeof ResizeObserver === 'function'
+            ? new ResizeObserver(() => this.onResize())
+            : null;
+        this.resizeObserver?.observe?.(this.container);
         this.setLightingOptions(this.lightingOptions);
         this.requestRender();
     }
@@ -554,7 +559,8 @@ export class ASERenderer {
         const viewportBackground = cssColor('--viewport-light-bg', '#ffffff');
         this.scene.background = new THREE.Color(viewportBackground);
         
-        const aspect = window.innerWidth / Math.max(1, window.innerHeight);
+        const initialSize = this.containerSize();
+        const aspect = initialSize.width / initialSize.height;
         this.perspectiveCamera = new THREE.PerspectiveCamera(50, aspect, 0.1, 10000);
         this.orthographicCamera = new THREE.OrthographicCamera(-10 * aspect, 10 * aspect, 10, -10, 0.1, 10000);
         [this.perspectiveCamera, this.orthographicCamera].forEach(camera => {
@@ -566,7 +572,7 @@ export class ASERenderer {
 
         this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: false });
         this.renderer.setClearColor(viewportBackground, 1);
-        this.renderer.setSize(window.innerWidth, window.innerHeight);
+        this.renderer.setSize(initialSize.width, initialSize.height);
         this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
         this.renderer.outputColorSpace = THREE.SRGBColorSpace;
         this.renderer.shadowMap.enabled = false;
@@ -1457,8 +1463,9 @@ export class ASERenderer {
         const low = new THREE.Vector3();
         const high = new THREE.Vector3();
         this.forEachAtomProxy?.((proxy, index) => {
-            if (!proxy || proxy.visible === false || !this.atomReferenceVisible(index)) return;
-            const radius = Math.max(0.05, Number(this.atomVisualRadius(index) || 0.5));
+            if (!proxy || proxy.visible === false || !this.atomGlyphVisible(index)) return;
+            const radius = Number(this.atomVisualRadius(index));
+            if (!Number.isFinite(radius) || radius <= 0) return;
             low.copy(proxy.position).addScalar(-radius);
             high.copy(proxy.position).addScalar(radius);
             base.expandByPoint(low);
@@ -1688,7 +1695,8 @@ export class ASERenderer {
         const sourceRadius = Number.isFinite(labelRadius) && labelRadius > 0
             ? labelRadius
             : Number(this.atomsData?.visual?.radii?.[index]);
-        const scale = Number(this.displayOptions?.atomRadiusScale || 0.6);
+        const scaleValue = Number(this.displayOptions?.atomRadiusScale);
+        const scale = Number.isFinite(scaleValue) && scaleValue > 0 ? scaleValue : 0.6;
         const atomScaleValue = Number(
             this.displayOptions?.atomRadiusScales?.[index]
             ?? this.displayOptions?.atomRadiusScales?.[String(index)]
@@ -1697,7 +1705,53 @@ export class ASERenderer {
             ? atomScaleValue
             : 1;
         const radius = Number.isFinite(sourceRadius) && sourceRadius > 0 ? sourceRadius : FALLBACK_ATOM_RADIUS;
-        return radius * (Number.isFinite(scale) && scale > 0 ? scale : 0.6) * atomScale;
+        const mappedValue = this.atomRadiusFactors?.[index];
+        const mapped = Number.isFinite(mappedValue) && mappedValue >= 0 ? mappedValue : 1;
+        return radius * scale * atomScale * mapped;
+    }
+
+    setAtomRadiusFactors(factors, { generation = null } = {}) {
+        const atomCount = this.atomsData?.positions?.length || 0;
+        if (factors === null || factors === undefined) {
+            this.atomRadiusFactors = null;
+        } else {
+            if (Number(factors.length) !== atomCount) {
+                throw new Error(`Atom radius factor count ${factors.length} does not match ${atomCount} atoms.`);
+            }
+            this.atomRadiusFactors = Float32Array.from(factors, value => {
+                const factor = Number(value);
+                return Number.isFinite(factor) && factor >= 0 ? factor : 1;
+            });
+        }
+        this.atomRadiusFactorGeneration = generation;
+        if (this.atomsData) {
+            this.refreshAtomAppearance();
+            if (this.supercellGroup?.children?.length) this.updateSupercellPositions();
+            this.refreshPolyhedraExtraAtomSizes();
+            this.syncSelectionOutlines();
+            this.syncConstraintGuides();
+            if (this.hookeanGroup?.children?.length) this.updateHookeanPositions();
+            this.invalidateSunShadowBounds();
+            this.refreshStudioSunForStructure();
+        }
+        this.requestRender();
+    }
+
+    refreshPolyhedraExtraAtomSizes() {
+        const dummy = new THREE.Object3D();
+        this.polyhedraGroup?.children?.forEach(mesh => {
+            const sites = mesh.userData?.polyhedraAtomReferences;
+            if (!Array.isArray(sites) || !mesh.isInstancedMesh) return;
+            sites.forEach((site, instanceId) => {
+                dummy.position.copy(site.position);
+                dummy.scale.setScalar(this.atomGlyphVisible(site.index, site.cellOffset)
+                    ? this.atomVisualRadius(site.index) : 0);
+                dummy.updateMatrix();
+                mesh.setMatrixAt(instanceId, dummy.matrix);
+            });
+            mesh.instanceMatrix.needsUpdate = true;
+            mesh.computeBoundingSphere?.();
+        });
     }
 
     atomCovalentRadius(index) {
@@ -2069,6 +2123,10 @@ export class ASERenderer {
         return !hidden.has(this.atomReferenceKey(index, cellOffset));
     }
 
+    atomGlyphVisible(index, cellOffset = null) {
+        return this.atomReferenceVisible(index, cellOffset) && this.atomVisualRadius(index) > 0;
+    }
+
     rebuildAtomLabelIndex() {
         this.atomIndicesByLabel.clear();
         (this.atomsData?.symbols || []).forEach((label, index) => {
@@ -2100,7 +2158,7 @@ export class ASERenderer {
                     return;
                 }
                 const idx = outline.userData.outlineFor;
-                outline.visible = this.atomReferenceVisible(idx);
+                outline.visible = this.atomGlyphVisible(idx);
             });
             this.constraintMarkGroup.children.forEach(group => {
                 const idx = group.userData.constraintGuideFor;
@@ -2119,11 +2177,11 @@ export class ASERenderer {
         const targets = affectedIndices || [...this.atomMeshByIndex.keys()];
         targets.forEach(index => {
             const mesh = this.atomMeshByIndex.get(index);
-            if (mesh) mesh.visible = this.atomReferenceVisible(index);
+            if (mesh) mesh.visible = this.atomGlyphVisible(index);
         });
         this.selectionOutlines.children.forEach(outline => {
             const idx = outline.userData.outlineFor;
-            outline.visible = this.atomReferenceVisible(idx);
+            outline.visible = this.atomGlyphVisible(idx);
         });
         this.constraintMarkGroup.children.forEach(group => {
             const idx = group.userData.constraintGuideFor;
@@ -2341,7 +2399,7 @@ export class ASERenderer {
             mesh.position.set(pos[0], pos[1], pos[2]);
             mesh.scale.setScalar(radius);
             mesh.userData = { index: i, symbol: sym, fixed: isFixed, materialPreset, opacity };
-            mesh.visible = this.atomReferenceVisible(i);
+            mesh.visible = this.atomGlyphVisible(i);
             
             this.atomMeshes.add(mesh);
             this.atomMeshByIndex.set(i, mesh);
@@ -2772,6 +2830,9 @@ export class ASERenderer {
     }
 
     updateRenderQuality() {
+        const pixelsPerAngstrom = this.camera && this.controls
+            ? this.currentPixelsPerAngstrom()
+            : null;
         const atomCount = this.atomsData?.positions?.length || 0;
         let cap = 2;
         if (atomCount >= 15000) cap = 1;
@@ -2781,8 +2842,23 @@ export class ASERenderer {
             ? 1
             : Math.min(window.devicePixelRatio || 1, cap);
         this.renderer.setPixelRatio(ratio);
-        this.renderer.setSize(window.innerWidth, window.innerHeight, false);
+        const { width, height } = this.containerSize();
+        this.renderer.setSize(width, height, false);
+        if (pixelsPerAngstrom !== null) {
+            this.updateCameraProjection(width / height);
+            this.setPixelsPerAngstrom(pixelsPerAngstrom, {
+                requestRender: false, notify: false
+            });
+        }
         this.requestRender();
+    }
+
+    containerSize() {
+        const rect = this.container?.getBoundingClientRect?.();
+        return {
+            width: Math.max(1, Math.round(rect?.width || this.container?.clientWidth || 1)),
+            height: Math.max(1, Math.round(rect?.height || this.container?.clientHeight || 1))
+        };
     }
 
     viewportAspect() {
@@ -2854,9 +2930,12 @@ export class ASERenderer {
     }
 
     currentPixelsPerAngstrom() {
+        const renderSize = new THREE.Vector2();
+        this.renderer?.getSize(renderSize);
         const height = Math.max(
             1,
-            this.renderer?.domElement?.clientHeight || this.container?.clientHeight || window.innerHeight || 1
+            renderSize.y || this.renderer?.domElement?.clientHeight
+                || this.container?.clientHeight || window.innerHeight || 1
         );
         if (this.camera?.isOrthographicCamera) {
             const worldHeight = Math.abs(this.camera.top - this.camera.bottom) /
@@ -3412,6 +3491,10 @@ export class ASERenderer {
         this.syncSelectionOutlines();
         this.updateViewLighting();
         this.exportCaptureActive = false;
+        if (this.exportCaptureResizePending) {
+            this.exportCaptureResizePending = false;
+            this.onResize();
+        }
         this.requestRender();
     }
 
@@ -4508,7 +4591,7 @@ export class ASERenderer {
             mesh.geometry = this.geometryCache.get(geometryKey);
             mesh.material = this.materialCache.get(materialKey);
             mesh.scale.setScalar(radius);
-            mesh.visible = this.atomReferenceVisible(index);
+            mesh.visible = this.atomGlyphVisible(index);
             mesh.userData.materialPreset = materialPreset;
             mesh.userData.opacity = opacity;
         });
@@ -6263,6 +6346,7 @@ export class ASERenderer {
         return {
             projectionMode: this.projectionMode,
             target: this.controls.target.clone(),
+            pixelsPerAngstrom: this.currentPixelsPerAngstrom(),
             perspective: capture(this.perspectiveCamera),
             orthographic: capture(this.orthographicCamera)
         };
@@ -6293,6 +6377,13 @@ export class ASERenderer {
             : this.orthographicCamera;
         this.controls.camera = this.camera;
         this.controls.target.copy(snapshot.target);
+        if (this.camera.isOrthographicCamera && Number.isFinite(snapshot.pixelsPerAngstrom)) {
+            // A result dock may resize the viewport while the proposal is open.
+            // Restore the same physical magnification, not its old raw zoom.
+            this.setPixelsPerAngstrom(snapshot.pixelsPerAngstrom, {
+                requestRender: false, notify: false
+            });
+        }
         this.controls.update?.();
         this.updateViewLighting();
         this.onCameraChange?.({ source: 'commensurate-preview-restore' });
@@ -6333,13 +6424,25 @@ export class ASERenderer {
 
     commensuratePreviewRadius(preview, row) {
         const label = this.commensuratePreviewLabel(preview, row);
+        const index = Number(preview?.atom_indices?.[row]);
+        const guest = preview?.components?.[row] === 'guest';
         const configured = Number(this.displayOptions?.labelRadii?.[label]);
         const source = Number.isFinite(configured) && configured > 0
             ? configured
             : Number(preview?.radii?.[row]);
         const scale = Number(this.displayOptions?.atomRadiusScale || 0.6);
+        const manualValue = guest ? 1 : Number(
+            this.displayOptions?.atomRadiusScales?.[index]
+            ?? this.displayOptions?.atomRadiusScales?.[String(index)]
+        );
+        const manual = Number.isFinite(manualValue) && manualValue > 0 ? manualValue : 1;
+        const previewFactor = Number(preview?.radius_factors?.[row]);
+        const currentFactor = guest ? 1 : Number(this.atomRadiusFactors?.[index]);
+        const factor = Number.isFinite(previewFactor) && previewFactor >= 0
+            ? previewFactor
+            : (Number.isFinite(currentFactor) && currentFactor >= 0 ? currentFactor : 1);
         return (Number.isFinite(source) && source > 0 ? source : FALLBACK_ATOM_RADIUS)
-            * (Number.isFinite(scale) && scale > 0 ? scale : 0.6);
+            * (Number.isFinite(scale) && scale > 0 ? scale : 0.6) * manual * factor;
     }
 
     commensuratePreviewCovalentRadius(preview, row) {
@@ -9026,7 +9129,7 @@ export class ASERenderer {
             const mesh = this.atomMeshByIndex.get(idx);
             if (!mesh || !this.atomReferenceVisible(idx)) return;
             const radius = this.atomVisualRadius(idx);
-            const outlineGeo = new THREE.SphereGeometry(radius * 1.18, 32, 18);
+            const outlineGeo = new THREE.SphereGeometry(1, 32, 18);
             const outlineMat = new THREE.MeshBasicMaterial({
                 color: 0xffc400,
                 side: THREE.BackSide,
@@ -9036,6 +9139,7 @@ export class ASERenderer {
             });
             const outline = new THREE.Mesh(outlineGeo, outlineMat);
             outline.position.copy(mesh.position);
+            outline.scale.setScalar(radius * 1.18);
             outline.userData = { outlineFor: idx };
             outline.renderOrder = 10;
             this.selectionOutlines.add(outline);
@@ -9115,12 +9219,13 @@ export class ASERenderer {
             }
             const idx = outline.userData.outlineFor;
             const mesh = this.atomMeshByIndex.get(idx);
-            if (!mesh || !this.atomReferenceVisible(idx)) {
+            if (!mesh || !this.atomGlyphVisible(idx)) {
                 outline.visible = false;
                 return;
             }
             outline.visible = true;
             outline.position.copy(mesh.position);
+            outline.scale.setScalar(this.atomVisualRadius(idx) * 1.18);
         });
         this.syncReplicaSelectionOutlines();
         this.syncConstraintGuides();
@@ -9128,10 +9233,18 @@ export class ASERenderer {
 
     onResize() {
         if (this.suspended) return;
+        if (this.exportCaptureActive) {
+            this.exportCaptureResizePending = true;
+            return;
+        }
         const pixelsPerAngstrom = this.currentPixelsPerAngstrom();
-        this.renderer.setSize(window.innerWidth, window.innerHeight);
+        const { width, height } = this.containerSize();
+        this.renderer.setSize(width, height);
         this.updateCameraProjection();
-        this.setPixelsPerAngstrom(pixelsPerAngstrom, { requestRender: false, notify: false });
+        this.setPixelsPerAngstrom(pixelsPerAngstrom, {
+            requestRender: false,
+            notify: false
+        });
         this.onCameraChange?.({ source: 'resize' });
         this.requestRender();
     }
@@ -9226,6 +9339,8 @@ export class ASERenderer {
             this.renderRequestId = null;
         }
         this.suspended = true;
+        this.resizeObserver?.disconnect?.();
+        this.resizeObserver = null;
         this.controls?.dispose?.();
 
         const geometries = new Set(this.geometryCache?.values?.() || []);

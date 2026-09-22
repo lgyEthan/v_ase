@@ -53,7 +53,7 @@
         })();
     </script>
     <link rel="icon" type="image/png" href="/static/v_ase-logo.png">
-    <link rel="stylesheet" href="/static/workspace.css?v=0.3.8">
+    <link rel="stylesheet" href="/static/workspace.css?v=0.4.1">
 </head>
 <body>
     <header id="document-bar" class="document-bar">
@@ -65,12 +65,14 @@
                 </svg>
             </button>
         </div>
+        <button id="workspace-fullscreen-editing" type="button" aria-pressed="false">Fullscreen editing</button>
+        <span id="workspace-shortcut-status" role="status" class="workspace-shortcut-status"></span>
     </header>
     <main id="document-panes" class="document-panes"></main>
     <section id="workspace-error" class="workspace-error" hidden>
         <strong>Workspace unavailable</strong>
         <span id="workspace-error-message"></span>
     </section>
-    <script type="module" src="/static/workspace.js?v=0.3.8"></script>
+    <script type="module" src="/static/workspace.js?v=0.4.1"></script>
 </body>
 </html>

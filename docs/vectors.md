@@ -1,12 +1,16 @@
 # Displacement and force vectors
 
 Show how atoms moved relative to a reference frame, or draw forces already
-stored in the input. Open **Analysis** and choose displacement or force controls.
+stored in the input. **Objects → Vectors** opens the shared visibility and style
+controls for both layers. **Analyze → Displacements** owns reference selection,
+MIC and statistics; **Analyze → Stored forces** reports frame-specific stored
+data availability. The same controls move between routes without duplicate state.
 Reading stored forces does not run a calculator.
 
 ## Displacement analysis
 
-Open **Analysis > Displacement** and enable **Show vectors**.
+Open **Objects → Vectors** to enable the layer; use **Analyze → Displacements**
+for the reference and periodic mapping options.
 
 1. Choose **Previous frame** or **Specific frame** as reference.
 2. For a specific reference, enter its displayed one-based frame number in the

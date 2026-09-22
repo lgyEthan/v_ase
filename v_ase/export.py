@@ -919,6 +919,14 @@ def export_html_response(session, payload: Dict[str, Any]):
     for frame, color_scale in zip(frames, color_scale_frames):
         if color_scale is not None:
             frame.setdefault("metadata", {})["atom_color_scale"] = color_scale
+    from .atom_radius import atom_radius_factors_for_atoms, normalize_atom_radius_mapping
+
+    radius_mapping = normalize_atom_radius_mapping(display_settings.get("atomRadiusMapping"), strict=True)
+    if radius_mapping["enabled"]:
+        for frame, frame_atoms in zip(frames, frame_objects):
+            frame.setdefault("metadata", {})["atom_radius_factors"] = (
+                atom_radius_factors_for_atoms(frame_atoms, radius_mapping).tolist()
+            )
     export_profile = _html_export_profile(payload.get("export_profile"), settings)
     poster_data_url = _validated_html_poster(payload.get("poster_data_url"))
     scene = {
@@ -1423,6 +1431,10 @@ def _cad_scene_data(session, payload: Dict[str, Any]):
     atom_colors = display.get("atomColors") or {}
     atom_opacities = display.get("atomOpacities") or {}
     atom_materials = display.get("atomMaterials") or {}
+    from .atom_radius import atom_radius_factors_for_atoms, normalize_atom_radius_mapping
+
+    radius_mapping = normalize_atom_radius_mapping(display.get("atomRadiusMapping"), strict=True)
+    radius_factors = atom_radius_factors_for_atoms(atoms, radius_mapping)
     scale_colors = (
         display.get("atomColorScaleColors")
         if display.get("atomColorScaleEnabled") is True
@@ -1476,6 +1488,9 @@ def _cad_scene_data(session, payload: Dict[str, Any]):
             pass
         if not np.isfinite(radius) or radius <= 0:
             radius = 0.5 * radius_scale
+        radius *= float(radius_factors[index])
+        if radius <= 0:
+            continue
         material_preset = _atom_material_preset(
             atom_materials.get(str(index), atom_materials.get(index, label_materials.get(label)))
         )
@@ -2436,6 +2451,7 @@ def _blender_script(data: Dict[str, Any]) -> str:
 import math
 import json
 import bpy
+from bpy.app.handlers import persistent
 from mathutils import Vector
 
 DATA = {repr(data)}
@@ -2471,6 +2487,7 @@ except (TypeError, ValueError):
 VISUAL = DATA.get("visual", {{}})
 ATOM_COLORS = VISUAL.get("colors", [])
 ATOM_RADII = VISUAL.get("radii", VISUAL.get("covalent_radii", []))
+ATOM_RADIUS_FACTORS = DATA.get("atom_radius_factors", [])
 ATOM_LABELS = DATA.get("symbols", [])
 DISPLAY_LABEL_COLORS = DISPLAY.get("labelColors", DISPLAY.get("elementColors", {{}}))
 DISPLAY_LABEL_RADII = DISPLAY.get("labelRadii", DISPLAY.get("elementRadii", {{}}))
@@ -2532,28 +2549,38 @@ def get_atom_color(index):
         return hex_to_rgba(ATOM_COLORS[index])
     return FALLBACK_COLOR
 
-def get_atom_radius(index, fallback=FALLBACK_RADIUS):
+def get_atom_radius(index, frame_data=None, fallback=FALLBACK_RADIUS):
     try:
         atom_scale = max(0.01, float(DISPLAY_ATOM_RADIUS_SCALES.get(
             str(index), DISPLAY_ATOM_RADIUS_SCALES.get(index, 1.0)
         )))
     except (TypeError, ValueError):
         atom_scale = 1.0
+    base_radius = None
     if 0 <= index < len(ATOM_LABELS):
         try:
             display_radius = float(DISPLAY_LABEL_RADII.get(ATOM_LABELS[index], 0.0))
             if display_radius > 0:
-                return display_radius * ATOM_RADIUS_SCALE * atom_scale
+                base_radius = display_radius * ATOM_RADIUS_SCALE * atom_scale
         except (TypeError, ValueError):
             pass
-    if 0 <= index < len(ATOM_RADII):
+    if base_radius is None and 0 <= index < len(ATOM_RADII):
         try:
             radius = float(ATOM_RADII[index])
             if radius > 0:
-                return radius * ATOM_RADIUS_SCALE * atom_scale
+                base_radius = radius * ATOM_RADIUS_SCALE * atom_scale
         except (TypeError, ValueError):
             pass
-    return fallback * ATOM_RADIUS_SCALE * atom_scale
+    if base_radius is None:
+        base_radius = fallback * ATOM_RADIUS_SCALE * atom_scale
+    factors = (frame_data or DATA).get("atom_radius_factors", ATOM_RADIUS_FACTORS)
+    try:
+        factor = float(factors[index])
+        if not math.isfinite(factor) or factor < 0:
+            factor = 1.0
+    except (IndexError, TypeError, ValueError):
+        factor = 1.0
+    return base_radius * factor
 
 def get_atom_opacity(index):
     try:
@@ -2718,13 +2745,12 @@ def get_atom_mat(index, symbol):
 
 def get_atom_mesh(index, symbol):
     color = get_atom_color(index)
-    radius = get_atom_radius(index)
     preset = get_atom_material_preset(index)
     opacity = get_atom_opacity(index)
     material_key = f"{{symbol}}_{{preset}}_{{color[0]:.4f}}_{{color[1]:.4f}}_{{color[2]:.4f}}_a{{opacity:.4f}}"
-    mesh_key = f"r{{radius:.4f}}_{{material_key}}"
+    mesh_key = material_key
     if mesh_key not in ATOM_MESHES:
-        bpy.ops.mesh.primitive_uv_sphere_add(segments=32, ring_count=16, radius=radius, location=(0, 0, 0))
+        bpy.ops.mesh.primitive_uv_sphere_add(segments=32, ring_count=16, radius=1.0, location=(0, 0, 0))
         source = bpy.context.object
         source.name = f"v_ase_atom_mesh_source_{{mesh_key}}"
         mesh = source.data
@@ -2757,6 +2783,8 @@ def add_instanced_atom_group(symbol, indices, positions):
     mesh.update()
     atom_index = mesh.attributes.new("atom_index", "INT", "POINT")
     atom_index.data.foreach_set("value", indices)
+    radius_attribute = mesh.attributes.new("radius", "FLOAT", "POINT")
+    radius_attribute.data.foreach_set("value", [get_atom_radius(index) for index in indices])
     obj = bpy.data.objects.new(name, mesh)
     bpy.context.collection.objects.link(obj)
     obj["v_ase_atom_group"] = True
@@ -2775,9 +2803,13 @@ def add_instanced_atom_group(symbol, indices, positions):
     set_material = nodes.new("GeometryNodeSetMaterial")
     shade_smooth = nodes.new("GeometryNodeSetShadeSmooth")
     instances = nodes.new("GeometryNodeInstanceOnPoints")
+    radius_input = nodes.new("GeometryNodeInputNamedAttribute")
+    radius_input.data_type = "FLOAT"
+    radius_input.inputs["Name"].default_value = "radius"
+    radius_vector = nodes.new("ShaderNodeCombineXYZ")
     quality = str(DISPLAY.get("sphereQuality", "auto"))
     subdivisions = {{"low": 1, "medium": 2, "high": 3, "ultra": 4, "auto": 3}}.get(quality, 3)
-    sphere.inputs["Radius"].default_value = get_atom_radius(indices[0])
+    sphere.inputs["Radius"].default_value = 1.0
     sphere.inputs["Subdivisions"].default_value = subdivisions
     set_material.inputs["Material"].default_value = get_atom_mat(indices[0], symbol)
     if "Shade Smooth" in shade_smooth.inputs:
@@ -2786,6 +2818,9 @@ def add_instanced_atom_group(symbol, indices, positions):
     links.new(sphere.outputs["Mesh"], set_material.inputs["Geometry"])
     links.new(set_material.outputs["Geometry"], shade_smooth.inputs["Geometry"])
     links.new(shade_smooth.outputs["Geometry"], instances.inputs["Instance"])
+    for axis in ("X", "Y", "Z"):
+        links.new(radius_input.outputs["Attribute"], radius_vector.inputs[axis])
+    links.new(radius_vector.outputs["Vector"], instances.inputs["Scale"])
     links.new(instances.outputs["Instances"], node_out.inputs["Geometry"])
     modifier = obj.modifiers.new("v_ase atom instances", "NODES")
     modifier.node_group = group
@@ -2796,12 +2831,11 @@ def add_instanced_atoms(positions, symbols):
     for index, symbol in enumerate(symbols):
         if not poly_atom_visible(index): continue
         color = get_atom_color(index)
-        radius = get_atom_radius(index)
         preset = get_atom_material_preset(index)
-        key = (str(symbol), preset, round(radius, 6), tuple(round(value, 6) for value in color[:3]))
+        key = (str(symbol), preset, tuple(round(value, 6) for value in color[:3]))
         grouped.setdefault(key, []).append(index)
     groups = []
-    for (symbol, _preset, _radius, _color), indices in grouped.items():
+    for (symbol, _preset, _color), indices in grouped.items():
         groups.append(add_instanced_atom_group(symbol, indices, positions))
     return groups
 
@@ -2858,6 +2892,18 @@ def add_group_trajectory_shape_keys(groups, frames):
             for fcurve in animation_fcurves(obj.data.shape_keys):
                 for point in fcurve.keyframe_points:
                     point.interpolation = "LINEAR"
+
+@persistent
+def update_group_radius_attributes(scene):
+    if not FRAMES:
+        return
+    frame = FRAMES[max(0, min(len(FRAMES) - 1, scene.frame_current - 1))]
+    for obj, indices in radius_group_bindings:
+        radius = obj.data.attributes.get("radius")
+        if radius is None:
+            continue
+        radius.data.foreach_set("value", [get_atom_radius(index, frame) for index in indices])
+        obj.data.update()
 
 def look_at_axis(obj, direction):
     direction = Vector(direction)
@@ -3300,6 +3346,7 @@ def add_polyhedron_atom_groups(specs):
         result.append(obj)
     return result
 
+@persistent
 def update_polyhedra(scene, *_):
     global POLY_OBJECTS
     for obj in POLY_OBJECTS:
@@ -3377,6 +3424,7 @@ if "polyhedra_atoms" not in DATA and BLENDER_OBJECT_MODE == "objects":
         obj = bpy.data.objects.new(f"atom_{{idx:04d}}_{{symbol}}", get_atom_mesh(idx, symbol))
         obj.name = f"atom_{{idx:04d}}_{{symbol}}"
         obj.location = pos
+        obj.scale = (get_atom_radius(idx),) * 3
         obj["v_ase_atom_index"] = idx
         if DISPLAY_LABEL_VISIBLE.get(symbol) is False or not poly_atom_visible(idx):
             obj.hide_viewport = True
@@ -3415,12 +3463,17 @@ if "polyhedra_atoms" not in DATA and len(FRAMES) > 1 and all(frame_topology_matc
             for idx, obj in enumerate(atoms):
                 obj.location = frame_data["positions"][idx]
                 obj.keyframe_insert(data_path="location", frame=frame_number)
+                obj.scale = (get_atom_radius(idx, frame_data),) * 3
+                obj.keyframe_insert(data_path="scale", frame=frame_number)
         for obj in atoms:
             for fcurve in animation_fcurves(obj):
                 for keyframe in fcurve.keyframe_points:
                     keyframe.interpolation = "LINEAR"
     else:
         add_group_trajectory_shape_keys(atom_groups, FRAMES)
+        radius_group_bindings = tuple(atom_groups)
+        bpy.app.handlers.frame_change_post.append(update_group_radius_attributes)
+        update_group_radius_attributes(bpy.context.scene)
 
 constraints = DATA.get("constraints", {{}})
 for idx_text, direction in constraints.get("fixed_line", {{}}).items():
@@ -3487,6 +3540,15 @@ def export_blender_response(session, payload: Dict[str, Any]):
     display = payload.get("display") or {}
     if display:
         data["display"] = display
+    from .atom_radius import atom_radius_factors_for_atoms, normalize_atom_radius_mapping
+
+    radius_mapping = normalize_atom_radius_mapping(display.get("atomRadiusMapping"), strict=True)
+    if radius_mapping["enabled"]:
+        data["atom_radius_factors"] = atom_radius_factors_for_atoms(atoms, radius_mapping).tolist()
+        for frame, frame_atoms in zip(frames, getattr(session, "trajectory_frames", []) or []):
+            frame["atom_radius_factors"] = atom_radius_factors_for_atoms(
+                frame_atoms, radius_mapping
+            ).tolist()
     if display.get("showPolyhedra"):
         from ase import Atoms
         from types import SimpleNamespace
@@ -3498,8 +3560,8 @@ def export_blender_response(session, payload: Dict[str, Any]):
         data['polyhedra']=scene['polyhedra'];data['polyhedra_atoms']=scene['atoms'];data['polyhedra_bonds']=scene['bonds']
         data['polyhedra_cell_edges']=scene['cell_edges']
         all_polyhedra=[];all_atoms=[];all_bonds=[];all_cells=[];vertex_budget=0
-        for frame in frames:
-            frame_atoms=Atoms(symbols=frame.get('chemical_symbols',frame['symbols']),positions=frame['positions'],cell=frame.get('cell'),pbc=frame.get('pbc',False))
+        for frame_index, frame in enumerate(frames):
+            frame_atoms=(getattr(session,'trajectory_frames',[]) or [])[frame_index]
             set_atom_labels(frame_atoms,frame['symbols']);scene=poly_scene(frame_atoms)
             vertex_budget+=sum(len(mesh['vertices']) for mesh in scene['polyhedra'])+len(scene['atoms'])
             if vertex_budget>2000000:raise ValueError('Polyhedra animation export exceeds two million sites/vertices. Export fewer frames or centers.')

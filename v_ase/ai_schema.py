@@ -119,15 +119,9 @@ AI_CONTROL_SCHEMA = {
         "display": {
             "type": "object",
             "description": (
-                "Partial visual settings. Common keys include showBonds, "
-                "showCell, showAxes, showGrid, viewportBackground, "
-                "atomDisplayMode, atomRadiusScale, labelRadii, labelColors, "
-                "labelOpacities, labelMaterials, atomRadiusScales, atomColors, "
-                "atomOpacities, atomMaterials, atomBondStyles, bondThickness, "
-                "bondMaterial, bondOpacity, pairwiseBondStyles (including "
-                "pair thickness), supercell, "
-                "translation, translationMode, lightingMode, "
-                "sunIntensity, sunPosition, and sunTarget."
+                "Partial typed visual settings, including labelOpacities, "
+                "atomRadiusScales and atomBondStyles. Discover the focused "
+                "display schema for other fields and scalar mappings."
             ),
             "additionalProperties": True,
         },
@@ -136,6 +130,8 @@ AI_CONTROL_SCHEMA = {
             "additionalProperties": False,
             "properties": {
                 "clear": {"type": "boolean"},
+                "intent": {"enum": ["bulk", "measure"], "default": "bulk",
+                           "description": "Only explicit ordered indices/references (2–4) can arm geometry; ordinary semantic selection is bulk."},
                 "indices": {
                     "type": "array",
                     "items": {"type": "integer", "minimum": 0},
@@ -1328,7 +1324,8 @@ AI_CONTROL_SCHEMA = {
                 "Use axis for a deterministic +/-X, +/-Y, or +/-Z view; use "
                 "position/target/up for an explicit camera; fit='structure' "
                 "frames the complete structure; orbit applies screen-relative "
-                "left/right/up/down/roll-cw/roll-ccw rotations."
+                "left/right/up/down/roll-cw/roll-ccw rotations. Explicit optical "
+                "settings (ortho_scale, fov, zoom, near, far) apply after fit."
             ),
             "additionalProperties": True,
             "properties": {
@@ -1355,6 +1352,11 @@ AI_CONTROL_SCHEMA = {
                 },
                 "projection": {"enum": ["orthographic", "perspective"]},
                 "fit": {"enum": ["structure", "commensurate"]},
+                "ortho_scale": {"type": "number", "exclusiveMinimum": 0},
+                "fov": {"type": "number", "exclusiveMinimum": 1, "exclusiveMaximum": 179},
+                "zoom": {"type": "number", "exclusiveMinimum": 0},
+                "near": {"type": "number", "exclusiveMinimum": 0},
+                "far": {"type": "number", "exclusiveMinimum": 0},
                 "orbit": {
                     "type": "object",
                     "required": ["direction"],
@@ -2230,6 +2232,20 @@ def _complete_operation_contracts():
         "duplicate-selection": ({"indices": INDICES}, [], "Duplicate selected base atoms in Edit mode, preserving per-atom arrays, constraints, and appearance. Newly inserted atoms become selected."),
         "configure-calculator": ({"calculator": _AI_REPULSION_CALCULATOR_SCHEMA}, ["calculator"], "Configure the attached default repulsion calculator without starting optimization. Visual bond cutoffs are independent. Requires Edit mode."),
         "set-playback": ({"playing": BOOLEAN, "fps": {"type": "number", "minimum": 1, "maximum": 60}, "skip": {"type": "integer", "minimum": 0, "maximum": 999}, "source": {"enum": ["loaded", "relax"]}}, ["playing"], "Start or stop the selected trajectory timeline. Pause before scientific reads or edits; playback advances revisions and frames."),
+        "set-atom-radius-mapping": ({
+            "enabled": BOOLEAN,
+            "field": STRING,
+            "valueTransform": {"enum": ["identity", "absolute"]},
+            "rangeMode": {"enum": ["current", "trajectory", "manual"]},
+            "minimum": NUMBER,
+            "maximum": NUMBER,
+            "minMultiplier": {"type": "number", "minimum": 0, "maximum": 4},
+            "maxMultiplier": {"type": "number", "minimum": 0, "maximum": 4},
+            "exponent": {"type": "number", "minimum": 0.1, "maximum": 5},
+            "scope": {"enum": ["all", "indices"]},
+            "indices": INDICES,
+            "fit": BOOLEAN,
+        }, [], "Set property-based atom size using an actual scalar catalog ID. For current or trajectory rangeMode, fit=true (default) atomically scans that source and locks finite limits. Manual mode requires valid minimum/maximum. scope=indices freezes base atom indices. Factors multiply manual appearance, not physical radii or bond cutoffs."),
     }
     for name, (props, required, notes) in new.items():
         AI_OPERATION_PARAMETERS[name] = {"mode": "edit" if name in {"duplicate-selection", "configure-calculator"} else "view-or-edit", "required": required, "optional": [k for k in props if k not in required], "notes": notes}

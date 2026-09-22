@@ -1,18 +1,28 @@
 # Export trajectory videos
 
 Export a trajectory using the same camera, crop and resolution as image
-rendering. Open **Export > Video** with a multi-frame document.
+rendering. Open **Render → Video** with a multi-frame document. The route shows
+container, FPS, interpolation and MIC controls with a live output-frame and
+duration estimate; the Export dialog previews the complete render options.
 
 ## Example: export the C60 relaxation
 
 Download {download}`crowded_c60_relaxation.traj <assets/examples/crowded_c60_relaxation.traj>` and open it.
 
 1. Choose the camera and Render Area before opening Video export.
-2. Select the frame range, dimensions and frame rate.
+2. Choose the output dimensions under **Renderer**, then set the Video format
+   and frame rate on **Video**.
 3. Choose source frames for a direct record, or interpolation for a smooth
    visual transition. Interpolation does not add calculated physical data.
 4. Export MOV or AVI and inspect both the first and last output frames.
 5. Check duration and crop; overlay state should follow the exported frame.
+
+The Video dialog can use the viewport-derived frame scale or an independent
+physical output scale in px/Å. Set the latter explicitly for comparable
+dimensions across different viewport zoom levels. Property-radius mappings
+are evaluated for each source frame; interpolated frames interpolate the raw
+continuous property before applying the locked mapping. Categorical values
+use the nearest endpoint, and a missing value falls back to the neutral factor.
 
 ```{vase-animation} assets/readme_relaxation.gif
 :alt: The source relaxation sequence; a GIF preview is not the exported MOV/AVI.

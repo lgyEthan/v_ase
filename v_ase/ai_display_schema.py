@@ -130,6 +130,23 @@ DISPLAY_PROPERTIES["pairwiseBondRanges"] = {"type": "object", "additionalPropert
 DISPLAY_PROPERTIES["manualBondPairs"] = {"type": "array", "items": {"type": "array", "items": {"type": "integer", "minimum": 0}, "minItems": 2, "maxItems": 2}}
 DISPLAY_PROPERTIES["hiddenAtomReferences"] = {"type": "array", "items": {"type": "string", "pattern": "^(atom:[0-9]+|replica:[0-9]+:-?[0-9]+,-?[0-9]+,-?[0-9]+)$"}}
 DISPLAY_PROPERTIES["atomColorScaleIndices"] = {"type": "array", "items": {"type": "integer", "minimum": 0}}
+DISPLAY_PROPERTIES["atomRadiusMapping"] = {
+    "type": "object",
+    "properties": {
+        "enabled": {"type": "boolean"},
+        "field": {"type": "string"},
+        "valueTransform": {"enum": ["identity", "absolute"]},
+        "rangeMode": {"enum": ["current", "trajectory", "manual"]},
+        "min": {"type": "number"},
+        "max": {"type": "number"},
+        "minMultiplier": {"type": "number", "minimum": 0, "maximum": 4},
+        "maxMultiplier": {"type": "number", "minimum": 0, "maximum": 4},
+        "exponent": {"type": "number", "minimum": 0.1, "maximum": 5},
+        "scope": {"enum": ["all", "indices"]},
+        "indices": {"type": "array", "items": {"type": "integer", "minimum": 0}},
+    },
+    "additionalProperties": False,
+}
 for key in ("translation", "sunPosition", "sunTarget", "commensurateGuestOffset"):
     DISPLAY_PROPERTIES[key] = _VECTOR
 DISPLAY_PROPERTIES["supercell"] = {**_VECTOR, "items": {"type": "integer", "minimum": 1, "maximum": 64}}

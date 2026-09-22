@@ -2,7 +2,7 @@
 
 Give different colors to scientific groups, including groups of the **same
 element**. Change radius, opacity and material without changing coordinates.
-Start in **Appearance**; View mode is sufficient for label styling.
+Start in **Style → Atoms**; View mode is sufficient for label styling.
 
 ## Choose what to style
 
@@ -12,6 +12,7 @@ Start in **Appearance**; View mode is sufficient for label styling.
 | LABEL row | Persistent groups such as substrate, surface oxide or fixed layer |
 | Selected atoms | A local exception at known atom indices |
 | Numeric colorscale | A continuous stored property; see [Scalar colors](scalar-colors.md) |
+| Property radius mapping | A separate multiplicative size factor from an actual numeric field |
 
 TYPE is the chemical element. LABEL is a visual grouping. Changing a Cu LABEL
 to `Cu_substrate` keeps the atom Cu. The visualizer does not decide which atoms
@@ -25,7 +26,7 @@ Download {download}`cu5o4-labeled.extxyz <assets/examples/cu5o4-labeled.extxyz>`
 v_ase gui cu5o4-labeled.extxyz
 ```
 
-1. Load the input in View and open **Structure > Appearance**. Use the supplied
+1. Load the input in View and open **Style → Atoms**. Use the supplied
    {download}`group index list <assets/examples/cu5o4-groups.json>` to select
    the **32 substrate Cu atoms**; the other 5 Cu and 4 O form the surface oxide.
 2. Apply LABEL `Cu_substrate` to the selected atoms. Keep TYPE `Cu` unchanged.
@@ -34,7 +35,7 @@ v_ase gui cu5o4-labeled.extxyz
    Style oxide Cu with `#d4934d`, radius **1.28 Å**, and oxygen with `#d9363e`,
    radius **0.76 Å** and Rubber material. Keep the global atom-radius multiplier
    at **0.60**. Label radius values are multiplied by this global scale.
-4. In **Structure > Bonding**, enable only `Cu–O_surface_oxide` at **2.25 Å**;
+4. In **Style → Bonds**, enable only `Cu–O_surface_oxide` at **2.25 Å**;
    disable the other pairs. Set bond thickness **0.22**, with split endpoint colors.
 5. Start from a side view, then orbit toward a top view as in the GIF. Save a
    project to retain grouping and style. Coordinates and elements are unchanged.
@@ -72,12 +73,49 @@ changes only drawn sphere size; it never scales coordinates or the unit cell.
 Materials include the current standard, metal, and rubber-like presets and are
 used consistently by compatible geometry exports.
 
+## Property radius mapping
+
+For a step-by-step setup, presets, scope and range semantics, see
+[Size atoms from a numeric property](property-radius.md).
+
+Under **Style → Atoms**, the global-size slider has an editable number.
+Enable **Property radius mapping** and choose a field from the live scalar
+catalog. Coordinate fields, numeric ASE arrays and already stored calculator
+results are distinct sources; a serialized initial charge is not a substitute
+for a calculator charge descriptor. Choose identity or absolute magnitude,
+then lock a current-frame or full-trajectory input range. The output minimum,
+maximum and exponent turn the normalized value into a multiplicative size
+factor. The occupancy presets are explicit choices and do not infer an absent
+occupancy array. Custom and charge presets fit the finite values in the current
+frame and current scope; an invalid or empty numeric edit leaves the prior
+mapping intact. **Frozen selected atoms** stores their base indices; later
+selection changes do not change the radius scope. Duplicating a scoped atom
+includes its duplicate, deleting atoms remaps surviving indices, and making an
+editable supercell repeats the source-atom scope. Changing only a label keeps
+the scope; replacing the document with unrelated atoms clears it.
+
+The mapping multiplies label radius × global size × manual per-atom multiplier.
+Missing values and atoms outside the frozen scope use factor 1. A factor of 0
+removes the visible glyph but leaves the scientific atom and bonding policy
+intact. A request to set a positive final radius in Å on a zero-factor atom
+fails explicitly until its mapping is changed or disabled. Mapping is stored
+in `.vase`, and frame-specific factors are included in offline HTML, video,
+Blender, OBJ/3DM geometry and cell-match previews. Verify the actual rendered
+artifact when publishing a mapped-size figure.
+Optimizer/relaxation frames use their displayed positions for coordinate
+mapping. If a stored per-atom property was not recorded for those frames, the
+editor explicitly uses neutral factor 1 instead of borrowing values from the
+loaded source trajectory.
+
 ## Per-atom overrides
 
 Selected base-atom indices can carry persistent color, relative
 radius, opacity, and material overrides. Apply controls are field-scoped: an
 opacity edit need not replace a custom color or material already assigned to
 the same indices.
+The selected-radius slider and its number field update the drawn sphere size
+immediately and form one Undo step per gesture. A pending label/type edit
+remains a separate draft until **Apply Selected Appearance** is pressed.
 
 Index overrides are appropriate for local defects or highlighted sites. Use a
 new label instead when the identity should remain meaningful after atom

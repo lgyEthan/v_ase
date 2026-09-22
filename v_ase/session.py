@@ -1,16 +1,71 @@
 import os
+import hashlib
+import json
 import threading
 import time
 import uuid
 from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
 from ase import Atoms
+import numpy as np
 
 from .io import atom_labels
-from .repulsion import copy_calculator, ensure_default_calculator
+from .repulsion import copy_calculator, ensure_default_calculator, portable_repulsion_config
+
+
+def _content_value(value):
+    """Stable, lossless-enough input for persisted non-array metadata."""
+    if isinstance(value, np.ndarray):
+        return [_content_value(item) for item in value.tolist()]
+    if isinstance(value, np.generic):
+        return value.item()
+    if isinstance(value, dict):
+        return {str(key): _content_value(item) for key, item in sorted(value.items(), key=lambda pair: str(pair[0]))}
+    if isinstance(value, (list, tuple)):
+        return [_content_value(item) for item in value]
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    return str(value)
+
+
+def _digest_value(digest, value):
+    if isinstance(value, np.ndarray):
+        array = np.ascontiguousarray(value)
+        digest.update(f"array:{array.dtype.str}:{array.shape}:".encode())
+        if array.dtype.kind == "O":
+            _digest_value(digest, array.tolist())
+        elif array.size:
+            digest.update(memoryview(array).cast('B'))
+        return
+    digest.update(json.dumps(_content_value(value), sort_keys=True, separators=(",", ":"),
+                             ensure_ascii=False, allow_nan=True).encode("utf-8"))
+    digest.update(b"\0")
+
+
+def _atoms_content_digest(atoms: Atoms) -> str:
+    digest = hashlib.sha256()
+    for key, value in sorted(atoms.arrays.items()):
+        _digest_value(digest, key)
+        _digest_value(digest, np.asarray(value))
+    for value in (np.asarray(atoms.cell), np.asarray(atoms.pbc),
+                  np.asarray(atoms.get_celldisp()), atoms.info,
+                  [constraint.todict() for constraint in atoms.constraints]):
+        _digest_value(digest, value)
+    calculator = atoms.calc
+    results = getattr(calculator, "results", None)
+    # A live repulsion calculator fills its cache merely when a frame is viewed.
+    # Its portable parameters are persisted; cache population is not an edit.
+    if isinstance(results, dict) and calculator.__class__.__name__ != "VAseRepulsionCalculator":
+        for key, value in sorted(results.items()):
+            _digest_value(digest, key)
+            _digest_value(digest, np.asarray(value))
+    if calculator is not None and calculator.__class__.__name__ == "VAseRepulsionCalculator":
+        _digest_value(digest, portable_repulsion_config(calculator))
+    return digest.hexdigest()
 
 
 @dataclass
@@ -77,6 +132,8 @@ class EditorSession:
     # Communication
     websockets: List[Any] = field(default_factory=list)
     config: Dict[str, Any] = field(default_factory=dict)
+    # Never serialized into project settings or exposed as an absolute path.
+    project_file_binding: Optional[Dict[str, str]] = field(default=None, repr=False)
     temporary_files: Set[str] = field(default_factory=set, repr=False)
     video_exports: Dict[str, Any] = field(default_factory=dict, repr=False)
     mode_transition_lock: threading.RLock = field(
@@ -100,6 +157,10 @@ class EditorSession:
         default=None,
         repr=False,
     )
+    _content_frame_digests: Optional[List[str]] = field(default=None, repr=False)
+    _content_aux_digest: Optional[str] = field(default=None, repr=False)
+    _content_source_digest: Optional[str] = field(default=None, repr=False)
+    _content_source_version: Optional[tuple] = field(default=None, repr=False)
 
     def _attach_default_calculator(self) -> bool:
         return not bool((self.config or {}).get("viz_only", False))
@@ -129,6 +190,85 @@ class EditorSession:
         if not self.original_volumetric_datasets:
             self.original_volumetric_datasets = list(self.volumetric_datasets)
         self.refresh_trajectory_identity()
+
+    def invalidate_scientific_content(self, *, all_frames: bool = False,
+                                      auxiliary: bool = False) -> None:
+        if all_frames:
+            self._content_frame_digests = None
+            self._content_source_digest = None
+            self._content_source_version = None
+        elif self._content_frame_digests is not None and 0 <= self.current_frame < len(self._content_frame_digests):
+            self._content_frame_digests[self.current_frame] = ""
+        if auxiliary:
+            self._content_aux_digest = None
+
+    def scientific_content_identity(self) -> str:
+        """Digest persisted scientific content, independent of the displayed frame.
+
+        Noncurrent frame digests are reused between mutations. The active frame
+        is checked on each response so direct Python/agent edits cannot leave a
+        stale clean identity; viewport-only frame navigation does not dirty it.
+        """
+        source = self.trajectory_source
+        source_path = getattr(source, "path", None)
+        source_digest = None
+        if source is not None and source_path and Path(source_path).is_file():
+            stat = Path(source_path).stat()
+            version = (str(Path(source_path).resolve()), stat.st_size, stat.st_mtime_ns)
+            if self._content_source_digest is None or self._content_source_version != version:
+                source_hash = hashlib.sha256()
+                with open(source_path, "rb", buffering=1024 * 1024) as handle:
+                    for block in iter(lambda: handle.read(1024 * 1024), b""):
+                        source_hash.update(block)
+                _digest_value(source_hash, type(source).__name__)
+                _digest_value(source_hash, getattr(source, "source_indices", None))
+                _digest_value(source_hash, self.frame_count)
+                self._content_source_digest = source_hash.hexdigest()
+                self._content_source_version = version
+            source_digest = self._content_source_digest
+            # The archive overlays the active working frame on the indexed source.
+            source_frame = source.read_atoms(self.current_frame)
+            source_frame_digest = _atoms_content_digest(source_frame)
+            working_digest = _atoms_content_digest(self.working_atoms)
+            if source_frame_digest != working_digest:
+                source_digest = f"{source_digest}:{self.current_frame}:{working_digest}"
+        else:
+            if self._content_frame_digests is None or len(self._content_frame_digests) != self.frame_count:
+                self._content_frame_digests = [""] * self.frame_count
+            for index in range(self.frame_count):
+                if index == self.current_frame:
+                    frame = self.working_atoms
+                elif source is not None:
+                    if self._content_frame_digests[index]:
+                        continue
+                    frame = source.read_atoms(index)
+                else:
+                    if self._content_frame_digests[index]:
+                        continue
+                    frame = self.trajectory_frames[index]
+                self._content_frame_digests[index] = _atoms_content_digest(frame)
+        if self._content_aux_digest is None:
+            auxiliary = hashlib.sha256()
+            for dataset in self.volumetric_datasets:
+                for key in ("name", "values", "cell", "origin", "pbc", "quantity",
+                            "units", "source_format", "component", "endpoint_inclusive",
+                            "metadata", "precision"):
+                    _digest_value(auxiliary, key)
+                    _digest_value(auxiliary, getattr(dataset, key, None))
+                if isinstance(getattr(dataset, "atoms", None), Atoms):
+                    _digest_value(auxiliary, _atoms_content_digest(dataset.atoms))
+            self._content_aux_digest = auxiliary.hexdigest()
+        combined = hashlib.sha256()
+        if source_digest is not None:
+            _digest_value(combined, source_digest)
+        else:
+            for frame_digest in self._content_frame_digests:
+                _digest_value(combined, frame_digest)
+        _digest_value(combined, self._content_aux_digest)
+        _digest_value(combined, self.commensurate_guest_name)
+        if isinstance(self.commensurate_guest_atoms, Atoms):
+            _digest_value(combined, _atoms_content_digest(self.commensurate_guest_atoms))
+        return combined.hexdigest()
 
     def publish_collaboration_event(
         self,
@@ -202,6 +342,7 @@ class EditorSession:
     def _history_state(
         self,
         *,
+        frame_index: Optional[int] = None,
         include_trajectory: bool = False,
         include_original: bool = False,
         include_volumetric: bool = False,
@@ -212,9 +353,17 @@ class EditorSession:
             from .add_atoms import snapshot_atom_addition_session
 
             addition_snapshot = snapshot_atom_addition_session(self.atom_addition)
+        snapshot_frame = int(self.current_frame if (
+            frame_index is None or include_trajectory
+            or not 0 <= int(frame_index) < self.frame_count
+        ) else frame_index)
+        frame_atoms = self.working_atoms if snapshot_frame == self.current_frame else (
+            self.trajectory_frames[snapshot_frame] if self.trajectory_source is None
+            else self.trajectory_source.read_atoms(snapshot_frame)
+        )
         return SessionHistoryState(
-            working_atoms=self._copy_atoms(self.working_atoms),
-            current_frame=int(self.current_frame),
+            working_atoms=self._copy_atoms(frame_atoms),
+            current_frame=snapshot_frame,
             trajectory_frames=(
                 [self._copy_atoms(frame) for frame in self.trajectory_frames]
                 if include_trajectory
@@ -288,6 +437,10 @@ class EditorSession:
             )
         self.invalidate_trajectory_layout()
         self.refresh_trajectory_identity()
+        self.invalidate_scientific_content(
+            all_frames=state.trajectory_frames is not None,
+            auxiliary=state.volumetric_datasets is not None,
+        )
         self.stop_relax = False
 
     def push_history(
@@ -299,6 +452,10 @@ class EditorSession:
         include_atom_addition: bool = True,
     ):
         """Save the mutation's complete affected scope for Undo."""
+        self.invalidate_scientific_content(
+            all_frames=include_trajectory or include_original,
+            auxiliary=include_volumetric,
+        )
         self.history.append(self._history_state(
             include_trajectory=include_trajectory,
             include_original=include_original,
@@ -337,6 +494,7 @@ class EditorSession:
 
         state = self.history.pop()
         self.redo_stack.append(self._history_state(
+            frame_index=state.current_frame,
             include_trajectory=state.trajectory_frames is not None,
             include_original=state.original_frames is not None,
             include_volumetric=state.volumetric_datasets is not None,
@@ -351,6 +509,7 @@ class EditorSession:
 
         state = self.redo_stack.pop()
         self.history.append(self._history_state(
+            frame_index=state.current_frame,
             include_trajectory=state.trajectory_frames is not None,
             include_original=state.original_frames is not None,
             include_volumetric=state.volumetric_datasets is not None,
@@ -807,6 +966,7 @@ def replace_session_frames(
     session.invalidate_trajectory_layout()
     session.config["initial_design_settings"] = initial_design_settings
     session.refresh_trajectory_identity()
+    session.invalidate_scientific_content(all_frames=True, auxiliary=True)
 
 
 def append_session_frames(session: EditorSession, frames: List[Atoms]) -> int:
@@ -866,6 +1026,7 @@ def append_session_frames(session: EditorSession, frames: List[Atoms]) -> int:
     session.release_trajectory_source()
     session.original_frames = existing_original + appended_original
     session.trajectory_frames = existing_working + appended_working
+    session.invalidate_scientific_content(all_frames=True, auxiliary=True)
     session.current_frame = current_frame
     session.original_atoms = copy_atoms_with_calc(
         session.original_frames[0],

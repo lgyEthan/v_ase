@@ -41,6 +41,11 @@ anchor/target and fit extent from structure geometry. Prefer a deterministic
 composition to repeated orbit/zoom guesses. For an orthographic export, output
 height and `ortho_scale` determine scale; output dimensions determine aspect.
 The snapshot accounts for display translation and periodic replicas.
+Physical output scale in px/Å belongs to the render profile, not the live
+viewport magnification or manual sphere-size multiplier. Image, video and
+editable project HTML retain their own frame/profile; canceling a one-off
+export must not mutate the saved project profile. Use Copy viewport scale only
+when that is the intended physical output scale.
 
 ## Selection and final rendering
 
@@ -55,3 +60,7 @@ returned artifact with `vase_inspect_image`. Use a draft only if composition is
 uncertain. If a render differs with the same camera, inspect selection, effective
 styles, readiness and source before changing unrelated settings. Never create
 and remove dummy scene objects as a selection workaround.
+
+Raw `apply.camera` accepts standalone `ortho_scale`, `fov`, `zoom`, `near` and
+`far` settings. If combined with `fit`, these explicit optical settings apply
+after fitting; an orthographic `ortho_scale` is the full vertical span in Å.

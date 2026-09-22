@@ -1,7 +1,8 @@
 # Render images
 
 Export a figure at exact pixel dimensions, with a deliberate crop and
-background. Open **Render Area** to set composition, then **Export > Image**.
+background. Open **Render → Renderer** to set lighting, quality, dimensions,
+output px/Å and the Render Area, then choose **Render → Image**.
 The live viewport and saved image can have different aspect ratios.
 
 ## Example: export the styled Cu surface
@@ -25,12 +26,13 @@ Use this surface composition as the input; the exported image excludes the surro
 
 ## Render lighting
 
-1. Click the **sphere button** beside the grid button in the top toolbar.
-2. Under **Renderer**, choose **Modeling**, **Studio Sun**, or **Sun + Soft Shadow**.
+1. Open **Render → Renderer** (or use `⌘Shift+A` on macOS, `Ctrl+Shift+A` on Windows/Linux). The sphere button beside
+   the canvas grid button opens the same lighting controls as a convenience.
+2. Choose **Modeling**, **Studio Sun**, or **Sun + Soft Shadow**.
 3. For the sun modes, adjust **Brightness**, source and target coordinates.
 4. Close with **×**, **Escape**, or a click outside the panel.
 
-The panel follows its button when the toolbar scrolls and stays inside the
+The toolbar popover follows its button and stays inside the
 window when resized. On short windows, scroll inside the panel to reach all
 controls. These settings affect the shared scene and its rendered exports.
 
@@ -56,6 +58,19 @@ and gray outside mask define the exact saved composition.
 The Render Area owns aspect ratio, dimensions, projection/camera, overlay
 choices, quality, and crop. Picking inside it uses the same camera, so pointer
 selection remains aligned with visible atoms.
+
+For exact physical sizing, choose **Physical scale** and enter output px/Å on
+the Renderer page. The Image, Video and Interactive HTML routes also show
+these shared frame controls alongside their format-specific settings and
+export actions. Image selects PNG, JPEG, WebP or PDF; Video offers MOV/AVI,
+FPS, interpolation/MIC and an output-duration estimate; Interactive HTML
+chooses whether to embed the editable project and explains its offline poster.
+**Copy viewport scale** takes the current camera scale as a starting value;
+afterward output scale is independent of viewport zoom and the global atom
+sphere-size multiplier. Canceling an image or HTML export does not change a
+saved project's HTML output profile.
+Committed changes on the shared Renderer page update a reopened editable
+HTML project's matching output profile; one-shot export-dialog drafts do not.
 
 ## Image output
 

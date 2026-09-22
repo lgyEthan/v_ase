@@ -14,6 +14,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 
 from v_ase.viewer import find_free_port, view
 from v_ase.session import sessions
+from tests.ui_navigation import open_editor_route
 
 def test_milestone_2_proof():
     print("Initializing H2O molecule with EMT calculator...")
@@ -66,11 +67,13 @@ def test_milestone_2_proof():
         # Load the viewer
         page.goto(f"http://127.0.0.1:{port}/?session_id={session_id}")
         
-        # Wait for atoms to load, then open the inspector from its default
-        # collapsed state before checking visible property fields.
+        # The redesigned editor opens with its inspector visible. Keep this
+        # proof compatible with a narrow viewport that starts collapsed.
         page.wait_for_function("window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 3")
-        page.click("#btn-inspector-collapse")
+        if page.locator('body').evaluate("element => element.classList.contains('inspector-collapsed')"):
+            page.click("#btn-inspector-collapse")
         page.wait_for_function("!document.body.classList.contains('inspector-collapsed')")
+        open_editor_route(page, "structure-info")
         page.wait_for_selector("#prop-natoms:text-is('3')")
         print("Atoms loaded in UI.")
         

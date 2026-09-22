@@ -2,7 +2,7 @@
 
 Display a scalar field as a surface at a chosen level. Signed levels show
 positive and negative lobes separately. Open a volumetric file, then use
-**Analysis > Volumetric Data > Isosurfaces**.
+**Objects → Fields**, select the dataset, then edit its Isosurface properties.
 
 ## Example: signed lobes around graphene
 
@@ -28,7 +28,7 @@ The threshold changes across a fixed analytic graphene field.
 
 ## Create an isosurface
 
-Open **Analysis > Volumetric Data > Isosurface**:
+Open **Objects → Fields → Isosurface**:
 
 1. Select a **Dataset**.
 2. Enable **Show isosurface**.

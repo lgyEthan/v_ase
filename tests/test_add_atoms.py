@@ -62,6 +62,7 @@ from v_ase.server import (
     start_random_atom_addition,
 )
 from v_ase.viewer import find_free_port, view
+from tests.ui_navigation import open_editor_route
 
 
 TRICLINIC_CELL = np.asarray([
@@ -1565,6 +1566,7 @@ def test_browser_random_add_atoms_mode_scatter_relax_and_finish():
             page.goto(f"http://127.0.0.1:{port}/?session_id={editor.session_id}")
             page.wait_for_function("window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 3")
 
+            open_editor_route(page, 'add-atoms')
             page.evaluate("window.__ASE_APP__.toast('Layout check')")
             page.wait_for_selector("#toast-container .toast.show")
             launcher_layout = page.evaluate("""() => {
@@ -1581,10 +1583,13 @@ def test_browser_random_add_atoms_mode_scatter_relax_and_finish():
                     toastTop: toast.top,
                     toastRight: toast.right,
                     toastBottom: toast.bottom,
+                    inspectorLeft: document.getElementById('inspector').getBoundingClientRect().left,
+                    inspectorRight: document.getElementById('inspector').getBoundingClientRect().right,
                 };
             }""")
-            assert launcher_layout["left"] == pytest.approx(18, abs=1)
-            assert launcher_layout["top"] >= launcher_layout["headerBottom"] + 12
+            assert launcher_layout["left"] >= launcher_layout["inspectorLeft"]
+            assert launcher_layout["right"] <= launcher_layout["inspectorRight"]
+            assert launcher_layout["top"] >= launcher_layout["headerBottom"]
             assert (
                 launcher_layout["right"] <= launcher_layout["toastLeft"]
                 or launcher_layout["left"] >= launcher_layout["toastRight"]
@@ -1607,7 +1612,7 @@ def test_browser_random_add_atoms_mode_scatter_relax_and_finish():
                 return [0, 1, 2].map(index => renderer.atomMeshByIndex.get(index).scale.x);
             }""")
 
-            page.click("#btn-create-atom-toggle")
+            open_editor_route(page, 'add-atoms')
             page.fill("#create-atom-label", "O_single")
             assert page.locator("#create-atom-type").input_value() == "O"
             page.click("#add-atoms-tab-batch")
@@ -1651,13 +1656,16 @@ def test_browser_random_add_atoms_mode_scatter_relax_and_finish():
                     bottom: panel.bottom,
                     width: window.innerWidth,
                     height: window.innerHeight,
-                    headerBottom: header.bottom
+                    headerBottom: header.bottom,
+                    inspectorLeft: document.getElementById('inspector').getBoundingClientRect().left,
+                    inspectorRight: document.getElementById('inspector').getBoundingClientRect().right
                 };
             }""")
-            assert dragged_layout["left"] >= 8
-            assert dragged_layout["right"] <= dragged_layout["width"] - 8 + 1
-            assert dragged_layout["top"] >= dragged_layout["headerBottom"] + 8
-            assert dragged_layout["bottom"] <= dragged_layout["height"] - 8 + 1
+            assert dragged_layout["left"] >= dragged_layout["inspectorLeft"]
+            assert dragged_layout["right"] <= dragged_layout["inspectorRight"]
+            assert page.locator('#inspector-content').evaluate(
+                "element => element.getBoundingClientRect().top"
+            ) >= dragged_layout["headerBottom"]
 
             drag_box = drag_handle.bounding_box()
             assert drag_box is not None
@@ -1670,8 +1678,8 @@ def test_browser_random_add_atoms_mode_scatter_relax_and_finish():
             page.mouse.up()
             clamped_layout = page.locator("#create-atom-widget").bounding_box()
             assert clamped_layout is not None
-            assert clamped_layout["x"] >= 8
-            assert clamped_layout["y"] >= dragged_layout["headerBottom"] + 8
+            assert clamped_layout["x"] == pytest.approx(dragged_layout["left"], abs=1)
+            assert clamped_layout["y"] == pytest.approx(dragged_layout["top"], abs=1)
             page.locator("#add-atoms-placement-random").scroll_into_view_if_needed()
             assert page.locator("#add-atoms-spacing-basis-row").is_hidden()
             assert page.locator("#add-atoms-placement-pbc-row").is_hidden()
@@ -1984,8 +1992,10 @@ def test_browser_random_add_atoms_mode_scatter_relax_and_finish():
             assert mode_timeline["frames"] >= 2
             assert_host_unchanged(host, backend.atom_addition.baseline_atoms)
 
+            open_editor_route(page, 'add-atoms')
             first_region_id = backend.atom_addition.regions[0].id
             previous_xmin = backend.atom_addition.regions[0].bounds[0]
+            history_before_region_number = len(backend.history)
             page.evaluate(
                 "regionId => window.__ASE_APP__.setAddAtomsRegionSelection([regionId])",
                 first_region_id,
@@ -1996,8 +2006,15 @@ def test_browser_random_add_atoms_mode_scatter_relax_and_finish():
                 "expected => Math.abs(window.__ASE_APP__.addAtomsUI.active.regions[0].bounds[0] - expected) < 1e-8",
                 arg=previous_xmin + 0.05,
             )
+            region_history = len(backend.history)
+            assert region_history == history_before_region_number + 1, (
+                history_before_region_number, region_history,
+                backend.atom_addition.regions[0].bounds[0], previous_xmin)
             first.locator(".add-atoms-entry-count").fill("2")
             second.locator(".add-atoms-entry-count").fill("1")
+            counts = page.evaluate("""() => window.__ASE_APP__.readAddAtomsEntries()
+                .map(entry => entry.count)""")
+            assert counts == [2, 1]
             page.click("#btn-add-atoms-scatter")
             page.wait_for_function(
                 "window.__ASE_APP__.addAtomsUI?.active?.placement_count === 2"
@@ -2005,10 +2022,10 @@ def test_browser_random_add_atoms_mode_scatter_relax_and_finish():
             assert page.evaluate("window.__ASE_APP__.addAtomsUI.active.new_count") == 16
             assert page.evaluate("window.__ASE_APP__.addAtomsUI.active.last_batch_new_count") == 3
             assert page.evaluate("window.__ASE_APP__.state.selected.size") == 16
-            # Placement, both MIC policy changes, G/S region transforms,
-            # relaxation, the numeric region edit, and repeated placement are
-            # individually undoable while the baseline remains pinned.
-            assert len(backend.history) == 9
+            # Each scientific action, including the numeric region edit, has
+            # one Undo entry; the field commit no longer duplicates that edit.
+            assert len(backend.history) == 8
+            assert len(backend.history) == region_history + 1
             assert_host_unchanged(host, backend.atom_addition.baseline_atoms)
             assert page.evaluate(
                 "window.__ASE_APP__.state.relaxTrajectory.frames.length"
@@ -2067,7 +2084,7 @@ def test_browser_scratch_relaxation_lifecycle_and_physical_scale():
             assert page.locator("[data-runtime-mode='edit']").get_attribute("aria-pressed") == "true"
             assert page.locator("#empty-workspace").is_visible()
 
-            page.click("#btn-create-atom-toggle")
+            open_editor_route(page, 'add-atoms')
             page.click("#add-atoms-tab-batch")
             page.click("#btn-add-atoms-allow-region")
             assert page.locator("#empty-workspace").is_hidden()
@@ -2147,12 +2164,11 @@ def test_browser_scratch_relaxation_lifecycle_and_physical_scale():
             assert finite_distribution["integral"] == pytest.approx(1.0, abs=1e-10)
             page.evaluate("window.__ASE_APP__.closeAnalysisDrawer()")
 
-            page.evaluate("""() => {
-                document.getElementById('relax-fmax').value = '0.000001';
-                document.getElementById('relax-steps').value = '5000';
-            }""")
-            page.evaluate("document.getElementById('btn-relax').click()")
-            page.wait_for_function("window.__ASE_APP__.state.isRelaxing === true", timeout=10_000)
+            open_editor_route(page, 'scientific-tools')
+            page.fill('#relax-fmax', '0.000001')
+            page.fill('#relax-steps', '5000')
+            page.click('#btn-relax')
+            page.wait_for_function("window.__ASE_APP__.state.isRelaxing === true", timeout=20_000)
             page.evaluate("document.getElementById('btn-stop-relax').click()")
             page.wait_for_function("window.__ASE_APP__.state.isRelaxing === false", timeout=10_000)
             assert page.locator("#btn-relax").is_enabled()
@@ -2265,7 +2281,7 @@ def test_browser_add_molecules_homogeneous_transform_rigid_relax_and_finish():
             page = browser.new_page(viewport={"width": 1440, "height": 1000})
             page.goto(f"http://127.0.0.1:{port}/?session_id={editor.session_id}")
             page.wait_for_function("window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 3")
-            page.click("#btn-create-atom-toggle")
+            open_editor_route(page, 'add-atoms')
             page.click("#add-atoms-tab-batch")
             page.click("#add-atoms-content-molecules")
             page.wait_for_function(

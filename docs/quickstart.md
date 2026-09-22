@@ -30,32 +30,39 @@ terminal open while using the document.
 - Use `Ctrl+A` to select all visible atoms.
 - Press `X`, `Y`, or `Z` outside a transform to align the camera.
 
-With two, three, or four ordered atoms selected, the Inspect/Measure view shows
+With two, three, or four ordered atoms selected, **Analyze → Measure** shows
 distance, angle, or torsion information. A selected supercell replica retains
 its displayed Cartesian position for direct measurement while also exposing
 periodic distance information when applicable.
 
 ## 3. Inspect the document
 
-The control panel is divided by purpose:
+The right workbench is divided by purpose, with the atomic viewport always
+available at desktop sizes:
 
 | Workspace | Use it for |
 | --- | --- |
-| Inspect | Selection summary, atom properties, ordered measurements |
-| Structure | Cell, replication, labels, atom appearance, bonds, constraints, relaxation |
-| Analysis | Displacement, RDF/pair distributions, registry, volumetric data |
-| View | Camera, projection, viewport rendering, lighting, background, theme |
-| Export | Render Area, images, video, projects, structures, settings, 3D scenes |
+| Style | Atoms, bonds, cell/supercell and contextual object properties |
+| Build | Add atoms/molecules, transform, cell transformation, constraints, relaxation |
+| Analyze | Inspect/measure, distributions, motion, fields, interfaces |
+| Render | Renderer and output media; project Save is in File and defaults in View |
 
-Each long panel has a section menu in its header. Select a section to open and
-scroll to it; normal scrolling updates the active section label.
+**Analyze → Measure** shows atom details and deliberate measurements;
+selecting an atom does not switch away from a task. Use the header search to
+find a control. File/Edit/View/Help menus sit above the canvas; the optional
+Objects drawer opens scene objects and their real properties. Select, Move, Orbit, Rotate, Scale, Measure and Add atoms are visible below the
+viewport. At narrow widths
+the right workbench stacks below the viewport.
+On short windows, an open analysis result uses the work area; **Back to
+viewport** returns to the structure.
 
 ## 4. Play a trajectory
 
 If the file has more than one frame, use the bottom timeline:
 
 - `Space` toggles playback.
-- Left/Right Arrow moves one frame.
+- Option+Left/Right Arrow on macOS (Alt+Left/Right on Windows/Linux) moves one frame.
+- Plain arrow keys orbit or tilt the structure view.
 - FPS controls playback speed.
 - Skip advances by more than one source frame.
 
@@ -78,8 +85,8 @@ browser preview can move freely, but committed coordinates return from the
 backend's constraint-aware update.
 
 :::{tip}
-`Esc` closes an open panel without clearing the atom selection. This is the
-fastest way to restore viewport keyboard shortcuts before a transform.
+`Esc` cancels an active transform or closes a modal. Click the canvas to return
+keyboard focus before using G/R/S when editing a form.
 :::
 
 ## 6. Undo and redo
@@ -90,7 +97,7 @@ pan, zoom, axis alignment, and toolbar navigation are intentionally excluded.
 
 ## 7. Save the work
 
-Open **Export > Save Project**:
+Open **Render → Project save**:
 
 - Save `.vase` for the smallest editable project.
 - Enable **Include interactive rendered view** to create one self-contained
@@ -101,12 +108,17 @@ Use **HTML View** instead when the recipient only needs a lightweight,
 view-only 3D handoff. Use the structure export controls when only the current
 ASE geometry is needed.
 
+Later use **File → Save** or `Ctrl+S` to reuse the same approved project target
+and format. **Save As** chooses a new file. If the browser only downloads a
+copy, v_ase does not claim it overwrote the original.
+
 ## 8. Close cleanly
 
-Close the v_ase document or window. When the final connected page closes, the
-default blocking terminal session is finalized and the local server is
-released. `--no-block` and Python `block=False` return control earlier and
-therefore require explicit lifecycle handling.
+Use the tab close control or **File → Close tab**. A dirty tab offers Save,
+Discard and Cancel; closing the last internal tab first creates a blank tab so
+the workspace and its blocking Python host remain open. Closing the browser
+workspace itself ends the connected blocking session. `--no-block` and Python
+`block=False` return control earlier and require explicit lifecycle handling.
 
 ## A reproducible practice file
 

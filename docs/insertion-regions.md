@@ -98,7 +98,7 @@ immutable host only inside the staging optimizer and adds a temporary visual
 overlay; it does not modify committed ASE constraints or saved atom
 appearance.
 
-Use **Open Relaxation** to configure the common settings under **Structure >
+Use **Open Relaxation** to configure the common settings under **Build >
 Relaxation**, then start placement relaxation. After it becomes inactive:
 
 - edit regions and append another batch;

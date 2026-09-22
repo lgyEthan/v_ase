@@ -7,6 +7,8 @@ cell/topology. Fixed atoms, fixed lines and fixed planes constrain different
 Cartesian degrees of freedom. Validate direction/normal vectors and cell-axis
 conventions; do not replace directional constraints with FixAtoms for convenience.
 Periodic replicas are references to base atoms; physical edits deduplicate them.
+Constraint edits propagate by atom index to every loaded trajectory frame where
+the index exists; they are not frame-local. Undo restores the full change.
 
 Visualization-only work does not enter Edit mode or attach a calculator. If
 physical relaxation is requested, confirm the intended calculator and constrained

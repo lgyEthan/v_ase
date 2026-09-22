@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 import zipfile
 
+import numpy as np
 from ase import Atoms
 import pytest
 
@@ -113,6 +114,25 @@ def test_cad_scene_respects_hidden_atom_types():
     assert len(scene["atoms"]) == 2
     assert {item["label"] for item in scene["atoms"]} == {"O_surface"}
     assert scene["bonds"] == []
+
+
+def test_cad_radius_mapping_omits_zero_glyph_without_changing_bonds():
+    session = cad_session()
+    session.working_atoms.new_array("fraction", np.array([0.0, 0.5, 1.0]))
+    payload = cad_payload()
+    baseline = _cad_scene_data(session, payload)
+    payload["display"]["atomRadiusMapping"] = {
+        "enabled": True, "field": "array::fraction::scalar",
+        "valueTransform": "identity", "rangeMode": "manual",
+        "min": 0, "max": 1, "minMultiplier": 0, "maxMultiplier": 1,
+        "exponent": 1, "scope": "all", "indices": [],
+    }
+    mapped = _cad_scene_data(session, payload)
+    assert all(atom["index"] != 0 for atom in mapped["atoms"])
+    assert mapped["bonds"] == baseline["bonds"]
+    before = next(atom for atom in baseline["atoms"] if atom["index"] == 1)
+    after = next(atom for atom in mapped["atoms"] if atom["index"] == 1)
+    assert after["radius"] == pytest.approx(before["radius"] * 0.5)
 
 
 def test_cad_scene_preserves_unit_cell_style():

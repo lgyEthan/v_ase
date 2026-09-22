@@ -52,6 +52,9 @@ def test_crossing_transparent_faces_sort_per_pixel_and_respect_opaque_depth(tmp_
             images=page.evaluate('''async ({mode,projection})=>{
                 const T=await import('three'),a=window.__V_ASE_APP__,r=a.renderer;
                 a.setInspectorCollapsed(true,false);
+                const viewport=document.getElementById('app-viewport');
+                viewport.style.cssText='position:fixed;left:0;top:0;width:600px;height:600px;z-index:9999';
+                r.onResize();
                 Object.assign(a.state.display,{atomDisplayMode:mode,showBonds:false,showCell:false,showAxes:false,showGrid:false});
                 r.setDisplayOptions(a.state.display);
                 // Isolate two intersecting faces; each pixel has a known depth order.

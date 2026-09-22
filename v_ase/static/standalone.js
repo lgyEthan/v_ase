@@ -220,6 +220,9 @@ export function startStandaloneViewer(scene, projectBase64) {
         const frame = frames[frameIndex];
         renderer.setDisplayOptions(display, { rebuild: false });
         renderer.rebuildAtoms(frame, frame.metadata?.custom_colors || {});
+        if (frame.metadata?.atom_radius_factors || renderer.atomRadiusFactors) {
+            renderer.setAtomRadiusFactors(frame.metadata?.atom_radius_factors || null);
+        }
         renderer.setAtomColorScaleColors(frame.metadata?.atom_color_scale?.colors || null);
         if (display.showDisplacements && scene.displacements?.[frameIndex]) {
             renderer.setDisplacementVectors(scene.displacements[frameIndex], display);

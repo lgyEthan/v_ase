@@ -69,7 +69,10 @@ For an exact motif use `index_pairs` (raw API: exact `indexPairs`); this preserv
 visual label identities. Do not invent visual labels to select one edge.
 
 Inputs use snake_case. Responses and raw CLI/HTTP/JavaScript use camelCase.
-User-defined labels, array IDs and map keys retain their spelling. Use
+User-defined labels, array IDs and map keys retain their spelling. Native tool names are
+not raw operation names: mode and selection are top-level raw `apply` fields;
+translation is `operation:{name:"move-selection",vector:[...]}`. Read the
+focused apply schema when moving between native tools and CLI. Use
 `documentId` plus scene `revision` (legacy describe: `collaboration.revision`)
 for `expected_document_id` and `expected_revision`. Every ordinary edit needs
 both guards. Readiness/stop tools document their exceptions for advancing frames.
@@ -100,6 +103,59 @@ The render waits for tracked frame/field/color/vector work. Inspect
 `vase_scene_readiness` when it reports pending, stale or failed work; fix that
 specific cause instead of guessing camera angles or changing unrelated styles.
 Pause playback before an exact figure. Rendering does not start a calculator.
+
+Multi-atom geometry is shown automatically only for an intentionally ordered
+selection. A marquee, label, Select all, paste or default semantic selection is
+bulk and reports a count without distance/angle/torsion. To request geometry
+through the raw selection contract, provide 2–4 explicit ordered indices or
+periodic references with `selection.intent="measure"`. For the native adapter,
+pass the intent inside its `selection` argument, for example
+`vase_set_selection(selection={indices:[0,1],intent:"measure"}, expected_document_id=..., expected_revision=...)`.
+A single selected atom leads with its chemical element and user label in the
+Measure readout, then exposes stored properties without a property-count summary.
+For human refinement, the editor has a wide viewport and a single right
+Style / Build / Analyze / Render workbench. Each workbench exposes its tool buttons directly. Style includes Atoms,
+Bonds, Cell, Polyhedra and View & guides. The optional Objects drawer
+overlays the viewport and opens contextual properties. Search is in the header;
+File/Edit/View/Help sit above the canvas. Select/Move/Orbit/Measure sit below
+it, with physical Rotate/Scale/Add in More. F fits the real camera when the
+viewport has focus. On narrow screens the workbench stacks below the viewport. Project
+Save reuses a retained writable browser or explicitly opened server project
+target, Save As chooses a new one, and a download-only browser creates a copy rather than
+silently overwriting the source. A changed tab uses Save/Discard/Cancel on close.
+External changes to an opened server project are conflicts, not implicit
+overwrite permission. Do not assume uploaded raw structures are writable
+project destinations. A direct/notebook editor adopts a multi-tab workspace in
+place so the original document and writable browser handle survive opening a
+new tab. A project opened in a new tab retains its `.vase` or editable-HTML
+format and HTML output profile; a browser upload without write authority still
+saves a download copy in that original format. Browser-handle saves recheck the
+source after rendering/serialization and reject a detected external change.
+Dirty state includes edits to noncurrent trajectory frames and returns clean
+when Undo restores the saved scientific content and visual settings. The
+identity also changes for field imports, combinations and removals. Save,
+Close and Replace settle pending physical edits; invalid scientific inputs
+block Save before a destination is selected. Renderer Undo/Redo restores an
+editable HTML project's separate output profile. A child-tab reload retains
+its project provenance, including a new target adopted by Save As. The
+Image, Video and Interactive HTML GUI routes have format-specific draft controls;
+Cancel in their export dialogs leaves the saved project profile unchanged. The
+Objects → Fields route selects live dataset/plane properties, while Analyze →
+Fields owns import and combinations; both use the same underlying field state.
+Objects → Vectors opens visibility/style for displacement and stored-force layers;
+Analyze retains trajectory reference, MIC, statistics and stored-data status.
+The top-level workspace exposes Fullscreen editing / Keyboard Lock when supported;
+normal browser tabs may reserve ⌘W/⌘N on macOS or Ctrl+W/Ctrl+N on Windows/Linux, so visible File-menu actions
+remain the reliable fallback. The editor exposes an optional `display.atomRadiusMapping`
+definition. Choose an actual scalar catalog ID and lock finite range limits;
+its factors multiply manual size without changing physical atom radii or bond
+cutoffs. Inspect every output artifact visually before relying on a mapped-size
+figure. The focused
+`set-atom-radius-mapping` operation can configure the field,
+current-frame or trajectory fit, transform, output multipliers, exponent and
+frozen base-atom scope atomically. Inspect the appearance-focused state for the
+effective mapping and readiness before rendering. For example, apply
+`{"operation":{"name":"set-atom-radius-mapping","field":"array::fraction::scalar","rangeMode":"current","minMultiplier":0,"maxMultiplier":1}}`.
 
 `vase_render` returns an artifact URI plus exact camera/options/dimensions.
 Use `vase_inspect_image(uri=...)` for final visual QA: MCP returns image content.

@@ -19,7 +19,7 @@
             try { localValue = window.localStorage.getItem(key) || ''; } catch {}
             const persistedValue = cookieValue() || localValue;
             let hasPersisted = Boolean(persistedValue);
-            let preference = normalize(persistedValue);
+            let preference = hasPersisted ? normalize(persistedValue) : 'light';
             const apply = (value, { persist = true, announce = true } = {}) => {
                 preference = normalize(value);
                 const resolved = preference === 'system' ? (media.matches ? 'dark' : 'light') : preference;
@@ -52,12 +52,14 @@
             });
         })();
     </script>
-    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.3.8">
+    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.4.1">
+    <link id="editor-style" rel="stylesheet" href="static/editor.css?v=0.4.1">
+    <link id="direct-workspace-style" rel="stylesheet" href="static/direct_workspace.css?v=0.4.1">
     <script>
         window.__V_ASE_MOCK__ = new URLSearchParams(window.location.search).has('v_ase_mock');
         const threeModulePath = window.location.protocol === 'file:'
             ? './vendor/three.module.js'
-            : '/static/vendor/three.module.js?v=0.3.8';
+            : '/static/vendor/three.module.js?v=0.4.1';
         const importMap = document.createElement('script');
         importMap.type = 'importmap';
         importMap.textContent = JSON.stringify({
@@ -68,11 +70,39 @@
         document.currentScript.after(importMap);
         if (window.location.protocol === 'file:' || window.location.pathname.endsWith('/static/index.html')) {
             document.getElementById('app-style').href = './style.css';
+            document.getElementById('editor-style').href = './editor.css';
+            document.getElementById('direct-workspace-style').href = './direct_workspace.css';
         }
     </script>
 </head>
-<body class="inspector-collapsed" data-viewport-background="white">
+<body class="editor-shell" data-viewport-background="white">
     <div id="app-viewport">
+        <div class="viewport-object-access">
+            <button id="btn-objects" type="button" aria-expanded="false" aria-controls="objects-drawer">Objects</button>
+            <span id="viewport-scene-caption" aria-live="polite">Structure</span>
+        </div>
+        <aside id="objects-drawer" class="objects-drawer hidden" aria-label="Scene objects">
+            <div class="objects-drawer-head"><strong>Objects</strong><button id="btn-objects-close" type="button" aria-label="Close objects">×</button></div>
+            <div id="objects-list" class="objects-list"></div>
+        </aside>
+        <div id="viewport-tools" class="viewport-tools" role="toolbar" aria-label="Selection and editing tools">
+            <button id="tool-select" type="button" aria-label="Select atoms" title="Select atoms">Select</button>
+            <button id="tool-move" type="button" aria-label="Move selection" title="Move selection (G)">Move</button>
+            <button id="tool-orbit" type="button" aria-label="Orbit camera" title="Orbit camera by dragging">Orbit</button>
+            <button id="tool-rotate" type="button" aria-label="Rotate selection" title="Rotate selection (R)">Rotate</button>
+            <button id="tool-scale" type="button" aria-label="Scale selection" title="Scale selection (S)">Scale</button>
+            <button id="tool-measure" type="button" aria-label="Measure ordered selection" title="Measure ordered selection">Measure</button>
+            <button id="tool-add" type="button" aria-label="Add atoms and molecules" title="Add atoms and molecules">Add atoms</button>
+        </div>
+        <button id="btn-fit-view" type="button" title="Fit structure to view (F)">Fit view</button>
+        <div id="viewport-camera-tools" class="viewport-camera-tools" aria-label="Camera and lighting controls">
+            <div class="camera-presets" role="group" aria-label="Camera direction">
+                <button type="button" data-camera-preset="top">Top</button>
+                <button type="button" data-camera-preset="front">Front</button>
+                <button type="button" data-camera-preset="3d">3D</button>
+            </div>
+            <details id="camera-more" class="camera-more"><summary aria-label="Precise camera directions and rotation">⋯</summary><div id="camera-more-content"></div></details>
+        </div>
         <div id="export-preview-frame" class="export-preview-frame hidden" aria-hidden="true">
             <div class="export-preview-caption">
                 <button id="render-area-eye" class="render-area-eye" type="button"
@@ -122,15 +152,50 @@
     <!-- Top Status Bar -->
     <header id="top-bar" class="glass-panel">
         <div class="logo">
-            <img class="brand-logo-asset" src="static/v_ase-logo.png" alt="v_ase">
-            <span class="version">0.3.8</span>
+            <span class="app-wordmark" aria-label="v_ase">v_<span>ase</span></span>
+            <span class="version">0.4.1</span>
         </div>
+        <nav id="editor-menu-bar" class="editor-menu-bar" aria-label="Document commands">
+            <details><summary>File</summary><div class="editor-menu-popover">
+                <button type="button" data-editor-menu-action="new">New <kbd data-editor-command="new"></kbd></button>
+                <button type="button" data-editor-menu-action="open">Open…</button>
+                <button type="button" data-editor-menu-action="save">Save <kbd data-editor-command="save"></kbd></button>
+                <button type="button" data-editor-menu-action="save-as">Save As… <kbd data-editor-command="save-as"></kbd></button>
+                <button type="button" data-editor-menu-route="project">Project save settings</button>
+                <button type="button" data-editor-menu-action="export-poscar">Export POSCAR…</button>
+                <button type="button" data-editor-menu-action="export-pickle">Export ASE Pickle…</button>
+                <button type="button" data-editor-menu-action="close">Close tab <kbd data-editor-command="close"></kbd></button>
+            </div></details>
+            <details><summary>Edit</summary><div class="editor-menu-popover">
+                <button type="button" data-editor-menu-action="undo">Undo</button>
+                <button type="button" data-editor-menu-action="redo">Redo</button>
+                <button type="button" data-editor-menu-action="reset-coordinates">Reset coordinates</button>
+                <button type="button" data-editor-menu-action="reset-all">Full reset</button>
+            </div></details>
+            <details><summary>View</summary><div class="editor-menu-popover">
+                <button type="button" data-editor-menu-route="view">View &amp; guides</button>
+                <button type="button" data-editor-menu-route="settings">Appearance defaults &amp; presets</button>
+                <button type="button" data-editor-menu-route="export">Renderer</button>
+                <button type="button" data-editor-menu-route="cell-replication">Supercell</button>
+                <button id="editor-fullscreen-editing" type="button" aria-pressed="false">Fullscreen editing</button>
+                <span id="editor-shortcut-status" role="status" class="editor-shortcut-status"></span>
+            </div></details>
+            <details><summary>Preferences</summary><div class="editor-menu-popover">
+                <button type="button" data-editor-menu-route="settings">Appearance defaults &amp; presets</button>
+            </div></details>
+            <details><summary>Help</summary><div class="editor-menu-popover">
+                <button type="button" data-editor-menu-action="shortcuts">Shortcuts &amp; formats</button>
+                <button type="button" data-editor-menu-route="save-guide">Export format guide</button>
+            </div></details>
+        </nav>
         <div id="runtime-mode-switch" class="runtime-mode-switch" role="group" aria-label="Workspace mode">
             <button type="button" data-runtime-mode="view" aria-pressed="true"
                     title="View mode: optimized visualization without structural editing">View</button>
             <button type="button" data-runtime-mode="edit" aria-pressed="false"
                     title="Edit mode: atom transforms, creation, constraints, and relaxation">Edit</button>
         </div>
+        <button id="editor-search-toggle" type="button" aria-expanded="false" aria-controls="editor-navigator" aria-label="Search commands and controls" title="Search commands and controls">⌕</button>
+        <span id="editor-document-name" class="editor-document-name" title="Current document">Untitled</span>
         <div class="status-group">
             <div class="status-item">
                 <span class="label">MODE</span>
@@ -148,6 +213,10 @@
                 <span class="label">CALC</span>
                 <span id="val-calc" class="value badge">-</span>
             </div>
+        </div>
+        <div id="editor-quick-actions" class="editor-quick-actions">
+            <button id="editor-save" type="button">Save</button>
+            <button id="editor-render" type="button">Render</button>
         </div>
         <div class="action-group">
             <button id="btn-open-file" class="btn open-file-btn" type="button" title="Open structure, trajectory, or .vase project">
@@ -177,7 +246,7 @@
                         <path id="view-arrow-roll-ccw-shape" d="M26.4 19.7c-2.2 6.4-9.1 9.8-15.4 7.4-4-1.5-7-4.8-8-8.9l6-1.5c.5 2.2 2.1 3.9 4.2 4.7 3.4 1.3 7.1-.5 8.2-3.9 1-3.1-.5-6.5-3.4-7.9l-2 4.8L9.8 4.1 21.2 1l-1.6 3.8c5.9 2.3 9 8.8 6.8 14.9Z"></path>
                     </defs>
                 </svg>
-                <button class="view-arrow-btn" type="button" data-view-rotate="up" aria-label="Tilt view upward" title="Tilt view upward">
+                <button class="view-arrow-btn" type="button" data-view-rotate="up" aria-label="Tilt view upward" title="Tilt view upward (↑)">
                     <svg class="view-orbit-icon view-orbit-depth-icon" viewBox="0 0 48 48" aria-hidden="true">
                         <g class="view-orbit-volume">
                             <use class="view-arrow-orbit-depth" href="#view-arrow-orbit-shape" transform="translate(0 1.5)"></use>
@@ -188,7 +257,7 @@
                         </g>
                     </svg>
                 </button>
-                <button class="view-arrow-btn" type="button" data-view-rotate="down" aria-label="Tilt view downward" title="Tilt view downward">
+                <button class="view-arrow-btn" type="button" data-view-rotate="down" aria-label="Tilt view downward" title="Tilt view downward (↓)">
                     <svg class="view-orbit-icon view-orbit-depth-icon" viewBox="0 0 48 48" aria-hidden="true">
                         <g class="view-orbit-volume" transform="translate(0 48) scale(1 -1)">
                             <use class="view-arrow-orbit-depth" href="#view-arrow-orbit-shape" transform="translate(0 1.5)"></use>
@@ -199,7 +268,7 @@
                         </g>
                     </svg>
                 </button>
-                <button class="view-arrow-btn view-axis-pair-start" type="button" data-view-rotate="left" aria-label="Orbit view left" title="Orbit view left">
+                <button class="view-arrow-btn view-axis-pair-start" type="button" data-view-rotate="left" aria-label="Orbit view left" title="Orbit view left (←)">
                     <svg class="view-orbit-icon view-orbit-depth-icon" viewBox="0 0 48 48" aria-hidden="true">
                         <g class="view-orbit-volume" transform="matrix(0 1 1 0 0 0)">
                             <use class="view-arrow-orbit-depth" href="#view-arrow-orbit-shape" transform="translate(0 1.5)"></use>
@@ -210,7 +279,7 @@
                         </g>
                     </svg>
                 </button>
-                <button class="view-arrow-btn" type="button" data-view-rotate="right" aria-label="Orbit view right" title="Orbit view right">
+                <button class="view-arrow-btn" type="button" data-view-rotate="right" aria-label="Orbit view right" title="Orbit view right (→)">
                     <svg class="view-orbit-icon view-orbit-depth-icon" viewBox="0 0 48 48" aria-hidden="true">
                         <g class="view-orbit-volume" transform="matrix(0 1 -1 0 48 0)">
                             <use class="view-arrow-orbit-depth" href="#view-arrow-orbit-shape" transform="translate(0 1.5)"></use>
@@ -328,6 +397,56 @@
             <button id="btn-shortcuts" class="btn icon-btn" title="Shortcuts">?</button>
         </div>
     </header>
+    <nav id="editor-navigator" class="editor-navigator" aria-label="Editor sections">
+        <button id="editor-navigator-toggle" class="editor-navigator-toggle" type="button"
+                aria-expanded="false" aria-label="Open section navigator" title="Open section navigator">☰</button>
+        <label class="editor-navigator-search" for="editor-command-search">
+            <span>Find a command or section</span>
+            <input id="editor-command-search" type="search" placeholder="Search controls…" autocomplete="off">
+        </label>
+        <div class="editor-navigator-list">
+            <details open data-editor-category="scene">
+                <summary>Scene</summary>
+                <button type="button" data-editor-route="structure-info">Overview</button>
+                <button type="button" data-editor-route="appearance" data-inspector-group="structure">Atom properties</button>
+                <button type="button" data-editor-route="bonding">Bonding</button>
+                <button type="button" data-editor-route="cell-replication">Cell &amp; Supercell</button>
+                <button type="button" data-editor-route="polyhedra">Coordination polyhedra</button>
+                <button type="button" data-editor-route="scene-fields">Fields</button>
+                <button type="button" data-editor-route="scene-vectors">Vectors</button>
+                <button type="button" data-editor-route="view" data-inspector-group="view">View &amp; guides</button>
+                <div id="scene-context-objects" class="editor-context-objects" aria-label="Scene objects"></div>
+            </details>
+            <details open data-editor-category="build">
+                <summary>Build</summary>
+                <button type="button" data-editor-route="add-atoms">Add atoms &amp; molecules</button>
+                <button type="button" data-editor-route="transform">Transform selection</button>
+                <button type="button" data-editor-route="cell-transform">Cell transformation</button>
+                <button type="button" data-editor-route="constraints">Constraints</button>
+                <button type="button" data-editor-route="build-match">Match periodic cells</button>
+                <button type="button" data-editor-route="scientific-tools">Relaxation</button>
+                <button type="button" data-editor-route="build-rigid">Rigid translation</button>
+            </details>
+            <details open data-editor-category="analyze">
+                <summary>Analyze</summary>
+                <button type="button" data-editor-route="selection" data-inspector-group="inspect">Inspect &amp; measure</button>
+                <button type="button" data-editor-route="rdf">Distributions</button>
+                <button type="button" data-editor-route="displacement" data-inspector-group="analysis">Displacements</button>
+                <button type="button" data-editor-route="forces">Stored forces</button>
+                <button type="button" data-editor-route="volumetric">Fields</button>
+                <button type="button" data-editor-route="registry-map">Rigid translation</button>
+            </details>
+            <details open data-editor-category="render">
+                <summary>Render</summary>
+                <button type="button" data-editor-route="export" data-inspector-group="export">Renderer</button>
+                <button type="button" data-editor-route="render-image">Image</button>
+                <button type="button" data-editor-route="render-video">Video</button>
+                <button type="button" data-editor-route="render-html">Interactive HTML</button>
+                <button type="button" data-editor-route="render-geometry">Geometry</button>
+            </details>
+        </div>
+        <p id="editor-command-empty" class="panel-note hidden">No matching controls or commands.</p>
+    </nav>
     <input type="file" id="structure-file" class="hidden">
 
     <div id="orientation-widget" class="orientation-widget" aria-label="Viewport orientation">
@@ -640,16 +759,21 @@
         </div>
     </div>
 
-    <button id="btn-inspector-collapse" class="inspector-edge-toggle" type="button"
-            aria-expanded="false" aria-label="Expand control panel" title="Expand control panel">
-        <svg class="inspector-edge-chevron" viewBox="0 0 14 20" aria-hidden="true">
-            <path d="M1.6 4 12 10 1.6 16"></path>
-        </svg>
-    </button>
-
     <!-- Right Inspector -->
     <aside id="inspector" class="glass-panel">
         <div id="inspector-resizer" role="separator" aria-label="Resize control panel" aria-orientation="vertical" title="Drag to resize panel"></div>
+        <button id="btn-inspector-collapse" class="inspector-edge-toggle" type="button"
+                aria-expanded="false" aria-label="Expand control panel" title="Expand control panel">
+            <svg class="inspector-edge-chevron" viewBox="0 0 14 20" aria-hidden="true">
+                <path d="M1.6 4 12 10 1.6 16"></path>
+            </svg>
+        </button>
+        <div id="workbench-tabs" class="workbench-tabs" role="tablist" aria-label="Workbench">
+            <button type="button" role="tab" data-workbench="style" aria-selected="true">Style</button>
+            <button type="button" role="tab" data-workbench="build" aria-selected="false">Build</button>
+            <button type="button" role="tab" data-workbench="analyze" aria-selected="false">Analyze</button>
+            <button type="button" role="tab" data-workbench="render" aria-selected="false">Render</button>
+        </div>
         <header class="inspector-head">
             <div class="inspector-title">
                 <span id="inspector-context">Inspect</span>
@@ -659,7 +783,7 @@
                         <select id="structure-section-select" aria-label="Jump to control-panel section">
                     <option value="appearance">Atoms &amp; Appearance</option>
                     <option value="cell-replication">Cell &amp; Replication</option>
-                    <option value="cell-transform" data-edit-only>Cell Transform</option>
+                    <option value="cell-transform">Cell Transform</option>
                     <option value="transform">Transform &amp; Cell Match</option>
                     <option value="constraints" data-edit-only>Constraints</option>
                     <option value="bonding">Bonding</option>
@@ -667,6 +791,22 @@
                 </select>
             </label>
         </header>
+        <div id="workbench-tools" class="workbench-tools"></div>
+        <div id="workbench-edit-notice" class="workbench-edit-notice hidden" role="status">
+            <span>View mode protects the structure. Switch to Edit to use this tool.</span>
+            <button id="workbench-switch-edit" type="button">Switch to Edit</button>
+        </div>
+        <div id="workbench-context" class="workbench-context hidden">
+            <button id="workbench-context-back" type="button">← Back</button><span id="workbench-context-title"></span>
+        </div>
+        <div id="workbench-selection" class="workbench-selection hidden" role="status">
+            <span id="workbench-selection-label"></span>
+            <button id="workbench-selection-inspect" type="button">Inspect</button>
+        </div>
+        <div id="inspector-view-tabs" class="inspector-view-tabs" role="tablist" aria-label="Inspector view">
+            <button id="inspector-selection-tab" type="button" role="tab" aria-selected="false">Selection</button>
+            <button id="inspector-properties-tab" type="button" role="tab" aria-selected="true">Properties</button>
+        </div>
         <nav class="inspector-nav" role="tablist" aria-label="Control panel workspace">
             <button type="button" role="tab" data-inspector-group="inspect" aria-selected="true">Inspect</button>
             <button type="button" role="tab" data-inspector-group="structure" aria-selected="false">Structure</button>
@@ -674,7 +814,7 @@
             <button type="button" role="tab" data-inspector-group="view" aria-selected="false">View</button>
             <button type="button" role="tab" data-inspector-group="export" aria-selected="false">Export</button>
         </nav>
-        <div id="inspector-content" class="inspector-content">
+        <div id="inspector-content" class="inspector-content" role="tabpanel" aria-label="Tool properties">
         <details class="panel-section" open data-panel="structure-info" data-panel-group="inspect">
             <summary class="section-header">Structure Info</summary>
             <div class="prop-grid">
@@ -724,6 +864,7 @@
                 <label for="chk-displacement-mic">Minimum image</label>
                 <input type="checkbox" id="chk-displacement-mic" checked>
             </div>
+            <div id="displacement-style-controls">
             <div class="prop-row">
                 <label for="displacement-style">Vector style</label>
                 <select id="displacement-style">
@@ -749,6 +890,7 @@
                 <label for="displacement-color">Color</label>
                 <input id="displacement-color" type="color" value="#e58b2a">
             </div>
+            </div>
             <div id="displacement-status" class="analysis-status" data-state="idle">
                 <span class="analysis-status-title">No displacement data</span>
                 <span class="analysis-status-detail">Load a trajectory with at least two frames.</span>
@@ -767,6 +909,7 @@
                 <label for="chk-force-vectors">Show vectors</label>
                 <input type="checkbox" id="chk-force-vectors">
             </div>
+            <div id="force-style-controls">
             <div class="prop-row">
                 <label for="force-vector-style">Vector style</label>
                 <select id="force-vector-style">
@@ -791,6 +934,7 @@
             <div class="prop-row">
                 <label for="force-vector-color">Color</label>
                 <input id="force-vector-color" type="color" value="#c43f5e">
+            </div>
             </div>
             <div id="force-vector-status" class="analysis-status" data-state="idle">
                 <span class="analysis-status-title">Force vectors hidden</span>
@@ -1053,7 +1197,7 @@
                 </div>
                 <p id="registry-mode-instruction" class="panel-note">Activate first, then use G or optimize the shared two-coordinate translation.</p>
                 <div class="registry-relax-grid">
-                    <label>fmax / eV Å<sup>−1</sup><input id="registry-relax-fmax" type="number" min="0.0001" step="0.01" value="0.05"></label>
+                    <label><span>fmax / eV Å⁻¹</span><input id="registry-relax-fmax" type="number" min="0.0001" step="0.01" value="0.05"></label>
                     <label>Steps<input id="registry-relax-steps" type="number" min="1" max="100000" step="10" value="100"></label>
                 </div>
                 <div class="registry-relax-actions">
@@ -1141,7 +1285,7 @@
             </div>
             <div class="prop-row atomic-scale-row">
                 <label for="atomic-scale">Atomic scale</label>
-                <div class="atomic-scale-control">
+                <div class="atomic-scale-control unit-input">
                     <input type="number" id="atomic-scale" value="100" min="0.1" max="5000" step="1" inputmode="decimal">
                     <span class="atomic-scale-unit">px/Å</span>
                 </div>
@@ -1185,13 +1329,77 @@
 
         <details class="panel-section" open data-panel="appearance" data-panel-group="structure">
             <summary class="section-header">Appearance</summary>
+            <div class="appearance-section-heading">Atom radius</div>
             <div class="range-row">
                 <div class="range-head">
-                    <label for="atom-radius-scale">Atom radius</label>
+                    <label for="atom-radius-scale">All atoms · size</label>
                     <output id="atom-radius-scale-value">0.60x</output>
                 </div>
-                <input type="range" id="atom-radius-scale" value="0.6" min="0.25" max="2.5" step="0.05">
+                <div class="range-with-number">
+                    <input type="range" id="atom-radius-scale" value="0.6" min="0.25" max="2.5" step="0.01">
+                    <input type="number" id="atom-radius-scale-number" value="0.6" min="0.25" max="2.5" step="0.01" aria-label="Global atom size multiplier">
+                </div>
             </div>
+            <div class="atom-radius-mapping-card">
+                <div class="atom-colorscale-title-row">
+                    <div>
+                        <strong>Property radius mapping</strong>
+                        <span>Multiply manual sizes by a stored per-atom value</span>
+                    </div>
+                    <input id="chk-atom-radius-mapping" type="checkbox" aria-label="Enable property radius mapping">
+                </div>
+                <div id="atom-radius-mapping-controls" class="atom-radius-mapping-controls hidden">
+                    <label class="atom-colorscale-field" for="atom-radius-mapping-field">
+                        <span>Property</span>
+                        <select id="atom-radius-mapping-field"><option value="">Choose property</option></select>
+                    </label>
+                    <div class="atom-radius-mapping-grid">
+                        <label for="atom-radius-mapping-preset"><span>Preset</span>
+                            <select id="atom-radius-mapping-preset">
+                                <option value="custom">Custom scalar</option>
+                                <option value="fraction">Fractional existence / occupancy</option>
+                                <option value="fraction-volume">Volume proportional to fraction</option>
+                                <option value="charge">Charge magnitude</option>
+                            </select>
+                        </label>
+                        <label for="atom-radius-mapping-transform"><span>Value</span>
+                            <select id="atom-radius-mapping-transform">
+                                <option value="identity">Signed / identity</option>
+                                <option value="absolute">Absolute magnitude</option>
+                            </select>
+                        </label>
+                        <label for="atom-radius-mapping-scope"><span>Apply to</span>
+                            <select id="atom-radius-mapping-scope">
+                                <option value="all">All atoms</option>
+                                <option value="indices">Frozen selected atoms</option>
+                            </select>
+                        </label>
+                        <label for="atom-radius-mapping-exponent"><span>Exponent</span>
+                            <input id="atom-radius-mapping-exponent" type="number" min="0.1" max="5" step="0.05" value="1">
+                        </label>
+                    </div>
+                    <div class="atom-radius-scope-status">
+                        <span id="atom-radius-mapping-scope-count">All atoms</span>
+                        <button id="btn-atom-radius-mapping-use-selection" type="button">Replace with current selection</button>
+                    </div>
+                    <div class="atom-radius-mapping-range">
+                        <label for="atom-radius-mapping-min"><span>Input min</span><input id="atom-radius-mapping-min" type="number" step="any" value="0"></label>
+                        <label for="atom-radius-mapping-max"><span>Input max</span><input id="atom-radius-mapping-max" type="number" step="any" value="1"></label>
+                    </div>
+                    <div class="atom-colorscale-range-actions">
+                        <button id="btn-atom-radius-mapping-fit-current" type="button">Fit current frame</button>
+                        <button id="btn-atom-radius-mapping-fit-trajectory" type="button">Fit trajectory</button>
+                    </div>
+                    <div class="atom-radius-mapping-range">
+                        <label for="atom-radius-mapping-output-min"><span>Size min</span><input id="atom-radius-mapping-output-min" type="number" min="0" max="4" step="0.05" value="0.25"></label>
+                        <label for="atom-radius-mapping-output-max"><span>Size max</span><input id="atom-radius-mapping-output-max" type="number" min="0" max="4" step="0.05" value="1.25"></label>
+                    </div>
+                    <div id="atom-radius-mapping-legend" class="atom-radius-mapping-legend" aria-label="Sampled atom sizes"></div>
+                    <p class="panel-note">A zero multiplier hides the atom glyph only; bonds and scientific analyses remain independent.</p>
+                    <p id="atom-radius-mapping-status" class="panel-note atom-radius-mapping-status">Values load only while this option is enabled.</p>
+                </div>
+            </div>
+            <div class="appearance-section-heading">Color</div>
             <div class="atom-colorscale-card">
                 <div class="atom-colorscale-title-row">
                     <div>
@@ -1264,6 +1472,33 @@
                     </p>
                 </div>
             </div>
+            <div class="appearance-section-heading">Atom types</div>
+            <div id="appearance-table" class="appearance-table">
+                <div id="appearance-table-body"></div>
+            </div>
+            <div class="appearance-section-heading">Surface</div>
+            <label class="appearance-scope" for="appearance-scope-select"><span>Apply surface to</span>
+                <select id="appearance-scope-select" aria-label="Atom appearance scope">
+                    <option value="all">All atoms</option>
+                    <option value="selected" disabled>Selected atoms</option>
+                </select>
+            </label>
+
+            <div class="appearance-surface-controls">
+                <label for="appearance-material"><span>Material</span>
+                    <select id="appearance-material" aria-label="Material for appearance scope">
+                        <option value="mixed" disabled>Mixed</option>
+                        <option value="standard">Standard</option>
+                        <option value="metal">Metal</option>
+                        <option value="rubber">Rubber</option>
+                    </select>
+                </label>
+                <label for="appearance-opacity"><span>Opacity</span>
+                    <input id="appearance-opacity" type="number" min="0" max="1" step="0.05" value="1" aria-label="Opacity for appearance scope">
+                </label>
+                <p id="appearance-surface-scope-note" class="panel-note">Changes apply to the chosen types.</p>
+            </div>
+            <div class="appearance-section-heading">Selected atom properties</div>
             <div id="selected-appearance" class="selected-appearance">
                 <div class="selected-appearance-head">
                     <strong>Selected atoms</strong>
@@ -1297,26 +1532,16 @@
                         <label for="selected-atom-radius-scale">Radius scale</label>
                         <output id="selected-atom-radius-scale-value">1.00x</output>
                     </div>
-                    <input id="selected-atom-radius-scale" type="range" value="1" min="0.25" max="2.5" step="0.05">
+                    <div class="range-with-number">
+                        <input id="selected-atom-radius-scale" type="range" value="1" min="0.25" max="2.5" step="0.01">
+                        <input id="selected-atom-radius-scale-number" type="number" value="1" min="0.25" max="2.5" step="0.01" aria-label="Selected atom radius multiplier">
+                    </div>
                 </div>
                 <label class="check-row selected-bond-inherit-row" for="selected-atom-update-bonds">
                     <span>Match bond material &amp; opacity</span>
                     <input id="selected-atom-update-bonds" type="checkbox" checked>
                 </label>
                 <button id="btn-apply-selected-label" class="btn-block" type="button">Apply Selected Appearance</button>
-            </div>
-            <div id="appearance-table" class="appearance-table">
-                <div class="mini-table-head appearance-table-head">
-                    <span>Type</span>
-                    <span>Visible</span>
-                    <span>Select</span>
-                    <span>Label</span>
-                    <span>Color</span>
-                    <span title="Radius / Å">Radius</span>
-                    <span>Opacity</span>
-                    <span>Material</span>
-                </div>
-                <div id="appearance-table-body"></div>
             </div>
         </details>
 
@@ -1371,8 +1596,10 @@
             </div>
         </details>
 
-        <details class="panel-section" open data-panel="cell-transform" data-panel-group="structure" data-edit-only>
+        <details class="panel-section" open data-panel="cell-transform" data-panel-group="structure">
             <summary class="section-header">Cell Transform</summary>
+            <p id="cell-transform-view-note" class="panel-note">Switch to Edit to apply a physical cell transformation.</p>
+            <button id="btn-cell-transform-switch-edit" class="btn-block" type="button">Switch to Edit</button>
             <div class="matrix-grid" id="make-supercell-matrix">
                 <input type="number" id="matrix-00" value="1" step="1">
                 <input type="number" id="matrix-01" value="0" step="1">
@@ -1387,9 +1614,33 @@
             <button id="btn-apply-supercell-matrix" class="btn-block">Apply make_supercell Matrix</button>
         </details>
 
+        <section class="panel-section" data-panel="scene-fields" data-panel-group="analysis">
+            <div class="section-header static-header">Scene fields</div>
+            <p class="panel-note">Select a dataset or plane to edit its surface, visibility, or map properties.</p>
+            <div id="scene-field-list" class="scene-object-list"></div>
+            <div id="scene-field-surface-properties"></div>
+            <div id="scene-field-plane-properties"></div>
+            <button type="button" id="scene-field-import" class="btn-block">Import field…</button>
+            <button type="button" data-editor-route="volumetric" class="btn-block">Field import, statistics &amp; combinations…</button>
+        </section>
+
+        <section class="panel-section" data-panel="scene-vectors" data-panel-group="analysis">
+            <div class="section-header static-header">Vector layers</div>
+            <div class="export-group"><strong>Displacements</strong>
+                <label class="check-row" for="scene-displacement-visible"><span>Show layer</span><input id="scene-displacement-visible" type="checkbox"></label>
+                <div id="scene-displacement-style"></div>
+                <button type="button" data-editor-route="displacement" class="btn-block">Reference &amp; statistics…</button>
+            </div>
+            <div class="export-group"><strong>Stored forces</strong>
+                <label class="check-row" for="scene-force-visible"><span>Show layer</span><input id="scene-force-visible" type="checkbox"></label>
+                <div id="scene-force-style"></div>
+                <button type="button" data-editor-route="forces" class="btn-block">Stored-data status…</button>
+            </div>
+        </section>
+
         <details class="panel-section" open data-panel="transform" data-panel-group="structure">
-            <summary class="section-header">Transform &amp; Cell Match</summary>
-            <div class="prop-row" data-edit-only>
+            <summary class="section-header">Transform selection / Match periodic cells</summary>
+            <div class="prop-row transform-selection-control" data-edit-only>
                 <label for="rotate-pivot">Rotate pivot</label>
                 <select id="rotate-pivot">
                     <option value="selection">Selection COM</option>
@@ -1398,15 +1649,15 @@
                     <option value="cell">Unit-cell center</option>
                 </select>
             </div>
-            <div class="prop-row" data-edit-only>
+            <div class="prop-row transform-selection-control" data-edit-only>
                 <label for="move-increment">Move increment / A</label>
                 <input type="number" id="move-increment" value="0" min="0" step="0.01" placeholder="0 = continuous">
             </div>
-            <div class="prop-row" data-edit-only>
+            <div class="prop-row transform-selection-control" data-edit-only>
                 <label for="rotate-increment">Rotate increment / deg</label>
                 <input type="number" id="rotate-increment" value="0" min="0" step="1" placeholder="0 = continuous">
             </div>
-            <div class="selection-rotation-command" data-edit-only aria-label="Rotate selected atoms by an exact angle">
+            <div class="selection-rotation-command transform-selection-control" data-edit-only aria-label="Rotate selected atoms by an exact angle">
                 <div class="panel-subhead">Exact selection rotation</div>
                 <div class="selection-rotation-fields">
                     <label for="selection-rotate-axis">Axis</label>
@@ -1819,8 +2070,84 @@
         </details>
 
         <section class="panel-section export-section" data-panel="export" data-panel-group="export">
-            <div class="section-header static-header">Export</div>
-            <div class="export-group">
+            <div class="renderer-properties">
+                <div class="section-header static-header">Renderer</div>
+                <div class="export-group renderer-lighting-group">
+                    <div class="panel-subhead">Lighting</div>
+                    <div class="prop-row"><label for="renderer-lighting-mode">Mode</label>
+                        <select id="renderer-lighting-mode"><option value="modeling">Modeling</option><option value="studio">Studio Sun</option><option value="studio-shadow">Sun + Soft Shadow</option></select></div>
+                    <div class="prop-row"><label for="renderer-sun-intensity">Sun brightness</label>
+                        <input id="renderer-sun-intensity" type="number" min="0" max="8" step="0.05"></div>
+                    <div class="prop-row renderer-vector-row"><label>Sun source XYZ</label><span class="renderer-vector">
+                        <input id="renderer-sun-position-x" type="number" step="0.25" aria-label="Sun source x">
+                        <input id="renderer-sun-position-y" type="number" step="0.25" aria-label="Sun source y">
+                        <input id="renderer-sun-position-z" type="number" step="0.25" aria-label="Sun source z">
+                    </span></div>
+                    <div class="prop-row renderer-vector-row"><label>Sun target XYZ</label><span class="renderer-vector">
+                        <input id="renderer-sun-target-x" type="number" step="0.25" aria-label="Sun target x">
+                        <input id="renderer-sun-target-y" type="number" step="0.25" aria-label="Sun target y">
+                        <input id="renderer-sun-target-z" type="number" step="0.25" aria-label="Sun target z">
+                    </span></div>
+                </div>
+                <div class="export-group renderer-quality-group">
+                    <div class="panel-subhead">Quality</div>
+                    <div class="prop-row"><label for="renderer-sphere-quality">Atom smoothness</label>
+                        <select id="renderer-sphere-quality"><option value="viewport">Viewport quality</option><option value="auto">Automatic</option><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="ultra">Ultra</option></select></div>
+                    <label class="check-row" for="renderer-antialias"><span>Anti-aliasing</span><input id="renderer-antialias" type="checkbox"></label>
+                </div>
+                <div class="export-group rendered-output-group renderer-output-group">
+                    <div class="panel-subhead">Output frame &amp; scale</div>
+                    <div class="relax-grid export-dimensions">
+                        <label for="image-width">Width</label><input type="number" id="image-width" value="1920" step="128" min="256" max="8192">
+                        <label for="image-height">Height</label><input type="number" id="image-height" value="1080" step="128" min="256" max="8192">
+                    </div>
+                    <div class="prop-row"><label for="renderer-framing-mode">Framing</label>
+                        <select id="renderer-framing-mode"><option value="viewport">Viewport</option><option value="physical">Physical scale</option></select></div>
+                    <div class="prop-row"><label for="renderer-pixels-per-angstrom">Output scale</label>
+                        <span class="unit-input"><input id="renderer-pixels-per-angstrom" type="number" min="0.1" max="5000" step="0.1" aria-label="Output pixels per angstrom"><span>px/Å</span></span></div>
+                </div>
+                <div class="export-group renderer-extras-group">
+                        <div class="panel-subhead">Overlays, background &amp; render area</div>
+                        <label class="check-row" for="renderer-include-grid"><span>Include grid</span><input id="renderer-include-grid" type="checkbox"></label>
+                        <label class="check-row" for="renderer-include-axes"><span>Include axes</span><input id="renderer-include-axes" type="checkbox"></label>
+                        <label class="check-row" for="renderer-include-cell"><span>Include cell</span><input id="renderer-include-cell" type="checkbox" checked></label>
+                        <div class="prop-row"><label for="renderer-background">Background</label><input id="renderer-background" type="color" value="#ffffff"></div>
+                        <button id="btn-preview-image" class="btn-block export-preview-toggle" type="button" aria-pressed="false" data-requires-atoms>Render Area</button>
+                        <div class="render-area-options">
+                            <label class="check-row" for="render-area-follow-view"><span>Follow viewport</span><input type="checkbox" id="render-area-follow-view" checked></label>
+                            <button id="btn-render-area-from-view" type="button" data-requires-atoms>Set from Current View</button>
+                        </div>
+                </div>
+            </div>
+            <div class="export-group renderer-format-config renderer-image-config">
+                <div class="panel-subhead">Image</div>
+                <div class="prop-row"><label for="renderer-image-format">Format</label>
+                    <select id="renderer-image-format">
+                        <option value="png">PNG · lossless</option><option value="jpg">JPEG · opaque</option>
+                        <option value="webp">WebP · compact</option><option value="pdf">PDF · single page</option>
+                    </select></div>
+                <p class="panel-note">Uses the Renderer frame, lighting, quality, and overlay settings above. Export opens a detached preview before writing.</p>
+            </div>
+            <div class="export-group renderer-format-config renderer-video-config">
+                <div class="panel-subhead">Video</div>
+                <div class="prop-row"><label for="renderer-video-format">Container</label>
+                    <select id="renderer-video-format"><option value="mov">MOV · H.264</option><option value="avi">AVI · MPEG-4</option></select></div>
+                <div class="prop-row"><label for="renderer-video-fps">Frames per second</label>
+                    <input id="renderer-video-fps" type="number" min="1" max="60" step="1" value="12"></div>
+                <div class="prop-row"><label for="renderer-video-interpolation">Interpolation</label>
+                    <input id="renderer-video-interpolation" type="number" min="1" max="64" step="1" value="1"></div>
+                <label class="check-row" for="renderer-video-mic"><span>Minimum image convention</span><input id="renderer-video-mic" type="checkbox" checked></label>
+                <p id="renderer-video-estimate" class="panel-note" aria-live="polite"></p>
+                <p class="panel-note">Uses the Renderer frame, lighting, and overlays. Video backgrounds are opaque white.</p>
+            </div>
+            <div class="export-group renderer-format-config renderer-html-config">
+                <div class="panel-subhead">Interactive HTML</div>
+                <p id="renderer-html-frame-note" class="panel-note"></p>
+                <label class="check-row" for="renderer-html-embed-project"><span>Embed editable project</span><input id="renderer-html-embed-project" type="checkbox"></label>
+                <p class="panel-note">The standalone view works offline. An embedded project permits restoration in v_ase but increases file size. Export previews the exact poster and crop before writing.</p>
+            </div>
+            <div class="section-header static-header export-action-header">Export</div>
+            <div class="export-group export-structure-data">
                 <div class="panel-subhead">Structure data</div>
                 <div class="btn-stack-row two">
                     <button id="btn-export-poscar" data-requires-atoms>POSCAR</button>
@@ -1828,7 +2155,7 @@
                 </div>
             </div>
 
-            <div class="export-group">
+            <div class="export-group export-geometry">
                 <div class="panel-subhead">3D scene</div>
                 <div class="prop-row">
                     <label for="blender-export-mode">Blender atoms</label>
@@ -1848,34 +2175,11 @@
                 </div>
             </div>
 
-            <div class="export-group rendered-output-group">
+            <div class="export-group rendered-output-group export-media">
                 <div class="panel-subhead">Rendered media</div>
                 <p class="panel-note">
                     Image, video, and HTML use this persistent Render Area camera and crop.
                 </p>
-                <div class="relax-grid export-dimensions">
-                    <label for="image-width">Width</label>
-                    <input type="number" id="image-width" value="1920" step="128" min="256" max="8192">
-                    <label for="image-height">Height</label>
-                    <input type="number" id="image-height" value="1080" step="128" min="256" max="8192">
-                </div>
-                <button id="btn-preview-image" class="btn-block export-preview-toggle" type="button"
-                        aria-pressed="false" data-requires-atoms>
-                    <svg viewBox="0 0 20 16" aria-hidden="true">
-                        <path d="M2.5 2.5h15v11h-15z"></path>
-                        <path d="M5 2.5v2M15 2.5v2M5 11.5v2M15 11.5v2"></path>
-                    </svg>
-                    <span>Render Area</span>
-                </button>
-                <div class="render-area-options">
-                    <label class="check-row" for="render-area-follow-view">
-                        <span>Follow viewport</span>
-                        <input type="checkbox" id="render-area-follow-view" checked>
-                    </label>
-                    <button id="btn-render-area-from-view" type="button" data-requires-atoms>
-                        Set from Current View
-                    </button>
-                </div>
                 <div class="btn-stack-row two export-image-actions">
                     <button id="btn-export-image" data-requires-atoms>Image</button>
                     <button id="btn-export-video" data-requires-atoms disabled>Video</button>
@@ -1916,8 +2220,8 @@
             </div>
             <input type="file" id="settings-file" class="hidden" accept=".json,.pkl,.pickle,.html,.htm,application/json,text/html">
             <div class="btn-stack-row">
-                <button id="btn-undo" title="Undo (Ctrl+Z)">↺</button>
-                <button id="btn-redo" title="Redo (Ctrl+Shift+Z)">↻</button>
+                <button id="btn-undo">↺</button>
+                <button id="btn-redo">↻</button>
             </div>
         </section>
         <section class="panel-section save-format-guide" data-panel="save-guide" data-panel-group="export" aria-label="Save format guide">
@@ -1958,6 +2262,7 @@
                 <strong id="analysis-drawer-title">Structural Distribution</strong>
             </div>
             <div class="analysis-drawer-actions">
+                <button id="btn-results-back" type="button">Back to viewport</button>
                 <select id="commensurate-plot-view" class="analysis-view-select hidden"
                         aria-label="Commensurate graph view" title="Commensurate graph view">
                     <option value="overview-3d">Angle × cell size × strain</option>
@@ -1982,16 +2287,25 @@
 
     <!-- Bottom Command Overlay -->
     <footer id="command-bar">
+        <div id="project-save-status" class="project-save-status hidden" role="status" aria-live="polite">
+            <span id="project-save-error-text"></span>
+            <button id="project-retry-save" type="button">Retry Save</button>
+            <button id="project-error-save-as" type="button">Save As…</button>
+        </div>
+        <div id="active-add-session-controls" class="active-add-session-controls hidden" aria-live="polite">
+            <strong>ADDING ATOMS</strong>
+            <span>Finish or cancel the current placement session</span>
+        </div>
         <div id="trajectory-panel" class="trajectory-strip" aria-label="Trajectory controls">
             <div class="timeline-head">
                 <select id="timeline-source-select" class="timeline-source-select"
                         aria-label="Timeline controlled by playback and keyboard shortcuts"
-                        title="Choose the timeline controlled by playback, Space, and Left/Right arrow keys">
+                        title="Choose the timeline controlled by playback, Space, and Alt/Option+Left/Right arrow keys">
                     <option value="loaded">Source frames</option>
                 </select>
-                <button id="btn-frame-prev" title="Previous frame">‹</button>
+                <button id="btn-frame-prev" title="Previous frame (Alt/Option+←)">‹</button>
                 <button id="btn-play" title="Play/Pause">▶</button>
-                <button id="btn-frame-next" title="Next frame">›</button>
+                <button id="btn-frame-next" title="Next frame (Alt/Option+→)">›</button>
                 <span id="frame-label">1 / 1</span>
             </div>
             <input type="range" id="frame-slider" min="0" max="0" value="0">
@@ -2021,23 +2335,25 @@
         </div>
         <div id="hover-readout">Hover atom: -</div>
         <div id="coord-readout">X: 0.00 Y: 0.00 Z: 0.00</div>
+        <span id="scene-status-readout" aria-live="polite">0 atoms · 0 selected</span>
     </footer>
 
     <!-- Modals -->
     <div id="modal-container" class="hidden">
-        <div class="modal glass-panel">
+        <div class="modal glass-panel" role="dialog" aria-modal="true" aria-labelledby="modal-title">
             <div id="modal-content">
                 <h2>Shortcuts</h2>
                 <div class="shortcut-grid">
                     <span>Left click</span><label>Select / confirm transform</label>
                     <span>Shift + click / drag</span><label>Invert selection for clicked atoms or every atom inside the box</label>
                     <span>Left drag</span><label>Box select</label>
-                    <span>Ctrl+A</span><label>Select all visible atoms</label>
-                    <span>Shift+Ctrl+A</span><label>Invert selection for all visible atoms</label>
+                    <span>⌘/Ctrl+A</span><label>Select all visible atoms</label>
+                    <span>Shift+A</span><label>Invert selection for all visible atoms</label>
                     <span>Middle drag</span><label>Orbit viewport</label>
                     <span>Shift + middle drag</span><label>Pan viewport</label>
                     <span>Space</span><label>Play or pause the selected timeline</label>
-                    <span>&larr; / &rarr;</span><label>Previous or next frame in the selected timeline</label>
+                    <span>&uarr; / &darr; / &larr; / &rarr;</span><label>Orbit or tilt the structure view using the configured camera step</label>
+                    <span>Alt/Option+&larr; / Alt/Option+&rarr;</span><label>Previous or next frame in the selected timeline</label>
                     <span>Tab / Esc</span><label>Open the control panel while it is collapsed</label>
                     <span>G</span><label>Move selected atoms or Sun handle</label>
                     <span>R</span><label>Rotate selected atoms or Sun direction</label>
@@ -2049,7 +2365,7 @@
                     <span>X / Y / Z</span><label>Lock the global Cartesian axis in G/R/S mode</label>
                     <span>Enter</span><label>Confirm transform</label>
                     <span>Esc</span><label>Cancel a transform, close a modal, or close the open control panel and return focus to the viewport</label>
-                    <span>Ctrl+C / V / Z</span><label>Copy, paste, undo an edit or visual setting</label>
+                    <span>⌘/Ctrl+C / V / Z</span><label>Copy, paste, undo an edit or visual setting</label>
                     <span>Delete</span><label>Delete selected atoms</label>
                 </div>
                 <h3 class="help-section-title">Opening Files</h3>
@@ -2098,7 +2414,7 @@
         }
         const modulePath = (window.location.protocol === 'file:' || window.location.pathname.endsWith('/static/index.html'))
             ? './main.js'
-            : './static/main.js?v=0.3.8';
+            : './static/main.js?v=0.4.1';
         import(modulePath).catch(error => {
             console.error('v_ase failed to initialize:', error?.stack || error);
         });

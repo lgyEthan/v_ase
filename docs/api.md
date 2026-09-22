@@ -417,7 +417,7 @@ For `r < r_cut`, both modes use
 `E_pair = 0.5 * k_repulsion * (r_cut - r)**2`; at and beyond `r_cut`, pair
 energy and force are exactly zero. `r_cut` is therefore an onset distance, not
 a hard minimum-separation constraint. All settings are editable under
-**Structure > Relaxation** and persist with supported calculator state.
+**Build > Relaxation** and persist with supported calculator state.
 
 Compatibility imports remain available from `v_ase`, `v_ase.calculator`, and
 `v_ase.repulsion`. `Conditioner` is an alias for the same class.
@@ -457,7 +457,7 @@ display replication, visual translation, render quality, and image-export
 choices. It excludes atom coordinates, trajectory frames, cell contents,
 absolute camera placement, and per-atom overrides.
 
-Use **Export > Visual Settings > Set Current as Default** to save it. Restore
+Use **Render > Visual defaults > Set Current as Default** to save it. Restore
 the built-in values with **Restore App Defaults**; the confirmation dialog
 deletes the saved preference only after **Proceed**. Portable Visual Settings
 JSON remains a separate file-based interchange format.

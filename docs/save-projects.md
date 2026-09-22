@@ -24,7 +24,7 @@ HTML document. No local Python server or network connection is required.
 
 ## Save Project
 
-**Export > Save Project** has two complete-project outputs.
+**File → Project save settings** has two complete-project outputs.
 
 ### Compact `.vase`
 
@@ -39,6 +39,12 @@ The default is the smallest editable source of truth. It stores:
 The archive is self-contained and does not reference the original input file.
 Volumetric arrays use validated compressed members; project loading does not
 execute an arbitrary pickle payload.
+Save waits for pending scientific edits and frame work, and refuses an invalid
+active scientific field before opening a file picker. Closing or replacing a
+document waits for pending edits before offering Save, Discard or Cancel; a
+failed physical apply keeps the document open with an error. Field import,
+combination and removal all count as unsaved scientific changes, even when
+the affected field is not currently displayed.
 
 The current source also stores per-frame cell origins in the `.vase` manifest.
 ASE `.traj` alone does not preserve `celldisp`; use `.vase` or project HTML when
@@ -58,6 +64,13 @@ v_ase gui project.html
 
 The HTML is larger than `.vase` because it contains renderer assets, scene
 data, poster pixels, and a Base64 project archive.
+Renderer Undo/Redo restores the editable HTML project's own saved output
+profile as well as the visible controls. An internal-tab reload retains the
+project's original format, output profile and available writable target;
+Save As updates that retained target only after a successful write. An unsaved
+visual edit in the child stays visible and dirty after the child reloads. A
+successfully saved appearance is restored on reload even though its tab is
+clean; repeated edits while dirty retain the latest committed value.
 
 ## HTML View
 
@@ -92,6 +105,44 @@ destination picker before expensive rendering or scene generation. Canceling
 the picker cancels the operation. Chrome may show its own permission notice for
 the selected destination; v_ase receives write access only to that user-chosen
 file.
+
+After a successful project save, **Save** reuses that approved writable target
+and original `.vase` or project-HTML format. **Save As** chooses a new target;
+the old file is unchanged until the new write succeeds. An HTML project retains
+its output profile when saved again. The File menu, quick Save button and
+`⌘S` on macOS or `Ctrl+S` on Windows/Linux uses that retained target; **File → Project save settings** opens the format
+dialog explicitly. A browser without a reusable file handle
+downloads a new copy and says so explicitly. An uploaded raw structure or
+temporary source path is never treated as an implicit overwrite target.
+
+When a `.vase` or editable HTML project was explicitly opened from the terminal
+launch-directory picker or as a CLI/Python project path, the local server may
+save back to that exact opened file. The path is kept private to the session;
+the browser receives only an opaque binding. v_ase verifies the original file
+has not changed externally, writes a staged file beside it and atomically
+replaces it. An external edit yields a conflict instead of being overwritten;
+the tab marks the save error and offers Retry Save or Save As. Reload only if
+you intend to discard the current in-memory edits. The same best-effort
+size/modified-time check applies
+to retained browser file handles. v_ase checks such a handle again after
+serialization or poster rendering and immediately before opening the writer;
+browser handles do not provide an atomic compare-and-swap against an external
+writer racing after that final check.
+
+An editable HTML project reopens as HTML, including its saved render profile;
+this remains true when it opens in a new internal tab. If the browser supplied
+a writable handle, that tab retains it; otherwise Save downloads an HTML copy
+rather than converting to `.vase`.
+an ordinary `.vase` extracted from HTML remains `.vase`. One-off HTML/image/
+video exports do not change the project's format or writable destination.
+
+Document tabs show changed and saving state. Closing a changed tab offers
+Save, Discard or Cancel; canceling a destination picker leaves the tab open.
+Replacing a dirty tab uses the same choice. Closing or reloading the browser
+page requests the browser's supported unsaved-changes confirmation; canceling
+that exit leaves the live session intact. Save waits for pending physical
+application and playback/frame work before taking the project snapshot.
+Closing the last tab creates a new blank document, keeping the workspace alive.
 
 Image and video progress is monotonic across render, capture, upload, encode,
 download, and final write. Completion reaches 100% only after the destination

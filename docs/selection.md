@@ -14,13 +14,16 @@ appearance overrides, and several analysis tools.
 | Shift + left-click | Add or remove the clicked atom |
 | Left-drag | Replace the selection with atoms inside the box |
 | Shift + left-drag | Invert membership for atoms inside the box |
-| `Ctrl+A` | Select all visible atoms |
-| `Shift+Ctrl+A` | Invert all visible atoms; clear when all were selected |
+| `⌘A` (macOS) / `Ctrl+A` (Windows/Linux) | Select all visible atoms |
+| `Shift+A` | Invert all visible atoms; clear when all were selected |
 
-Selection order is meaningful. Two selected atoms define a distance, three
-define the angle `a1-a2-a3`, and four define the signed torsion
-`a1-a2-a3-a4`. Do not sort the selection when reproducing a measurement or a
-pivot workflow.
+Selection order still determines the active transform pivot. Automatic geometry
+needs deliberate individual clicks: two give a distance, three the angle
+`a1-a2-a3`, and four the signed torsion `a1-a2-a3-a4`. A box, label selection,
+Select all, inversion or paste is bulk intent even when it contains 2–4 atoms;
+the inspector and overlay show a count, not an incidental measurement. A single
+atom retains its identity and stored-property inspection regardless of how it
+was selected. Do not sort an intentional measurement sequence or pivot workflow.
 
 ### Base atoms and periodic replicas
 
@@ -67,12 +70,13 @@ Ethane: the selection grows from distance to angle to torsion.
 
 Select atoms in the intended order:
 
-- one atom shows label, element, displayed Cartesian/fractional position, and
-  lazy per-atom properties;
+- one atom leads with its chemical element and user label, then shows displayed
+  Cartesian/fractional position and lazy per-atom properties (not a property count);
 - two show direct and minimum-image distances where applicable;
 - three show the `a1-a2-a3` angle at `a2`;
 - four show the signed `a1-a2-a3-a4` torsion; and
-- larger selections show total and per-label counts.
+- bulk selections and deliberate sequences larger than four show total and
+  per-label counts without geometric lines.
 
 The retained Measure overlay follows the selected source or optimizer frame
 and committed `G`/`R`/`S` edits without relying on hover state.

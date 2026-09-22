@@ -1,12 +1,12 @@
 # Relax structures
 
 Use an attached ASE calculator to relax coordinates, or use the built-in
-repulsion model to remove short contacts. Open **Edit > Structure > Relaxation**.
+repulsion model to remove short contacts. Open **Edit > Build > Relaxation**.
 Read which calculator is active before interpreting any energy or force.
 
 ## Relaxation prerequisites
 
-Open **Structure > Relaxation** in Edit. Ordinary structure relaxation requires
+Open **Build > Relaxation** in Edit. Ordinary structure relaxation requires
 an attached ASE calculator. When a structure enters Edit without a calculator,
 v_ase attaches its built-in soft-repulsion fallback; View mode does not attach
 one. User-supplied ASE calculators are preserved.

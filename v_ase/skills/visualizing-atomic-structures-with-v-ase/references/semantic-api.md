@@ -314,6 +314,7 @@ Pass `operation` as a name string or object:
 | `remove-volumetric` | `datasetId` | Remove one grid from the document |
 | `calculate-rdf` | optional `cutoff`, `bins`, `pairMode`, `activePairs` | Calculate a bulk RDF for full 3D PBC, or an unordered-pair probability density for a finite no-PBC structure |
 | `set-atom-colorscale` | optional `enabled`, `field`, `map`, `customMap`, `reverse`, `scope`, `indices`, `rangeMode`, `minimum`, `maximum`, `gamma` | Lazily color all or selected atoms by a discovered numeric per-atom value with a trajectory-consistent range and preset or custom map; explicit indices freeze a selected subset |
+| `set-atom-radius-mapping` | optional `enabled`, `field`, `valueTransform`, `rangeMode`, `minimum`, `maximum`, `minMultiplier`, `maxMultiplier`, `exponent`, `scope`, `indices`, `fit` | Atomically fit or set a scalar-to-radius mapping; `current`/`trajectory` with `fit:true` scans the requested source, and `indices` freezes base-atom scope. Inspect focused appearance readiness before exact rendering. |
 
 `compose-view` accepts periodic atom references as
 `{"index": I, "cellOffset": [ia, ib, ic]}`. `centerMotif` converts the

@@ -22,6 +22,7 @@ from v_ase.server import (
 )
 from v_ase.session import EditorSession, sessions
 from v_ase.viewer import find_free_port, view
+from tests.ui_navigation import open_editor_route
 
 
 PROTOTYPE_REQUESTS = {
@@ -290,7 +291,7 @@ def test_browser_ase_bulk_builder_validates_builds_replaces_and_undoes():
                 page.wait_for_function(
                     "window.__ASE_APP__?.state?.atoms?.metadata?.natoms === 0"
                 )
-                page.click("#btn-create-atom-toggle")
+                open_editor_route(page, 'add-atoms')
                 page.click("#add-atoms-tab-build")
                 page.wait_for_selector("#add-atoms-pane-build:not(.hidden)")
                 page.wait_for_function(
@@ -423,7 +424,7 @@ def test_browser_ase_bulk_builder_uses_unified_readable_design_tokens():
                 page.goto(f"http://127.0.0.1:{port}/?session_id={editor.session_id}")
                 page.wait_for_function("window.__ASE_APP__?.state?.atoms")
                 page.evaluate("window.v_aseTheme.apply('dark')")
-                page.click("#btn-create-atom-toggle")
+                open_editor_route(page, 'add-atoms')
                 page.click("#add-atoms-tab-build")
                 page.wait_for_selector("#add-atoms-pane-build:not(.hidden)")
                 page.wait_for_function(

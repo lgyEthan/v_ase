@@ -4,7 +4,7 @@ Show the coordination around chosen atoms as colored faces and edges. Use it
 for perovskites, oxides, mixed ligands or distorted local environments.
 **View mode is sufficient:** the feature changes no coordinates and runs no calculator.
 
-**Open:** **Structure > Coordination Polyhedra**. Add a rule, choose its centers
+**Open:** **Objects → Polyhedra** (or header search). Add a rule, choose its centers
 and surrounding atoms, set a cutoff, then click **Apply polyhedra**.
 
 The same coordination geometry works in **2D** (flat colors and outlined atoms)
@@ -49,7 +49,7 @@ molecule or an oxidation-state assignment. Every Nb–O distance is 2 Å.
 v_ase gui NbO6_fragment.extxyz
 ```
 
-1. In **Structure > Coordination Polyhedra**, add a rule with center **Nb**,
+1. Search **Polyhedra** in the header, then add a rule with center **Nb**,
    ligand **O**, maximum distance **2.3 Å** and coordination range **6–6**.
 2. Choose face color **#6aafe0**, opacity **0.45**, edge color **#444444** and
    edge radius **0.012 Å**. Apply the rule.
@@ -135,7 +135,7 @@ v_ase gui IrO2_polyhedra.extxyz
 
 ### 1. Define the first center group
 
-1. Open **Structure > Coordination Polyhedra** and click **Add rule**.
+1. Search **Polyhedra** in the header and click **Add rule**.
 2. Set **Centers by > Visual label** and enter `Ir_A`.
 3. Leave surrounding atoms set to **Element**, `O`.
 4. Set maximum distance to **2.4 Å**, and minimum/maximum coordination to **6 / 6**.

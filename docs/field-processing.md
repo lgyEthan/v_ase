@@ -1,8 +1,10 @@
 # Import and process scalar fields
 
 Inspect grid geometry, precision and integrals, or combine compatible fields.
-Use **Analysis > Volumetric Data** after opening Cube, CHGCAR or another supported
-field. Choose [Isosurfaces](isosurfaces.md) or [Planes](field-planes.md) for display.
+Use **Analyze → Fields** after opening Cube, CHGCAR or another supported
+field. **Objects → Fields** lists actual datasets and planes and opens their
+isosurface and plane property controls. See [Isosurfaces](isosurfaces.md) or
+[Planes](field-planes.md) for display details.
 
 ## Supported inputs
 
@@ -26,8 +28,8 @@ v_ase gui potential.dat --format qe-xsf
 ```
 
 Opening a volumetric file creates the associated atomic structure and one or
-more scalar dataset descriptors. In an existing document, use **Analysis >
-Volumetric Data > Add Grid Data**.
+more scalar dataset descriptors. In an existing document, use **Analyze →
+Fields → Add Grid Data** or **Objects → Fields → Import field**.
 
 ## Choose precision before import
 
@@ -115,7 +117,7 @@ output precision. FP32 remains the memory-saving default when all inputs are
 FP32; import FP64 before subtraction when small differences matter. Converting
 an already rounded FP32 source later cannot recover lost input digits.
 
-Open **Analysis > Volumetric Data > Combine** and enter finite coefficients.
+Open **Analyze → Fields → Combine** and enter finite coefficients.
 A common charge-density-difference form is:
 
 ```text

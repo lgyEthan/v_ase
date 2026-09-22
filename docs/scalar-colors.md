@@ -1,7 +1,7 @@
 # Color atoms by a scalar property
 
 Map height, force magnitude or another stored per-atom array to color.
-Use **Structure > Appearance > Atom Colorscale**. Fix a common range when comparing frames
+Use **Style > Atoms > Atom Colorscale**. Fix a common range when comparing frames
 so a given color keeps the same numerical meaning.
 
 
@@ -30,7 +30,7 @@ Cu force colors use a locked range across the analytic probe trajectory.
 
 ## Map numeric per-atom data
 
-Open **Structure > Appearance > Color scale**. Enable it, then select a field,
+Open **Style > Atoms > Color scale**. Enable it, then select a field,
 map, scope, range, and contrast.
 
 Available fields are discovered lazily. Built-ins include:

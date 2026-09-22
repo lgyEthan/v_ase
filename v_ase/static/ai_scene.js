@@ -10,7 +10,7 @@ const PATCH_FIELDS = new Set(['frame', 'display', 'quality', 'camera', 'renderAr
 const TRACKED = [
     'loadFrame', 'completeTrajectoryFrameUpdate', 'refreshVolumetricDataForCurrentFrame',
     'updateVolumetricSurface', 'renderVolumetricPlane', 'renderAllVolumetricPlanes',
-    'recolorVolumetricPlanes', 'updateAtomColorScale', 'updateForceVectorsForCurrentFrame',
+    'recolorVolumetricPlanes', 'updateAtomColorScale', 'updateAtomRadiusMapping', 'updateForceVectorsForCurrentFrame',
     'refreshDisplacementAnalysis', 'refreshPolyhedra', 'calculateRdf', 'prepareCommensurateSupercellProposal'
 ];
 const copy = value => value === undefined ? undefined : JSON.parse(JSON.stringify(value));
@@ -117,6 +117,7 @@ function relevantTask(app, name) {
     if (/VolumetricSurface/.test(name)) return d.showVolumetric;
     if (/VolumetricPlane/.test(name)) return app.volumetricPlanes().some(p => p.visible);
     if (/AtomColorScale/.test(name)) return d.atomColorScaleEnabled;
+    if (/AtomRadiusMapping/.test(name)) return d.atomRadiusMapping?.enabled === true;
     if (/ForceVectors/.test(name)) return d.showForceVectors;
     if (/Displacement/.test(name)) return d.showDisplacements;
     return true;
@@ -188,6 +189,7 @@ export function installAIScene(App) {
     proto.aiInteractionSnapshot = function () {
         return {
             atomReferences: this.aiSelectionSnapshot({includePositions: false}),
+            measurementIntent: copy(this.state.measurementIntent),
             planeIds: [...this.state.selectedVolumetricPlanes].sort(),
             lightHandle: this.state.sunSelected || null,
             renderAreaSelected: Boolean(this.state.renderAreaSelected),
@@ -202,6 +204,7 @@ export function installAIScene(App) {
             if (this.state[key] != null) pending.push(key);
         }
         if (this.atomColorScaleRuntime.refreshRequest != null) pending.push('atom-colorscale-scheduled');
+        if (this.atomRadiusRuntime.refreshRequest != null) pending.push('atom-radius-scheduled');
         const errors = [...(this.aiSceneFailures?.entries() || [])]
             .filter(([name]) => relevantTask(this, name)).map(([task, message]) => ({task, message}));
         const d = this.state.display;
@@ -212,6 +215,7 @@ export function installAIScene(App) {
         if (d.showPolyhedra && !this.renderer.polyhedraDataValid) stale.push('polyhedra');
         if (d.showVolumetric && (!this.state.volumetricSurfaceSummary || !this.renderer.volumetricGroup.visible)) stale.push('isosurface');
         if (d.atomColorScaleEnabled && this.atomColorScaleRuntime.renderedFrame !== frame) stale.push('atom-colorscale');
+        if (d.atomRadiusMapping?.enabled && this.atomRadiusRuntime.renderedFrame !== frame) stale.push('atom-radius');
         if (d.showForceVectors && this.forceVectorRuntime.renderedFrame !== frame) stale.push('force-vectors');
         if (d.showDisplacements && this.state.displacementStats?.current_frame !== frame) stale.push('displacements');
         for (const plane of this.volumetricPlanes().filter(p => p.visible && !this.state.volumetricFrameHiddenPlaneIds.has(p.id))) {
@@ -284,6 +288,7 @@ export function installAIScene(App) {
             units: {length: 'angstrom', screen: 'output pixels; top-left origin', angle: 'degree'},
             readiness, render: effective,
             display: {atomMode: r.atomDisplayMode(), atomRadiusScale: d.atomRadiusScale,
+                atomRadiusMapping: copy(d.atomRadiusMapping),
                 showPolyhedra: Boolean(d.showPolyhedra), polyhedraAtomMode: d.polyhedraAtomMode || 'all',
                 polyhedraBaseCount: r.polyhedraDataValid ? (r.polyhedraData?.polyhedronCount || 0) : 0,
                 polyhedraDisplayedCount: r.polyhedraGroup?.visible ? (r.polyhedraRendered?.length || 0) : 0,
@@ -563,6 +568,7 @@ export function installAIScene(App) {
             this.state.volumetricRequestToken += 1;
             for (const [id, token] of this.state.volumetricPlaneRequestTokens) this.state.volumetricPlaneRequestTokens.set(id, token + 1);
             this.atomColorScaleRuntime.requestToken += 1;
+            this.atomRadiusRuntime.requestToken += 1;
             this.forceVectorRuntime.requestToken += 1;
             this.state.displacementRequestToken += 1;
             if (snapshot.frame !== Number(this.state.atoms?.metadata?.current_frame || 0)) await this.loadFrame(snapshot.frame);
@@ -574,6 +580,8 @@ export function installAIScene(App) {
             this.state.exportPreviewCamera = copy(snapshot.renderArea.camera);
             this.clearAtomSelection();
             for (const ref of snapshot.interaction.atomReferences) this.addSelectionReference(ref);
+            this.state.measurementIntent = copy(snapshot.interaction.measurementIntent)
+                || {kind: 'none', keys: []};
             this.setVolumetricPlaneSelection(snapshot.interaction.planeIds, {update: false});
             this.setSunSelected(snapshot.interaction.lightHandle, {update: false});
             this.setRenderAreaSelected(snapshot.interaction.renderAreaSelected, {update: false});
@@ -636,6 +644,12 @@ export function installAIScene(App) {
             throw fail('Selecting planes follows the GUI selection rules and clears atoms. Supply only one selection target.');
         }
         if (patch.display) {
+            if (plain(patch.display.atomRadiusMapping)) {
+                patch.display.atomRadiusMapping = this.normalizedAtomRadiusMapping({
+                    ...this.state.display.atomRadiusMapping,
+                    ...patch.display.atomRadiusMapping
+                }, {strict: true});
+            }
             for (const key of MAP_FIELDS) if (patch.display[key] && operation.mapMode !== 'replace') {
                 const existing = copy(this.state.display[key] || {});
                 for (const [entry, value] of Object.entries(patch.display[key])) {

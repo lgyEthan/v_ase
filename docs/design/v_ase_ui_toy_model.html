@@ -1,0 +1,703 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>v_ase · UI design study</title>
+<!--
+  EDITABLE, STANDALONE DESIGN PROTOTYPE — NOT THE v_ase APPLICATION
+  Open this file directly in a browser. No server, dependencies or network needed.
+  1. DESIGN TOKENS below control the palette, panel width and spacing.
+  2. HTML sections describe the actual controls; edit their labels directly.
+  3. DEMO CONFIG and makeAtoms() in the script control the illustrative scene.
+  All data and actions are local to this page. The analysis curve is sample data.
+  No files, Python sessions, project archives or running v_ase instances are changed.
+-->
+<style>
+/* ── 1. DESIGN TOKENS: start editing here ───────────────────────────────── */
+:root {
+  color-scheme:light;
+  --inspector-width:352px;
+  --ui-font:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  --mono-font:"SFMono-Regular",Consolas,monospace;
+  --surface:#ffffff; --canvas:#eef1f3; --chrome:#f8f9fa; --field:#f4f6f7;
+  --text:#243039; --muted:#74818a; --line:#e2e7e9; --strong-line:#cbd4d8;
+  --accent:#276f64; --accent-soft:#e7f1ed; --accent-ink:#ffffff;
+  --copper:#b88662; --oxygen:#5b91a6; --shadow:0 8px 28px #263b4610;
+  --radius:6px;
+}
+:root[data-theme="dark"] {
+  color-scheme:dark;
+  --surface:#232a30; --canvas:#191f25; --chrome:#20272d; --field:#2b343c;
+  --text:#e3e9ed; --muted:#9aa8b2; --line:#354049; --strong-line:#4b5a65;
+  --accent:#91c8b7; --accent-soft:#2c433e; --accent-ink:#182b26;
+  --shadow:0 8px 28px #0004;
+}
+/* ── 2. APP SHELL ─────────────────────────────────────────────────────── */
+* { box-sizing:border-box; }
+body { margin:0; font-family:var(--ui-font); font-size:13px; color:var(--text); background:var(--canvas); }
+button,input,select { font:inherit; color:inherit; }
+button { cursor:pointer; }
+button { border:0; background:none; }
+button:disabled { opacity:.4; cursor:default; }
+button,select,input { accent-color:var(--accent); }
+button:hover { background:var(--field); }
+button:focus-visible,select:focus-visible,input:focus-visible { outline-offset:3px; }
+[hidden] { display:none!important; }
+input[type="number"] { appearance:textfield; -moz-appearance:textfield; font-variant-numeric:tabular-nums; }
+input::-webkit-inner-spin-button { opacity:.3; }
+input[type="range"] { width:100%; min-width:0; margin:0; height:20px; cursor:ew-resize; }
+input[type="checkbox"] { width:15px; height:15px; margin:0; }
+input[type="color"] { width:25px; height:25px; border:0; background:none; padding:2px; cursor:pointer; }
+input[type="color"]::-webkit-color-swatch-wrapper { padding:1px; }
+input[type="color"]::-webkit-color-swatch { border:1px solid #0001; border-radius:50%; }
+input[type="number"],input[type="text"],select { height:32px; padding:0 9px; border:1px solid var(--line); border-radius:4px; background:var(--field); min-width:0; }
+select { width:100%; cursor:pointer; }
+input[type="number"] { text-align:right; width:100%; }
+input[type="text"] { width:100%; }
+label { cursor:default; }
+strong { font-weight:600; }
+small { font-size:11px; color:var(--muted); }
+.muted { color:var(--muted); }
+.mono { font-family:var(--mono-font); font-size:11px; font-variant-numeric:tabular-nums; }
+.key { font-family:var(--ui-font); color:var(--muted); font-size:11px; margin-left:auto; }
+.app { height:100dvh; min-height:620px; display:grid; grid-template-rows:49px minmax(0,1fr) 27px; }
+.app-header { display:flex; align-items:center; gap:18px; padding:0 19px; background:var(--surface); border-bottom:1px solid var(--line); z-index:40; }
+.wordmark { font-size:21px; font-weight:650; letter-spacing:-1.4px; white-space:nowrap; margin-right:8px; }
+.wordmark span { color:var(--accent); }
+.app-menus { display:flex; align-items:center; gap:1px; }
+.menu-wrap { position:relative; }
+.menu-trigger { padding:7px 9px; border-radius:4px; font-size:12px; }
+.menu { position:absolute; top:35px; left:0; width:228px; background:var(--surface); border:1px solid var(--line); border-radius:7px; padding:5px; box-shadow:var(--shadow); z-index:80; }
+.menu button { display:flex; align-items:center; text-align:left; gap:12px; width:100%; padding:10px; border-radius:4px; font-size:12px; }
+.menu hr { border:0; border-top:1px solid var(--line); margin:5px; }
+.document-strip { display:flex; align-items:center; min-width:0; height:100%; margin-left:10px; border-left:1px solid var(--line); padding-left:23px; }
+.document-name { font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.document-name::before { content:""; display:inline-block; width:6px; height:6px; background:var(--accent); border-radius:50%; margin:0 9px 2px 0; }
+.document-name .extension { color:var(--muted); }
+.header-right { display:flex; align-items:center; gap:17px; margin-left:auto; }
+.prototype-label { color:var(--muted); font-size:10px; letter-spacing:1.1px; text-transform:uppercase; white-space:nowrap; }
+.outline-button { border:1px solid var(--strong-line); background:var(--surface); padding:7px 11px; border-radius:var(--radius); white-space:nowrap; font-size:12px; }
+.primary { color:var(--accent-ink); background:var(--accent); border:1px solid var(--accent); border-radius:var(--radius); padding:9px 13px; font-weight:500; }
+.primary:hover { background:var(--accent); filter:brightness(.94); }
+.workspace { display:grid; grid-template-columns:minmax(0,1fr) var(--inspector-width); min-height:0; }
+.work-area { display:flex; flex-direction:column; min-height:0; min-width:0; position:relative; }
+.viewport { flex:1; min-height:220px; position:relative; overflow:hidden; }
+#structure { width:100%; height:100%; display:block; cursor:grab; touch-action:none; }
+#structure:active { cursor:grabbing; }
+.canvas-top { position:absolute; top:19px; left:22px; right:22px; display:flex; align-items:center; justify-content:space-between; gap:14px; pointer-events:none; }
+.canvas-top>* { pointer-events:auto; }
+.scene-toggle { display:flex; align-items:center; gap:8px; padding:8px 10px; font-size:12px; border:1px solid var(--strong-line); border-radius:5px; background:var(--surface); box-shadow:0 2px 5px #18303905; }
+.scene-toggle[aria-expanded="true"] { color:var(--accent); border-color:var(--accent); }
+.layer-glyph { display:inline-block; font-size:19px; line-height:15px; transform:rotate(0); }
+.view-menu { display:flex; gap:3px; padding:3px; background:var(--surface); border:1px solid var(--line); border-radius:5px; }
+.view-menu button { font-size:11px; border-radius:3px; height:25px; padding:0 10px; }
+.view-menu button.active { background:var(--field); font-weight:600; }
+.scene-title { position:absolute; left:25px; top:79px; pointer-events:none; }
+.scene-title strong { display:block; font-size:15px; font-weight:500; letter-spacing:-.2px; }
+.scene-title small { display:block; margin-top:6px; font-size:11px; }
+.scene-drawer { position:absolute; top:65px; left:22px; width:225px; padding:13px 8px 8px; background:var(--surface); border:1px solid var(--line); border-radius:7px; box-shadow:var(--shadow); z-index:25; }
+.drawer-head { display:flex; align-items:center; justify-content:space-between; padding:0 6px 10px; font-size:12px; }
+.drawer-head button { width:24px; height:24px; font-size:19px; border-radius:4px; }
+.object-row { display:grid; grid-template-columns:1fr 27px; align-items:center; border-radius:4px; margin:1px 0; }
+.object-row.chosen { background:var(--accent-soft); }
+.object-row>button { text-align:left; font-size:12px; padding:10px 7px; border-radius:4px; }
+.object-row .object-type { margin-right:7px; color:var(--muted); }
+.object-row input { justify-self:center; }
+.drawer-foot { padding:10px 7px 5px; color:var(--muted); font-size:11px; border-top:1px solid var(--line); margin-top:8px; }
+.orientation { position:absolute; right:25px; top:74px; width:73px; height:70px; }
+.orientation::before,.orientation::after { content:""; position:absolute; width:37px; height:1px; background:var(--strong-line); left:30px; top:36px; transform-origin:0 0; transform:rotate(28deg); }
+.orientation::after { transform:rotate(153deg); }
+.orientation button { position:absolute; height:24px; width:24px; border-radius:50%; font-size:11px; border:1px solid var(--strong-line); background:var(--surface); z-index:1; }
+.orientation .axis-z { left:23px; top:0; color:var(--oxygen); }
+.orientation .axis-x { left:48px; top:40px; color:#b06f5a; }
+.orientation .axis-y { left:0; top:40px; color:var(--accent); }
+.orientation .axis-z::after { content:""; position:absolute; left:10px; top:24px; width:1px; height:13px; background:var(--strong-line); }
+.viewport-tools { position:absolute; bottom:24px; left:50%; transform:translateX(-50%); display:flex; padding:5px; gap:3px; border:1px solid var(--line); border-radius:8px; background:var(--surface); box-shadow:0 4px 18px #263b4610; z-index:15; }
+.viewport-tools button { display:flex; align-items:center; gap:7px; padding:8px 12px; border-radius:4px; font-size:12px; white-space:nowrap; }
+.viewport-tools button.active { background:var(--accent-soft); color:var(--accent); }
+.tool-symbol { font-size:17px; line-height:18px; font-family:var(--ui-font); }
+.tool-divider { width:1px; background:var(--line); margin:5px 3px; }
+.scale-bar { position:absolute; bottom:39px; left:26px; color:var(--muted); font-size:11px; }
+.scale-line { display:block; width:73px; height:5px; border:1px solid var(--muted); border-top:0; margin-bottom:7px; }
+.fit-button { position:absolute; bottom:30px; right:26px; border:1px solid var(--line); background:var(--surface); border-radius:5px; padding:9px; font-size:11px; }
+.selection-float { position:absolute; top:22px; left:50%; transform:translateX(-50%); display:flex; align-items:center; gap:12px; background:var(--surface); border:1px solid var(--line); border-radius:5px; padding:9px 12px; font-size:12px; box-shadow:var(--shadow); z-index:16; white-space:nowrap; }
+.selection-float strong { color:var(--accent); }
+.selection-float button { border-left:1px solid var(--line); padding:0 0 0 10px; color:var(--muted); }
+.hover-tip { position:absolute; padding:7px 9px; font-size:11px; background:var(--surface); border:1px solid var(--line); border-radius:4px; pointer-events:none; z-index:18; box-shadow:var(--shadow); }
+.export-frame { position:absolute; left:50%; top:48%; transform:translate(-50%,-50%); width:69%; max-height:73%; aspect-ratio:4/3; border:1px solid var(--accent); box-shadow:0 0 0 500px #1428250a; pointer-events:none; }
+.export-frame span { position:absolute; top:-23px; font-size:10px; text-transform:uppercase; letter-spacing:.8px; color:var(--accent); }
+.timeline { height:68px; flex:0 0 68px; background:var(--surface); border-top:1px solid var(--line); padding:11px 23px; display:flex; align-items:center; gap:20px; }
+.timeline-title { min-width:115px; }
+.timeline-title strong { display:block; font-size:11px; font-weight:500; }
+.timeline-title small { display:block; font-size:10px; margin-top:5px; }
+.play-button { width:29px; height:29px; border:1px solid var(--line); border-radius:50%; font-size:11px; }
+.timeline-track { flex:1; min-width:60px; }
+.timeline-ticks { display:flex; justify-content:space-between; color:var(--muted); font-size:9px; font-family:var(--mono-font); margin-top:1px; }
+.frame-display { display:flex; align-items:center; gap:6px; font-size:11px; color:var(--muted); white-space:nowrap; }
+.frame-display output { color:var(--text); min-width:19px; text-align:right; }
+.statusbar { display:flex; align-items:center; gap:20px; padding:0 20px; font-size:10px; color:var(--muted); background:var(--chrome); border-top:1px solid var(--line); }
+.statusbar .right { margin-left:auto; }
+.status-dot { display:inline-block; width:5px; height:5px; border-radius:50%; background:var(--accent); margin-right:6px; vertical-align:1px; }
+/* ── 3. RIGHT WORKBENCH: navigation and properties in one place ────────── */
+.inspector { display:flex; flex-direction:column; min-height:0; min-width:0; background:var(--surface); border-left:1px solid var(--line); }
+.work-tabs { display:grid; grid-template-columns:repeat(4,1fr); border-bottom:1px solid var(--line); padding:0 12px; flex-shrink:0; height:51px; }
+.work-tabs button { position:relative; font-size:12px; color:var(--muted); padding:0 8px; }
+.work-tabs button[aria-selected="true"] { color:var(--text); font-weight:600; }
+.work-tabs button[aria-selected="true"]::after { content:""; position:absolute; bottom:0; height:2px; left:10px; right:10px; background:var(--accent); }
+.inspector-heading { display:flex; align-items:center; justify-content:space-between; padding:20px 21px 15px; flex-shrink:0; }
+.inspector-heading h1 { margin:0; font-size:18px; font-weight:550; letter-spacing:-.35px; }
+.inspector-heading small { font-size:11px; }
+.sub-tabs { display:flex; gap:2px; margin:0 20px 8px; padding:3px; background:var(--field); border-radius:5px; flex-shrink:0; }
+.sub-tabs button { flex:1; padding:6px 3px; border-radius:3px; color:var(--muted); font-size:11px; }
+.sub-tabs button.active { color:var(--text); background:var(--surface); box-shadow:0 1px 3px #18232a12; }
+.properties-scroll { overflow:auto; overscroll-behavior:contain; padding:0 21px 16px; flex:1; }
+.property-section { padding:19px 0; border-bottom:1px solid var(--line); }
+.property-section:last-child { border-bottom:0; }
+.section-title { display:flex; align-items:center; justify-content:space-between; margin-bottom:15px; font-size:12px; font-weight:600; }
+.section-title small { font-weight:400; }
+.field-row { display:grid; grid-template-columns:minmax(85px,1fr) minmax(0,1.18fr); gap:14px; align-items:center; margin-top:13px; min-height:28px; font-size:12px; }
+.field-row:first-child { margin-top:0; }
+.field-row>label,.field-row>.field-label { color:var(--muted); }
+.slider-row { display:grid; grid-template-columns:1fr 64px; gap:15px; align-items:center; margin-top:8px; }
+.pair-fields { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:13px; }
+.pair-fields label,.vector-fields label { font-size:10px; color:var(--muted); }
+.pair-fields input,.vector-fields input { margin-top:6px; }
+.vector-fields { display:grid; grid-template-columns:repeat(3,1fr); gap:7px; }
+.check-row { display:flex; align-items:center; justify-content:space-between; gap:12px; font-size:12px; margin-top:13px; }
+.element-row { display:grid; grid-template-columns:25px 1fr 48px 58px; align-items:center; gap:8px; margin-top:10px; font-size:12px; }
+.element-row .count { color:var(--muted); text-align:right; font-family:var(--mono-font); font-size:11px; }
+.element-row .radius-value { color:var(--muted); text-align:right; font-size:11px; }
+.property-note { font-size:11px; line-height:1.65; color:var(--muted); margin:12px 0 0; }
+.property-note.accent-note { color:var(--accent); }
+.scope { display:flex; gap:8px; align-items:center; padding:0 0 15px; border-bottom:1px solid var(--line); font-size:11px; }
+.scope select { flex:1; height:28px; font-size:11px; border:0; background:var(--surface); }
+.scope .scope-dot { width:7px; height:7px; background:var(--accent); border-radius:50%; }
+.property-expander { margin-top:18px; font-size:12px; }
+.property-expander summary { color:var(--muted); cursor:pointer; }
+.inspector-bottom { padding:12px 20px; display:flex; align-items:center; gap:9px; background:var(--surface); border-top:1px solid var(--line); min-height:57px; }
+.inspector-bottom button { font-size:11px; padding:8px 10px; border-radius:4px; }
+.inspector-bottom .muted { font-size:10px; margin-left:auto; }
+.text-action { padding:5px 0; color:var(--accent); font-size:11px; }
+.selection-details { margin-top:15px; padding:13px 0 0; border-top:1px solid var(--line); }
+.selection-heading { display:flex; justify-content:space-between; font-size:12px; margin-bottom:10px; }
+.selection-heading button { color:var(--muted); font-size:11px; padding:0; }
+.property-gradient { height:6px; border-radius:2px; background:linear-gradient(90deg,#648ca9,#d8d8c8,#b57957); margin:13px 0 7px; }
+.gradient-labels { display:flex; justify-content:space-between; font-size:10px; color:var(--muted); font-family:var(--mono-font); }
+.callout-line { border-left:2px solid var(--accent); padding:0 0 0 11px; font-size:11px; line-height:1.6; color:var(--muted); }
+.tool-choice { display:flex; align-items:center; justify-content:space-between; width:100%; border-bottom:1px solid var(--line); padding:15px 0; font-size:12px; text-align:left; }
+.tool-choice span:last-child { color:var(--muted); }
+/* ── 4. CONTEXTUAL RESULTS, MENUS AND HELP ─────────────────────────────── */
+.results { flex:0 0 225px; height:225px; background:var(--surface); border-top:1px solid var(--line); padding:0 22px 10px; }
+.results-header { display:flex; align-items:center; justify-content:space-between; height:42px; font-size:12px; }
+.results-header strong { font-weight:500; }
+.results-header small { margin-left:14px; font-size:10px; }
+.results-header button { width:27px; height:27px; border-radius:4px; font-size:18px; }
+.results-body { height:170px; display:grid; grid-template-columns:1fr 128px; gap:24px; }
+#rdf-chart { width:100%; height:165px; display:block; }
+.plot-legend { padding-top:15px; font-size:11px; }
+.plot-legend div { display:flex; align-items:center; gap:7px; margin-bottom:13px; }
+.line-key { height:2px; width:18px; background:var(--copper); }
+.line-key.blue { background:var(--oxygen); }
+.plot-legend p { color:var(--muted); line-height:1.6; font-size:10px; margin-top:20px; }
+.toast { position:fixed; left:50%; bottom:104px; transform:translateX(-50%); background:var(--text); color:var(--surface); padding:11px 17px; border-radius:6px; font-size:12px; box-shadow:var(--shadow); z-index:100; max-width:calc(100vw - 32px); }
+.help-overlay { position:fixed; inset:0; z-index:110; background:#1119; display:grid; place-items:center; padding:24px; }
+.help-dialog { background:var(--surface); color:var(--text); width:460px; max-width:100%; border:1px solid var(--line); border-radius:10px; padding:26px; box-shadow:var(--shadow); }
+.help-dialog header { display:flex; align-items:center; justify-content:space-between; margin-bottom:18px; }
+.help-dialog h2 { font-size:18px; margin:0; font-weight:550; }
+.help-dialog header button { font-size:22px; }
+.help-dialog p { font-size:12px; line-height:1.8; color:var(--muted); }
+.help-item { display:flex; justify-content:space-between; padding:11px 0; border-bottom:1px solid var(--line); font-size:12px; }
+.help-dialog code { font-size:11px; background:var(--field); padding:2px 4px; }
+@media (max-width:1050px) {
+  :root { --inspector-width:324px; }
+  .app-header { gap:9px; padding:0 13px; }
+  .document-strip { margin-left:0; padding-left:14px; }
+  .prototype-label { display:none; }
+  .viewport-tools button { padding:8px; }
+  .viewport-tools .tool-symbol { display:none; }
+  .scale-bar { bottom:95px; }
+  .fit-button { bottom:89px; }
+  .timeline { padding:10px 15px; gap:12px; }
+  .timeline-title { min-width:0; }
+  .timeline-title small { display:none; }
+}
+@media (max-width:760px) {
+  .app { height:auto; min-height:100dvh; grid-template-rows:49px 1fr 30px; }
+  .workspace { display:flex; flex-direction:column; }
+  .work-area { min-height:520px; height:60dvh; flex:none; }
+  .inspector { border-left:0; border-top:1px solid var(--line); min-height:480px; }
+  .properties-scroll { overflow:visible; padding-bottom:24px; }
+  .inspector-bottom { display:none; }
+  .app-menus { display:none; }
+  .document-strip { padding-left:10px; }
+  .document-name { max-width:200px; }
+  .header-right { gap:6px; }
+  .scene-title { top:72px; }
+  .canvas-top { left:15px; right:15px; top:15px; }
+  .view-menu button { padding:0 6px; }
+  .orientation { right:14px; top:66px; }
+  .timeline-title { display:none; }
+  .scale-bar,.fit-button { bottom:85px; }
+  .results { flex-basis:200px; height:200px; }
+  .results-body { grid-template-columns:1fr; }
+  .plot-legend { display:none; }
+  .results-header small { display:none; }
+  .statusbar .interaction-help { display:none; }
+  .selection-float { top:118px; }
+}
+@media (max-width:420px) {
+  .document-name { max-width:150px; }
+  .wordmark { font-size:19px; margin:0; }
+  .header-right .outline-button { padding:6px 8px; }
+  .view-menu button:last-child { display:none; }
+  .viewport-tools button { padding:8px 6px; font-size:11px; }
+  .scene-title strong { font-size:13px; }
+  .statusbar { gap:8px; padding:0 12px; }
+}
+@media (prefers-reduced-motion:reduce) { * { scroll-behavior:auto!important; } }
+</style>
+</head>
+<body>
+<div class="app" id="vase-studio" aria-label="v_ase editable interface design prototype">
+  <header class="app-header">
+    <div class="wordmark" aria-label="v ase">v<span>_</span>ase</div>
+    <nav class="app-menus" aria-label="Application menu">
+      <div class="menu-wrap"><button class="menu-trigger" data-menu="file-menu" aria-expanded="false">File</button>
+        <div class="menu" id="file-menu" hidden>
+          <button data-action="reset-scene">Reset example structure</button>
+          <button data-action="save-state">Download mockup settings <span class="key">JSON</span></button>
+          <button data-action="export-image">Download structure preview <span class="key">PNG</span></button>
+          <hr><button data-action="help">About this prototype</button>
+        </div>
+      </div>
+      <div class="menu-wrap"><button class="menu-trigger" data-menu="edit-menu" aria-expanded="false">Edit</button>
+        <div class="menu" id="edit-menu" hidden>
+          <button data-action="select-all">Select all atoms</button><button data-action="clear-selection">Clear selection <span class="key">Esc</span></button>
+          <hr><button data-action="reset-style">Reset appearance</button>
+        </div>
+      </div>
+      <div class="menu-wrap"><button class="menu-trigger" data-menu="view-menu" aria-expanded="false">View</button>
+        <div class="menu" id="view-menu" hidden>
+          <button data-action="scene">Scene objects</button><button data-action="fit">Fit structure <span class="key">F</span></button>
+          <button data-action="timeline">Show / hide trajectory</button><hr>
+          <button data-action="theme">Switch light / dark</button><button data-action="width">Compact / roomy inspector</button>
+        </div>
+      </div>
+    </nav>
+    <div class="document-strip"><div class="document-name" id="document-name">Cu–O surface<span class="extension">.vase</span></div></div>
+    <div class="header-right"><span class="prototype-label">Design study 01</span><button class="outline-button" data-action="help" aria-label="How to explore this prototype">Guide <span class="muted">↗</span></button></div>
+  </header>
+
+  <main class="workspace">
+    <section class="work-area" aria-label="Atomic structure and contextual results">
+      <div class="viewport" id="viewport">
+        <canvas id="structure" role="img" aria-label="Interactive illustrative copper and oxygen structure. Drag to rotate; click atoms to select them.">Illustrative atomic structure.</canvas>
+        <div class="canvas-top">
+          <button class="scene-toggle" id="scene-toggle" data-action="scene" aria-expanded="false" aria-controls="scene-drawer"><span class="layer-glyph" aria-hidden="true">▱</span> Objects <span class="muted">4</span></button>
+          <div class="view-menu" aria-label="Camera view"><button class="active" data-camera="perspective">3D</button><button data-camera="top">Top</button><button data-camera="front">Front</button></div>
+        </div>
+        <div class="scene-title" id="scene-title"><strong>Cu / O interface</strong><small id="scene-description">72 atoms · periodic slab</small></div>
+        <aside class="scene-drawer" id="scene-drawer" aria-label="Scene objects" hidden>
+          <div class="drawer-head"><strong>Scene objects</strong><button data-action="scene" aria-label="Close scene objects">×</button></div>
+          <div class="object-row chosen"><button data-object="atoms"><span class="object-type">●</span> Atoms <small id="drawer-count">72</small></button><input type="checkbox" id="objects-atoms" checked aria-label="Show atoms"></div>
+          <div class="object-row"><button data-object="bonds"><span class="object-type">╱</span> Bonds</button><input type="checkbox" id="objects-bonds" checked aria-label="Show bonds"></div>
+          <div class="object-row"><button data-object="cell"><span class="object-type">□</span> Unit cell</button><input type="checkbox" id="objects-cell" checked aria-label="Show unit cell"></div>
+          <div class="object-row"><button data-object="vectors"><span class="object-type">↗</span> Displacement</button><input type="checkbox" id="objects-vectors" aria-label="Show illustrative displacement vectors"></div>
+          <div class="drawer-foot">Objects belong here. Their settings open on the right.</div>
+        </aside>
+        <div class="orientation" aria-label="View direction"><button class="axis-z" data-camera="top" aria-label="View along Z">Z</button><button class="axis-x" data-camera="side" aria-label="View along X">X</button><button class="axis-y" data-camera="front" aria-label="View along Y">Y</button></div>
+        <div class="selection-float" id="selection-float" hidden><strong id="selection-count">1 atom</strong><span id="selection-readout">Cu · #12</span><button data-action="clear-selection" aria-label="Clear selection">×</button></div>
+        <div class="hover-tip" id="hover-tip" hidden></div>
+        <div class="export-frame" id="export-frame" hidden><span id="export-frame-label">Export frame · 1600 × 1200</span></div>
+        <div class="scale-bar"><span class="scale-line" id="scale-line"></span><span id="scale-label">5 Å</span></div>
+        <div class="viewport-tools" role="toolbar" aria-label="Viewport tools">
+          <button class="active" data-tool="select" aria-pressed="true"><span class="tool-symbol" aria-hidden="true">↖</span> Select</button>
+          <button data-tool="move" aria-pressed="false"><span class="tool-symbol" aria-hidden="true">↔</span> Move</button>
+          <button data-tool="rotate" aria-pressed="false"><span class="tool-symbol" aria-hidden="true">↶</span> Orbit</button>
+          <span class="tool-divider"></span><button data-tool="measure" aria-pressed="false"><span class="tool-symbol" aria-hidden="true">⌁</span> Measure</button>
+        </div>
+        <button class="fit-button" data-action="fit">Fit view <span class="key">F</span></button>
+      </div>
+
+      <section class="results" id="results" aria-label="Sample analysis result" hidden>
+        <div class="results-header"><div><strong>Pair distribution</strong><small>Illustrative result · selected species pairs</small></div><button data-action="close-results" aria-label="Close analysis result">×</button></div>
+        <div class="results-body"><svg id="rdf-chart" role="img" aria-label="Illustrative pair distribution curves. These values are demo data, not calculated from a simulation."></svg><div class="plot-legend"><div><span class="line-key"></span> Cu–Cu</div><div><span class="line-key blue"></span> Cu–O</div><p>Example data<br>Not a scientific calculation</p></div></div>
+      </section>
+      <section class="timeline" id="timeline" aria-label="Example trajectory">
+        <div class="timeline-title"><strong>Sample trajectory</strong><small>60 illustrative frames</small></div>
+        <button class="play-button" id="play" aria-label="Play sample trajectory">▶</button>
+        <div class="timeline-track"><input type="range" id="frame" min="1" max="60" step="1" value="1" aria-label="Trajectory frame"><div class="timeline-ticks"><span>1</span><span>15</span><span>30</span><span>45</span><span>60</span></div></div>
+        <div class="frame-display"><output id="frame-value">01</output><span>/ 60</span></div><small>12 fps</small>
+      </section>
+    </section>
+
+    <aside class="inspector" aria-label="Primary editing panel">
+      <div class="work-tabs" role="tablist" aria-label="Workspaces">
+        <button role="tab" id="tab-style" aria-selected="true" aria-controls="panel-style" data-workspace="style">Style</button>
+        <button role="tab" id="tab-build" aria-selected="false" aria-controls="panel-build" data-workspace="build">Build</button>
+        <button role="tab" id="tab-analyze" aria-selected="false" aria-controls="panel-analyze" data-workspace="analyze">Analyze</button>
+        <button role="tab" id="tab-render" aria-selected="false" aria-controls="panel-render" data-workspace="render">Render</button>
+      </div>
+      <div class="inspector-heading"><h1 id="inspector-title">Appearance</h1><small id="inspector-subtitle">Live preview</small></div>
+
+      <!-- STYLE: real controls, always in this editable HTML. -->
+      <div class="sub-tabs" id="style-tabs" aria-label="Appearance category"><button class="active" data-style="atoms">Atoms</button><button data-style="bonds">Bonds</button><button data-style="cell">Cell</button></div>
+      <div class="properties-scroll">
+        <div id="panel-style" role="tabpanel" aria-labelledby="tab-style">
+          <div id="style-atoms">
+            <div class="property-section" style="padding-top:10px">
+              <div class="scope"><span class="scope-dot"></span><label for="atom-scope">Apply to</label><select id="atom-scope"><option value="all">All atoms</option><option value="Cu">Copper · Cu</option><option value="O">Oxygen · O</option><option value="selection" id="selection-option" disabled>Selected atoms</option></select></div>
+              <div class="section-title" style="margin-top:18px"><label for="radius">Atom radius</label><small>Relative scale</small></div>
+              <div class="slider-row"><input type="range" id="radius" min="0.25" max="1.45" step="0.01" value="0.82" aria-label="Atom radius scale"><input type="number" id="radius-number" min="0.25" max="1.45" step="0.01" value="0.82" aria-label="Exact radius scale"></div>
+              <div class="field-row"><label for="radius-mode">Size by</label><select id="radius-mode"><option value="uniform">Uniform</option><option value="occupancy">Occupancy</option><option value="charge">Partial charge |q|</option></select></div>
+              <div id="radius-property" hidden><div class="pair-fields"><label>Minimum factor<input type="number" id="radius-min" value="0.25" min="0" max="1" step="0.05"></label><label>Maximum factor<input type="number" id="radius-max" value="1.25" min="1" max="2" step="0.05"></label></div><p class="property-note">Fixed range across frames. Sample properties are included for design exploration.</p></div>
+            </div>
+            <div class="property-section"><div class="section-title">Color</div>
+              <div class="field-row"><label for="color-mode">Color by</label><select id="color-mode"><option value="element">Element</option><option value="charge">Partial charge</option><option value="uniform">Single color</option></select></div>
+              <div id="element-colors"><div class="element-row"><input type="color" id="cu-color" value="#b88662" aria-label="Copper color"><span>Copper <small>Cu</small></span><span class="count" id="cu-count">48</span><span class="radius-value">atoms</span></div><div class="element-row"><input type="color" id="o-color" value="#5b91a6" aria-label="Oxygen color"><span>Oxygen <small>O</small></span><span class="count" id="o-count">24</span><span class="radius-value">atoms</span></div></div>
+              <div id="charge-legend" hidden><div class="property-gradient"></div><div class="gradient-labels"><span>−0.8 e</span><span>0</span><span>+0.8 e</span></div></div>
+              <div class="field-row"><label for="material">Surface</label><select id="material"><option value="matte">Soft matte</option><option value="studio">Studio</option><option value="flat">Flat</option></select></div>
+            </div>
+            <div class="property-section"><div class="section-title">Visibility</div><label class="check-row" for="atom-labels">Element labels<input type="checkbox" id="atom-labels"></label><label class="check-row" for="ghost-selection">Dim unselected atoms<input type="checkbox" id="ghost-selection"></label>
+              <div class="selection-details" id="selection-details" hidden><div class="selection-heading"><strong id="selected-details-title">Selected atoms</strong><button data-action="clear-selection">Clear</button></div><div class="mono" id="selected-indices"></div><button class="text-action" data-action="scope-selection">Style only this selection →</button></div>
+            </div>
+          </div>
+          <div id="style-bonds" hidden><div class="property-section"><div class="section-title">Bond network <input type="checkbox" id="show-bonds" checked aria-label="Show bonds"></div><div class="field-row"><label for="bond-style">Representation</label><select id="bond-style"><option value="solid">Cylinders</option><option value="line">Thin lines</option></select></div><div class="field-row"><label for="bond-thickness">Thickness</label><input id="bond-thickness" type="number" min="0.04" max="0.5" value="0.16" step="0.02"></div></div><div class="property-section"><div class="section-title">Bond definition</div><div class="field-row"><label for="bond-cutoff">Cutoff <small>Å</small></label><input id="bond-cutoff" type="number" value="2.56" min="1.6" max="3.6" step="0.05"></div><p class="property-note">Preview which connections appear. Scientific pair rules would live here in the full editor.</p></div><div class="property-section"><div class="section-title">Pairs</div><label class="check-row">Cu–Cu<input type="checkbox" id="pair-cucu" checked></label><label class="check-row">Cu–O<input type="checkbox" id="pair-cuo" checked></label></div></div>
+          <div id="style-cell" hidden><div class="property-section"><div class="section-title">Unit cell</div><label class="check-row">Cell outline<input type="checkbox" id="show-cell" checked></label><label class="check-row">Floor grid<input type="checkbox" id="show-grid" checked></label><div class="field-row"><label for="cell-color">Line color</label><input id="cell-color" type="color" value="#99abb5"></div></div><div class="property-section"><div class="section-title">Display repetition</div><div class="vector-fields"><label>a<input type="number" id="repeat-a" value="1" min="1" max="2"></label><label>b<input type="number" id="repeat-b" value="1" min="1" max="2"></label><label>c<input type="number" id="repeat-c" value="1" min="1" max="2"></label></div><button class="outline-button" data-action="repeat" style="margin-top:16px">Preview repetition</button><p class="property-note">A display preview. The original sample is kept for reset.</p></div></div>
+        </div>
+
+        <!-- BUILD: selection-aware tools, no backend or optimization. -->
+        <div id="panel-build" role="tabpanel" aria-labelledby="tab-build" hidden>
+          <div class="scope"><span class="scope-dot"></span><span id="build-scope">Whole structure</span><span class="key">Preview editing</span></div>
+          <div class="property-section"><div class="section-title">Translate <small>Å</small></div><div class="vector-fields"><label>X<input id="move-x" type="number" value="0.5" step="0.1"></label><label>Y<input id="move-y" type="number" value="0" step="0.1"></label><label>Z<input id="move-z" type="number" value="0" step="0.1"></label></div><button class="outline-button" data-action="translate" style="margin-top:15px">Move atoms</button></div>
+          <div class="property-section"><div class="section-title">Rotate</div><div class="field-row"><label for="rotate-axis">Axis</label><select id="rotate-axis"><option>Z</option><option>X</option><option>Y</option></select></div><div class="field-row"><label for="rotate-angle">Angle <small>°</small></label><input type="number" id="rotate-angle" value="15" step="5"></div><button class="outline-button" data-action="rotate-atoms" style="margin-top:15px">Rotate atoms</button></div>
+          <div class="property-section"><div class="section-title">Add to scene</div><div class="field-row"><label for="add-element">Element</label><select id="add-element"><option value="O">Oxygen · O</option><option value="Cu">Copper · Cu</option></select></div><button class="outline-button" data-action="add-atom" style="margin-top:15px">Add atom above surface</button></div>
+          <p class="property-note">These actions change only the illustrative model in this page.</p>
+        </div>
+
+        <!-- ANALYZE: result dock opens only when requested. -->
+        <div id="panel-analyze" role="tabpanel" aria-labelledby="tab-analyze" hidden>
+          <div class="property-section" style="padding-top:6px"><div class="section-title">Pair distribution</div><p class="property-note" style="margin-top:0">Set up the analysis here. Explore its result below the structure.</p><div class="field-row"><label for="analysis-pair">Species pairs</label><select id="analysis-pair"><option value="both">Cu–Cu and Cu–O</option><option value="cu">Cu–Cu</option><option value="o">Cu–O</option></select></div><div class="pair-fields"><label>Cutoff <small>Å</small><input type="number" id="analysis-cutoff" value="8" min="4" max="12" step="1"></label><label>Bins<input type="number" id="analysis-bins" value="200" min="20" max="500" step="20"></label></div><label class="check-row">Minimum image convention<input type="checkbox" checked id="analysis-mic"></label><button class="primary" data-action="analyze" style="margin-top:20px;width:100%">Preview sample result</button><p class="property-note">Illustrative curve for evaluating this workflow; no scientific calculation is performed.</p></div>
+          <button class="tool-choice" data-action="measure"><span>Measure a distance</span><span>↗</span></button><button class="tool-choice" data-action="vectors"><span>Displacement vectors</span><span>↗</span></button>
+          <div class="property-section"><div class="section-title">Selection</div><div id="analysis-selection" class="property-note">Click atoms in the viewport to inspect a local selection.</div></div>
+        </div>
+
+        <!-- RENDER: real PNG of this illustrative canvas, not a .vase export. -->
+        <div id="panel-render" role="tabpanel" aria-labelledby="tab-render" hidden>
+          <div class="property-section" style="padding-top:5px"><div class="section-title">Output</div><div class="pair-fields"><label>Width <small>px</small><input id="render-width" type="number" value="1600" min="400" max="3000" step="100"></label><label>Height <small>px</small><input id="render-height" type="number" value="1200" min="300" max="2400" step="100"></label></div><label class="check-row">Show export frame<input id="crop-preview" type="checkbox"></label><div class="field-row"><label for="render-background">Background</label><select id="render-background"><option value="paper">Paper</option><option value="canvas">Viewport</option><option value="transparent">Transparent</option></select></div></div>
+          <div class="property-section"><div class="section-title">Lighting</div><div class="field-row"><label for="render-light">Look</label><select id="render-light"><option value="matte">Soft matte</option><option value="studio">Studio</option><option value="flat">Flat</option></select></div><div class="section-title" style="margin-top:20px;margin-bottom:6px"><label for="light-strength">Exposure</label><small id="exposure-value">1.0</small></div><input type="range" id="light-strength" min="0.7" max="1.3" value="1" step="0.05"></div>
+          <div class="property-section"><div class="section-title">Include</div><label class="check-row">Unit cell<input type="checkbox" id="export-cell" checked></label><label class="check-row">Element labels<input type="checkbox" id="export-labels"></label></div>
+          <button class="primary" data-action="export-image" style="width:100%;margin-top:19px">Download preview PNG</button><p class="property-note">Exports this example structure at the requested image dimensions.</p>
+        </div>
+      </div>
+      <div class="inspector-bottom"><button data-action="reset-style">Reset style</button><span class="muted">Local preview · no project changes</span></div>
+    </aside>
+  </main>
+  <footer class="statusbar"><span><span class="status-dot"></span><span id="footer-count">72 atoms</span></span><span id="footer-selection">No selection</span><span class="interaction-help">Drag to orbit · Scroll to zoom · Shift+click to add</span><span class="right">UI prototype · sample data</span></footer>
+</div>
+<div class="toast" id="toast" role="status" hidden></div>
+<div class="help-overlay" id="help" hidden>
+  <section class="help-dialog" role="dialog" aria-modal="true" aria-labelledby="help-title">
+    <header><h2 id="help-title">Explore the design</h2><button data-action="close-help" aria-label="Close guide">×</button></header>
+    <p>A standalone UI study. All interactions stay in this page; the real v_ase application and your structures are untouched.</p>
+    <div class="help-item"><span>Switch workspaces on the right</span><span class="key">1 / 2 / 3 / 4</span></div>
+    <div class="help-item"><span>Rotate / zoom the structure</span><span class="key">Drag / Scroll</span></div>
+    <div class="help-item"><span>Select / add to selection</span><span class="key">Click / Shift+click</span></div>
+    <div class="help-item"><span>Fit / clear selection</span><span class="key">F / Esc</span></div>
+    <div class="help-item"><span>Play the example trajectory</span><span class="key">Space</span></div>
+    <p>Open <strong>View</strong> to compare light/dark appearance or panel widths. To edit the design, change the <code>DESIGN TOKENS</code>, labels and <code>DEMO CONFIG</code> in this HTML file. It has no external dependencies.</p>
+  </section>
+</div>
+<script>
+/* ── 5. DEMO CONFIG: local illustrative data, not an ASE calculation ───── */
+(() => {
+  'use strict';
+  const DEMO = { columns:6, rows:4, spacing:2.45, frames:60, fps:12 };
+  const $ = id => document.getElementById(id);
+  const all = selector => [...document.querySelectorAll(selector)];
+  const state = {
+    workspace:'style',style:'atoms',tool:'select',scope:'all',selected:new Set(),
+    radius:.82,radiusMode:'uniform',radiusMin:.25,radiusMax:1.25,
+    colorMode:'element',cuColor:'#b88662',oColor:'#5b91a6',material:'matte',
+    atomsVisible:true,bonds:true,cell:true,grid:true,vectors:false,labels:false,ghost:false,
+    bondStyle:'solid',bondThickness:.16,cutoff:2.56,pairCu:true,pairO:true,
+    cellColor:'#99abb5',rx:.93,rz:-.48,zoom:1,frame:1,playing:false,exposure:1
+  };
+  let atoms=[],bonds=[],hitAtoms=[],hovered=null,drawQueued=false,timer=null,toastTimer=null,canvasSize={w:1,h:1},lastDrawScale=30;
+  const canvas=$('structure'),ctx=canvas.getContext('2d'),viewport=$('viewport');
+  function makeAtoms() {
+    const result=[];
+    for(let layer=0;layer<2;layer++) for(let y=0;y<DEMO.rows;y++) for(let x=0;x<DEMO.columns;x++) {
+      result.push({id:result.length,element:'Cu',x:(x-2.5)*DEMO.spacing,y:(y-1.5)*DEMO.spacing,z:layer*2.35-1.6,charge:.25+.45*((x+y)%5)/4,occupancy:1,scale:1});
+    }
+    for(let y=0;y<DEMO.rows;y++) for(let x=0;x<DEMO.columns;x++) {
+      result.push({id:result.length,element:'O',x:(x-2.5)*DEMO.spacing+.5,y:(y-1.5)*DEMO.spacing+.4,z:2.55+.15*Math.sin(x+y),charge:-.35-.4*((x+2*y)%5)/4,occupancy:.35+.65*((x+y*2)%6)/5,scale:1});
+    }
+    return result;
+  }
+  const BASE=makeAtoms();
+  function rebuildBonds() {
+    bonds=[];
+    for(let i=0;i<atoms.length;i++) for(let j=i+1;j<atoms.length;j++) {
+      const a=atoms[i],b=atoms[j];if(a.element==='O'&&b.element==='O')continue;
+      const d=Math.hypot(a.x-b.x,a.y-b.y,a.z-b.z);
+      if(d>0.3&&d<state.cutoff&&(a.element===b.element?state.pairCu:state.pairO))bonds.push([i,j]);
+    }
+  }
+  function sceneCounts() {
+    const cu=atoms.filter(a=>a.element==='Cu').length,o=atoms.length-cu;
+    $('cu-count').textContent=cu;$('o-count').textContent=o;
+    $('drawer-count').textContent=atoms.length;$('footer-count').textContent=`${atoms.length} atoms`;
+    $('scene-description').textContent=`${atoms.length} atoms · periodic slab`;
+  }
+  function resetScene() { atoms=BASE.map(a=>({...a}));state.selected.clear();rebuildBonds();sceneCounts();syncSelection();fit(); }
+  function themeColor(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+  function rgb(hex) { const s=hex.replace('#','');return [0,2,4].map(i=>parseInt(s.slice(i,i+2),16)); }
+  function shade(hex,amount) { const v=rgb(hex).map(c=>Math.round(Math.max(0,Math.min(255,c*amount))));return `rgb(${v.join(',')})`; }
+  function mix(a,b,t) { const A=rgb(a),B=rgb(b);return '#'+A.map((x,i)=>Math.round(x+(B[i]-x)*t).toString(16).padStart(2,'0')).join(''); }
+  function colorOf(a) {
+    if(state.colorMode==='uniform')return state.cuColor;
+    if(state.colorMode==='charge') { const t=(a.charge+.8)/1.6;return t<.5?mix('#648ca9','#e5e4d8',t*2):mix('#e5e4d8','#b57957',(t-.5)*2); }
+    return a.element==='Cu'?state.cuColor:state.oColor;
+  }
+  function factorOf(a) {
+    let factor=1;
+    if(state.radiusMode!=='uniform') {
+      const v=state.radiusMode==='occupancy'?a.occupancy:Math.abs(a.charge)/.8;
+      factor=state.radiusMin+(state.radiusMax-state.radiusMin)*Math.max(0,Math.min(1,v));
+    }
+    return state.radius*a.scale*factor*(a.element==='Cu'?.75:.47);
+  }
+  function transformed(p) {
+    const c=Math.cos(state.rz),s=Math.sin(state.rz),cx=Math.cos(state.rx),sx=Math.sin(state.rx);
+    const x=p.x*c-p.y*s,y=p.x*s+p.y*c;
+    return {x,y:y*cx-p.z*sx,z:y*sx+p.z*cx};
+  }
+  function animated(a) { const phase=(state.frame-1)/DEMO.frames*Math.PI*2;return {...a,z:a.z+(state.frame===1?0:.12*Math.sin(phase+a.id*.7))}; }
+  function draw(target=ctx,w=canvasSize.w,h=canvasSize.h,exporting=false) {
+    const dark=document.documentElement.dataset.theme==='dark';
+    const palette={text:themeColor('--text'),muted:themeColor('--muted'),canvas:themeColor('--canvas'),line:themeColor('--line'),accent:themeColor('--accent')};
+    const bg=exporting?$('render-background').value:'canvas';
+    target.clearRect(0,0,w,h);
+    if(bg!=='transparent'){target.fillStyle=bg==='paper'?'#ffffff':palette.canvas;target.fillRect(0,0,w,h);}
+    const positions=atoms.map(animated),rotated=positions.map(transformed);
+    const low={x:Infinity,y:Infinity,z:Infinity},high={x:-Infinity,y:-Infinity,z:-Infinity};
+    rotated.forEach(p=>['x','y','z'].forEach(k=>{low[k]=Math.min(low[k],p[k]);high[k]=Math.max(high[k],p[k]);}));
+    const center={x:(low.x+high.x)/2,y:(low.y+high.y)/2};
+    const availableW=w*(exporting?.81:.71),availableH=h*(exporting?.81:.63);
+    const scale=Math.min(availableW/(high.x-low.x+3.4),availableH/(high.y-low.y+3.4))*state.zoom;
+    if(!exporting)lastDrawScale=scale;
+    const ox=w*.50,oy=h*(exporting?.5:.515);
+    const project=p=>{const t=transformed(p);return{x:ox+(t.x-center.x)*scale,y:oy+(t.y-center.y)*scale,z:t.z};};
+    const pts=positions.map(project);
+    function segment(a,b,color,width,dash=[]) {target.beginPath();target.setLineDash(dash);target.moveTo(a.x,a.y);target.lineTo(b.x,b.y);target.strokeStyle=color;target.lineWidth=width;target.lineCap='round';target.stroke();target.setLineDash([]);}
+    if(state.grid&&!exporting) {
+      for(let i=-4;i<=4;i++){segment(project({x:i*2.45,y:-11,z:-3.1}),project({x:i*2.45,y:11,z:-3.1}),dark?'#27323a':'#dee5e9',.7);segment(project({x:-13,y:i*2.45,z:-3.1}),project({x:13,y:i*2.45,z:-3.1}),dark?'#27323a':'#dee5e9',.7);}
+    }
+    const sceneBounds=atoms.reduce((b,a)=>({xmin:Math.min(b.xmin,a.x-1.2),xmax:Math.max(b.xmax,a.x+1.2),ymin:Math.min(b.ymin,a.y-1.2),ymax:Math.max(b.ymax,a.y+1.2)}),{xmin:Infinity,xmax:-Infinity,ymin:Infinity,ymax:-Infinity});
+    if(state.cell&&(!exporting||$('export-cell').checked)) {
+      const b=sceneBounds,corners=[];
+      for(let z of [-3.0,4.0])for(let y of [b.ymin,b.ymax])for(let x of [b.xmin,b.xmax])corners.push(project({x,y,z}));
+      [[0,1],[0,2],[1,3],[2,3],[4,5],[4,6],[5,7],[6,7],[0,4],[1,5],[2,6],[3,7]].forEach(([i,j])=>segment(corners[i],corners[j],state.cellColor,.85));
+      target.fillStyle=palette.muted;target.font='11px '+getComputedStyle(document.body).fontFamily;
+      target.fillText('a',corners[1].x+8,corners[1].y+5);target.fillText('b',corners[2].x-14,corners[2].y+8);target.fillText('c',corners[4].x-12,corners[4].y-7);
+    }
+    const items=[];
+    if(state.bonds)bonds.forEach(([i,j])=>items.push({kind:'bond',i,j,z:(pts[i].z+pts[j].z)/2}));
+    if(state.atomsVisible)atoms.forEach((a,i)=>items.push({kind:'atom',i,z:pts[i].z}));
+    items.sort((a,b)=>a.z-b.z);
+    if(!exporting)hitAtoms=[];
+    for(const item of items) {
+      if(item.kind==='bond') {
+        const a=pts[item.i],b=pts[item.j],length=Math.hypot(b.x-a.x,b.y-a.y);
+        const ra=state.atomsVisible?factorOf(atoms[item.i])*scale:0;
+        const rb=state.atomsVisible?factorOf(atoms[item.j])*scale:0;
+        if(length<=ra+rb)continue;
+        const dx=(b.x-a.x)/length,dy=(b.y-a.y)/length;
+        const start={x:a.x+dx*ra,y:a.y+dy*ra},end={x:b.x-dx*rb,y:b.y-dy*rb};
+        const dim=state.ghost&&state.selected.size&&!state.selected.has(item.i)&&!state.selected.has(item.j);
+        target.globalAlpha=dim?.14:.8;
+        segment(start,end,dark?'#7b9295':'#aebbc0',state.bondStyle==='line'?1.3:Math.max(1.2,scale*state.bondThickness));
+        target.globalAlpha=1;continue;
+      }
+      const i=item.i,a=atoms[i],p=pts[i],r=Math.max(0,factorOf(a)*scale);if(r<.1)continue;
+      const selected=state.selected.has(i),dim=state.ghost&&state.selected.size&&!selected;
+      target.globalAlpha=dim?.19:1;
+      const color=colorOf(a),exposure=state.exposure;
+      target.beginPath();target.arc(p.x,p.y,r,0,Math.PI*2);
+      if(state.material==='flat') target.fillStyle=color;
+      else {const g=target.createRadialGradient(p.x-r*.38,p.y-r*.43,r*.07,p.x+r*.08,p.y+r*.12,r*1.12);g.addColorStop(0,shade(color,Math.min(1.7,(state.material==='studio'?1.55:1.27)*exposure)));g.addColorStop(.53,shade(color,exposure));g.addColorStop(1,shade(color,state.material==='studio'?.50:.72));target.fillStyle=g;}
+      target.fill();target.strokeStyle=shade(color,.73);target.lineWidth=.55;target.stroke();target.globalAlpha=1;
+      if((selected||i===hovered)&&!exporting){target.beginPath();target.arc(p.x,p.y,r+3.8,0,Math.PI*2);target.strokeStyle=selected?palette.accent:palette.muted;target.lineWidth=selected?2:1;target.stroke();}
+      if(exporting?$('export-labels').checked:state.labels){target.fillStyle=a.element==='Cu'?'#fff':'#fff';target.font=`500 ${Math.max(10,Math.min(13,r*.75))}px ${getComputedStyle(document.body).fontFamily}`;target.textAlign='center';target.textBaseline='middle';target.fillText(a.element,p.x,p.y);target.textAlign='start';target.textBaseline='alphabetic';}
+      if(!exporting)hitAtoms.push({i,x:p.x,y:p.y,r});
+    }
+    if(state.vectors) atoms.forEach((a,i)=>{if(a.element!=='O')return;const p=pts[i],end=project({...positions[i],z:positions[i].z+1.35});segment(p,end,palette.accent,1.3);target.beginPath();target.arc(end.x,end.y,2,0,Math.PI*2);target.fillStyle=palette.accent;target.fill();});
+    if(!exporting&&state.tool==='measure'&&state.selected.size===2) {
+      const [i,j]=[...state.selected],a=pts[i],b=pts[j];segment(a,b,palette.accent,1.2,[4,4]);
+      const dist=distance(i,j).toFixed(2)+' Å',x=(a.x+b.x)/2,y=(a.y+b.y)/2;target.font='12px '+getComputedStyle(document.body).fontFamily;
+      const tw=target.measureText(dist).width;target.fillStyle=themeColor('--surface');target.fillRect(x-tw/2-8,y-27,tw+16,23);target.fillStyle=palette.accent;target.textAlign='center';target.fillText(dist,x,y-11);target.textAlign='start';
+    }
+    if(!exporting){const length=[.5,1,2,5,10].filter(v=>v*scale<=110).at(-1)||.5;$('scale-line').style.width=(length*scale)+'px';$('scale-label').textContent=length+' Å';}
+  }
+  function requestDraw() {if(drawQueued)return;drawQueued=true;requestAnimationFrame(()=>{drawQueued=false;draw();});}
+  function resize() { const r=viewport.getBoundingClientRect(),dpr=Math.min(window.devicePixelRatio||1,2);canvasSize={w:r.width,h:r.height};canvas.width=Math.round(r.width*dpr);canvas.height=Math.round(r.height*dpr);ctx.setTransform(dpr,0,0,dpr,0,0);draw();drawPlot(); }
+  new ResizeObserver(resize).observe(viewport);
+  function fit() {state.zoom=1;requestDraw();}
+  function distance(i,j) {const a=atoms[i],b=atoms[j];return Math.hypot(a.x-b.x,a.y-b.y,a.z-b.z);}
+  function syncSelection() {
+    const ids=[...state.selected],n=ids.length;
+    if(state.tool==='measure'&&n===2)$('toast').hidden=true;
+    $('selection-float').hidden=!n;$('selection-details').hidden=!n;
+    $('selection-count').textContent=`${n} atom${n===1?'':'s'} selected`;
+    $('selection-readout').textContent=n===1?`${atoms[ids[0]].element} · #${ids[0]+1}`:state.tool==='measure'&&n===2?distance(...ids).toFixed(2)+' Å':'Cu / O selection';
+    $('selected-details-title').textContent=n===1?'Selected atom':`${n} selected atoms`;
+    $('selected-indices').textContent=ids.slice(0,12).map(i=>`${atoms[i].element} #${i+1}`).join(' · ')+(n>12?' …':'');
+    $('selection-option').disabled=!n;$('selection-option').textContent=n?`Selected atoms · ${n}`:'Selected atoms';
+    if(!n&&state.scope==='selection'){state.scope='all';$('atom-scope').value='all';}
+    $('footer-selection').textContent=n?`${n} selected`:'No selection';$('build-scope').textContent=n?`${n} selected atoms`:'Whole structure';
+    $('analysis-selection').textContent=n===2?`Distance: ${distance(...ids).toFixed(3)} Å · between atoms ${ids[0]+1} and ${ids[1]+1}`:n?`${n} atoms selected. Choose two for a distance preview.`:'Click atoms in the viewport to inspect a local selection.';
+    requestDraw();
+  }
+  function setWorkspace(name) {
+    state.workspace=name;const names={style:['Appearance','Live preview'],build:['Build structure','Local example'],analyze:['Analyze','Sample workflow'],render:['Render','Image preview']};
+    all('[data-workspace]').forEach(b=>b.setAttribute('aria-selected',b.dataset.workspace===name?'true':'false'));
+    ['style','build','analyze','render'].forEach(n=>$('panel-'+n).hidden=n!==name);
+    $('style-tabs').hidden=name!=='style';$('inspector-title').textContent=names[name][0];$('inspector-subtitle').textContent=names[name][1];
+    document.querySelector('.properties-scroll').scrollTop=0;
+  }
+  function setStyle(name) {state.style=name;all('[data-style]').forEach(b=>b.classList.toggle('active',b.dataset.style===name));['atoms','bonds','cell'].forEach(n=>$('style-'+n).hidden=n!==name);}
+  function setTool(name) {state.tool=name;all('[data-tool]').forEach(b=>{b.classList.toggle('active',b.dataset.tool===name);b.setAttribute('aria-pressed',b.dataset.tool===name?'true':'false');});if(name==='measure'){state.selected.clear();toast('Choose two atoms to preview a distance.');}syncSelection();}
+  function toast(message) {$('toast').textContent=message;$('toast').hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('toast').hidden=true,3200);}
+  function closeMenus() {all('.menu').forEach(e=>e.hidden=true);all('[data-menu]').forEach(b=>b.setAttribute('aria-expanded','false'));}
+  function toggleScene() {const open=$('scene-drawer').hidden;$('scene-drawer').hidden=!open;$('scene-toggle').setAttribute('aria-expanded',String(open));$('scene-title').hidden=open;}
+  function setCamera(view) {
+    const views={perspective:[.93,-.48],top:[0,0],front:[Math.PI/2,0],side:[Math.PI/2,Math.PI/2]};
+    [state.rx,state.rz]=views[view];all('[data-camera]').forEach(b=>b.classList.toggle('active',b.dataset.camera===view));requestDraw();
+  }
+  function showResults() {$('results').hidden=false;drawPlot();}
+  function drawPlot() {
+    const svg=$('rdf-chart');if($('results').hidden)return;
+    const w=svg.clientWidth||600,h=165,cut=Number($('analysis-cutoff').value)||8;
+    const m={left:35,right:14,top:14,bottom:34},sx=x=>m.left+x/cut*(w-m.left-m.right),sy=y=>h-m.bottom-y/5.3*(h-m.top-m.bottom),line=themeColor('--line'),muted=themeColor('--muted'),text=themeColor('--text');
+    let markup=`<title>Illustrative pair distribution</title><desc>Demo curves only; radius in angstroms on x and dimensionless g(r) on y.</desc>`;
+    for(let y=0;y<=4;y+=2)markup+=`<line x1="${m.left}" y1="${sy(y)}" x2="${w-m.right}" y2="${sy(y)}" stroke="${line}"/><text x="${m.left-9}" y="${sy(y)+4}" text-anchor="end" font-size="10" fill="${muted}">${y}</text>`;
+    for(let x=0;x<=cut;x+=2)markup+=`<text x="${sx(x)}" y="${h-15}" text-anchor="middle" font-size="10" fill="${muted}">${x}</text>`;
+    markup+=`<text x="${w-16}" y="${h-1}" text-anchor="end" font-size="10" fill="${text}">r (Å)</text><text x="5" y="14" font-size="10" fill="${text}">g(r)</text>`;
+    function curve(color,shift) {
+      const points=[],samples=Math.max(20,Math.min(500,Number($('analysis-bins').value)||200));
+      const gaussian=(x,center,width)=>Math.exp(-Math.pow((x-center)/width,2));
+      for(let i=0;i<=samples;i++){
+        const x=i/samples*cut;
+        let y=.15+3.8*gaussian(x,2.45-shift,.22)+1.8*gaussian(x,4.1-shift*.5,.35)+.9*gaussian(x,5.65,.55);
+        if(x>2)y+=.55;
+        points.push((i?'L':'M')+sx(x).toFixed(2)+','+sy(y).toFixed(2));
+      }
+      return `<path d="${points.join(' ')}" fill="none" stroke="${color}" stroke-width="1.8"/>`;
+    }
+    const pair=$('analysis-pair').value;if(pair!=='o')markup+=curve(state.cuColor,0);if(pair!=='cu')markup+=curve(state.oColor,.55);svg.setAttribute('viewBox',`0 0 ${w} ${h}`);svg.innerHTML=markup;
+  }
+  function download(blob,name) {const a=document.createElement('a'),url=URL.createObjectURL(blob);a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),5000);}
+  function exportImage() {
+    const c=document.createElement('canvas');c.width=Math.max(400,Math.min(3000,Number($('render-width').value)||1600));c.height=Math.max(300,Math.min(2400,Number($('render-height').value)||1200));
+    draw(c.getContext('2d'),c.width,c.height,true);c.toBlob(blob=>{if(blob){download(blob,'v-ase-design-preview.png');toast(`Downloaded ${c.width} × ${c.height} preview.`);}});
+  }
+  function updateCrop() {const w=Number($('render-width').value)||1600,h=Number($('render-height').value)||1200;$('export-frame').style.aspectRatio=w+'/'+h;$('export-frame-label').textContent=`Export frame · ${w} × ${h}`;}
+  function startStop() {
+    state.playing=!state.playing;$('play').textContent=state.playing?'Ⅱ':'▶';$('play').setAttribute('aria-label',state.playing?'Pause sample trajectory':'Play sample trajectory');
+    clearInterval(timer);if(state.playing)timer=setInterval(()=>{state.frame=state.frame%DEMO.frames+1;syncFrame();},1000/DEMO.fps);
+  }
+  function syncFrame() {$('frame').value=state.frame;$('frame-value').textContent=String(state.frame).padStart(2,'0');requestDraw();}
+  function targets() {return state.selected.size?[...state.selected].map(i=>atoms[i]):atoms;}
+  function applyRadius(value) {
+    value=Math.max(.25,Math.min(1.45,Number(value)||.82));$('radius').value=value;$('radius-number').value=value.toFixed(2);
+    if(state.scope==='all'){state.radius=value;atoms.forEach(a=>a.scale=1);}else atoms.forEach((a,i)=>{if(state.scope==='selection'?state.selected.has(i):a.element===state.scope)a.scale=value/state.radius;});requestDraw();
+  }
+  function resetStyle() {
+    Object.assign(state,{radius:.82,radiusMode:'uniform',colorMode:'element',material:'matte',ghost:false,labels:false,scope:'all',cuColor:'#b88662',oColor:'#5b91a6'});atoms.forEach(a=>a.scale=1);
+    $('radius').value=.82;$('radius-number').value='0.82';$('radius-mode').value='uniform';$('color-mode').value='element';$('material').value='matte';$('render-light').value='matte';$('atom-scope').value='all';$('cu-color').value=state.cuColor;$('o-color').value=state.oColor;$('ghost-selection').checked=false;$('atom-labels').checked=false;$('radius-property').hidden=true;$('charge-legend').hidden=true;$('element-colors').hidden=false;requestDraw();
+  }
+  const actions={
+    scene:toggleScene,fit,help:()=>{$('help').hidden=false;$('help').querySelector('button').focus();},'close-help':()=>{$('help').hidden=true;},
+    'clear-selection':()=>{state.selected.clear();syncSelection();},'select-all':()=>{state.selected=new Set(atoms.map((_,i)=>i));syncSelection();},
+    'scope-selection':()=>{state.scope='selection';$('atom-scope').value='selection';},'reset-scene':()=>{resetScene();toast('Example structure reset.');},'reset-style':resetStyle,
+    theme:()=>{const dark=document.documentElement.dataset.theme==='dark';document.documentElement.dataset.theme=dark?'light':'dark';requestDraw();drawPlot();},
+    width:()=>{const wide=getComputedStyle(document.documentElement).getPropertyValue('--inspector-width').trim()==='400px';document.documentElement.style.setProperty('--inspector-width',wide?'352px':'400px');},
+    timeline:()=>{$('timeline').hidden=!$('timeline').hidden;},'close-results':()=>{$('results').hidden=true;},analyze:showResults,
+    measure:()=>{setTool('measure');toast('Select two atoms. The measured value uses this example geometry.');},vectors:()=>{state.vectors=!state.vectors;$('objects-vectors').checked=state.vectors;requestDraw();},
+    translate:()=>{const d=['x','y','z'].map(k=>Number($('move-'+k).value)||0);targets().forEach(a=>{a.x+=d[0];a.y+=d[1];a.z+=d[2];});rebuildBonds();syncSelection();toast('Moved atoms in the local example.');},
+    'rotate-atoms':()=>{const angle=(Number($('rotate-angle').value)||0)*Math.PI/180,axis=$('rotate-axis').value,items=targets(),center=items.reduce((p,a)=>({x:p.x+a.x/items.length,y:p.y+a.y/items.length,z:p.z+a.z/items.length}),{x:0,y:0,z:0}),c=Math.cos(angle),s=Math.sin(angle),[u,v]=axis==='X'?['y','z']:axis==='Y'?['z','x']:['x','y'];items.forEach(a=>{const x=a[u]-center[u],y=a[v]-center[v];a[u]=center[u]+x*c-y*s;a[v]=center[v]+x*s+y*c;});rebuildBonds();syncSelection();},
+    'add-atom':()=>{const element=$('add-element').value;atoms.push({id:atoms.length,element,x:0,y:0,z:5,charge:element==='Cu'?.5:-.6,occupancy:.8,scale:1});state.selected=new Set([atoms.length-1]);sceneCounts();rebuildBonds();syncSelection();toast('Added one atom to the example.');},
+    repeat:()=>{const reps=['a','b','c'].map(axis=>Math.max(1,Math.min(2,Math.round(Number($('repeat-'+axis).value)||1))));const [nx,ny,nz]=reps;['a','b','c'].forEach((axis,i)=>$('repeat-'+axis).value=reps[i]);atoms=[];for(let z=0;z<nz;z++)for(let y=0;y<ny;y++)for(let x=0;x<nx;x++)BASE.forEach(a=>atoms.push({...a,id:atoms.length,x:a.x+x*14.7,y:a.y+y*9.8,z:a.z+z*7.5}));state.selected.clear();sceneCounts();rebuildBonds();syncSelection();fit();},
+    'save-state':()=>{const {selected,...settings}=state;download(new Blob([JSON.stringify({type:'v_ase.ui-design-study',settings,selected:[...selected]},null,2)],{type:'application/json'}),'v-ase-mockup-settings.json');toast('Downloaded design settings. This is not a .vase project.');},'export-image':exportImage
+  };
+  document.addEventListener('click',event=>{
+    const menu=event.target.closest('[data-menu]');if(menu){const target=$(menu.dataset.menu),open=target.hidden;closeMenus();target.hidden=!open;menu.setAttribute('aria-expanded',String(open));return;}
+    const action=event.target.closest('[data-action]');if(action){closeMenus();actions[action.dataset.action]?.();return;}
+    if(!event.target.closest('.menu-wrap'))closeMenus();
+    const work=event.target.closest('[data-workspace]');if(work)setWorkspace(work.dataset.workspace);
+    const style=event.target.closest('[data-style]');if(style)setStyle(style.dataset.style);
+    const camera=event.target.closest('[data-camera]');if(camera)setCamera(camera.dataset.camera);
+    const tool=event.target.closest('[data-tool]');if(tool)setTool(tool.dataset.tool);
+    const object=event.target.closest('[data-object]');if(object){all('.object-row').forEach(r=>r.classList.toggle('chosen',r.contains(object)));setWorkspace(object.dataset.object==='vectors'?'analyze':'style');if(object.dataset.object!=='vectors')setStyle(object.dataset.object);}
+  });
+  function listen(id,event,fn) {$(id).addEventListener(event,fn);}
+  listen('radius','input',e=>applyRadius(e.target.value));listen('radius-number','change',e=>applyRadius(e.target.value));
+  listen('atom-scope','change',e=>{state.scope=e.target.value;toast(state.scope==='all'?'Appearance applies to all atoms.':'Radius changes now use the chosen scope.');});
+  listen('radius-mode','change',e=>{state.radiusMode=e.target.value;$('radius-property').hidden=state.radiusMode==='uniform';requestDraw();});
+  ['radius-min','radius-max'].forEach((id,i)=>listen(id,'input',e=>{state[i?'radiusMax':'radiusMin']=Number(e.target.value);requestDraw();}));
+  listen('color-mode','change',e=>{state.colorMode=e.target.value;$('charge-legend').hidden=state.colorMode!=='charge';$('element-colors').hidden=state.colorMode==='charge';requestDraw();});
+  ['cu-color','o-color'].forEach((id,i)=>listen(id,'input',e=>{state[i?'oColor':'cuColor']=e.target.value;requestDraw();drawPlot();}));
+  ['material','render-light'].forEach(id=>listen(id,'change',e=>{state.material=e.target.value;$('material').value=state.material;$('render-light').value=state.material;requestDraw();}));
+  [['objects-atoms','atomsVisible'],['objects-bonds','bonds'],['objects-cell','cell'],['objects-vectors','vectors'],['show-bonds','bonds'],['show-cell','cell'],['show-grid','grid'],['atom-labels','labels'],['ghost-selection','ghost']].forEach(([id,key])=>listen(id,'change',e=>{state[key]=e.target.checked;$('objects-bonds').checked=$('show-bonds').checked=state.bonds;$('objects-cell').checked=$('show-cell').checked=state.cell;requestDraw();}));
+  listen('cell-color','input',e=>{state.cellColor=e.target.value;requestDraw();});
+  listen('bond-style','change',e=>{state.bondStyle=e.target.value;requestDraw();});
+  listen('bond-thickness','input',e=>{state.bondThickness=Number(e.target.value)||.16;requestDraw();});
+  listen('bond-cutoff','change',e=>{state.cutoff=Number(e.target.value)||2.56;rebuildBonds();requestDraw();});
+  [['pair-cucu','pairCu'],['pair-cuo','pairO']].forEach(([id,key])=>listen(id,'change',e=>{state[key]=e.target.checked;rebuildBonds();requestDraw();}));
+  listen('light-strength','input',e=>{state.exposure=Number(e.target.value);$('exposure-value').textContent=state.exposure.toFixed(1);requestDraw();});
+  listen('crop-preview','change',e=>{$('export-frame').hidden=!e.target.checked;updateCrop();});
+  ['render-width','render-height'].forEach(id=>listen(id,'input',updateCrop));
+  ['analysis-pair','analysis-cutoff','analysis-bins'].forEach(id=>listen(id,'change',drawPlot));
+  listen('play','click',startStop);listen('frame','input',e=>{state.frame=Number(e.target.value);syncFrame();});
+  let pointer=null;
+  function hit(x,y) {return [...hitAtoms].reverse().find(a=>Math.hypot(a.x-x,a.y-y)<a.r+4);}
+  canvas.addEventListener('pointerdown',e=>{pointer={x:e.offsetX,y:e.offsetY,lastX:e.offsetX,lastY:e.offsetY,moved:false};canvas.setPointerCapture(e.pointerId);});
+  canvas.addEventListener('pointermove',e=>{
+    if(pointer){const dx=e.offsetX-pointer.lastX,dy=e.offsetY-pointer.lastY;if(Math.hypot(e.offsetX-pointer.x,e.offsetY-pointer.y)>4)pointer.moved=true;
+      if(pointer.moved){if(state.tool==='move'&&state.selected.size){targets().forEach(a=>{a.x+=dx/lastDrawScale;a.z-=dy/lastDrawScale;});}else{state.rz+=dx*.007;state.rx=Math.max(-1.6,Math.min(1.6,state.rx+dy*.007));}requestDraw();$('hover-tip').hidden=true;}
+      pointer.lastX=e.offsetX;pointer.lastY=e.offsetY;return;
+    }
+    const p=hit(e.offsetX,e.offsetY);hovered=p?.i??null;
+    if(p){const a=atoms[p.i];$('hover-tip').textContent=`${a.element} #${p.i+1} · q ${a.charge.toFixed(2)} e`;$('hover-tip').style.left=Math.min(canvasSize.w-135,e.offsetX+16)+'px';$('hover-tip').style.top=Math.min(canvasSize.h-35,e.offsetY+13)+'px';$('hover-tip').hidden=false;}else $('hover-tip').hidden=true;requestDraw();
+  });
+  canvas.addEventListener('pointerup',e=>{
+    if(!pointer)return;
+    if(!pointer.moved){const p=hit(e.offsetX,e.offsetY);if(p){if(state.tool==='measure'){if(state.selected.size>=2)state.selected.clear();state.selected.add(p.i);}else{if(!e.shiftKey)state.selected.clear();if(state.selected.has(p.i))state.selected.delete(p.i);else state.selected.add(p.i);}}else if(!e.shiftKey)state.selected.clear();syncSelection();}
+    else if(state.tool==='move'){rebuildBonds();syncSelection();}
+    pointer=null;
+  });
+  canvas.addEventListener('pointercancel',()=>{pointer=null;});
+  canvas.addEventListener('pointerleave',()=>{if(!pointer){hovered=null;$('hover-tip').hidden=true;requestDraw();}});
+  canvas.addEventListener('wheel',e=>{e.preventDefault();state.zoom=Math.max(.5,Math.min(2.4,state.zoom*Math.exp(-e.deltaY*.001)));requestDraw();},{passive:false});
+  document.addEventListener('keydown',e=>{
+    if(e.key==='Escape'){if(!$('help').hidden){$('help').hidden=true;return;}closeMenus();state.selected.clear();syncSelection();return;}
+    if(e.ctrlKey||e.metaKey||e.altKey||e.isComposing||e.target.closest('input,select,textarea,button,[contenteditable]'))return;
+    if(['1','2','3','4'].includes(e.key))setWorkspace(['style','build','analyze','render'][Number(e.key)-1]);
+    if(e.key.toLowerCase()==='f')fit();if(e.key.toLowerCase()==='g')setTool('move');if(e.key.toLowerCase()==='r')setTool('rotate');
+    if(e.code==='Space'){e.preventDefault();startStop();}
+  });
+  $('help').addEventListener('click',e=>{if(e.target===$('help'))$('help').hidden=true;});
+  $('help').addEventListener('keydown',e=>{if(e.key==='Tab'){e.preventDefault();$('help').querySelector('button').focus();}});
+  document.addEventListener('visibilitychange',()=>{if(document.hidden&&state.playing)startStop();});
+  resetScene();resize();
+  // Optional host design controls; inert when this file is opened normally.
+  if(globalThis.Tweak){const design={panelWidth:352,accent:'#276f64'};const tweak=new Tweak({container:$('vase-studio'),onChange:()=>{document.documentElement.style.setProperty('--inspector-width',design.panelWidth+'px');document.documentElement.style.setProperty('--accent',design.accent);requestDraw();}});tweak.addSlider(design,'panelWidth',{label:'Inspector width',min:310,max:420,unit:'px'});tweak.addColorPicker(design,'accent',{label:'Accent'});}
+  // Read-only access makes visual QA / inspecting the toy scene convenient.
+  window.vaseToy={state,atoms:()=>atoms,bonds:()=>bonds,hitAtoms:()=>hitAtoms,setWorkspace,draw:requestDraw};
+})();
+</script>
+</body>
+</html>

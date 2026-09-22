@@ -97,7 +97,7 @@ Current operation coverage:
 - load-volumetric, show-volumetric, add-volumetric-plane,
   update-volumetric-planes, remove-volumetric-planes, combine-volumetric,
   remove-volumetric;
-- calculate-rdf, set-atom-colorscale;
+- calculate-rdf, set-atom-colorscale, set-atom-radius-mapping;
 - set-interface-theme, set-personal-visual-default,
   restore-app-visual-defaults.
 
@@ -143,6 +143,8 @@ Run all scenarios, not only static document checks:
      appearance; require uninterrupted playback and immediate visual updates.
 3. **Selection and measurement**
    - select one through four ordered atoms;
+   - with one atom, verify the compact Measure readout leads with the chemical
+     element and user label and contains no property count;
    - verify one-atom displayed Cartesian/fractional position, standard ASE
      attributes, arbitrary scalar/vector/string arrays, and stored calculator
      results, then verify direct/MIC distance, angle, and torsion;
@@ -389,8 +391,9 @@ Run all scenarios, not only static document checks:
      clipped; verify Help and every long modal scroll while actions remain
      visible;
    - select a molecule, Shift-box the full structure, and require the molecule
-     to become the only deselected subset; verify `Ctrl+A` selects all and
-     `Shift+Ctrl+A` inverts all, including the all-selected to none case.
+     to become the only deselected subset; verify `⌘A` (macOS) or `Ctrl+A` selects all and
+     `Shift+A` inverts all, including the all-selected to none case.
+     `⌘Shift+A` (macOS) or `Ctrl+Shift+A` opens Render → Renderer instead of changing selection.
 7. **Constraints rendering**
    - inspect FixAtoms, FixScaled, FixedLine, FixedPlane, and Hookean;
    - verify persistent FixedPlane markers remain depth-tested while its
@@ -717,8 +720,13 @@ Every browser render test must check:
 - stored-force arrows preserve exact Cartesian direction and configured scale
   in both 2D and 3D, follow displayed replicas, and remain absent without
   stored force data;
-- a narrow viewport keeps every top-bar command reachable through one stable
-  horizontal scroll track without overlap or wrapping;
+- a narrow viewport stacks the Style/Build/Analyze/Render workbench below the
+  useful viewport, while the optional Objects drawer overlays only the scene;
+  File/Edit/View/Help, Save, Render and canvas-local tools remain keyboard-
+  accessible without overlapping scientific controls;
+- an explicitly opened server `.vase` and project HTML save to the same bound
+  source, detect external changes, and never authorize a raw upload or other
+  nearby file for write-back; Save As adopts a distinct file only on success;
 - the native file picker confirms one file with Enter and does not immediately
   reopen from a trailing key event;
 - the Render Area gray mask, eye marker, border, pointer projection, live

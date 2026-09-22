@@ -21,6 +21,32 @@ The **+** tab action creates an empty document. **Open** can replace the active
 document, append frames to its trajectory, or create a new tab. Inactive
 document iframes suspend rendering and movie playback, although a backend
 calculation already in progress can continue.
+In a direct or notebook editor, the first New/Open-in-new-tab action adds the
+same tab bar in place: the original app is not reloaded, so its approved
+browser file handle, selection and camera remain attached to the first tab.
+Later tabs use independent child sessions inside that page or notebook frame.
+File/Edit/View/Help menus and Save/Render actions sit above the document canvas.
+An optional Objects drawer overlays the viewport; the single right workbench
+uses Style / Build / Analyze / Render tabs. Each tab exposes its tools as labelled buttons; no tool dropdown hides the
+available scientific workflows. Style includes Atoms, Bonds, Cell, Polyhedra
+and View & guides. Search in the
+header reveals an existing control, not a duplicate setting. At narrow widths
+the viewport comes first and the workbench stacks beneath it. A dirty tab offers Save, Discard and Cancel before closing;
+closing the last internal tab creates a replacement blank document first.
+Child-tab reloads reconstruct the most recent committed appearance, camera and
+output settings along with the retained save target and clean/dirty baseline.
+The child waits for its parent to finish that reconstruction before accepting
+human or agent edits.
+The top-level **Fullscreen editing** control reports whether Keyboard Lock is
+active; unsupported or denied capture leaves File actions usable. A notebook
+iframe offers **Open full editor** for the same session rather than claiming
+that an embedded frame can capture browser-reserved keys.
+Continuous appearance, lighting, vector, bond and field sliders also provide
+editable numeric values; an invalid draft stays in its field without changing
+the current rendered setting.
+Analysis results live in a dock below the canvas. Drag its top edge to give
+plots more room without changing the camera's px/Å scale; on short windows,
+results take the work area and **Back** returns to the canvas.
 
 ## View and Edit
 
@@ -57,7 +83,7 @@ operations need editable ASE objects rather than a view-only frame source.
 ### Empty launch behavior
 
 `v_ase gui` with no file creates an empty **Edit** document. Define a finite
-cell under **Structure > Cell & Replication** when building a periodic model,
+cell under **Style > Cell** when building a periodic model,
 then use **+ Add atoms** or **Build with ASE**.
 
 ## Original, working, and displayed state

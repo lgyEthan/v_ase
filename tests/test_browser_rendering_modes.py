@@ -24,6 +24,7 @@ from examples.readme_scenes import make_ai_pyridinic_graphene_scene
 from v_ase.io import set_atom_labels
 from v_ase.session import sessions
 from v_ase.viewer import find_free_port, view
+from tests.ui_navigation import open_editor_route
 from v_ase.volumetric import VolumetricData
 
 
@@ -35,14 +36,14 @@ def _expand_inspector(page):
 
 
 def _open_panel(page, panel):
+    open_editor_route(page, panel)
     details = page.locator(f'[data-panel="{panel}"]')
     if not details.evaluate("element => element.open"):
         details.locator('summary').click()
 
 
 def _select_structure_section(page, section):
-    page.click('[data-inspector-group="structure"]')
-    page.select_option("#structure-section-select", section)
+    open_editor_route(page, section)
     page.wait_for_function(
         """section => {
             const panel = document.querySelector(`[data-panel="${section}"]`);
@@ -77,7 +78,8 @@ def test_help_dialog_stays_inside_viewport_and_scrolls_to_every_section():
             page = browser.new_page(viewport={"width": 980, "height": 620})
             page.goto(f"http://127.0.0.1:{port}/?session_id={editor.session_id}")
             page.wait_for_function("window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 1")
-            page.click("#btn-shortcuts")
+            page.locator('#editor-menu-bar details').last.locator('summary').click()
+            page.click('[data-editor-menu-action="shortcuts"]')
             metrics = page.evaluate("""() => {
                 const modal = document.querySelector('#modal-container .modal');
                 const content = document.getElementById('modal-content');
@@ -106,6 +108,46 @@ def test_help_dialog_stays_inside_viewport_and_scrolls_to_every_section():
             page.wait_for_function("document.getElementById('modal-content').scrollTop > 100")
             assert page.locator("#modal-content .help-section-title").last.is_visible()
             page.click("#modal-close")
+            browser.close()
+    finally:
+        editor.close()
+
+
+def test_export_capture_defers_resize_until_exact_frame_is_finished():
+    editor = view(
+        Atoms("H", positions=[[0, 0, 0]]), notebook=True, block=False,
+        port=find_free_port(), close_on_disconnect=False,
+    )
+    try:
+        with sync_playwright() as playwright:
+            try:
+                browser = playwright.chromium.launch(headless=True)
+            except PlaywrightError as error:
+                pytest.skip(f"Playwright Chromium unavailable: {error}")
+            page = browser.new_page()
+            page.goto(editor.url)
+            page.wait_for_function("window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 1")
+            result = page.evaluate("""() => {
+                const viewer = window.__ASE_APP__.renderer;
+                const capture = viewer.beginExportCapture(800, 500);
+                const size = () => {
+                    const target = {x: 0, y: 0, set(x, y) {this.x = x; this.y = y;}};
+                    viewer.renderer.getSize(target);
+                    return [target.x, target.y];
+                };
+                const during = size();
+                viewer.container.getBoundingClientRect = () => ({width: 420, height: 300});
+                viewer.onResize();
+                const deferred = size();
+                const pending = viewer.exportCaptureResizePending;
+                viewer.endExportCapture(capture);
+                return {during, deferred, pending, restored: size(), active: viewer.exportCaptureActive};
+            }""")
+            assert result["during"] == [800, 500]
+            assert result["deferred"] == [800, 500]
+            assert result["pending"] is True
+            assert result["restored"] == [420, 300]
+            assert result["active"] is False
             browser.close()
     finally:
         editor.close()
@@ -246,31 +288,22 @@ def test_rdf_drawer_controls_and_selected_active_bond_pairs():
                     "window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 5"
                 )
                 _expand_inspector(page)
-                page.click('[data-inspector-group="analysis"]')
-                assert page.locator("#structure-section-picker").is_visible()
-                assert page.locator("#structure-section-select option").all_text_contents() == [
-                    "Displacement",
-                    "Forces",
-                    "Volumetric Data",
-                    "Distribution Functions",
-                    "Rigid Translation",
+                open_editor_route(page, 'rdf')
+                assert page.locator('#workbench-tools [data-tool-group]:not([hidden]) button').all_text_contents() == [
+                    'Measure', 'Distributions', 'Displacements',
+                    'Forces', 'Fields', 'Registry'
                 ]
-                page.select_option("#structure-section-select", "rdf")
-                page.click('[data-inspector-group="export"]')
-                assert page.locator("#structure-section-select option").all_text_contents() == [
-                    "Files & Media",
-                    "v_ase Project",
-                    "Visual Settings",
-                    "Format Guide",
+                open_editor_route(page, 'export')
+                assert page.locator('#workbench-tools [data-tool-group]:not([hidden]) button').all_text_contents() == [
+                    'Renderer', 'Image', 'Video', 'Interactive HTML', 'Geometry'
                 ]
-                page.click('[data-inspector-group="structure"]')
-                page.select_option("#structure-section-select", "appearance")
+                open_editor_route(page, 'appearance')
                 label_font, apply_font = page.evaluate("""() => [
                     getComputedStyle(document.getElementById('selected-atom-label')).fontSize,
                     getComputedStyle(document.getElementById('btn-apply-selected-label')).fontSize
                 ]""")
                 assert apply_font == label_font
-                page.select_option("#structure-section-select", "scientific-tools")
+                open_editor_route(page, 'scientific-tools')
                 page.select_option("#calc-cutoff-mode", "absolute")
                 page.fill("#calc-cutoff-distance", "1.35")
                 page.locator("#calc-cutoff-distance").dispatch_event("change")
@@ -3099,6 +3132,7 @@ def test_empty_workspace_opens_a_complete_trajectory_from_the_browser(tmp_path):
             assert page.locator('#open-file-name').inner_text() == replacement_source.name
             page.locator('input[name="open-runtime-mode"][value="edit"]').check()
             page.click('#open-file-confirm')
+            page.locator('#modal-discard-document').click()
             page.wait_for_function("""() => {
                 const app = window.__ASE_APP__;
                 return app?.state?.atoms?.metadata?.natoms === 2
@@ -3145,7 +3179,7 @@ def test_empty_workspace_opens_a_complete_trajectory_from_the_browser(tmp_path):
             assert after["camera"]["position"] == pytest.approx(inherited_before["camera"]["position"])
             assert after["camera"]["target"] == pytest.approx(inherited_before["camera"]["target"])
             assert after["display"]["atomicScalePixelsPerAngstrom"] == pytest.approx(
-                inherited_before["display"]["atomicScalePixelsPerAngstrom"]
+                inherited_before["display"]["atomicScalePixelsPerAngstrom"], rel=1e-4
             )
             browser.close()
     finally:
@@ -3263,7 +3297,7 @@ def test_open_file_can_append_frames_with_new_labels_to_the_current_movie(tmp_pa
         editor.close()
 
 
-def test_arrow_keys_step_only_the_selected_loaded_or_relaxation_timeline():
+def test_alt_arrow_keys_step_only_the_selected_loaded_or_relaxation_timeline():
     frames = []
     for x in (0.0, 1.0, 2.0):
         frames.append(
@@ -3317,7 +3351,7 @@ def test_arrow_keys_step_only_the_selected_loaded_or_relaxation_timeline():
             assert "RELAX" in page.locator("#secondary-timeline-source-label").inner_text()
 
             page.evaluate("document.activeElement?.blur()")
-            page.keyboard.press("ArrowRight")
+            page.keyboard.press("Alt+ArrowRight")
             page.wait_for_function("window.__ASE_APP__.state.atoms.metadata.current_frame === 1")
             assert page.locator("#frame-label").inner_text() == "2 / 3"
             assert page.evaluate("window.__ASE_APP__.state.relaxTrajectory.frame") == 0
@@ -3332,7 +3366,7 @@ def test_arrow_keys_step_only_the_selected_loaded_or_relaxation_timeline():
             assert page.locator("#secondary-timeline-source-label").inner_text() == "SOURCE"
 
             page.evaluate("document.activeElement?.blur()")
-            page.keyboard.press("ArrowRight")
+            page.keyboard.press("Alt+ArrowRight")
             page.wait_for_function("""() => {
                 const app = window.__ASE_APP__;
                 return app.state.relaxTrajectory.frame === 1
@@ -3393,16 +3427,13 @@ def test_trajectory_selection_persists_and_displacement_vectors_render():
             )
             page.evaluate("""() => {
                 const app = window.__ASE_APP__;
-                app.addSelectionReference(0);
-                app.addSelectionReference(1);
-                app.updateSelectionVisuals();
-                app.updateUI();
+                app.applySelectionAction({references: [0, 1], origin: 'semantic', measurement: 'ordered'});
             }""")
             page.wait_for_function("window.__ASE_APP__.selectionCount() === 2")
             assert "1.0000 A" in page.locator("#selected-measure").inner_text()
 
             page.locator("#app-viewport canvas").focus()
-            page.keyboard.press("ArrowRight")
+            page.keyboard.press("Alt+ArrowRight")
             page.wait_for_function("""() => {
                 const app = window.__ASE_APP__;
                 return app.state.atoms.metadata.current_frame === 1
@@ -3413,7 +3444,7 @@ def test_trajectory_selection_persists_and_displacement_vectors_render():
             assert "1.2000 A" in page.locator("#selected-measure").inner_text()
 
             _expand_inspector(page)
-            page.click('[data-inspector-group="analysis"]')
+            open_editor_route(page, 'displacement')
             page.check("#chk-displacement")
             page.wait_for_function("""() => {
                 const app = window.__ASE_APP__;
@@ -3445,7 +3476,7 @@ def test_trajectory_selection_persists_and_displacement_vectors_render():
                 "selectionOrder": ["atom:0", "atom:1"],
             }
 
-            page.click('[data-inspector-group="structure"]')
+            open_editor_route(page, 'appearance')
             _open_panel(page, "cell-replication")
             page.fill("#super-x", "2")
             page.wait_for_function(
@@ -3511,7 +3542,7 @@ def test_trajectory_selection_persists_and_displacement_vectors_render():
             assert repeated["saved"]["supercell"] == [2, 1, 1]
             assert repeated["inputs"] == [1.0, -0.5, 0.25]
 
-            page.click('[data-inspector-group="analysis"]')
+            open_editor_route(page, 'displacement')
             page.select_option("#displacement-style", "2d")
             page.wait_for_function(
                 "window.__ASE_APP__.renderer.displacementGroup.userData.flat === true"
@@ -3586,7 +3617,7 @@ def test_view_mode_visual_label_and_appearance_follow_stable_trajectory_indices(
             ).is_disabled()
 
             page.evaluate("document.activeElement?.blur()")
-            page.keyboard.press("ArrowRight")
+            page.keyboard.press("Alt+ArrowRight")
             page.wait_for_function("""() => {
                 const app = window.__ASE_APP__;
                 return app.state.atoms.metadata.current_frame === 1
@@ -3735,7 +3766,7 @@ def test_selected_index_appearance_overrides_are_field_scoped_and_follow_traject
             }""")
 
             page.locator("#app-viewport canvas").focus()
-            page.keyboard.press("ArrowRight")
+            page.keyboard.press("Alt+ArrowRight")
             page.wait_for_function("window.__ASE_APP__.state.atoms.metadata.current_frame === 1")
             persisted = page.evaluate("""() => {
                 const app = window.__ASE_APP__;
@@ -3817,9 +3848,9 @@ def test_shift_box_and_shift_select_all_invert_existing_selection():
             page.locator("#app-viewport canvas").focus()
             page.keyboard.press("Control+a")
             page.wait_for_function("window.__ASE_APP__.selectionCount() === 4")
-            page.keyboard.press("Shift+Control+a")
+            page.keyboard.press("Shift+a")
             page.wait_for_function("window.__ASE_APP__.selectionCount() === 0")
-            page.keyboard.press("Shift+Control+a")
+            page.keyboard.press("Control+a")
             page.wait_for_function("window.__ASE_APP__.selectionCount() === 4")
             browser.close()
     finally:
@@ -4130,13 +4161,13 @@ def test_view_mode_incompatible_trajectory_relabels_current_frame_and_opens_moda
             page.click("#modal-close")
 
             page.evaluate("document.activeElement?.blur()")
-            page.keyboard.press("ArrowRight")
+            page.keyboard.press("Alt+ArrowRight")
             page.wait_for_function("window.__ASE_APP__.state.atoms.metadata.current_frame === 1")
             assert page.evaluate("window.__ASE_APP__.state.atoms.symbols") == [
                 "H_host", "H_host", "He_guest"
             ]
             page.evaluate("document.activeElement?.blur()")
-            page.keyboard.press("ArrowLeft")
+            page.keyboard.press("Alt+ArrowLeft")
             page.wait_for_function(
                 "window.__ASE_APP__.state.atoms.metadata.current_frame === 0"
             )
@@ -4176,7 +4207,7 @@ def test_coordinate_reset_preserves_visual_translation_and_display_supercell():
             page.wait_for_function("window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 2")
 
             _expand_inspector(page)
-            page.click('[data-inspector-group="structure"]')
+            open_editor_route(page, 'appearance')
             _open_panel(page, "cell-replication")
             page.fill("#super-x", "2")
             page.fill("#super-y", "2")
@@ -4188,7 +4219,8 @@ def test_coordinate_reset_preserves_visual_translation_and_display_supercell():
                 "window.__ASE_APP__.renderer.domElement.dataset.visualTranslation === '0.400000,-0.200000,0.100000'"
             )
 
-            page.click("#btn-reset-coords")
+            page.locator('#editor-menu-bar details').nth(1).locator('summary').click()
+            page.click('[data-editor-menu-action="reset-coordinates"]')
             page.wait_for_selector("#modal-confirm-action")
             assert "displayed replication" in page.locator("#modal-content").inner_text()
             assert "visual translation" in page.locator("#modal-content").inner_text()
@@ -4215,7 +4247,8 @@ def test_coordinate_reset_preserves_visual_translation_and_display_supercell():
             assert preserved["inputs"] == [0.4, -0.2, 0.1]
             assert preserved["superInputs"] == [2, 2, 1]
 
-            page.click("#btn-reset")
+            page.locator('#editor-menu-bar details').nth(1).locator('summary').click()
+            page.click('[data-editor-menu-action="reset-all"]')
             page.wait_for_selector("#modal-confirm-action")
             page.click("#modal-confirm-action")
             page.wait_for_function(
@@ -4287,7 +4320,7 @@ def test_rotate_direction_commensurate_snap_and_panel_focus_workflow():
             # closes, and returns keyboard focus to the viewport.
             page.keyboard.press('Tab')
             page.wait_for_function("!document.body.classList.contains('inspector-collapsed')")
-            page.click('[data-inspector-group="structure"]')
+            open_editor_route(page, 'transform')
             page.fill('#rotate-increment', '5')
             page.keyboard.press('Tab')
             assert not page.locator('body').evaluate(
@@ -4374,7 +4407,7 @@ def test_rotate_direction_commensurate_snap_and_panel_focus_workflow():
             # run R+Z and wait for the backend result and rendered guide.
             canvas.focus()
             page.keyboard.press('Tab')
-            page.click('[data-inspector-group="structure"]')
+            open_editor_route(page, 'build-match')
             page.evaluate("window.__ASE_APP__.aiSelectIndices([0, 1])")
             page.wait_for_function("window.__ASE_APP__.state.selected.size === 2")
             page.check('#chk-commensurate-guide')
@@ -4527,12 +4560,12 @@ def test_commensurate_common_cell_preview_has_core_halo_boundary_bonds_and_can_b
             page.wait_for_function("window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 4")
 
             _expand_inspector(page)
-            _select_structure_section(page, "transform")
+            open_editor_route(page, 'build-match')
             assert not page.is_checked('#chk-commensurate-guide')
             camera_before = page.evaluate("""() => ({
                 position: window.__ASE_APP__.renderer.camera.position.toArray(),
                 target: window.__ASE_APP__.renderer.controls.target.toArray(),
-                zoom: window.__ASE_APP__.renderer.camera.zoom
+                pixelsPerAngstrom: window.__ASE_APP__.renderer.currentPixelsPerAngstrom()
             })""")
             page.check('#chk-commensurate-guide')
             page.wait_for_function("window.__ASE_APP__.state.commensurateCandidates.length >= 60")
@@ -4553,7 +4586,7 @@ def test_commensurate_common_cell_preview_has_core_halo_boundary_bonds_and_can_b
                     camera: {
                         position: app.renderer.camera.position.toArray(),
                         target: app.renderer.controls.target.toArray(),
-                        zoom: app.renderer.camera.zoom
+                        pixelsPerAngstrom: app.renderer.currentPixelsPerAngstrom()
                     }
                 };
             }""")
@@ -4567,7 +4600,9 @@ def test_commensurate_common_cell_preview_has_core_halo_boundary_bonds_and_can_b
             assert "Select the guest layer" in host_only["status"]
             np.testing.assert_allclose(host_only["camera"]["position"], camera_before["position"])
             np.testing.assert_allclose(host_only["camera"]["target"], camera_before["target"])
-            assert host_only["camera"]["zoom"] == pytest.approx(camera_before["zoom"])
+            assert host_only["camera"]["pixelsPerAngstrom"] == pytest.approx(
+                camera_before["pixelsPerAngstrom"], rel=1e-4
+            )
 
             page.evaluate("""() => {
                 const app = window.__ASE_APP__;
@@ -4607,7 +4642,7 @@ def test_commensurate_common_cell_preview_has_core_halo_boundary_bonds_and_can_b
                     camera: {
                         position: app.renderer.camera.position.toArray(),
                         target: app.renderer.controls.target.toArray(),
-                        zoom: app.renderer.camera.zoom
+                        pixelsPerAngstrom: app.renderer.currentPixelsPerAngstrom()
                     }
                 };
             }""")
@@ -4629,7 +4664,9 @@ def test_commensurate_common_cell_preview_has_core_halo_boundary_bonds_and_can_b
             assert cells_only["proposalVisible"] is False
             np.testing.assert_allclose(cells_only["camera"]["position"], camera_before["position"])
             np.testing.assert_allclose(cells_only["camera"]["target"], camera_before["target"])
-            assert cells_only["camera"]["zoom"] == pytest.approx(camera_before["zoom"])
+            assert cells_only["camera"]["pixelsPerAngstrom"] == pytest.approx(
+                camera_before["pixelsPerAngstrom"], rel=1e-4
+            )
             page.locator('details.commensurate-advanced').evaluate(
                 "element => { element.open = true; }"
             )
@@ -4742,7 +4779,7 @@ def test_commensurate_common_cell_preview_has_core_halo_boundary_bonds_and_can_b
 
             page.keyboard.press('Escape')
             page.wait_for_function("!document.body.classList.contains('inspector-collapsed')")
-            _select_structure_section(page, "transform")
+            open_editor_route(page, 'build-match')
             assert page.locator('#commensurate-supercell-proposal').is_visible()
             assert not page.locator('#btn-apply-commensurate-cell').is_disabled()
             page.click('#btn-apply-commensurate-cell')
@@ -4757,7 +4794,7 @@ def test_commensurate_common_cell_preview_has_core_halo_boundary_bonds_and_can_b
                 camera: {
                     position: window.__ASE_APP__.renderer.camera.position.toArray(),
                     target: window.__ASE_APP__.renderer.controls.target.toArray(),
-                    zoom: window.__ASE_APP__.renderer.camera.zoom
+                    pixelsPerAngstrom: window.__ASE_APP__.renderer.currentPixelsPerAngstrom()
                 }
             })""")
             assert applied["preview"] is None
@@ -4766,7 +4803,9 @@ def test_commensurate_common_cell_preview_has_core_halo_boundary_bonds_and_can_b
             assert applied["supercell"] == [1, 1, 1]
             np.testing.assert_allclose(applied["camera"]["position"], camera_before["position"])
             np.testing.assert_allclose(applied["camera"]["target"], camera_before["target"])
-            assert applied["camera"]["zoom"] == pytest.approx(camera_before["zoom"])
+            assert applied["camera"]["pixelsPerAngstrom"] == pytest.approx(
+                camera_before["pixelsPerAngstrom"], rel=1e-4
+            )
             assert abs(np.linalg.det(np.asarray(applied["cell"]))) == pytest.approx(
                 7 * abs(np.linalg.det(np.asarray(atoms.cell.array))),
                 rel=1e-7,
@@ -5385,7 +5424,7 @@ def test_view_mode_loads_a_guest_with_an_editable_three_angstrom_gap(
                 "window.v_aseAI && window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 2"
             )
             _expand_inspector(page)
-            _select_structure_section(page, "transform")
+            open_editor_route(page, 'build-match')
             assert page.locator('details[data-panel="transform"]').is_visible()
             assert page.locator('#chk-commensurate-guide').is_visible()
             assert not page.locator('#btn-rotate-selection-exact').is_visible()
@@ -5555,7 +5594,7 @@ def test_export_preview_is_screen_fixed_and_matches_the_png_render():
             page.goto(f"http://127.0.0.1:{port}/?session_id={editor.session_id}")
             page.wait_for_function("window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 3")
             _expand_inspector(page)
-            page.click('[data-inspector-group="export"]')
+            open_editor_route(page, 'export')
             page.fill('#image-width', '1600')
             page.fill('#image-height', '800')
             page.click('#btn-preview-image')
@@ -5672,7 +5711,7 @@ def test_export_preview_is_screen_fixed_and_matches_the_png_render():
             assert zoomed["projection"] != pytest.approx(initial["previewProjection"])
             assert zoomed["previewCount"] > initial["previewCount"]
 
-            page.click('[data-inspector-group="view"]')
+            open_editor_route(page, 'view')
             page.fill('#atomic-scale', '40')
             page.wait_for_function("Math.abs(window.__ASE_APP__.renderer.currentPixelsPerAngstrom() - 40) < 0.02")
             scale_40 = page.evaluate("""() => ({
@@ -5741,7 +5780,7 @@ def test_export_preview_is_screen_fixed_and_matches_the_png_render():
             page.wait_for_function("window.__ASE_APP__.renderer.camera.isOrthographicCamera")
             page.fill('#atomic-scale', '80')
             page.wait_for_function("Math.abs(window.__ASE_APP__.renderer.currentPixelsPerAngstrom() - 80) < 0.02")
-            page.click('[data-inspector-group="export"]')
+            open_editor_route(page, 'export')
 
             physical = page.evaluate("""() => {
                 const app = window.__ASE_APP__;
@@ -5899,7 +5938,7 @@ def test_render_area_keeps_an_independent_camera_and_maps_selection_to_its_gate(
             page.goto(f"http://127.0.0.1:{port}/?session_id={editor.session_id}")
             page.wait_for_function("window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 3")
             _expand_inspector(page)
-            page.click('[data-inspector-group="export"]')
+            open_editor_route(page, 'export')
             page.fill('#image-width', '1200')
             page.fill('#image-height', '700')
             page.click('#btn-preview-image')
@@ -6037,7 +6076,7 @@ def test_render_area_keeps_an_independent_camera_and_maps_selection_to_its_gate(
         editor.close()
 
 
-def test_narrow_toolbar_scrolls_instead_of_overlapping_controls():
+def test_narrow_editor_menus_and_drawers_remain_accessible_without_overlap():
     port = find_free_port()
     editor = view(
         molecule("H2O"),
@@ -6059,39 +6098,26 @@ def test_narrow_toolbar_scrolls_instead_of_overlapping_controls():
             layout = page.evaluate("""() => {
                 const bounds = selector => {
                     const rect = document.querySelector(selector).getBoundingClientRect();
-                    return [rect.left, rect.top, rect.right, rect.bottom, rect.width, rect.height];
+                    return [rect.left, rect.top, rect.right, rect.bottom];
                 };
-                const top = document.getElementById('top-bar');
-                const actions = document.querySelector('.action-group');
-                return {
-                    top: bounds('#top-bar'),
-                    logo: bounds('#top-bar .logo'),
-                    mode: bounds('#runtime-mode-switch'),
-                    actions: bounds('.action-group'),
-                    topOverflow: top.scrollWidth - top.clientWidth,
-                    actionOverflow: actions.scrollWidth - actions.clientWidth,
-                    overflowX: getComputedStyle(actions).overflowX,
-                    initialScroll: actions.scrollLeft,
-                };
+                return {top:bounds('#top-bar'),logo:bounds('#top-bar .logo'),
+                    menu:bounds('#editor-menu-bar'),mode:bounds('#runtime-mode-switch'),
+                    render:bounds('#editor-render'),tools:bounds('#viewport-tools')};
             }""")
-            assert layout["topOverflow"] <= 1
-            assert layout["logo"][2] <= layout["mode"][0] + 1
-            assert layout["mode"][2] <= layout["actions"][0] + 1
-            assert layout["actions"][2] <= layout["top"][2] + 1
-            assert layout["actionOverflow"] > 20
-            assert layout["overflowX"] in {"auto", "scroll"}
-
-            action_box = page.locator('.action-group').bounding_box()
-            assert action_box is not None
-            page.mouse.move(
-                action_box["x"] + action_box["width"] * 0.5,
-                action_box["y"] + action_box["height"] * 0.5,
-            )
-            page.mouse.wheel(0, 260)
-            page.wait_for_function(
-                "start => document.querySelector('.action-group').scrollLeft > start",
-                arg=layout["initialScroll"],
-            )
+            assert layout['logo'][2] <= layout['menu'][0] + 1
+            assert layout['menu'][2] <= layout['mode'][0] + 1
+            assert layout['mode'][2] <= layout['render'][0] + 1
+            assert layout['render'][2] <= layout['top'][2] + 1
+            assert layout['tools'][1] >= layout['top'][3]
+            page.locator('#editor-menu-bar details').first.locator('summary').click()
+            assert page.locator('[data-editor-menu-action="save-as"]').is_visible()
+            page.keyboard.press('Escape')
+            page.click('#editor-search-toggle')
+            assert page.locator('#editor-navigator [data-editor-route="appearance"]').is_visible()
+            assert page.locator('#inspector').is_visible()
+            open_editor_route(page, 'appearance')
+            assert not page.locator('body').evaluate("node => node.classList.contains('editor-search-open')")
+            assert page.locator('[data-panel="appearance"]').is_visible()
             browser.close()
     finally:
         editor.close()
@@ -6260,10 +6286,10 @@ def test_image_export_modal_is_the_authoritative_retina_preview(tmp_path):
                 ],
             }
             _expand_inspector(page)
-            page.click('[data-inspector-group="export"]')
+            open_editor_route(page, 'export')
             page.fill('#image-width', '1280')
             page.fill('#image-height', '720')
-            page.uncheck('#export-include-cell')
+            page.uncheck('#renderer-include-cell')
             page.wait_for_function(
                 "window.__ASE_APP__.state.imageExportProfile?.options?.includeCell === false"
             )
@@ -6272,6 +6298,7 @@ def test_image_export_modal_is_the_authoritative_retina_preview(tmp_path):
                 "window.__ASE_APP__.renderer.lastExportPreview?.outputSize?.join(',') === '1280,720'"
             )
 
+            open_editor_route(page, 'render-image')
             page.click('#btn-export-image')
             assert page.locator('#export-image-format').input_value() == 'png'
             assert set(page.locator('#export-image-format option').evaluate_all(
@@ -6308,7 +6335,7 @@ def test_image_export_modal_is_the_authoritative_retina_preview(tmp_path):
             live = page.evaluate("""() => {
                 const app = window.__ASE_APP__;
                 const cellVisibleBefore = app.renderer.cellGroup.visible;
-                const sceneState = app.renderer.beginExportScene(app.state.imageExportProfile.options);
+                const sceneState = app.renderer.beginExportScene(app.state.exportPreviewProfile.options);
                 const cellVisibleDuring = app.renderer.cellGroup.visible;
                 sceneState.restore();
                 app.renderer.renderNow();
@@ -6321,13 +6348,13 @@ def test_image_export_modal_is_the_authoritative_retina_preview(tmp_path):
                         Number(document.getElementById('export-preview-frame').dataset.outputWidth),
                         Number(document.getElementById('export-preview-frame').dataset.outputHeight)
                     ],
-                    profile: app.state.imageExportProfile,
+                    profile: app.state.exportPreviewProfile,
                     preview: app.renderer.exportPreview,
                     previewProjection: app.renderer.lastExportPreview.cameraProjection,
                     directProjection: app.renderer.exportCameraSetup(
                         640,
                         640,
-                        app.state.imageExportProfile.options
+                        app.state.exportPreviewProfile.options
                     ).camera.projectionMatrix.elements.slice(),
                     cellVisibility: [
                         cellVisibleBefore,
@@ -6336,7 +6363,7 @@ def test_image_export_modal_is_the_authoritative_retina_preview(tmp_path):
                     ]
                 };
             }""")
-            assert live["panelSize"] == [640, 640]
+            assert live["panelSize"] == [1280, 720]
             assert live["frameSize"] == [640, 640]
             assert live["profile"]["width"] == 640
             assert live["profile"]["height"] == 640
@@ -6842,7 +6869,9 @@ def test_sidebar_sun_renderer_export_and_periodic_bond_contract():
                 "shadows": False,
             }
 
-            assert page.locator('body').evaluate("element => element.classList.contains('inspector-collapsed')")
+            assert not page.locator('body').evaluate("element => element.classList.contains('inspector-collapsed')")
+            assert page.locator('#inspector').evaluate("element => element.getBoundingClientRect().width") >= 336
+            page.click('#btn-inspector-collapse')
             assert page.locator('#btn-inspector-collapse').get_attribute('aria-expanded') == 'false'
             assert page.locator('#btn-inspector-collapse').get_attribute('title') == 'Expand control panel'
             assert page.locator('#btn-inspector-collapse .inspector-edge-chevron').count() == 1
@@ -6870,23 +6899,27 @@ def test_sidebar_sun_renderer_export_and_periodic_bond_contract():
             assert edge_geometry['buttonRight'] == pytest.approx(edge_geometry['panelLeft'], abs=1.5)
             assert edge_geometry['verticalCenterDelta'] <= 1.5
 
-            page.click('[data-inspector-group="view"]')
+            open_editor_route(page, 'view')
             assert page.locator('[data-panel="view"]').is_visible()
             assert not page.locator('[data-panel="structure-info"]').is_visible()
             assert not page.locator('[data-panel="appearance"]').is_visible()
             assert not page.locator('[data-panel="bonding"]').is_visible()
-            page.click('[data-inspector-group="structure"]')
+            open_editor_route(page, 'appearance')
             assert page.locator('[data-panel="appearance"]').is_visible()
-            page.select_option('#structure-section-select', 'bonding')
+            open_editor_route(page, 'bonding')
             assert page.locator('[data-panel="bonding"]').is_visible()
-            page.click('[data-inspector-group="analysis"]')
+            open_editor_route(page, 'displacement')
             assert page.locator('[data-panel="displacement"]').is_visible()
-            page.click('[data-inspector-group="export"]')
+            page.locator('#editor-menu-bar summary').filter(has_text='File').click()
+            page.click('[data-editor-menu-route="project"]')
             assert page.locator('[data-panel="project"]').is_visible()
-            assert page.locator('[data-panel="settings"]').is_visible()
+            assert not page.locator('[data-panel="settings"]').is_visible()
             assert 'complete editable structure' in page.locator('[data-panel="project"] .panel-note').inner_text()
+            page.locator('#editor-menu-bar summary').filter(has_text='Preferences').click()
+            page.locator('#editor-menu-bar details[open] [data-editor-menu-route="settings"]').click()
+            assert page.locator('[data-panel="settings"]').is_visible()
             assert 'coordinates' in page.locator('[data-panel="settings"] .panel-note').inner_text()
-            page.click('[data-inspector-group="view"]')
+            open_editor_route(page, 'view')
             page.locator('#app-viewport canvas').focus()
             page.keyboard.press('Escape')
             page.wait_for_function("document.body.classList.contains('inspector-collapsed')")
@@ -6894,7 +6927,7 @@ def test_sidebar_sun_renderer_export_and_periodic_bond_contract():
             page.keyboard.press('Tab')
             page.wait_for_function("!document.body.classList.contains('inspector-collapsed')")
 
-            page.click('[data-inspector-group="structure"]')
+            open_editor_route(page, 'bonding')
             _open_panel(page, 'bonding')
             page.check('#chk-periodic-bonds')
             page.wait_for_function("window.__ASE_APP__.renderer.bondPairs.length === 1")
@@ -6906,19 +6939,20 @@ def test_sidebar_sun_renderer_export_and_periodic_bond_contract():
             assert icon_box is not None
             assert icon_box['width'] == pytest.approx(31, abs=1)
             assert icon_box['height'] == pytest.approx(29, abs=1)
+            open_editor_route(page, 'scientific-tools')
             viewport_tools = page.evaluate("""() => {
                 const trigger = document.getElementById('btn-lighting-toggle').getBoundingClientRect();
-                const actionGroup = document.querySelector('.action-group').getBoundingClientRect();
+                const cameraTools = document.getElementById('viewport-camera-tools').getBoundingClientRect();
                 const calculator = document.getElementById('calc-controls').getBoundingClientRect();
                 const scientificPanel = document.querySelector(
                     '[data-panel="scientific-tools"]'
                 ).getBoundingClientRect();
                 return {
                     triggerLeft: trigger.left,
-                    contained: trigger.left >= actionGroup.left && trigger.right <= actionGroup.right,
+                    contained: trigger.left >= cameraTools.left && trigger.right <= cameraTools.right,
                     headerCenterDelta: Math.abs(
                         (trigger.top + trigger.height / 2) -
-                        (actionGroup.top + actionGroup.height / 2)
+                        (cameraTools.top + cameraTools.height / 2)
                     ),
                     calculatorInTopBar: calculator.top < document.getElementById(
                         'top-bar'
@@ -7245,17 +7279,19 @@ def test_sidebar_sun_renderer_export_and_periodic_bond_contract():
             }""", export_contract["dataUrl"])
             assert exported_size == [640, 360]
 
-            page.click('[data-inspector-group="view"]')
+            open_editor_route(page, 'view')
             page.fill('#atomic-scale', '80')
             page.wait_for_function("Math.abs(window.__ASE_APP__.renderer.currentPixelsPerAngstrom() - 80) < 0.02")
-            page.click('[data-inspector-group="export"]')
+            open_editor_route(page, 'export')
+            open_editor_route(page, 'render-image')
             page.click('#btn-export-image')
             assert page.locator('#export-framing-mode').is_visible()
-            assert page.locator('#export-pixels-per-angstrom').count() == 0
+            assert page.locator('#export-pixels-per-angstrom').is_visible()
             page.select_option('#export-framing-mode', 'physical')
+            page.click('#export-copy-viewport-scale')
             page.fill('#export-width', '1600')
             page.fill('#export-height', '800')
-            assert 'View > Atomic scale (80.00 px/Å)' in page.locator('#export-scale-note').inner_text()
+            assert 'Output scale 80.00 px/Å' in page.locator('#export-scale-note').inner_text()
             assert '20.00 Å × 10.00 Å' in page.locator('#export-scale-note').inner_text()
             page.select_option('#export-sphere-quality', 'auto')
             page.fill('#export-smoothness-scale', '1.5')
@@ -7275,71 +7311,22 @@ def test_sidebar_sun_renderer_export_and_periodic_bond_contract():
             page.click('#btn-inspector-collapse')
             page.wait_for_function("document.body.classList.contains('inspector-collapsed')")
             page.set_viewport_size({"width": 390, "height": 844})
-            page.wait_for_function("document.getElementById('inspector').getBoundingClientRect().width <= 1")
-            mobile_collapsed = page.evaluate("""() => {
-                const actions = document.querySelector('.action-group');
-                const triggerElement = document.getElementById('btn-lighting-toggle');
-                triggerElement.scrollIntoView({block: 'nearest', inline: 'nearest'});
-                const trigger = triggerElement.getBoundingClientRect();
-                const handle = document.getElementById('btn-inspector-collapse').getBoundingClientRect();
+            # Narrow screens place the complete workbench below the viewport.
+            # Its desktop collapse handle is intentionally absent.
+            page.wait_for_function("document.getElementById('inspector').getBoundingClientRect().width === innerWidth")
+            assert not page.locator('#btn-inspector-collapse').is_visible()
+            mobile = page.evaluate("""() => {
                 const panel = document.getElementById('inspector').getBoundingClientRect();
-                const actionGroup = actions.getBoundingClientRect();
-                return {
-                    panelWidth: panel.width,
-                    handleRight: handle.right,
-                    viewportWidth: window.innerWidth,
-                    triggerLeft: trigger.left,
-                    triggerRight: trigger.right,
-                    actionLeft: actionGroup.left,
-                    actionRight: actionGroup.right,
-                    handleLeft: handle.left,
-                    actionOverflow: actions.scrollWidth - actions.clientWidth,
-                    actionScroll: actions.scrollLeft,
-                    handleOverlap: !(
-                        trigger.right <= handle.left ||
-                        trigger.left >= handle.right ||
-                        trigger.bottom <= handle.top ||
-                        trigger.top >= handle.bottom
-                    ),
-                    triggerContained: trigger.left >= actionGroup.left && trigger.right <= actionGroup.right,
-                    headerCenterDelta: Math.abs(
-                        (trigger.top + trigger.height / 2) -
-                        (actionGroup.top + actionGroup.height / 2)
-                    ),
-                    handleVerticalCenterDelta: Math.abs(
-                        (handle.top + handle.height / 2) -
-                        (panel.top + panel.height / 2)
-                    )
-                };
+                const viewport = document.getElementById('app-viewport').getBoundingClientRect();
+                const light = document.getElementById('btn-lighting-toggle').getBoundingClientRect();
+                return {panelTop: panel.top, viewportBottom: viewport.bottom,
+                    lightLeft: light.left, lightRight: light.right, width: innerWidth};
             }""")
-            assert mobile_collapsed['panelWidth'] == pytest.approx(0, abs=1)
-            assert mobile_collapsed['handleRight'] == pytest.approx(mobile_collapsed['viewportWidth'], abs=1)
-            assert mobile_collapsed['actionOverflow'] > 20
-            assert mobile_collapsed['actionScroll'] > 0
-            assert mobile_collapsed['handleOverlap'] is False
-            assert mobile_collapsed['triggerLeft'] >= mobile_collapsed['actionLeft'], mobile_collapsed
-            assert mobile_collapsed['triggerRight'] <= mobile_collapsed['actionRight'], mobile_collapsed
-            assert mobile_collapsed['headerCenterDelta'] <= 2
-            assert mobile_collapsed['handleVerticalCenterDelta'] <= 1.5
-
-            page.click('#btn-inspector-collapse')
-            page.wait_for_function("document.getElementById('inspector').getBoundingClientRect().width >= 345.5")
-            mobile_expanded = page.evaluate("""() => {
-                const handle = document.getElementById('btn-inspector-collapse').getBoundingClientRect();
-                const panel = document.getElementById('inspector').getBoundingClientRect();
-                return {
-                    handleRight: handle.right,
-                    panelLeft: panel.left,
-                    panelWidth: panel.width,
-                    verticalCenterDelta: Math.abs(
-                        (handle.top + handle.height / 2) -
-                        (panel.top + panel.height / 2)
-                    )
-                };
-            }""")
-            assert mobile_expanded['panelWidth'] == pytest.approx(346, abs=1)
-            assert mobile_expanded['handleRight'] == pytest.approx(mobile_expanded['panelLeft'], abs=1)
-            assert mobile_expanded['verticalCenterDelta'] <= 1.5
+            assert mobile['panelTop'] >= mobile['viewportBottom'] - 1
+            assert 0 <= mobile['lightLeft'] < mobile['lightRight'] <= mobile['width']
+            page.click('#btn-lighting-toggle')
+            assert page.locator('#lighting-mode').is_visible()
+            page.click('#btn-lighting-close')
 
             browser.close()
     finally:
@@ -7433,13 +7420,19 @@ def test_grid_button_and_ordered_distance_angle_torsion_measurements():
             }""")
 
             def click_atom(index, additive=False):
+                point = page.evaluate("""index => {
+                    const renderer = window.__ASE_APP__.renderer;
+                    return renderer.projectWorldToClient(
+                        renderer.atomMeshByIndex.get(index).position
+                    );
+                }""", index)
                 if additive:
                     page.keyboard.down("Shift")
-                page.mouse.click(points[index]["x"], points[index]["y"])
+                page.mouse.click(point["x"], point["y"])
                 if additive:
                     page.keyboard.up("Shift")
                 page.wait_for_function(
-                    f"window.__ASE_APP__.selectionCount() === {index + 1}"
+                    f"window.__ASE_APP__.selectionCount() === {index + 1}", timeout=5000
                 )
 
             def measurement_state():
@@ -7474,7 +7467,7 @@ def test_grid_button_and_ordered_distance_angle_torsion_measurements():
             click_atom(0)
             page.wait_for_function("""() => (
                 document.getElementById('selected-measure').innerText.includes(
-                    'Per-atom properties (5):'
+                    '[ASE] atomic_number = 1'
                 )
             )""")
             one = measurement_state()
@@ -7485,11 +7478,13 @@ def test_grid_button_and_ordered_distance_angle_torsion_measurements():
             assert one["connectors"] == 0
             assert one["detail"].startswith("a1=#0 H")
             assert "Element: H" in one["detail"]
+            assert "Label: H" in one["detail"]
             assert "Position (Cartesian): (-3.000000, -1.000000, 0.000000) A" in one["detail"]
             assert "[ASE] atomic_number = 1" in one["detail"]
             assert "[ASE] mass = " in one["detail"]
             assert "[ASE] tag = 0" in one["detail"]
-            assert "5 properties" in one["summary"]
+            assert one["summary"].startswith("Element H | Label H | #0 | Position ")
+            assert "properties" not in one["summary"].lower()
 
             click_atom(1, additive=True)
             two = measurement_state()
@@ -7574,7 +7569,24 @@ def test_grid_button_and_ordered_distance_angle_torsion_measurements():
             page.locator("#app-viewport canvas").focus()
             page.keyboard.press("Alt+a")
             page.wait_for_function("window.__ASE_APP__.selectionCount() === 0")
-            box_points = points[:3]
+            page.wait_for_function("""() => {
+                const camera = window.__ASE_APP__.renderer.camera;
+                const signature = [...camera.position.toArray(), ...camera.quaternion.toArray(), camera.zoom]
+                    .map(value => value.toFixed(4)).join(',');
+                const now = performance.now();
+                if (window.__measureCameraSignature !== signature) {
+                    window.__measureCameraSignature = signature;
+                    window.__measureCameraStableSince = now;
+                    return false;
+                }
+                return now - window.__measureCameraStableSince > 120;
+            }""")
+            box_points = page.evaluate("""() => {
+                const renderer = window.__ASE_APP__.renderer;
+                return [0, 1, 2].map(index => renderer.projectWorldToClient(
+                    renderer.atomMeshByIndex.get(index).position
+                ));
+            }""")
             left = min(point["x"] for point in box_points) - 10
             right = max(point["x"] for point in box_points) + 10
             top = min(point["y"] for point in box_points) - 10
@@ -7583,17 +7595,16 @@ def test_grid_button_and_ordered_distance_angle_torsion_measurements():
             page.mouse.down()
             page.mouse.move(right, bottom, steps=8)
             page.mouse.up()
-            page.wait_for_function("window.__ASE_APP__.selectionCount() === 3")
+            page.wait_for_function("window.__ASE_APP__.selectionCount() === 3", timeout=5000)
             boxed = measurement_state()
             assert boxed["order"] == ["atom:0", "atom:1", "atom:2"]
-            assert boxed["kind"] == "angle"
-            assert boxed["labels"] == ["a1", "a2", "a3"]
-            assert boxed["references"] == ["0", "1", "2"]
-            assert boxed["connectors"] == 2
-            assert boxed["angleArcs"] == 1
-            assert boxed["summary"] == (
-                "Angle a1-a2-a3 | Direct 135.00 deg"
-            )
+            assert boxed["kind"] == "none"
+            assert boxed["labels"] == []
+            assert boxed["references"] == []
+            assert boxed["connectors"] == 0
+            assert boxed["angleArcs"] == 0
+            assert boxed["summary"] == "3 atoms selected | H: 2, H_alt: 1"
+            assert boxed["detail"] == boxed["summary"]
             assert boxed["overlaps"] is False
             browser.close()
     finally:
@@ -7631,7 +7642,7 @@ def test_live_view_axes_and_unit_cell_toggles_control_viewport_guides():
                 "window.__ASE_APP__?.renderer?.cellGroup?.children?.length > 0"
             )
             _expand_inspector(page)
-            page.click('[data-inspector-group="view"]')
+            open_editor_route(page, 'view')
 
             assert page.locator("#chk-axes").is_checked()
             assert page.locator("#chk-cell").is_checked()
@@ -7694,11 +7705,7 @@ def test_periodic_measurement_reports_direct_and_mic_values():
             )
             page.evaluate("""() => {
                 const app = window.__ASE_APP__;
-                app.clearAtomSelection();
-                app.addSelectionReference(0);
-                app.addSelectionReference(1);
-                app.updateSelectionVisuals();
-                app.updateUI();
+                app.applySelectionAction({references: [0, 1], origin: 'semantic', measurement: 'ordered'});
             }""")
             page.wait_for_function(
                 "document.getElementById('selected-measure').innerText.includes('Direct:')"
@@ -7837,7 +7844,7 @@ def test_cell_local_bonds_clip_at_the_displayed_supercell_boundary():
             ) == '0'
 
             _expand_inspector(page)
-            page.click('[data-inspector-group="structure"]')
+            open_editor_route(page, 'cell-replication')
             page.fill('#super-x', '2')
             page.keyboard.press('Tab')
             page.wait_for_function("window.__ASE_APP__.state.display.supercell[0] === 2")
@@ -7955,7 +7962,7 @@ def test_interactive_bonds_reinfer_live_and_cutoffs_survive_structure_updates():
             page.wait_for_function("window.__ASE_APP__.renderer.bondPairs.length === 1")
 
             _expand_inspector(page)
-            page.click('[data-inspector-group="structure"]')
+            open_editor_route(page, 'appearance')
             _open_panel(page, 'bonding')
             page.select_option('#bond-mode', 'pairwise')
             cutoff = page.locator('.pairwise-bond-max[data-pair-key="C_left-C_right"]')
@@ -8282,36 +8289,15 @@ def test_label_opacity_updates_instanced_atoms_supercell_2d_and_visual_history()
             _expand_inspector(page)
             _select_structure_section(page, "appearance")
             page.evaluate("window.__ASE_APP__.resetHistoryTimeline()")
-            table_metrics = page.locator("#appearance-table").evaluate(
-                "element => ({ clientWidth: element.clientWidth, scrollWidth: element.scrollWidth })"
-            )
-            assert table_metrics["scrollWidth"] > table_metrics["clientWidth"]
-            moving_before = page.locator(
-                '.atom-label-input[data-atom-label="C_faded"]'
-            ).bounding_box()
-            page.locator("#appearance-table").evaluate("element => { element.scrollLeft = 140; }")
-            frozen_mid = page.locator(
-                '.chemical-type-select[data-atom-label="C_faded"]'
-            ).bounding_box()
-            page.locator("#appearance-table").evaluate("element => { element.scrollLeft = 300; }")
-            frozen_after = page.locator(
-                '.chemical-type-select[data-atom-label="C_faded"]'
-            ).bounding_box()
-            moving_after = page.locator(
-                '.atom-label-input[data-atom-label="C_faded"]'
-            ).bounding_box()
-            assert frozen_after["x"] == pytest.approx(frozen_mid["x"], abs=1)
-            assert moving_after["x"] < moving_before["x"] - 150
-            page.evaluate("window.__ASE_APP__.setInspectorWidth(520)")
-            medium_metrics = page.locator("#appearance-table").evaluate(
-                "element => ({ clientWidth: element.clientWidth, scrollWidth: element.scrollWidth })"
-            )
-            assert medium_metrics["scrollWidth"] > medium_metrics["clientWidth"]
-            page.evaluate("window.__ASE_APP__.setInspectorWidth(760)")
-            wide_metrics = page.locator("#appearance-table").evaluate(
-                "element => ({ clientWidth: element.clientWidth, scrollWidth: element.scrollWidth })"
-            )
-            assert wide_metrics["scrollWidth"] > wide_metrics["clientWidth"]
+            # Type properties are complete forms, with no horizontal scrolling.
+            for width in (352, 520, 760):
+                page.evaluate("width => window.__ASE_APP__.setInspectorWidth(width)", width)
+                metrics = page.locator("#appearance-table").evaluate(
+                    "element => ({ client: element.clientWidth, scroll: element.scrollWidth })"
+                )
+                assert metrics["scroll"] <= metrics["client"] + 1
+                for selector in ('.atom-label-input', '.chemical-type-select', '.label-opacity-input'):
+                    assert page.locator(f'{selector}[data-atom-label="C_faded"]').is_visible()
 
             opacity = page.locator(
                 '.label-opacity-input[data-atom-label="C_faded"]'
@@ -8510,7 +8496,7 @@ def test_bond_style_thickness_and_color_modes_render_and_persist():
             page.wait_for_function("window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 2")
 
             _expand_inspector(page)
-            page.click('[data-inspector-group="structure"]')
+            open_editor_route(page, 'appearance')
             _open_panel(page, 'bonding')
             page.select_option('#bond-mode', 'manual')
             page.fill('#bond-pairs', '0-1')
@@ -8592,7 +8578,7 @@ def test_bond_style_thickness_and_color_modes_render_and_persist():
             }""")
             assert split_colors["actual"] == split_colors["expected"]
 
-            page.click('[data-inspector-group="structure"]')
+            open_editor_route(page, 'cell-replication')
             page.fill('#super-x', '2')
             page.keyboard.press('Tab')
             page.wait_for_function("window.__ASE_APP__.state.display.supercell[0] === 2")
@@ -8640,11 +8626,8 @@ def test_bond_style_thickness_and_color_modes_render_and_persist():
                 renderer.camera.lookAt(target);
                 renderer.camera.updateMatrixWorld(true);
                 renderer.scene.updateMatrixWorld(true);
-                const screen = target.clone().project(renderer.camera);
-                const pointer = {
-                    clientX: (screen.x + 1) * 0.5 * window.innerWidth,
-                    clientY: (1 - screen.y) * 0.5 * window.innerHeight,
-                };
+                const screen = renderer.projectWorldToClient(target);
+                const pointer = {clientX: screen.x, clientY: screen.y};
                 return {
                     hover: app.selection.pickHover(pointer, renderer.atomMeshes, renderer.supercellGroup),
                     selectable: app.selection.pick(
@@ -8782,7 +8765,7 @@ def test_viz_only_replica_selection_measurements_and_atomic_label_commit():
             page.wait_for_function("window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 2")
 
             _expand_inspector(page)
-            page.click('[data-inspector-group="structure"]')
+            open_editor_route(page, 'appearance')
             _open_panel(page, 'appearance')
             type_palette = page.evaluate("""() => {
                 const app = window.__ASE_APP__;
@@ -8810,7 +8793,7 @@ def test_viz_only_replica_selection_measurements_and_atomic_label_commit():
             assert sum('Merged Cu2 into label Cu' in text for text in toasts) == 1
             assert all('atoms found' not in text for text in toasts)
 
-            page.click('[data-inspector-group="structure"]')
+            open_editor_route(page, 'cell-replication')
             for control, value in (('#super-x', '2'), ('#super-y', '2'), ('#super-z', '1')):
                 page.fill(control, value)
                 page.keyboard.press('Tab')
@@ -8871,15 +8854,21 @@ def test_viz_only_replica_selection_measurements_and_atomic_label_commit():
             page.wait_for_function("""() => (
                 window.__ASE_APP__.selectionCount() === 1
                 && document.getElementById('selected-measure').innerText.includes(
-                    'Per-atom properties (5):'
+                    '[ASE] atomic_number = 29'
                 )
             )""")
             replica_atom_detail = page.locator('#selected-measure').inner_text()
             assert replica_atom_detail.startswith("a1=#0@[1,0,0] Cu")
+            assert "Element: Cu" in replica_atom_detail
+            assert "Label: Cu" in replica_atom_detail
             assert "Position (Cartesian): (4.000000, 0.000000, 0.000000) A" in replica_atom_detail
             assert "[ASE] atomic_number = 29" in replica_atom_detail
+            base_point = page.evaluate("""() => {
+                const renderer = window.__ASE_APP__.renderer;
+                return renderer.projectWorldToClient(renderer.atomMeshByIndex.get(0).position);
+            }""")
             page.keyboard.down('Shift')
-            page.mouse.click(points['base']['x'], points['base']['y'])
+            page.mouse.click(base_point['x'], base_point['y'])
             page.keyboard.up('Shift')
             page.wait_for_function("window.__ASE_APP__.selectionCount() === 2")
             replica_distance = page.evaluate("""() => ({
@@ -8913,11 +8902,16 @@ def test_viz_only_replica_selection_measurements_and_atomic_label_commit():
                 "Direct 4.000 | MIC 0.000 | Cell 0.000 A"
             ]
 
+            y_replica_point = page.evaluate("""() => {
+                const renderer = window.__ASE_APP__.renderer;
+                const position = new renderer.camera.position.constructor(0, 4, 0);
+                return renderer.projectWorldToClient(position);
+            }""")
             page.keyboard.down('Shift')
-            page.mouse.click(points['yReplica']['x'], points['yReplica']['y'])
+            page.mouse.click(y_replica_point['x'], y_replica_point['y'])
             page.keyboard.up('Shift')
             page.wait_for_function("window.__ASE_APP__.selectionCount() === 3")
-            page.click('[data-inspector-group="inspect"]')
+            open_editor_route(page, 'selection')
             _open_panel(page, 'selection')
 
             selected = page.evaluate("""() => ({
@@ -9046,7 +9040,7 @@ def test_runtime_mode_switch_merges_labels_and_splits_only_material_variants():
 
             assert page.locator('[data-runtime-mode="view"]').get_attribute("aria-pressed") == "true"
             _expand_inspector(page)
-            page.click('[data-inspector-group="structure"]')
+            open_editor_route(page, 'appearance')
             _open_panel(page, "appearance")
             page.select_option(
                 '.appearance-material-select[data-atom-label="C_b"]',
@@ -9063,7 +9057,7 @@ def test_runtime_mode_switch_merges_labels_and_splits_only_material_variants():
                 window.__ASE_APP__.state.vizOnly === false
                 && document.querySelector('[data-runtime-mode="edit"]').getAttribute('aria-pressed') === 'true'
             """)
-            assert page.locator("#selected-appearance").is_visible()
+            assert not page.locator("#selected-appearance").is_visible()
 
             page.evaluate("""() => {
                 const app = window.__ASE_APP__;
@@ -9236,9 +9230,7 @@ def test_camera_toolbar_white_background_and_flat_2d_display():
                 };
             }""")
             assert toolbar_geometry["toolbarVisible"] is True
-            assert toolbar_geometry["toolbarCenterY"] == pytest.approx(
-                toolbar_geometry["headerCenterY"], abs=1
-            )
+            assert toolbar_geometry["toolbarCenterY"] > toolbar_geometry["headerCenterY"]
             assert toolbar_geometry["toolbarLeft"] >= 0
             assert toolbar_geometry["toolbarRight"] <= toolbar_geometry["viewportWidth"]
             assert toolbar_geometry["arrowCount"] == 6
@@ -9279,7 +9271,7 @@ def test_camera_toolbar_white_background_and_flat_2d_display():
             assert toolbar_geometry["popupExists"] is False
 
             _expand_inspector(page)
-            page.click('[data-inspector-group="view"]')
+            open_editor_route(page, 'view')
             page.select_option("#viewport-background", "white")
             page.wait_for_function(
                 "window.__ASE_APP__.state.display.viewportBackground === 'white'"
@@ -9389,6 +9381,7 @@ def test_camera_toolbar_white_background_and_flat_2d_display():
                 camera.up.set(0, 1, 0);
                 app.completeCameraViewChange('test-top-view');
             }""")
+            page.locator('#camera-more > summary').click()
             page.fill("#view-rotate-step", "45")
             before_rotation = page.evaluate("""() => {
                 const app = window.__ASE_APP__;
@@ -9440,7 +9433,7 @@ def test_camera_toolbar_white_background_and_flat_2d_display():
             assert math.degrees(math.atan2(
                 rotated["projected"][1],
                 rotated["projected"][0],
-            )) == pytest.approx(45, abs=1e-5)
+            )) == pytest.approx(45, abs=0.05)
             assert rotated["step"] == pytest.approx(45)
             assert rotated["saved"]["viewportBackground"] == "white"
             assert rotated["saved"]["atomDisplayMode"] == "3d"

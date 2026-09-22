@@ -1,9 +1,20 @@
+import { projectProvenanceFromLoad } from './project_provenance.js?v=0.4.1';
+import { captureDocumentRecovery, restoreDocumentRecovery } from './workspace_recovery.js?v=0.4.1';
+import { createWorkspaceAIBridge, handleWorkspaceAICommand } from './workspace_ai.js?v=0.4.1';
+import { installShortcutCapture } from './shortcut_capture.js?v=0.4.1';
+import { commandIdForEvent, editorAriaShortcut, editorShortcutLabel, resolveShortcutPlatform,
+    viewportNavigationForEvent } from './editor_commands.js?v=0.4.1';
+
 class VAseWorkspace {
     constructor() {
         const params = new URLSearchParams(window.location.search);
         this.workspaceId = params.get('workspace_id');
+        this.shortcutPlatform = resolveShortcutPlatform();
         this.requestedSessionId = params.get('session_id');
         this.tabs = new Map();
+        this.pendingCloseRequests = new Map();
+        this.handledDocumentCommands = new Set();
+        this.closeRequestSequence = 0;
         this.activeSessionId = null;
         this.socket = null;
         this.closing = false;
@@ -15,6 +26,8 @@ class VAseWorkspace {
         this.tabRoot = document.getElementById('document-tabs');
         this.paneRoot = document.getElementById('document-panes');
         this.newButton = document.getElementById('new-document');
+        this.newButton.setAttribute('aria-keyshortcuts', editorAriaShortcut('new', this.shortcutPlatform));
+        this.newButton.title = `New structure tab (${editorShortcutLabel('new', this.shortcutPlatform)})`;
         this.errorPanel = document.getElementById('workspace-error');
         this.errorMessage = document.getElementById('workspace-error-message');
     }
@@ -25,12 +38,20 @@ class VAseWorkspace {
             return;
         }
         this.newButton.addEventListener('click', () => this.createDocument());
+        this.disposeShortcutCapture = installShortcutCapture(
+            document.getElementById('workspace-fullscreen-editing'),
+            document.getElementById('workspace-shortcut-status')
+        );
         window.addEventListener('message', event => this.handleDocumentMessage(event));
+        this.parentShortcutHandler = event => this.dispatchParentShortcut(event);
+        window.addEventListener('keydown', this.parentShortcutHandler, true);
         const closeWorkspace = () => {
             if (this.closeSignalSent) return;
             this.closeSignalSent = true;
             this.closing = true;
             if (this.reconnectTimer !== null) window.clearTimeout(this.reconnectTimer);
+            window.removeEventListener('keydown', this.parentShortcutHandler, true);
+            this.disposeShortcutCapture?.();
             const closeUrl = `/api/workspace/${encodeURIComponent(this.workspaceId)}`
                 + `/browser-close/${encodeURIComponent(this.browserClientId)}`;
             let queued = false;
@@ -51,7 +72,16 @@ class VAseWorkspace {
             }
         };
         window.addEventListener('pagehide', closeWorkspace, { once: true });
-        window.addEventListener('beforeunload', closeWorkspace, { once: true });
+        window.addEventListener('beforeunload', event => {
+            if (![...this.tabs.values()].some(entry => {
+                const app = entry.pane?.contentWindow?.__ASE_APP__;
+                return entry.dirty || app?.projectFile?.dirty
+                    || app?.pendingApplyInFlight || app?.pendingScientificRequests?.size;
+            })) return;
+            event.preventDefault();
+            event.returnValue = '';
+        });
+        this.aiBridge = createWorkspaceAIBridge(this);
         this.connectWorkspaceSocket();
         const state = await this.request(`/api/workspace/${encodeURIComponent(this.workspaceId)}`);
         state.documents.forEach(documentState => this.addDocument(documentState));
@@ -95,7 +125,7 @@ class VAseWorkspace {
                 return;
             }
             if (message.type === 'ai_command') {
-                void this.handleAICommandMessage(message);
+                void handleWorkspaceAICommand(this, message);
             }
         };
         this.socket.onclose = () => {
@@ -118,7 +148,8 @@ class VAseWorkspace {
 
     addDocument(documentState) {
         const sessionId = documentState.session_id;
-        if (!sessionId || this.tabs.has(sessionId)) return;
+        if (!sessionId) return null;
+        if (this.tabs.has(sessionId)) return this.tabs.get(sessionId);
 
         const tab = document.createElement('div');
         tab.className = 'document-tab';
@@ -165,15 +196,26 @@ class VAseWorkspace {
 
         this.tabRoot.insertBefore(tab, this.newButton);
         this.paneRoot.appendChild(pane);
-        this.tabs.set(sessionId, {
+        const entry = {
             sessionId,
             title: documentState.title || 'Untitled',
             tab,
             select,
             close,
             pane,
-        });
+            dirty: false,
+            saving: false,
+            provenance: null,
+            savedContent: null,
+            provenanceApplied: false,
+            appInstance: null,
+            visualSnapshot: null,
+            recoveryRevision: 0,
+            childGeneration: null,
+        };
+        this.tabs.set(sessionId, entry);
         this.syncCloseButtons();
+        return entry;
     }
 
     activateDocument(sessionId) {
@@ -203,13 +245,34 @@ class VAseWorkspace {
         document.title = `${next.title} - v_ase`;
     }
 
+    dispatchParentShortcut(event) {
+        const commandId = commandIdForEvent(event, this.shortcutPlatform);
+        const navigation = commandId ? null : viewportNavigationForEvent(event);
+        if (!commandId && !navigation) return;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        if (commandId && event.repeat) return;
+        const entry = this.tabs.get(this.activeSessionId);
+        const child = entry?.pane?.contentWindow;
+        if (child?.document?.getElementById('modal-container')
+            ?.classList.contains('hidden') === false) return;
+        const app = child?.__ASE_APP__;
+        if (app?.collaborationReady && app.workspaceRecoveryAcknowledged
+            && app.sessionId === this.activeSessionId) {
+            if (commandId) app.executeEditorCommand(commandId);
+            else app.executeViewportNavigation(navigation);
+        } else {
+            this.showError('The active document is still loading. Try the shortcut again when it is ready.');
+        }
+    }
+
     loadDocument(entry) {
         if (!entry || entry.pane.dataset.loaded === 'true') return;
         entry.pane.dataset.loaded = 'true';
         entry.pane.src = entry.pane.dataset.editorUrl;
     }
 
-    async createDocument() {
+    async createDocument({ activate = true } = {}) {
         this.newButton.disabled = true;
         try {
             const documentState = await this.request(
@@ -221,9 +284,11 @@ class VAseWorkspace {
                 }
             );
             this.addDocument(documentState);
-            this.activateDocument(documentState.session_id);
+            if (activate) this.activateDocument(documentState.session_id);
+            return documentState;
         } catch (error) {
             this.showError(`Could not create a new document: ${error.message}`);
+            return null;
         } finally {
             this.newButton.disabled = false;
         }
@@ -325,7 +390,13 @@ class VAseWorkspace {
                 );
             documentState.title = data.loaded_file?.filename || message.fileName || message.file?.name || 'Untitled';
             documentState.empty = false;
-            this.addDocument(documentState);
+            const newEntry = this.addDocument(documentState);
+            newEntry.pendingProvenance = projectProvenanceFromLoad(data, {
+                filename: message.fileName || message.file?.name || documentState.title,
+                file: message.file,
+                handle: message.handle,
+            });
+            newEntry.provenance = newEntry.pendingProvenance;
             this.activateDocument(documentState.session_id);
             respond({
                 ok: true,
@@ -343,19 +414,40 @@ class VAseWorkspace {
                 } catch {
                     // Preserve the original upload error for the requesting document.
                 }
+                const failedEntry = this.tabs.get(documentState.session_id);
+                if (failedEntry) {
+                    failedEntry.tab.remove();
+                    failedEntry.pane.remove();
+                    this.tabs.delete(documentState.session_id);
+                    this.syncCloseButtons();
+                    if (this.activeSessionId === documentState.session_id) {
+                        this.activeSessionId = null;
+                        this.activateDocument(sourceEntry.sessionId);
+                    }
+                }
             }
             respond({ok: false, error: error.message});
         }
     }
 
     async closeDocument(sessionId) {
-        if (!this.tabs.has(sessionId) || this.tabs.size <= 1) return;
+        if (!this.tabs.has(sessionId)) return;
         const ordered = [...this.tabs.keys()];
         const index = ordered.indexOf(sessionId);
         const fallback = ordered[index + 1] || ordered[index - 1];
         const entry = this.tabs.get(sessionId);
+        if (entry.closing) return;
+        entry.closing = true;
         entry.close.disabled = true;
         try {
+            const allowed = await this.requestDocumentCloseApproval(entry);
+            if (!allowed) return;
+            let replacement = fallback;
+            if (!replacement) {
+                const created = await this.createDocument({ activate: false });
+                if (!created) return;
+                replacement = created.session_id;
+            }
             await this.request(
                 `/api/workspace/${encodeURIComponent(this.workspaceId)}/sessions/${encodeURIComponent(sessionId)}/close`,
                 { method: 'POST' }
@@ -369,21 +461,36 @@ class VAseWorkspace {
             this.syncCloseButtons();
             if (this.activeSessionId === sessionId) {
                 this.activeSessionId = null;
-                this.activateDocument(fallback);
+                this.activateDocument(replacement);
             }
         } catch (error) {
-            entry.close.disabled = false;
             this.showError(`Could not close the document: ${error.message}`);
+        } finally {
+            entry.closing = false;
+            if (this.tabs.has(sessionId)) entry.close.disabled = false;
         }
     }
 
+    requestDocumentCloseApproval(entry) {
+        if (entry.pane.dataset.loaded !== 'true') return Promise.resolve(true);
+        if (!entry.pane.contentWindow) return Promise.resolve(false);
+        const requestId = `${entry.sessionId}:${++this.closeRequestSequence}`;
+        return new Promise(resolve => {
+            this.pendingCloseRequests.set(requestId, {
+                sessionId: entry.sessionId,
+                source: entry.pane.contentWindow,
+                resolve
+            });
+            entry.pane.contentWindow?.postMessage({
+                type: 'v_ase:workspace-request-close', requestId
+            }, window.location.origin);
+        });
+    }
+
     syncCloseButtons() {
-        const onlyDocument = this.tabs.size <= 1;
         this.tabs.forEach(entry => {
-            entry.close.disabled = onlyDocument;
-            entry.close.title = onlyDocument
-                ? 'Keep at least one structure tab open'
-                : 'Close tab';
+            entry.close.disabled = Boolean(entry.closing);
+            entry.close.title = 'Close document';
         });
     }
 
@@ -408,12 +515,35 @@ class VAseWorkspace {
         });
     }
 
+    captureDocumentProvenance(entry, app = entry?.pane?.contentWindow?.__ASE_APP__) {
+        return captureDocumentRecovery(entry, app);
+    }
+
     handleDocumentMessage(event) {
         if (event.origin !== window.location.origin) return;
         const message = event.data || {};
         if (!message.type?.startsWith('v_ase:document-')) return;
         const entry = this.tabs.get(message.sessionId);
         if (!entry || entry.pane.contentWindow !== event.source) return;
+        const currentApp = entry.pane.contentWindow?.__ASE_APP__;
+        if (message.type === 'v_ase:document-ready'
+            && (!currentApp || message.generation !== currentApp.recoveryGeneration)) return;
+        if (message.type !== 'v_ase:document-ready' && entry.appInstance
+            && currentApp && currentApp !== entry.appInstance) return;
+        const recoveryMessage = ['v_ase:document-title', 'v_ase:document-dirty',
+            'v_ase:document-state'].includes(message.type);
+        if (recoveryMessage && entry.childGeneration
+            && message.generation !== entry.childGeneration) return;
+        if (recoveryMessage && entry.childGeneration
+            && Number(message.recoveryRevision) < entry.recoveryRevision) return;
+        if (message.type === 'v_ase:document-close-result') {
+            const pending = this.pendingCloseRequests.get(message.requestId);
+            if (pending?.sessionId === message.sessionId && pending.source === event.source) {
+                this.pendingCloseRequests.delete(message.requestId);
+                pending.resolve(message.allowed === true);
+            }
+            return;
+        }
         if (message.type === 'v_ase:document-theme') {
             this.applyWorkspaceTheme(message.preference, { persist: message.persist !== false });
             return;
@@ -426,13 +556,42 @@ class VAseWorkspace {
             this.openDocumentFromFile(entry, message);
             return;
         }
-        if (message.type === 'v_ase:document-title' || message.type === 'v_ase:document-ready') {
+        if (message.type === 'v_ase:document-command') {
+            if (message.sessionId !== this.activeSessionId) return;
+            if (message.requestId) {
+                if (this.handledDocumentCommands.has(message.requestId)) return;
+                this.handledDocumentCommands.add(message.requestId);
+                if (this.handledDocumentCommands.size > 256) {
+                    this.handledDocumentCommands.delete(this.handledDocumentCommands.values().next().value);
+                }
+            }
+            if (message.command === 'new') this.createDocument();
+            else if (message.command === 'close') this.closeDocument(message.sessionId);
+            return;
+        }
+        if (['v_ase:document-title', 'v_ase:document-ready', 'v_ase:document-dirty', 'v_ase:document-state']
+            .includes(message.type)) {
             this.updateDocumentTitle(message.sessionId, message.title);
+            entry.dirty = message.dirty === true;
+            entry.saving = message.saving === true;
+            entry.error = message.error || null;
+            entry.tab.classList.toggle('dirty', entry.dirty);
+            entry.tab.classList.toggle('saving', entry.saving);
+            entry.tab.classList.toggle('error', Boolean(entry.error));
+            entry.select.setAttribute('aria-label',
+                `${entry.title}${entry.error ? `, save error: ${entry.error}`
+                    : entry.saving ? ', saving' : entry.dirty ? ', unsaved changes' : ''}`);
+            if (message.type !== 'v_ase:document-ready') this.captureDocumentProvenance(entry);
         }
         if (message.type === 'v_ase:document-ready') {
+            const app = entry.pane.contentWindow?.__ASE_APP__;
+            restoreDocumentRecovery(entry, app);
+            if (app) entry.dirty = Boolean(app.projectFile.dirty);
+            entry.tab.classList.toggle('dirty', entry.dirty);
             entry.pane.contentWindow?.postMessage({
                 type: 'v_ase:workspace-active',
                 active: this.activeSessionId === message.sessionId,
+                recoveryReady: true,
             }, window.location.origin);
         }
     }
@@ -472,69 +631,7 @@ class VAseWorkspace {
         throw new Error('The active v_ase document did not become ready for AI control.');
     }
 
-    createAIBridge() {
-        const workspace = this;
-        return Object.freeze({
-            protocol: 'v_ase.ai.v1',
-            ready: async () => {
-                await workspace.ready;
-                const bridge = await workspace.waitForActiveAIBridge();
-                return await bridge.ready();
-            },
-            describe: async options => {
-                await workspace.ready;
-                return await (await workspace.waitForActiveAIBridge()).describe(options);
-            },
-            schema: async options => {
-                await workspace.ready;
-                return await (await workspace.waitForActiveAIBridge()).schema(options);
-            },
-            query: async request => {
-                await workspace.ready;
-                return await (await workspace.waitForActiveAIBridge()).query(request);
-            },
-            capabilities: async options => {
-                await workspace.ready;
-                return await (await workspace.waitForActiveAIBridge()).capabilities(options);
-            },
-            documents: async () => {
-                await workspace.ready;
-                return {
-                    activeSessionId: workspace.activeSessionId,
-                    documents: [...workspace.tabs.values()].map(entry => ({
-                        sessionId: entry.sessionId,
-                        title: entry.title,
-                        active: entry.sessionId === workspace.activeSessionId
-                    }))
-                };
-            },
-            activate: async sessionId => {
-                await workspace.ready;
-                if (!workspace.tabs.has(sessionId)) {
-                    throw new Error(`Unknown v_ase document session '${sessionId}'.`);
-                }
-                workspace.activateDocument(sessionId);
-                return await (await workspace.waitForActiveAIBridge()).ready();
-            },
-            newDocument: async () => {
-                await workspace.ready;
-                await workspace.createDocument();
-                return await (await workspace.waitForActiveAIBridge()).ready();
-            },
-            apply: async command => {
-                await workspace.ready;
-                return await (await workspace.waitForActiveAIBridge()).apply(command);
-            },
-            render: async request => {
-                await workspace.ready;
-                return await (await workspace.waitForActiveAIBridge()).render(request);
-            },
-            export: async request => {
-                await workspace.ready;
-                return await (await workspace.waitForActiveAIBridge()).export(request);
-            }
-        });
-    }
+    createAIBridge() { return this.aiBridge || createWorkspaceAIBridge(this); }
 
     async postAICommandResult(message, payload) {
         const target = new URL(String(message.result_url || ''), window.location.origin);
@@ -558,57 +655,7 @@ class VAseWorkspace {
         }
     }
 
-    async handleAICommandMessage(message) {
-        if (
-            message?.type !== 'ai_command'
-            || !message.command_id
-            || !message.method
-            || !message.result_url
-        ) {
-            return false;
-        }
-        let payload;
-        try {
-            await this.ready;
-            const bridge = window.v_aseAI || this.createAIBridge();
-            const method = String(message.method);
-            if (typeof bridge[method] !== 'function') {
-                throw new Error(`AI method '${method}' is not available on this workspace.`);
-            }
-            const noArgumentMethods = new Set([
-                'ready', 'documents', 'newDocument'
-            ]);
-            let result;
-            if (noArgumentMethods.has(method)) {
-                result = await bridge[method]();
-            } else if (method === 'activate') {
-                const sessionId = (
-                    message.params && typeof message.params === 'object'
-                    ? message.params.sessionId
-                    : message.params
-                );
-                result = await bridge.activate(sessionId);
-            } else {
-                result = await bridge[method](message.params ?? {});
-            }
-            payload = { ok: true, result };
-        } catch (error) {
-            payload = {
-                ok: false,
-                error: {
-                    name: String(error?.name || 'Error'),
-                    message: String(error?.message || error || 'AI command failed.'),
-                    ...(error?.code ? {code: error.code, outcome: error.outcome || 'unknown'} : {})
-                }
-            };
-        }
-        try {
-            await this.postAICommandResult(message, payload);
-        } catch (error) {
-            console.error(error);
-        }
-        return true;
-    }
+    async handleAICommandMessage(message) { return handleWorkspaceAICommand(this, message); }
 }
 
 const workspace = new VAseWorkspace();

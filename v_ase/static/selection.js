@@ -90,7 +90,7 @@ export class ASESelection {
         this.renderer.forEachAtomProxy((mesh, index) => {
             if (
                 mesh.visible === false
-                || !this.renderer.atomReferenceVisible(index)
+                || !this.renderer.atomGlyphVisible(index)
             ) return;
             pos.copy(mesh.position);
             const screenPos = this.renderer.projectWorldToClient(pos, context);
@@ -115,7 +115,7 @@ export class ASESelection {
         this.renderer.forEachAtomProxy((mesh, index) => {
             if (
                 mesh.visible === false
-                || !this.renderer.atomReferenceVisible(index)
+                || !this.renderer.atomGlyphVisible(index)
             ) return;
             pos.copy(mesh.position);
             const screenPos = this.renderer.projectWorldToClient(pos, context);
@@ -138,7 +138,7 @@ export class ASESelection {
                     const reference = this.renderer.supercellAtomReference(mesh, instanceId);
                     if (
                         !reference
-                        || !this.renderer.atomReferenceVisible(reference.index, reference.cellOffset)
+                        || !this.renderer.atomGlyphVisible(reference.index, reference.cellOffset)
                     ) continue;
                     mesh.getMatrixAt(instanceId, matrix);
                     pos.setFromMatrixPosition(matrix).applyMatrix4(mesh.matrixWorld);
@@ -157,6 +157,7 @@ export class ASESelection {
         if (this.renderer.polyhedraGroup?.visible) {
             this.renderer.polyhedraGroup.updateMatrixWorld(true);
             for (const site of this.renderer.polyhedraExtraAtoms || []) {
+                if (!this.renderer.atomGlyphVisible(site.index, site.cellOffset)) continue;
                 const world = site.position.clone().applyMatrix4(this.renderer.polyhedraGroup.matrixWorld);
                 const screen = this.renderer.projectWorldToClient(world, context);
                 if (screen.z < -1 || screen.z > 1 || screen.x < rect.left || screen.x > rect.right

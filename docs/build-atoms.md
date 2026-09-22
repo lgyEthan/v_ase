@@ -29,7 +29,7 @@ v_ase gui
 
 The empty document starts in Edit. A typical periodic workflow is:
 
-1. Open **Structure > Cell & Replication**.
+1. Open **Style > Cell**.
 2. Enter the Cartesian `3 x 3` cell matrix and choose the three PBC axes.
 3. Select **Set Unit Cell**. This defines the ASE cell without scaling or
    moving any atom.

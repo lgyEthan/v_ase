@@ -21,6 +21,39 @@ guide's displacement matters on reopening. Settings store
 reusable appearance without atom data. Portable HTML can be a lightweight view
 or explicitly embed the project. Geometry exports (Blender, OBJ, 3DM) are scene
 representations, not a replacement for complete scientific arrays/constraints.
+The GUI Save action can reuse only a retained browser file handle or a private
+session binding for the exact `.vase`/editable-HTML project opened from a
+server path. External modifications to that source produce a conflict; use
+Reload or Save As. A browser download is a copy, never an overwrite guarantee.
+Save As adopts the new format and target only after a successful write.
+One-off exports do not change the document's project destination.
+An editable HTML project opened in another internal tab keeps its HTML output
+profile, including dimensions and physical px/Å framing. Renderer-page changes
+to shared lighting, quality and output scale update that profile; Cancel in a
+one-shot export dialog leaves the committed profile unchanged. Save waits for
+pending physical application and playback/frame work before taking its snapshot.
+Close and Replace use the same pending-science settlement decision; a failed
+apply cannot silently close. Invalid scientific form drafts stop Save before
+destination selection. Undo/Redo restores the HTML-specific project output
+profile separately from the general image profile. Internal-tab reload and
+successful Save As retain the correct format, profile and available target.
+The workspace restores the latest committed visual/camera state even after a
+clean Save or Save As; repeated unsaved edits stay dirty after child reload.
+The parent workspace also restores an unsaved child visual snapshot and its
+separate saved baseline after an internal-tab reload.
+Adding, combining or removing a field changes the persisted scientific identity
+even when that dataset is not visible.
+The GUI Image, Video, and Interactive HTML routes expose format-specific
+draft controls beside the shared Renderer properties. Video shows container,
+FPS, interpolation/MIC and an output-duration estimate; HTML's optional
+embedded-project choice affects only that export, not the Save destination.
+Browser-handle Save checks the accepted file version again immediately before
+writing, but ordinary browser handles are not an atomic compare-and-swap against
+an arbitrary writer racing after that check.
+Property-radius factors apply to GUI, interpolated video, offline HTML,
+Blender ordinary/instanced animation, OBJ and 3DM geometry; missing scalar
+values use the documented neutral factor. Inspect rendered frames, not just
+serialized mapping definitions.
 3DM requires its optional dependency. POSCAR and pickle follow their scientific
 format limitations; unsupported constraints must remain explicit errors.
 

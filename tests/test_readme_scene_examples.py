@@ -681,7 +681,7 @@ def test_add_atoms_capture_uses_the_real_batch_workspace_and_optimizer():
         "def capture_measurement_media", 1
     )[0]
 
-    assert 'page.click("#btn-create-atom-toggle")' in capture
+    assert "open_editor_route(page, 'add-atoms')" in capture
     assert 'page.click("#add-atoms-tab-batch")' in capture
     assert 'page.click("#btn-add-atoms-scatter")' in capture
     assert "_configure_shared_add_atoms_relaxation(" in capture

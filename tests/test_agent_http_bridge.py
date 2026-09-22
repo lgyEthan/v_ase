@@ -1214,6 +1214,8 @@ def test_http_bridge_controls_the_same_live_workspace_without_page_evaluation(
                 relaxed = _stable_description(command_url)
             assert relaxed["relaxation"]["running"] is False
             assert relaxed["relaxation"]["frameCount"] >= 1
+            # The final optimizer event can arrive after the running flag clears.
+            relaxed = _stable_description(command_url)
 
             cleared_relaxation = _run_cli_command(
                 command_url,
