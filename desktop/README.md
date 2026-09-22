@@ -9,6 +9,11 @@ document shortcuts, single-instance file opening and safe Quit.
 
 Use Node.js 22, npm, Python 3.12+ **for the build helper**, and Git. The app bundles
 CPython 3.11.16. Targets are macOS arm64/x64 and Windows x64.
+The finished Mac app requires macOS 15+ because of its bundled scientific and
+Rhino wheels. Intel builds also require Xcode tools, Rust and Homebrew
+`openssl@3` to compile current `cryptography` with static OpenSSL; that project
+no longer publishes Intel Mac wheels. The build checks its linkage and never
+downgrades to an older cryptography release to obtain a wheel.
 
 ```sh
 cd desktop

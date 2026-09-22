@@ -25,8 +25,11 @@ jobs:
             platform: mac-x64
           - runner: windows-2022
             platform: win-x64
+            software_gl: '1'
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
+    env:
+      V_ASE_SOFTWARE_GL: ${{ matrix.software_gl || '0' }}
     defaults:
       run:
         working-directory: desktop
@@ -40,6 +43,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: Prepare static OpenSSL for Intel Mac
+        if: matrix.platform == 'mac-x64'
+        run: |
+          brew install openssl@3
+          rustc --version
       - name: Prepare the verified scientific Python runtime
         run: python scripts/prepare_runtime.py
       - run: npm ci

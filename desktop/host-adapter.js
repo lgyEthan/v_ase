@@ -40,7 +40,7 @@
     }
 
     async function waitForApp() {
-        for (let attempt = 0; attempt < 200; attempt++) {
+        for (let attempt = 0; attempt < 600; attempt++) {
             const app = activeApp();
             if (app?.collaborationReady) { install(app); return app; }
             await sleep(50);

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import platform
 from pathlib import Path
 import shutil
@@ -44,12 +45,29 @@ def main():
     if not interpreter.exists():
         with tarfile.open(archive) as source:
             source.extractall(runtime, filter="data")
-    subprocess.run([str(interpreter), "-I", "-m", "pip", "install", "--only-binary=:all:",
-                    "--disable-pip-version-check", "-r", str(ROOT / "requirements-runtime.txt")], check=True)
+    options = ["--only-binary=:all:"]
+    environment = dict(os.environ)
+    if key == ("Darwin", "x86_64"):
+        # Current cryptography no longer publishes Intel Mac wheels. Build the
+        # current patched release with static OpenSSL, never downgrade it.
+        openssl = subprocess.check_output(["brew", "--prefix", "openssl@3"], text=True).strip()
+        if not (Path(openssl) / "lib/libcrypto.a").is_file():
+            raise SystemExit("Intel Mac build requires Homebrew openssl@3, Rust and Xcode tools")
+        environment.update(OPENSSL_STATIC="1", OPENSSL_DIR=openssl)
+        options += ["--no-binary=cryptography"]
+    subprocess.run([str(interpreter), "-I", "-m", "pip", "install", *options,
+                    "--disable-pip-version-check", "-r", str(ROOT / "requirements-runtime.txt")],
+                   check=True, env=environment)
     subprocess.run([str(interpreter), "-I", "-m", "pip", "check"], check=True)
     subprocess.run([str(interpreter), "-I", "-c",
                     "from v_ase._version import __version__; assert __version__ == '0.4.1'; "
                     "import ase, matscipy, skimage, rhino3dm, mcp; print('Runtime verified:', __version__)"], check=True)
+    if key == ("Darwin", "x86_64"):
+        extension = next((runtime / "python").glob("lib/python3.11/site-packages/cryptography/hazmat/bindings/_rust*.so"))
+        links = subprocess.check_output(["otool", "-L", str(extension)], text=True)
+        if "libcrypto" in links or "libssl" in links or "/usr/local/" in links or "/opt/homebrew/" in links:
+            raise SystemExit(f"Cryptography must not require the build machine's libraries:\n{links}")
+        print("Intel cryptography has no external OpenSSL dependency", flush=True)
     (runtime / "python" / "v_ase-desktop-runtime.json").write_text(json.dumps({
         "v_ase": "0.4.1", "python": PYTHON, "source": name, "sha256": expected,
         "platform": target,

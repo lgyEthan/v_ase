@@ -15,8 +15,10 @@ Download from the [v0.4.1 GitHub release](https://github.com/lgyEthan/v_ase/rele
 | Windows, 64-bit Intel/AMD | `v_ase-0.4.1-win-x64.exe` | Run the per-user installer; administrator access is not required. |
 
 ZIP archives are also provided. Extract the entire archive before opening the
-app; keep its Python resources beside it. macOS 12 or newer and Windows 10 or
+app; keep its Python resources beside it. macOS 15 or newer and Windows 10 or
 newer are required. Windows on ARM is not a native build target in this release.
+The Mac minimum includes the bundled scientific/Rhino dependencies; older
+Macs can continue to use a compatible Python environment and the browser GUI.
 
 These initial desktop builds are **not Apple-notarized or publisher-signed**.
 macOS may require System Settings → Privacy & Security → Open Anyway after

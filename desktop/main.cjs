@@ -223,6 +223,9 @@ async function start() {
         const id = inputCommand(input);
         if (id) { event.preventDefault(); if (!input.isAutoRepeat) sendCommand(id); }
     });
+    if (smoke) win.webContents.on('console-message', event => {
+        if (event.level === 'error' || event.level >= 2) console.error('Renderer:', event.message);
+    });
     win.webContents.on('did-finish-load', async () => {
         if (!localFrame(win.webContents.getURL())) return;
         try {
@@ -237,7 +240,14 @@ async function start() {
             }
         } catch (error) {
             console.error(error);
-            if (smoke) { exiting = true; stopBackend(); app.exit(1); }
+            if (smoke) {
+                const output = process.env.V_ASE_SMOKE_DIR || path.join(__dirname, 'smoke-output');
+                await fsp.mkdir(output, { recursive: true });
+                await fsp.writeFile(path.join(output, 'failure.png'), (await win.webContents.capturePage()).toPNG()).catch(() => {});
+                const visible = await win.webContents.executeJavaScript(`document.body.innerText + '\\n' + [...document.querySelectorAll('iframe')].map(f=>f.contentDocument?.body?.innerText || '').join('\\n')`).catch(() => '');
+                console.error('Workspace at failure:', visible.slice(-12000));
+                exiting = true; stopBackend(); app.exit(1);
+            }
             else dialog.showErrorBox('v_ase desktop could not initialize', error.message);
         }
     });
