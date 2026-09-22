@@ -1,5 +1,12 @@
 # CLI And Environments
 
+The optional desktop app's native **Help → Copy agent connection URL** copies
+its loopback command URL. Use the same `v_ase api` commands as a browser GUI.
+The app owns its Python process; quitting stops it and restarting changes the
+URL. Its private dependencies do not replace pip/Conda/Jupyter environments.
+A cloud agent still needs the documented MCP/tunnel setup; its own localhost
+cannot reach a person's desktop app.
+
 ## Contents
 
 1. Installation

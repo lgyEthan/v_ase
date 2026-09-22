@@ -43,6 +43,7 @@ The [scientific source audit](scientific-source-audit.md) and
 :hidden:
 
 installation
+desktop
 quickstart
 workspace
 data-input

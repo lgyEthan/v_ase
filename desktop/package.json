@@ -1,0 +1,33 @@
+{
+  "name": "v-ase-desktop",
+  "productName": "v_ase",
+  "version": "0.4.1",
+  "private": true,
+  "description": "The v_ase scientific editor with native desktop shortcuts and file dialogs",
+  "author": "v_ase contributors",
+  "license": "AGPL-3.0-or-later",
+  "homepage": "https://github.com/lgyEthan/v_ase",
+  "main": "main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test test/*.test.cjs",
+    "smoke": "electron . --smoke-test",
+    "pack": "electron-builder --dir --publish never",
+    "dist": "electron-builder --publish never"
+  },
+  "devDependencies": {
+    "electron": "44.4.3",
+    "electron-builder": "26.15.3"
+  },
+  "build": {
+    "appId": "org.v-ase.desktop",
+    "artifactName": "v_ase-${version}-${os}-${arch}.${ext}",
+    "directories": {"output": "dist", "buildResources": "assets"},
+    "files": ["*.cjs", "*.js", "*.html", "package.json", "LICENSE"],
+    "extraResources": [{"from": "runtime/python", "to": "python", "filter": ["**/*", "!**/__pycache__/**", "!**/*.pyc"]}],
+    "mac": {"category": "public.app-category.education", "icon": "assets/icon.icns", "target": ["dmg", "zip"]},
+    "win": {"icon": "assets/icon.ico", "target": ["nsis", "zip"]},
+    "nsis": {"oneClick": false, "perMachine": false, "allowToChangeInstallationDirectory": true},
+    "fileAssociations": [{"ext": "vase", "name": "v_ase project", "role": "Editor"}]
+  }
+}

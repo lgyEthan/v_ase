@@ -51,6 +51,10 @@ Press these keys to enter transformation mode:
 
 ## Platform shortcuts
 
+The [desktop app](desktop.md) owns these Command/Ctrl commands in normal
+windows as well as fullscreen. Browser reservation limits described below
+apply to browser-hosted sessions.
+
 | macOS | Windows / Linux | Action | Description |
 | --- | --- | --- | --- |
 | **⌘C** | **Ctrl+C** | **Copy** | In Edit, copy selected atoms to the editor clipboard. |

@@ -27,6 +27,13 @@ Trajectory navigation retains double-precision coordinates through editing and s
 
 ## Installation And Launch
 
+macOS and Windows users can install the self-contained
+[desktop app](https://v-ase.readthedocs.io/en/latest/desktop.html) from
+[GitHub Releases](https://github.com/lgyEthan/v_ase/releases/tag/v0.4.1).
+It runs the same GUI with native Command/Ctrl shortcuts and file dialogs;
+Python installation is not required. Python and Jupyter remain available
+independently.
+
 ```bash
 python -m pip install v_ase-gui
 v_ase gui POSCAR

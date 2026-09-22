@@ -7,6 +7,10 @@ description: Inspect, edit, analyze and render atomic structures, trajectories a
 
 Use the live document's structured state. MCP is the primary interface;
 CLI and native function adapters share the same scientific backend.
+The optional macOS/Windows desktop host uses the same GUI and API. To attach
+to an existing desktop document, use Help → Copy agent connection URL and the
+normal CLI/HTTP contract. Keep the app open; do not start another viewer or
+change the user's Python environment for this connection.
 Lengths are Angstrom, angles degrees, atom/frame indices zero-based.
 For rotation/scaling, the GUI label “Selection COM” currently denotes an
 unweighted coordinate centroid; use an explicit pivot for a mass-weighted center.

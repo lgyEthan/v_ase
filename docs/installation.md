@@ -1,5 +1,9 @@
 # Installation
 
+For a self-contained macOS or Windows application with native shortcuts,
+see [Desktop apps](desktop.md). The installation below is for Python, the
+browser GUI, Jupyter and custom calculator environments.
+
 v_ase requires CPython 3.10 or newer. The current release metadata and
 validation matrix cover Python 3.10 through 3.13. Install the distribution
 named `v_ase-gui`; it provides the Python package and terminal command both
