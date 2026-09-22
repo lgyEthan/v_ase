@@ -79,3 +79,13 @@ and rendered examples in sync.
 12. Install the published wheel in a clean environment and verify
    `v_ase --version`, `v_ase gui`, canonical skill serving, and the documented
    end-to-end semantic workflow.
+13. For desktop releases, follow `desktop/README.md` for the tested CI artifact
+    and local Developer ID/notarization promotion procedure. All three platform
+    jobs must pass; CI's ad-hoc candidates are not public Mac releases. Sign
+    both Mac architectures including their private runtimes, repeat packaged
+    GUI tests, require Apple **Accepted** for app and DMG, staple both, and
+    verify every native component plus Gatekeeper. Publish checksums computed
+    after stapling, public signing evidence, matching desktop source, and clear
+    Mac/Windows installation instructions. Re-download and verify the actual
+    public assets. Keep Windows signing status separate. A sign-only refresh
+    must not replace or retag the already tested Python distribution.

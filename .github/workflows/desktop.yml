@@ -82,58 +82,6 @@ jobs:
             desktop/dist/*.exe
           if-no-files-found: error
 
-  publish:
-    needs: build
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-      - uses: actions/download-artifact@v4
-        with:
-          pattern: desktop-release-*
-          path: desktop-assets
-          merge-multiple: true
-      - uses: actions/download-artifact@v4
-        with:
-          pattern: desktop-checks-*
-          path: desktop-checks
-      - name: Publish only after every platform passes
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          CURRENT_MAIN=$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)
-          if [ "$CURRENT_MAIN" != "$GITHUB_SHA" ]; then
-            echo "A newer main commit exists; its workflow owns desktop publication."
-            exit 0
-          fi
-          VERSION=$(node -p "require('./desktop/package.json').version")
-          TAG="v${VERSION}"
-          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null
-          git archive --format=tar.gz --prefix="v_ase-desktop-${VERSION}/" HEAD > "desktop-assets/v_ase-desktop-${VERSION}-source.tar.gz"
-          python - <<'PY'
-          from pathlib import Path
-          from zipfile import ZipFile, ZIP_DEFLATED
-          root = Path('desktop-checks')
-          with ZipFile('desktop-assets/desktop-validation.zip', 'w', ZIP_DEFLATED) as archive:
-              for item in root.rglob('*'):
-                  if item.is_file() and (item.name == 'result.json' or item.name == 'render.png' or item.name.startswith('workspace') and item.suffix == '.png'):
-                      archive.write(item, item.relative_to(root))
-          PY
-          (cd desktop-assets && sha256sum * > desktop-SHA256SUMS.txt)
-          gh release upload "$TAG" desktop-assets/* --repo "$GITHUB_REPOSITORY" --clobber
-          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json body --jq .body > desktop-release-notes.md
-          python - <<'PY'
-          from pathlib import Path
-          import os
-          notes = Path('desktop-release-notes.md')
-          text = notes.read_text().split('\n<!-- desktop-build -->')[0].rstrip()
-          text += '\n\n<!-- desktop-build -->\n### macOS and Windows desktop apps\n\n'
-          text += 'The desktop downloads bundle the exact PyPI 0.4.1 scientific editor and a private Python runtime. No Python installation is required. Command shortcuts on macOS and Ctrl shortcuts on Windows include native New/Close document, Save and Save As. The browser GUI and Jupyter remain supported.\n\n'
-          text += 'Choose `mac-arm64` for Apple silicon, `mac-x64` for Intel Macs, or `win-x64` for Windows. These builds are not notarized or publisher-signed; see the [desktop installation guide](https://v-ase.readthedocs.io/en/latest/desktop.html) for OS prompts and requirements.\n\n'
-          text += f'Desktop source: `{os.environ["GITHUB_SHA"]}`. Every platform passed native file, document, rendering and packaged-runtime checks before upload. `desktop-validation.zip` contains per-platform results and screenshots, including 69 workbench layout checks per run. `desktop-SHA256SUMS.txt` covers these assets; the attached desktop source archive is their corresponding source.\n'
-          notes.write_text(text)
-          PY
-          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --notes-file desktop-release-notes.md
+  # Public promotion is deliberately separate from CI. These unsigned/ad-hoc
+  # candidates must never overwrite Developer ID signed and notarized releases.
+  # After all three targets pass, follow desktop/README.md#sign-and-notarize-macos.

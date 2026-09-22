@@ -14,6 +14,8 @@ change the user's Python environment for this connection.
 Desktop installation and OS file-association guidance is in
 `references/cli-and-environments.md`. OS defaults are user choices; do not
 claim that installing the app forcibly takes over `.vase` or `.vasp` files.
+Check the release's current platform-specific signing status in that guide;
+Apple notarization does not establish Windows publisher signing.
 Lengths are Angstrom, angles degrees, atom/frame indices zero-based.
 For rotation/scaling, the GUI label “Selection COM” currently denotes an
 unweighted coordinate centroid; use an explicit pivot for a mass-weighted center.

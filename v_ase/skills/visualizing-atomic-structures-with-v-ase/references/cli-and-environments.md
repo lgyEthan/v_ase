@@ -11,9 +11,12 @@ For desktop installation, use the [step-by-step user guide](https://v-ase.readth
 The 0.4.1 downloads are Mac DMGs (Apple silicon or Intel, macOS 15+) and a
 Windows x64 EXE installer (Windows 10/11). Mac users copy the app to Applications;
 Windows users complete the installer and launch from Start. ZIPs require full
-extraction; the Windows ZIP does not install file associations. These builds
-are not publisher-signed or Apple-notarized. Explain per-app first-launch
-exceptions and checksums without disabling OS protection globally.
+extraction; the Windows ZIP does not install file associations. Check the
+guide and release notes for the current platform-specific signing status and
+checksums. Apple Developer ID signing and notarization apply to the Mac app;
+they do not sign the Windows installer. Explain any documented first-launch
+prompts without disabling OS protection globally. A successful notarization
+credentials check alone does not mean an app has been notarized.
 
 `.vase` is declared in the app/installer, but existing OS defaults may remain.
 The user can choose v_ase through Mac Get Info → Open with → Change All or

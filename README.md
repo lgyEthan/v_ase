@@ -45,6 +45,8 @@ release and its checksum, a blocked Mac first launch uses **System Settings →
 Privacy & Security → Open Anyway**; a Windows SmartScreen prompt may offer
 **More info → Run anyway**. Do not disable OS protection globally.
 [Step-by-step installation, ZIPs, checksums and troubleshooting](https://v-ase.readthedocs.io/en/latest/desktop.html).
+Maintainer build, signing and notarization steps are in
+[the desktop build guide](desktop/README.md).
 
 `.vase` is registered as a project type. To make double-click use v_ase, choose
 **Get Info → Open with → v_ase → Change All** on Mac, or **Open with → Choose

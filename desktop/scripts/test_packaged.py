@@ -1,13 +1,21 @@
 """Run integration tests against the installed-layout bundle, outside the source tree."""
 from pathlib import Path
+import argparse
 import os
 import platform
 import subprocess
 import tempfile
 
 root = Path(__file__).resolve().parents[1]
-pattern = "*/v_ase.app/Contents/MacOS/v_ase" if platform.system() == "Darwin" else "win-unpacked/v_ase.exe"
-candidates = list((root / "dist").glob(pattern))
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument("--app", type=Path, help="Explicit .app bundle or Windows .exe, including a signed release candidate")
+args = parser.parse_args()
+if args.app:
+    app = args.app.resolve(strict=True)
+    candidates = [app / "Contents/MacOS/v_ase" if platform.system() == "Darwin" else app]
+else:
+    pattern = "*/v_ase.app/Contents/MacOS/v_ase" if platform.system() == "Darwin" else "win-unpacked/v_ase.exe"
+    candidates = list((root / "dist").glob(pattern))
 if len(candidates) != 1:
     raise SystemExit(f"Expected one packaged application, got {candidates}")
 if platform.system() == "Darwin":

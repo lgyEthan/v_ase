@@ -87,19 +87,22 @@ Python with explicit UTF-8 mode so Unicode GUI source does not depend on the
 system ANSI code page.
 
 `.github/workflows/desktop.yml` tests Apple silicon, Intel Mac and Windows
-independently, then repeats tests against each packaged app. Only after **all
-three** pass does it attach installers, ZIPs, a corresponding source archive
-and checksums to the existing `v0.4.1` release. The PyPI wheel and release tag
-are not replaced. Notes identify the exact desktop commit. One failing target
-blocks all desktop uploads.
+independently, then repeats tests against each packaged app. It retains build
+candidates and evidence as workflow artifacts. It deliberately does **not**
+publish those ad-hoc Mac builds: an automatic `--clobber` must never replace a
+notarized public app. After **all three** targets pass at the same commit, a
+maintainer signs/notarizes the Mac candidates and promotes the verified set
+as described below. The PyPI wheel and release tag are not replaced. Release
+notes identify the exact desktop build commit and signing record.
 `desktop-validation.zip` on the release contains each platform's result JSON,
 workspace screenshots and rendered fixture, excluding browser profiles/logs.
 
-Initial builds are not publisher-signed/notarized. Configure real credentials
-before advertising signed builds. Never describe ad-hoc signing as Apple
-notarization, or require users to disable OS protection.
-Mac bundles use a valid ad-hoc signature with electron-builder's standard
-Electron entitlements and hardened runtime. Packaged tests check the entire
+Local/CI Mac builds use an ad-hoc signature with electron-builder's standard
+Electron entitlements and hardened runtime. Public Mac releases require the
+Developer ID and notarization procedure below. Windows publisher signing is a
+separate process; an Apple certificate does not sign the Windows installer.
+Never describe ad-hoc signing as Apple notarization or disable OS protection.
+Packaged tests check the entire
 bundle before and after execution with `codesign --verify --deep --strict`; this catches broken resource
 signatures that a direct executable launch alone can miss. Ad-hoc signing
 does not identify a publisher or replace Apple notarization.
@@ -110,3 +113,110 @@ For updates, revise Electron/runtime pins, desktop version, bundled PyPI
 version and documentation together; rerun native and packaged checks on every
 target. Core updates must first complete the PyPI/GitHub release checklist.
 Do not silently rebuild against an untested local Python checkout.
+
+## Sign and notarize macOS
+
+Use a Mac with Command Line Tools, a valid **Developer ID Application** identity
+(certificate **and matching private key** in the login keychain), and the Apple
+Developer ID G2 intermediate when required by the certificate. Keep trust at
+system defaults. Do not export the private key or store an Apple password in
+the repository, CI logs, release assets, or command arguments.
+
+Store notarization credentials once through Apple's interactive prompt:
+
+```sh
+xcrun notarytool store-credentials vase-notary --apple-id YOUR_APPLE_ID --team-id YOUR_TEAM_ID
+security find-identity -v -p codesigning
+```
+
+`store-credentials` asks for an app-specific password and saves it in Keychain.
+These credentials authorize notarization; the Developer ID private key signs
+the app. A successful credentials check is not yet app notarization.
+
+Download both tested CI Mac ZIPs and verify their recorded digests. Extract
+each to its own disposable directory with `ditto -x -k`; preserve symlinks.
+Do not sign an installed/running app. Run the following from `desktop/` for
+**each** architecture; set absolute paths and select `arm64` or `x64`:
+
+```sh
+VASE_APP=/absolute/staging/mac-arm64/v_ase.app
+VASE_ARCH=arm64
+VASE_OUTPUT=/absolute/staging/release
+VASE_IDENTITY='Developer ID Application: YOUR_NAME (YOUR_TEAM_ID)'
+mkdir -p "$VASE_OUTPUT"
+node scripts/sign_macos.cjs "$VASE_APP" "$VASE_IDENTITY"
+V_ASE_SMOKE_DIR="$VASE_OUTPUT/checks-$VASE_ARCH" python scripts/test_packaged.py --app "$VASE_APP"
+ditto -c -k --sequesterRsrc --keepParent "$VASE_APP" "$VASE_OUTPUT/submission-$VASE_ARCH.zip"
+xcrun notarytool submit "$VASE_OUTPUT/submission-$VASE_ARCH.zip" --keychain-profile vase-notary --wait --output-format json
+```
+
+The helper signs nested Mach-O executables/libraries, Electron helpers and
+frameworks **inside out**, then the outer app, with secure timestamps and
+hardened runtime. It preserves the tested Electron entitlements, including
+JIT. `--deep` is used for verification, never for signing. This includes
+private Python, extension modules, FFmpeg and the bundled Vulkan loader.
+Approve the normal `codesign` Keychain prompt locally if shown.
+
+Require **Accepted**; save the returned submission ID and obtain its log with
+`xcrun notarytool log SUBMISSION_ID --keychain-profile vase-notary LOG.json`.
+If processing is pending, query `notarytool info SUBMISSION_ID` with the same
+profile; do not repeatedly resubmit identical bytes. An invalid submission
+must be repaired and tested before continuing. Once accepted:
+
+```sh
+xcrun stapler staple "$VASE_APP"
+xcrun stapler validate "$VASE_APP"
+spctl --assess --type execute --verbose=2 "$VASE_APP"
+ditto -c -k --sequesterRsrc --keepParent "$VASE_APP" "$VASE_OUTPUT/v_ase-0.4.1-mac-$VASE_ARCH.zip"
+npx --no-install electron-builder --prepackaged "$VASE_APP" --mac dmg --"$VASE_ARCH" --publish never --config.directories.output="$VASE_OUTPUT" --config.dmg.writeUpdateInfo=false
+codesign --force --timestamp --sign "$VASE_IDENTITY" "$VASE_OUTPUT/v_ase-0.4.1-mac-$VASE_ARCH.dmg"
+xcrun notarytool submit "$VASE_OUTPUT/v_ase-0.4.1-mac-$VASE_ARCH.dmg" --keychain-profile vase-notary --wait --output-format json
+```
+
+The pinned builder's `--prepackaged` path creates the familiar DMG layout
+without rebuilding or re-signing the app. After the **DMG** submission is
+Accepted, retain that ID/log as well, then run:
+
+```sh
+xcrun stapler staple "$VASE_OUTPUT/v_ase-0.4.1-mac-$VASE_ARCH.dmg"
+xcrun stapler validate "$VASE_OUTPUT/v_ase-0.4.1-mac-$VASE_ARCH.dmg"
+codesign --verify --deep --strict "$VASE_APP"
+python scripts/verify_macos.py "$VASE_APP" --team-id YOUR_TEAM_ID --notarized
+spctl --assess --type open --context context:primary-signature --verbose=2 "$VASE_OUTPUT/v_ase-0.4.1-mac-$VASE_ARCH.dmg"
+```
+
+ZIPs cannot themselves receive a staple: their enclosed `.app` must already
+have one. The DMG and its enclosed app both carry tickets. Run packaged smoke
+again after final stapling; inspect workspace/render images and confirm no
+`.pyc` files were created inside the sealed app. Test Intel natively in CI;
+on an Apple-silicon signing Mac with Rosetta, repeat its packaged smoke with
+`V_ASE_SOFTWARE_GL=1` and record that additional test as **Rosetta**, not a
+second physical Intel test.
+
+## Promote verified desktop downloads
+
+1. Require successful native and packaged checks on **all three CI targets**
+   at one recorded source commit, plus the final Mac signing checks above.
+   Scientific package files must still match the released PyPI wheel.
+2. Stage only final Mac DMGs/ZIPs, the same tested Windows EXE/ZIP, the
+   corresponding `git archive` desktop source, and sanitized validation
+   artifacts. Do not upload submission ZIPs, credentials, browser profiles,
+   local logs or builder blockmaps. There is no auto-update feed.
+3. Add `mac-notarization.json` with public certificate identity/team, build
+   commit, input digests, Apple Accepted submission IDs, final artifact digests,
+   ticket/Gatekeeper verification and packaged-check results. Preserve the
+   original cross-platform `desktop-validation.zip`; include additional signed
+   Mac result JSON/screenshots in a separate validation archive.
+4. Compute `desktop-SHA256SUMS.txt` **after stapling**, covering every desktop
+   download, source archive and evidence file. Preserve hashes for unchanged
+   Windows assets. Sign-only promotion does not modify the Python tag, wheel,
+   sdist or package version.
+5. Use authenticated `gh release upload v0.4.1 --repo lgyEthan/v_ase --clobber`
+   with the explicit changed asset paths. Upload the checksum file last. Use
+   `gh release edit ... --notes-file ...` to preserve core release notes and
+   update desktop install links, source provenance, Mac signed/notarized status
+   and the distinct unsigned Windows status. Never include credentials.
+6. Download the public assets again, compare local hashes with GitHub's digest
+   and the checksum file, extract the Mac ZIPs, verify signatures/tickets and
+   Gatekeeper assessment, and inspect the DMG's Applications shortcut. Confirm
+   the source/evidence links and the online installation guide match delivery.
