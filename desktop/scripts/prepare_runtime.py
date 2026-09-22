@@ -68,9 +68,16 @@ def main():
         if "libcrypto" in links or "libssl" in links or "/usr/local/" in links or "/opt/homebrew/" in links:
             raise SystemExit(f"Cryptography must not require the build machine's libraries:\n{links}")
         print("Intel cryptography has no external OpenSSL dependency", flush=True)
+    # The scientific package is the published wheel. Ship the synchronized
+    # agent documentation with the additional desktop connection instructions.
+    package = Path(subprocess.check_output([str(interpreter), "-I", "-X", "utf8", "-c",
+        "import pathlib,v_ase; print(pathlib.Path(v_ase.__file__).parent)"], text=True).strip())
+    skill = "visualizing-atomic-structures-with-v-ase"
+    shutil.copytree(ROOT.parent / "v_ase/skills" / skill, package / "skills" / skill, dirs_exist_ok=True)
     (runtime / "python" / "v_ase-desktop-runtime.json").write_text(json.dumps({
         "v_ase": "0.4.1", "python": PYTHON, "source": name, "sha256": expected,
         "platform": target,
+        "agent_documentation": "Canonical repository Skill with desktop connection guidance",
     }, indent=2) + "\n")
     shutil.copy2(ROOT.parent / "LICENSE", ROOT / "LICENSE")
 

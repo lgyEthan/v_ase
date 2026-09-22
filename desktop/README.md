@@ -30,6 +30,9 @@ its SHA-256, installs published `v_ase-gui[mcp,rhino]==0.4.1` and locked binary
 dependencies, runs `pip check`, and checks scientific imports. The full
 relocatable Python preserves dynamic ASE readers and package resources. It
 never installs into the user's Python environment.
+The canonical agent Skill and its references are then synchronized into the
+bundle, including desktop connection guidance. Scientific Python/JavaScript
+and package metadata remain those of the published wheel.
 
 `npm start` runs the development host; `npm run pack` builds an unpacked app.
 Output goes to `dist/`; test reports, screenshots and PNGs go to `smoke-output/`.
