@@ -117,7 +117,9 @@ async function launchBackend() {
     const log = fs.createWriteStream(path.join(app.getPath('userData'), 'backend.log'), { flags: 'a' });
     const environment = { ...process.env, PYTHONUTF8: '1', PYTHONUNBUFFERED: '1' };
     for (const key of ['PYTHONHOME', 'PYTHONPATH', 'VIRTUAL_ENV', 'CONDA_PREFIX', 'CONDA_DEFAULT_ENV']) delete environment[key];
-    backend = spawn(executable, ['-I', '-u', '-m', 'v_ase.cli', 'gui', '--no-browser', '--cli'], {
+    // -I intentionally ignores PYTHON* environment variables; -X is required
+    // so Windows reads the GUI's Unicode source in UTF-8 as macOS does.
+    backend = spawn(executable, ['-I', '-X', 'utf8', '-u', '-m', 'v_ase.cli', 'gui', '--no-browser', '--cli'], {
         cwd: app.getPath('userData'), env: environment, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'],
     });
     backend.stderr.pipe(log);

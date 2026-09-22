@@ -68,6 +68,11 @@ renderer, native menus and keyboard input, project opening, dirty Save, Save As,
 selection, exact PNG rendering, internal New/Close and Node isolation. Inspect
 screenshots as well as `result.json`. Core regressions are recorded in
 `docs/design/v_ase_041_validation.md`.
+The desktop smoke also checks all 23 workbench routes at 1440, 1024 and 390
+pixel widths for clipped controls and unit overlap, and counts oxygen-colored
+pixels in the export to reject a blank WebGL image. Windows starts isolated
+Python with explicit UTF-8 mode so Unicode GUI source does not depend on the
+system ANSI code page.
 
 `.github/workflows/desktop.yml` tests Apple silicon, Intel Mac and Windows
 independently, then repeats tests against each packaged app. Only after **all

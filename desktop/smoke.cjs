@@ -2,7 +2,7 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const path = require('node:path');
-const { Menu } = require('electron');
+const { Menu, nativeImage } = require('electron');
 
 async function runSmoke({ app, win, handshake, vault, sendCommand }) {
     const output = process.env.V_ASE_SMOKE_DIR || path.join(__dirname, 'smoke-output');
@@ -134,6 +134,12 @@ async function runSmoke({ app, win, handshake, vault, sendCommand }) {
     assert.match((await fs.readFile(html, 'utf8')).slice(0, 100), /html/i);
     const render = await api('render', { format: 'png', width: 800, height: 600 });
     assert.equal(render.width, 800); assert.equal(render.height, 600);
+    const bitmap = nativeImage.createFromDataURL(render.dataUrl).toBitmap();
+    let oxygenPixels = 0;
+    for (let i = 0; i < bitmap.length; i += 4) {
+        if (bitmap[i + 2] > bitmap[i] + 40 && bitmap[i + 2] > bitmap[i + 1] + 40) oxygenPixels++;
+    }
+    assert.ok(oxygenPixels > 100, 'The exported image must contain the red oxygen atom, not a blank canvas');
     await fs.writeFile(path.join(output, 'render.png'), Buffer.from(render.dataUrl.split(',')[1], 'base64'));
     await key('N');
     await wait('window.__V_ASE_WORKSPACE__.tabs.size === 2');
@@ -142,10 +148,49 @@ async function runSmoke({ app, win, handshake, vault, sendCommand }) {
     await wait('window.__V_ASE_WORKSPACE__.tabs.size === 1');
     assert.equal(win.isDestroyed(), false);
     await wait(`${appRef}?.collaborationReady`);
+    let geometryRoutes = 0;
+    for (const [width, height] of [[1440,960], [1024,768], [390,844]]) {
+        win.setContentSize(width, height);
+        const geometry = await js(`(async()=>{
+            const f=${active}, d=f.document, issues=[];
+            let routes=0;
+            const visible=element=>element.getClientRects().length && f.getComputedStyle(element).visibility!=='hidden';
+            for (const group of d.querySelectorAll('#workbench-tabs [data-workbench]')) {
+                group.click();
+                for (const button of d.querySelectorAll('#workbench-tools [data-editor-route]')) {
+                    if (!visible(button)) continue;
+                    button.click(); routes++;
+                    await new Promise(resolve=>f.requestAnimationFrame(()=>f.requestAnimationFrame(resolve)));
+                    const inspector=d.getElementById('inspector').getBoundingClientRect();
+                    if (d.documentElement.scrollWidth>f.innerWidth+1) issues.push('page overflow');
+                    for (const element of d.querySelectorAll('#inspector-content input,#inspector-content select,#inspector-content textarea,#inspector-content button')) {
+                        if (!visible(element) || element.type==='hidden') continue;
+                        const r=element.getBoundingClientRect();
+                        if (r.width && (r.left<inspector.left-1 || r.right>inspector.right+1)) issues.push(element.id || element.className);
+                    }
+                    for (const unit of d.querySelectorAll('#inspector .unit-input')) {
+                        if (!visible(unit)) continue;
+                        const input=unit.querySelector('input'), label=unit.querySelector(':scope > span');
+                        if (!input || !label) continue;
+                        const a=input.getBoundingClientRect(), b=label.getBoundingClientRect(), box=unit.getBoundingClientRect();
+                        if (a.right>b.left+1 || b.right>box.right+1 || a.left<box.left-1 || b.bottom>box.bottom+1) issues.push('unit:'+input.id);
+                    }
+                }
+            }
+            f.__ASE_APP__.openEditorRoute('appearance');
+            return {routes,issues};
+        })()`);
+        assert.equal(geometry.routes, 23, `All tools must remain visible at ${width}px`);
+        assert.deepEqual(geometry.issues, [], `Clipped controls/units at ${width}px`);
+        geometryRoutes += geometry.routes;
+        await fs.writeFile(path.join(output, `workspace-${width}.png`), (await win.webContents.capturePage()).toPNG());
+    }
+    win.setContentSize(1440,960);
     await fs.writeFile(path.join(output, 'workspace.png'), (await win.webContents.capturePage()).toPNG());
     const result = { version: app.getVersion(), platform: process.platform, architecture: process.arch,
         commands: 9, nativeKeyInput: true, nativeSave: true, scientificProject: true,
-        htmlProfile: [720,480], openNewTab: true, quitCancellation: true, render: [800, 600], nodeIsolation: true };
+        htmlProfile: [720,480], openNewTab: true, quitCancellation: true, render: [800, 600],
+        oxygenPixels, geometryRoutes, nodeIsolation: true };
     await fs.writeFile(path.join(output, 'result.json'), JSON.stringify(result, null, 2));
     console.log(JSON.stringify(result));
 }
