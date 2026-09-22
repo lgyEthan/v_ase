@@ -82,7 +82,9 @@ function createMenu(registry = {}) {
             { label: 'Move tab to new window', click: () => sendCommand('detach-tab') },
             { type: 'separator' }, item('save', 'Save'), item('save-as', 'Save As…'),
             { type: 'separator' }, item('close', 'Close document'),
-            ...(process.platform !== 'darwin' ? [{ type: 'separator' }, { label: 'Quit v_ase', accelerator: 'Alt+F4', click: () => quitSafely() }] : []),
+            // Alt+F4 retains the native close-current-window behavior. Explicit
+            // Quit checks all windows; it must not take over that OS chord.
+            ...(process.platform !== 'darwin' ? [{ type: 'separator' }, { label: 'Quit v_ase', click: () => quitSafely() }] : []),
         ] },
         { label: 'Edit', submenu: [edit('Undo', 'Z'), edit('Redo', 'Z', true), { type: 'separator' },
             edit('Cut', 'X'), edit('Copy', 'C'), edit('Paste', 'V'), edit('Select all', 'A')] },

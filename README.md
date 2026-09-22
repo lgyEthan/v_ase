@@ -32,7 +32,11 @@ macOS and Windows users can install the self-contained
 [GitHub Releases](https://github.com/lgyEthan/v_ase/releases/tag/v0.4.2).
 It runs the same GUI with native Command/Ctrl shortcuts and file dialogs;
 Python installation is not required. Python and Jupyter remain available
-independently.
+independently. Drag a desktop tab out to detach it into another window.
+Dropped files offer trajectory, new-tab and new-window destinations. Each
+window closes independently; Windows Alt+F4 closes the active window, while
+explicit Quit checks all windows. The app icon now features the full atomic-bead
+castle with its small Pinocchio detail and no projecting red foundation board.
 
 | Desktop download (0.4.2) | Install and launch |
 | --- | --- |

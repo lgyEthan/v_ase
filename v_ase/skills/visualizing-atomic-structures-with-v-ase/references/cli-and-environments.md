@@ -488,3 +488,6 @@ The bare CLI `schema` and `describe` calls are deliberately compact. Repeat
 Use `--include-positions` only for coordinate-dependent work. Do not repeatedly
 load the complete schema, capabilities payload, or `full` state. Rendered pixels
 remain the final authority for visual-quality checks.
+
+Desktop windows close independently. Windows Alt+F4 closes its active window;
+explicit Quit checks every open window before stopping the shared backend.

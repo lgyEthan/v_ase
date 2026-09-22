@@ -212,7 +212,8 @@ keeps the app open, including when the last document becomes a blank tab.
 Drag a tab below the tab strip to detach it into its own window, or use
 **File → Move tab to new window**. The document retains its scientific session,
 camera, visual settings, Undo/Redo, dirty state and writable project target.
-Each window closes independently; quitting the app checks every window for
+Each window closes independently (Alt+F4 closes the active window on Windows);
+explicitly quitting the app checks every window for
 unsaved changes and active jobs before stopping the shared Python server.
 Use **File → New window** for a separate blank workspace. Drop a structure or
 project onto the editor to choose **Add to trajectory**, **Open in new tab**,
