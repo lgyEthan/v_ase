@@ -27,6 +27,12 @@
   subsequent edits and scientific exports; honor standalone camera scale requests
   and explicit optical settings after automatic fitting.
 - Synchronize the user and agent guides and recapture README examples.
+- Provide separate self-contained desktop downloads for Apple silicon, Intel
+  Mac and Windows x64, using the same published scientific GUI. Native menus
+  capture Command/Ctrl document shortcuts without browser conflicts, retain
+  project destinations for Save, and guard every document on Quit. Python and
+  Jupyter remain supported. See the desktop installation guide for OS minimums
+  and the initial builds' ad-hoc signing/notarization status.
 
 ## 0.3.8
 

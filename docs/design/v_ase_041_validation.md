@@ -79,7 +79,7 @@ Keyboard Lock is capability- and permission-dependent and reports its state;
 ordinary browser fullscreen does not guarantee capture. Menus always provide
 the same operations. See `docs/shortcuts.md` for input focus, Escape, G/R/S,
 camera arrows and Option/Alt+trajectory navigation. Native application keyboard
-capture belongs to the separately requested desktop delivery.
+capture is provided by the separately packaged desktop host described below.
 
 ## Verification
 
@@ -118,3 +118,141 @@ intentionally narrower. Native OS shortcut delivery was not falsely inferred
 from synthetic browser events. PyPI/GitHub publication and clean published-wheel
 verification follow `docs/release_checklist.md`; their external records identify
 the actual released commit and artifacts.
+
+## Published Python release
+
+The [GitHub v0.4.1 release](https://github.com/lgyEthan/v_ase/releases/tag/v0.4.1)
+and [PyPI 0.4.1](https://pypi.org/project/v-ase-gui/0.4.1/) contain the same tested
+wheel and source distribution from `e647dfdc53213a9499adc09a2c13953ce5452084`.
+The source archive was built from tracked release files, excluding unrelated
+local research work. Both distributions passed `twine check`.
+
+| Artifact | SHA-256 |
+| --- | --- |
+| `v_ase_gui-0.4.1-py3-none-any.whl` | `7c6c7c8301f3d537f8696338627ceeea0ac429b56b6efcaae772e41d61b7f2ba` |
+| `v_ase_gui-0.4.1.tar.gz` | `c1b5ed1af1c26de0de517058e9f1501b3406f05e2fedf50e9f4950c92855f9df` |
+
+A fresh environment installed the downloaded published wheel, verified its
+digest and version, started the GUI, served the canonical Skill, exercised the
+semantic API, rendered an 800×600 atomic image, exported VASE and routed two
+documents. The published wheel was not replaced by an editable checkout.
+
+The versioned Read the Docs build
+[34692878](https://app.readthedocs.org/projects/v-ase/builds/34692878/) succeeded
+at that exact tag, generating HTML, a 237-page PDF and ePub. The `stable` channel
+remains inactive. The PDF build log still reports a missing Command-symbol
+glyph and several overfull table cells; successful generation does not imply
+that every page of that offline manual was visually validated. The strict HTML
+and ePub builders reported success.
+
+## Desktop architecture and checks
+
+The desktop host is in `desktop/`. It packages the exact PyPI scientific editor
+with a private CPython 3.11.16 runtime; browser and Jupyter entry points remain
+independent. The canonical agent documentation is copied into the bundle with
+the desktop connection instructions. It does not fork scientific JavaScript,
+Python operations, serialization, or the editor command registry.
+All 77 scientific/frontend package files in the local final Mac bundle were
+compared byte-for-byte with the published wheel and matched; the intentionally
+synchronized agent documentation was excluded from that comparison.
+
+- `main.cjs` owns the loopback backend, native menus, key dispatch, OS file-open
+  events and safe Quit. Both GUI documents and native menus use the existing
+  nine-command registry. Native Command/Ctrl+N and +W affect internal documents.
+- `host-adapter.js` reuses published save, open, document and close handlers.
+  Native Save retains format and output profile. Help copies the command URL
+  for an agent to refine the same document through the existing API.
+- `file-vault.cjs` owns path access behind opaque, sender-bound capabilities.
+  Save detects external changes, reserves the destination against concurrent
+  writes, fsyncs a temporary sibling, then replaces the target atomically.
+  Cancellation and failed writes preserve the original file.
+- The renderer has Node disabled, context isolation and sandboxing enabled.
+  File IPC is restricted to the trusted top workspace. The backend remains on
+  loopback; quitting stops it. Scientific files are not uploaded to a service.
+- Mac bundles have valid ad-hoc integrity signatures and hardened runtime.
+  They are **not publisher-signed or Apple-notarized**. Packaged checks run
+  `codesign --verify --deep --strict` both before and after running the GUI.
+  Python uses `-B`: importing packages must not create bytecode caches inside
+  the signed application. A post-run check confirmed zero `.pyc` files and
+  an unchanged valid resource signature.
+- Intel Mac cryptography is built from the current pinned source with static
+  OpenSSL; linkage checks reject dependencies on the build machine's libraries.
+  The Mac Vulkan loader is built from checksum-pinned Khronos sources because
+  Electron omits a library needed by Chromium's software graphics path. Both
+  Python and graphics libraries are inside the application bundle.
+
+`desktop/smoke.cjs` checks all nine native input commands, menu navigation,
+structure opening, native file IPC, dirty Save, Save As preserving the original,
+Open in new tab with a retained handle, HTML format/profile retention at
+720×480, cancelled Quit, internal New/Close, and context isolation. It exports
+an 800×600 PNG and counts colored atom pixels to reject blank rendering.
+It also checks all 23 workbench routes at 1440, 1024 and 390 pixels for horizontal
+clipping and input-unit overlap: **69 route/width combinations per run**.
+Five Node tests independently cover file authority and interrupted/conflicting
+saves. `scripts/test_packaged.py` repeats the GUI checks outside the checkout
+and clears stale result files before launch.
+
+Local Apple-silicon validation passed with both the normal GPU and the explicit
+CI software graphics path. The fully packaged, signed bundle passed outside
+the checkout, including all 69 layout checks. Desktop OS/architecture delivery
+is gated by `.github/workflows/desktop.yml`: Apple silicon, Intel Mac and
+Windows must each pass both development-host and packaged-app checks before
+any installer is attached to the release. A superseded main commit cannot
+publish over a newer build.
+
+In addition to Electron's native-input regression, the actual Mac application
+was opened through Launch Services and driven with OS keyboard input. All nine
+required Command combinations were observed: the five settings commands
+selected the expected tools and focused their controls, New/Close changed only
+internal document tabs, and Save/Save As opened the project save UI. The native
+Command+O file chooser also handed the disposable XYZ fixture to the existing
+Reader/Frames/View/Edit import dialog. Automated integration tests provide the
+file-write and round-trip assertions; physical keyboard checks were performed
+on macOS, not on a physical Windows machine.
+
+All three final desktop builds passed on commit
+`dc0146981640eb2a554c3a65b2fa09e5c6ef2f2f` in
+[workflow 35717604992](https://github.com/lgyEthan/v_ase/actions/runs/35717604992).
+
+| Platform | Native host and packaged-app checks |
+| --- | --- |
+| macOS 15, Apple silicon | [Passed](https://github.com/lgyEthan/v_ase/actions/runs/35717604992/job/106712805294) |
+| macOS 15, Intel | [Passed](https://github.com/lgyEthan/v_ase/actions/runs/35717604992/job/106712805202) |
+| Windows x64 | [Passed](https://github.com/lgyEthan/v_ase/actions/runs/35717604992/job/106712804911) |
+
+Each target produces an installer and a portable ZIP. The attached
+`v_ase-desktop-0.4.1-source.tar.gz` identifies the corresponding desktop source;
+the original Python release tag and distributions remain unchanged.
+`desktop-validation.zip` contains six result sets (development and packaged
+app for each platform) and their rendered images/workspace screenshots.
+`desktop-SHA256SUMS.txt` covers the desktop downloads and evidence archive.
+
+## Public desktop download verification
+
+After publication, the release API listed all nine desktop artifacts alongside
+the unchanged Python wheel and source distribution. Every desktop artifact's
+server-reported SHA-256 matched `desktop-SHA256SUMS.txt`. The Apple-silicon ZIP
+and validation archive were independently downloaded; their locally computed
+digests matched, and both archives passed ZIP integrity checks.
+
+| Published installer | SHA-256 |
+| --- | --- |
+| `v_ase-0.4.1-mac-arm64.dmg` | `3c55082072e44a07f922a306bb6466dd92bbccf6c513f27de84349657cffb06b` |
+| `v_ase-0.4.1-mac-x64.dmg` | `a00b015bf7de4f2d908a34cfef249aa006f7e8b6d07982a7742c532bd95bb700` |
+| `v_ase-0.4.1-win-x64.exe` | `4e2d6f780dec5b41be1b4e77efa3524b7cc5c06db6a7563c4f9e9c40b24211ca` |
+
+The downloaded Apple-silicon application was extracted outside the repository.
+Its private Python imported v_ase 0.4.1, ASE, matscipy and rhino3dm successfully
+without using the checkout or an installed system Python. All 77 scientific
+and frontend package files again matched the published wheel byte-for-byte.
+The application passed `codesign --verify --deep --strict` before and after
+those imports, with zero generated `.pyc` files.
+
+The public validation archive contains six successful result files: development
+and packaged runs for all three platforms. Each records all nine commands,
+native Save, scientific project round trips, HTML profile retention, new-tab
+opening, Quit cancellation, isolated renderer privileges, all 69 layout checks,
+and a nonblank 800×600 render. Published Windows and Intel Mac workspace
+screenshots and the Intel rendered image were also inspected visually. This
+verifies the shipped artifacts and their recorded CI checks; it does not imply
+physical Windows keyboard testing or compatibility with untested OS versions.
