@@ -7,6 +7,24 @@ URL. Its private dependencies do not replace pip/Conda/Jupyter environments.
 A cloud agent still needs the documented MCP/tunnel setup; its own localhost
 cannot reach a person's desktop app.
 
+For desktop installation, use the [step-by-step user guide](https://v-ase.readthedocs.io/en/latest/desktop.html).
+The 0.4.1 downloads are Mac DMGs (Apple silicon or Intel, macOS 15+) and a
+Windows x64 EXE installer (Windows 10/11). Mac users copy the app to Applications;
+Windows users complete the installer and launch from Start. ZIPs require full
+extraction; the Windows ZIP does not install file associations. These builds
+are not publisher-signed or Apple-notarized. Explain per-app first-launch
+exceptions and checksums without disabling OS protection globally.
+
+`.vase` is declared in the app/installer, but existing OS defaults may remain.
+The user can choose v_ase through Mac Get Info → Open with → Change All or
+Windows Open with / Default apps. `.vasp` and other supported extensions can
+also be assigned manually; `.vasp` is not predeclared by this installer.
+Extensionless POSCAR/CONTCAR should use File → Open (All files if filtered),
+with Reader → POSCAR / CONTCAR if auto-detection is ambiguous. OS opening
+shows the normal import dialog; it does not silently replace the active
+document. Save complete editor state as `.vase`/project HTML, and export POSCAR
+separately for VASP. Setting a default app does not convert file contents.
+
 ## Contents
 
 1. Installation

@@ -11,6 +11,9 @@ The optional macOS/Windows desktop host uses the same GUI and API. To attach
 to an existing desktop document, use Help → Copy agent connection URL and the
 normal CLI/HTTP contract. Keep the app open; do not start another viewer or
 change the user's Python environment for this connection.
+Desktop installation and OS file-association guidance is in
+`references/cli-and-environments.md`. OS defaults are user choices; do not
+claim that installing the app forcibly takes over `.vase` or `.vasp` files.
 Lengths are Angstrom, angles degrees, atom/frame indices zero-based.
 For rotation/scaling, the GUI label “Selection COM” currently denotes an
 unweighted coordinate centroid; use an explicit pivot for a mass-weighted center.

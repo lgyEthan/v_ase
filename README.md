@@ -34,6 +34,27 @@ It runs the same GUI with native Command/Ctrl shortcuts and file dialogs;
 Python installation is not required. Python and Jupyter remain available
 independently.
 
+| Desktop download (0.4.1) | Install and launch |
+| --- | --- |
+| [Mac, Apple silicon](https://github.com/lgyEthan/v_ase/releases/download/v0.4.1/v_ase-0.4.1-mac-arm64.dmg) | macOS 15+: open the DMG, drag **v_ase** to **Applications**, eject the disk image, then launch the Applications copy. |
+| [Mac, Intel](https://github.com/lgyEthan/v_ase/releases/download/v0.4.1/v_ase-0.4.1-mac-x64.dmg) | Same steps; choose Intel when **About This Mac** shows an Intel processor. |
+| [Windows, Intel/AMD x64](https://github.com/lgyEthan/v_ase/releases/download/v0.4.1/v_ase-0.4.1-win-x64.exe) | Windows 10/11, 64-bit: run the EXE installer, complete installation, then launch **v_ase** from Start. |
+
+These builds are not publisher-signed or Apple-notarized. After verifying the
+release and its checksum, a blocked Mac first launch uses **System Settings →
+Privacy & Security → Open Anyway**; a Windows SmartScreen prompt may offer
+**More info → Run anyway**. Do not disable OS protection globally.
+[Step-by-step installation, ZIPs, checksums and troubleshooting](https://v-ase.readthedocs.io/en/latest/desktop.html).
+
+`.vase` is registered as a project type. To make double-click use v_ase, choose
+**Get Info → Open with → v_ase → Change All** on Mac, or **Open with → Choose
+another app → v_ase → Always** on Windows. You can also select v_ase for
+`.vasp`, `.xyz` and `.cif`; browse to the installed application if it is not
+listed. Extensionless `POSCAR`/`CONTCAR` can be opened using **File → Open**.
+[Complete file-association instructions](https://v-ase.readthedocs.io/en/latest/desktop.html#open-vase-by-default).
+
+For the Python/browser/Jupyter installation:
+
 ```bash
 python -m pip install v_ase-gui
 v_ase gui POSCAR
