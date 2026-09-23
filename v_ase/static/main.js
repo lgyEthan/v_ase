@@ -1,34 +1,34 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.4.2';
-import { ASERenderer } from './renderer.js?v=0.4.2';
-import { ASESelection } from './selection.js?v=0.4.2';
-import { ASETransform } from './transform.js?v=0.4.2';
+import { ASEApi } from './api.js?v=0.4.3';
+import { ASERenderer } from './renderer.js?v=0.4.3';
+import { ASESelection } from './selection.js?v=0.4.3';
+import { ASETransform } from './transform.js?v=0.4.3';
 
-import { installPolyhedra } from './polyhedra.js?v=0.4.2';
-import { installAIScene } from './ai_scene.js?v=0.4.2';
-import { AtomScalarStore } from './atom_properties.js?v=0.4.2';
-import { DirectWorkspace } from './direct_workspace.js?v=0.4.2';
-import { projectProvenanceFromLoad } from './project_provenance.js?v=0.4.2';
-import { installShortcutCapture } from './shortcut_capture.js?v=0.4.2';
-import { openFileInWindow } from './workspace_windows.js?v=0.4.2';
-import { installEditorInteractions } from './editor_interactions.js?v=0.4.2';
-import { WORKBENCH_ROUTES, mountWorkbenchTools, syncWorkbenchRoute } from './editor_ui.js?v=0.4.2';
+import { installPolyhedra } from './polyhedra.js?v=0.4.3';
+import { installAIScene } from './ai_scene.js?v=0.4.3';
+import { AtomScalarStore } from './atom_properties.js?v=0.4.3';
+import { DirectWorkspace } from './direct_workspace.js?v=0.4.3';
+import { projectProvenanceFromLoad } from './project_provenance.js?v=0.4.3';
+import { installShortcutCapture } from './shortcut_capture.js?v=0.4.3';
+import { openFileInWindow } from './workspace_windows.js?v=0.4.3';
+import { installEditorInteractions } from './editor_interactions.js?v=0.4.3';
+import { WORKBENCH_ROUTES, mountWorkbenchTools, syncWorkbenchRoute } from './editor_ui.js?v=0.4.3';
 import {
     EDITOR_COMMANDS, commandIdForEvent, resolveShortcutPlatform,
     editorShortcutLabel, editorAriaShortcut, editorShortcutSearchTerms,
     viewportNavigationForEvent
-} from './editor_commands.js?v=0.4.2';
+} from './editor_commands.js?v=0.4.3';
 import {
     DEFAULT_ATOM_RADIUS_MAPPING,
     atomRadiusFactors,
     normalizeAtomRadiusMapping,
     radiusMappingPreset
-} from './radius_mapping.js?v=0.4.2';
+} from './radius_mapping.js?v=0.4.3';
 import {
     interpolateTrajectoryFrames,
     interpolatedFrameCount,
     normalizeInterpolationMultiplier
-} from './trajectory.js?v=0.4.2';
+} from './trajectory.js?v=0.4.3';
 
 const EDITOR_ROUTES = Object.freeze({
     'structure-info': { group: 'inspect', category: 'scene', title: 'Scene overview' },
@@ -395,6 +395,7 @@ class VAseApp {
                 videoFps: 12,
                 videoInterpolationMultiplier: 1,
                 videoInterpolationMic: true,
+                videoStartFrame: 0, videoEndFrame: null, videoLoop: true,
                 showDisplacements: false,
                 displacementReferenceMode: 'previous',
                 displacementReferenceFrame: 0,
@@ -1826,12 +1827,21 @@ class VAseApp {
         });
         scope?.addEventListener('change', () => {
             this.state.display.atomColorScaleScope = scope.value === 'selected' ? 'selected' : 'all';
-            this.state.display.atomColorScaleIndices = [];
+            this.state.display.atomColorScaleIndices = scope.value === 'selected' ? this.selectedAtomIndices() : [];
+            this.syncAtomColorScaleControls();
             this.state.display.atomColorScaleRangeMode = 'current';
             this.state.display.atomColorScaleAutoRange = true;
             this.atomColorScaleRuntime.rangeSignature = '';
             this.updateAtomColorScale().catch(error => this.handleAtomColorScaleError(error));
             this.scheduleVisualHistoryCommit('atom-colorscale-scope');
+        });
+        document.getElementById('btn-atom-colorscale-use-selection')?.addEventListener('click', () => {
+            this.state.display.atomColorScaleScope = 'selected';
+            this.state.display.atomColorScaleIndices = this.selectedAtomIndices();
+            this.atomColorScaleRuntime.rangeSignature = '';
+            this.syncAtomColorScaleControls();
+            this.updateAtomColorScale().catch(error => this.handleAtomColorScaleError(error));
+            this.scheduleVisualHistoryCommit('atom-colorscale-targets');
         });
         fitCurrent?.addEventListener('click', () => {
             this.fitAtomColorScaleRange('current').catch(error => this.handleAtomColorScaleError(error));
@@ -1927,6 +1937,14 @@ class VAseApp {
         if (trajectoryButton) {
             trajectoryButton.disabled = Number(this.state.atoms?.metadata?.frame_count || 1) <= 1;
         }
+        const frozen = this.state.display.atomColorScaleScope === 'selected';
+        const targets = this.state.display.atomColorScaleIndices || [];
+        const targetLabel = document.getElementById('atom-colorscale-scope-count');
+        if (targetLabel) targetLabel.textContent = frozen
+            ? `${targets.length} fixed atoms · selection changes do not change this target`
+            : 'All atoms in each frame';
+        const retarget = document.getElementById('btn-atom-colorscale-use-selection');
+        if (retarget) retarget.hidden = !frozen;
         if (!enabled) document.getElementById('atom-colorscale-legend')?.classList.add('hidden');
         this.syncRangeNumberCompanions();
     }
@@ -1940,6 +1958,7 @@ class VAseApp {
     }
 
     handleAtomColorScaleError(error) {
+        if (error?.name === 'AbortError') return;
         this.atomColorScaleRuntime.renderedFrame = -1;
         this.renderer.setAtomColorScaleColors(null);
         this.updateAtomColorScaleLegend(null);
@@ -2166,7 +2185,10 @@ class VAseApp {
             });
             select.appendChild(optgroup);
         });
-        select.value = fields.some(descriptor => descriptor.id === requested) ? requested : '';
+        if (requested && !fields.some(descriptor => descriptor.id === requested)) {
+            select.appendChild(new Option(`${requested} (unavailable in this frame)`, requested));
+        }
+        select.value = requested;
     }
 
     async ensureAtomRadiusCatalog({ refresh = false } = {}) {
@@ -2331,6 +2353,7 @@ class VAseApp {
     }
 
     handleAtomRadiusError(error) {
+        if (error?.name === 'AbortError') return;
         if (this.disposed || (error?.radiusRequestToken !== undefined
             && error.radiusRequestToken !== this.atomRadiusRuntime.requestToken)) return;
         if (error?.radiusRequestToken === undefined) {
@@ -2433,9 +2456,12 @@ class VAseApp {
             });
             select.appendChild(optgroup);
         });
-        const available = fields.some(descriptor => descriptor.id === requested);
-        this.state.display.atomColorScaleField = available ? requested : 'position:z';
-        select.value = this.state.display.atomColorScaleField;
+        // A trajectory frame can omit a property. Keep the user's field and
+        // range: missing values use the base appearance, never another field.
+        if (!fields.some(descriptor => descriptor.id === requested)) {
+            select.appendChild(new Option(`${requested} (unavailable in this frame)`, requested));
+        }
+        select.value = requested;
         this.populateAtomRadiusFields(fields);
     }
 
@@ -2477,22 +2503,25 @@ class VAseApp {
 
     async ensureAtomColorScaleCatalog({ refresh = false } = {}) {
         const runtime = this.atomColorScaleRuntime;
-        if (refresh) {
+        const catalogKey = this.atomScalarStore.contextKey();
+        if (refresh || runtime.catalogKey !== catalogKey) {
+            runtime.catalogKey = catalogKey;
             runtime.catalog = null;
             runtime.catalogPromise = null;
-            runtime.valueCaches.clear();
-            runtime.frameValueCaches.clear();
+            if (refresh) {
+                runtime.valueCaches.clear();
+                runtime.frameValueCaches.clear();
+            }
         }
         if (!runtime.catalog) {
             if (!runtime.catalogPromise) {
-                runtime.catalogPromise = this.atomScalarStore.catalog({ refresh }).then(catalog => {
-                    runtime.catalog = catalog;
-                    runtime.catalogPromise = null;
+                const promise = this.atomScalarStore.catalog({ refresh }).then(catalog => {
+                    if (runtime.catalogPromise === promise) runtime.catalog = catalog;
                     return catalog;
-                }).catch(error => {
-                    runtime.catalogPromise = null;
-                    throw error;
+                }).finally(() => {
+                    if (runtime.catalogPromise === promise) runtime.catalogPromise = null;
                 });
+                runtime.catalogPromise = promise;
             }
             await runtime.catalogPromise;
         }
@@ -2542,7 +2571,12 @@ class VAseApp {
             this.atomColorScaleFrameCacheKey(fieldId, frame, atomCount),
             Float32Array.from(values)
         );
-        while (cache.size > 64) cache.delete(cache.keys().next().value);
+        let bytes = [...cache.values()].reduce((total, value) => total + value.byteLength, 0);
+        while (cache.size > 64 || bytes > 16 * 1024 * 1024) {
+            const oldest = cache.keys().next().value;
+            bytes -= cache.get(oldest).byteLength;
+            cache.delete(oldest);
+        }
     }
 
     scheduleAtomColorScaleFramePrefetch(fieldId, currentFrame) {
@@ -2653,19 +2687,8 @@ class VAseApp {
     }
 
     atomColorScaleSelection() {
-        const fixed = this.state.display.atomColorScaleScope === 'selected'
-            && Array.isArray(this.state.display.atomColorScaleIndices)
-            ? this.state.display.atomColorScaleIndices
-            : [];
-        if (fixed.length) return new Set(fixed);
-        const selected = new Set(this.state.selected);
-        if (this.state.vizOnly) {
-            this.state.replicaSelected.forEach(reference => {
-                const index = Number(reference?.index);
-                if (Number.isInteger(index)) selected.add(index);
-            });
-        }
-        return selected;
+        // Targets are captured on Apply; an empty target list means no atoms.
+        return new Set(this.state.display.atomColorScaleIndices || []);
     }
 
     normalizedAtomColorScaleRangeMode(mode) {
@@ -2908,7 +2931,8 @@ class VAseApp {
         refreshCatalog = false,
         quiet = false,
         forceRange = false,
-        refreshBonds = true
+        refreshBonds = true,
+        valuesOverride = null
     } = {}) {
         if (!this.state.display.atomColorScaleEnabled) {
             this.atomColorScaleRuntime.renderedFrame = -1;
@@ -2920,57 +2944,62 @@ class VAseApp {
         }
         if (!this.state.atoms?.positions?.length) return;
         const token = ++this.atomColorScaleRuntime.requestToken;
-        if (!quiet) this.setAtomColorScaleStatus('Loading available per-atom values...', 'loading');
-        await this.ensureAtomColorScaleCatalog({ refresh: refreshCatalog });
-        if (token !== this.atomColorScaleRuntime.requestToken || !this.state.display.atomColorScaleEnabled) return;
-        const [{ values, cache }, lut] = await Promise.all([
-            this.atomColorScaleValuesForCurrentFrame(),
-            this.atomColorScaleLut()
-        ]);
-        if (token !== this.atomColorScaleRuntime.requestToken || !this.state.display.atomColorScaleEnabled) return;
-        const selected = this.atomColorScaleSelection();
-        const range = await this.resolveAtomColorScaleRange(values, selected, { force: forceRange });
-        if (token !== this.atomColorScaleRuntime.requestToken || !this.state.display.atomColorScaleEnabled) return;
-        const palette = this.atomColorScalePalette(lut);
-        const scope = this.state.display.atomColorScaleScope === 'selected' ? 'selected' : 'all';
-        const colors = new Array(values.length).fill(null);
-        if (range) {
-            const span = range.maximum - range.minimum;
-            values.forEach((rawValue, index) => {
-                const value = Number(rawValue);
-                if (!Number.isFinite(value) || (scope === 'selected' && !selected.has(index))) return;
-                const normalized = Math.max(0, Math.min(1, (value - range.minimum) / span));
-                const paletteIndex = Math.min(palette.length - 1, Math.round(normalized * (palette.length - 1)));
-                colors[index] = palette[paletteIndex];
-            });
+        try {
+            if (!quiet) this.setAtomColorScaleStatus('Loading available per-atom values...', 'loading');
+            await this.ensureAtomColorScaleCatalog({ refresh: refreshCatalog });
+            if (token !== this.atomColorScaleRuntime.requestToken || !this.state.display.atomColorScaleEnabled) return;
+            const [{ values, cache }, lut] = await Promise.all([
+                valuesOverride ? {values: valuesOverride, cache: 'interpolated'} : this.atomColorScaleValuesForCurrentFrame(),
+                this.atomColorScaleLut()
+            ]);
+            if (token !== this.atomColorScaleRuntime.requestToken || !this.state.display.atomColorScaleEnabled) return;
+            const selected = this.atomColorScaleSelection();
+            const range = await this.resolveAtomColorScaleRange(values, selected, { force: forceRange });
+            if (token !== this.atomColorScaleRuntime.requestToken || !this.state.display.atomColorScaleEnabled) return;
+            const palette = this.atomColorScalePalette(lut);
+            const scope = this.state.display.atomColorScaleScope === 'selected' ? 'selected' : 'all';
+            const colors = new Array(values.length).fill(null);
+            if (range) {
+                const span = range.maximum - range.minimum;
+                values.forEach((rawValue, index) => {
+                    const value = Number(rawValue);
+                    if (!Number.isFinite(value) || (scope === 'selected' && !selected.has(index))) return;
+                    const normalized = Math.max(0, Math.min(1, (value - range.minimum) / span));
+                    const paletteIndex = Math.min(palette.length - 1, Math.round(normalized * (palette.length - 1)));
+                    colors[index] = palette[paletteIndex];
+                });
+            }
+            this.renderer.setAtomColorScaleColors(colors, { refreshBonds });
+            this.atomColorScaleRuntime.renderedFrame = Number(
+                this.state.atoms?.metadata?.current_frame || 0
+            );
+            if (range) {
+                this.updateAtomColorScaleLegend({
+                    descriptor: this.atomColorScaleDescriptor(),
+                    minimum: range.minimum,
+                    maximum: range.maximum,
+                    colors: palette
+                });
+            } else {
+                this.updateAtomColorScaleLegend(null);
+            }
+            const selectedNotice = scope === 'selected' && !selected.size
+                ? ' Select atoms, then use current selection to assign targets.'
+                : '';
+            const frameCount = Number(this.state.atoms?.metadata?.frame_count || 1);
+            const rangeMode = this.normalizedAtomColorScaleRangeMode(this.state.display.atomColorScaleRangeMode);
+            const rangeNotice = {
+                current: `Current-frame range locked across ${frameCount} frame${frameCount === 1 ? '' : 's'}.`,
+                trajectory: `Full-trajectory range locked across ${frameCount} frame${frameCount === 1 ? '' : 's'}.`,
+                manual: `Manual vmin/vmax locked across ${frameCount} frame${frameCount === 1 ? '' : 's'}.`
+            }[rangeMode];
+            const cacheNotice = cache === 'trajectory' ? ' Values cached.' : '';
+            this.setAtomColorScaleStatus(`${rangeNotice}${cacheNotice}${selectedNotice}`);
+            this.syncAtomColorScaleControls();
+        } catch (error) {
+            if (token !== this.atomColorScaleRuntime.requestToken || error?.name === 'AbortError') return;
+            throw error;
         }
-        this.renderer.setAtomColorScaleColors(colors, { refreshBonds });
-        this.atomColorScaleRuntime.renderedFrame = Number(
-            this.state.atoms?.metadata?.current_frame || 0
-        );
-        if (range) {
-            this.updateAtomColorScaleLegend({
-                descriptor: this.atomColorScaleDescriptor(),
-                minimum: range.minimum,
-                maximum: range.maximum,
-                colors: palette
-            });
-        } else {
-            this.updateAtomColorScaleLegend(null);
-        }
-        const selectedNotice = scope === 'selected' && !selected.size
-            ? ' Select atoms to apply it.'
-            : '';
-        const frameCount = Number(this.state.atoms?.metadata?.frame_count || 1);
-        const rangeMode = this.normalizedAtomColorScaleRangeMode(this.state.display.atomColorScaleRangeMode);
-        const rangeNotice = {
-            current: `Current-frame range locked across ${frameCount} frame${frameCount === 1 ? '' : 's'}.`,
-            trajectory: `Full-trajectory range locked across ${frameCount} frame${frameCount === 1 ? '' : 's'}.`,
-            manual: `Manual vmin/vmax locked across ${frameCount} frame${frameCount === 1 ? '' : 's'}.`
-        }[rangeMode];
-        const cacheNotice = cache === 'trajectory' ? ' Values cached.' : '';
-        this.setAtomColorScaleStatus(`${rangeNotice}${cacheNotice}${selectedNotice}`);
-        this.syncAtomColorScaleControls();
     }
 
     scheduleAtomColorScaleRefresh({ coordinatesOnly = false } = {}) {
@@ -5845,9 +5874,10 @@ class VAseApp {
         if (!this.videoExportDraft) {
             const display = this.state.display;
             this.videoExportDraft = {
-                format: ['mov', 'avi'].includes(display.videoFormat) ? display.videoFormat : 'mov',
+                format: ['mov', 'avi', 'gif'].includes(display.videoFormat) ? display.videoFormat : 'mov',
                 fps: Math.min(60, Math.max(1, Number(display.videoFps) || this.currentPlaybackFps())),
                 interpolationMultiplier: normalizeInterpolationMultiplier(display.videoInterpolationMultiplier),
+                startFrame: display.videoStartFrame ?? 0, endFrame: display.videoEndFrame ?? null, loop: display.videoLoop !== false,
                 interpolationMic: display.videoInterpolationMic !== false
             };
         }
@@ -5865,11 +5895,20 @@ class VAseApp {
             mic.disabled = draft.interpolationMultiplier <= 1;
         }
         const count = Math.max(1, Number(this.state.atoms?.metadata?.frame_count) || 1);
-        const outputCount = interpolatedFrameCount(count, draft.interpolationMultiplier);
+        draft.startFrame = Math.min(count - 1, Math.max(0, draft.startFrame || 0));
+        draft.endFrame = draft.endFrame === null ? null : Math.min(count - 1, Math.max(draft.startFrame, draft.endFrame));
+        const last = draft.endFrame ?? count - 1;
+        set('renderer-video-start', draft.startFrame + 1);
+        set('renderer-video-end', last + 1);
+        set('renderer-video-loop', draft.loop === false ? 'once' : 'forever');
+        const loopRow = document.getElementById('renderer-video-loop')?.closest('.prop-row');
+        if (loopRow) loopRow.hidden = draft.format !== 'gif';
+        const sourceCount = last - draft.startFrame + 1;
+        const outputCount = interpolatedFrameCount(sourceCount, draft.interpolationMultiplier);
         const estimate = document.getElementById('renderer-video-estimate');
         if (estimate) estimate.textContent = count < 2
             ? 'Load at least two trajectory frames to export video.'
-            : `${count} source frames → ${outputCount} output frames · ${(outputCount / draft.fps).toFixed(2)} s at ${draft.fps} fps.`;
+            : `${sourceCount} source frames (${draft.startFrame + 1}–${last + 1}) → ${outputCount} output frames · ${(outputCount / draft.fps).toFixed(2)} s at ${draft.fps} fps.`;
         const htmlFrame = document.getElementById('renderer-html-frame-note');
         if (htmlFrame) {
             const profile = this.currentImageExportProfile();
@@ -5948,17 +5987,20 @@ class VAseApp {
         const updateVideoDraft = () => {
             const previous = this.videoExportDraft || {};
             this.videoExportDraft = {
-                format: document.getElementById('renderer-video-format')?.value === 'avi' ? 'avi' : 'mov',
+                format: document.getElementById('renderer-video-format')?.value || 'mov',
                 fps: Math.min(60, Math.max(1,
                     Number(document.getElementById('renderer-video-fps')?.value) || previous.fps || 12)),
                 interpolationMultiplier: normalizeInterpolationMultiplier(
                     document.getElementById('renderer-video-interpolation')?.value
                         || previous.interpolationMultiplier || 1),
-                interpolationMic: Boolean(document.getElementById('renderer-video-mic')?.checked)
+                interpolationMic: Boolean(document.getElementById('renderer-video-mic')?.checked),
+                startFrame: Number(document.getElementById('renderer-video-start')?.value || 1) - 1,
+                endFrame: Number(document.getElementById('renderer-video-end')?.value || this.loadedFrameCount()) - 1,
+                loop: document.getElementById('renderer-video-loop')?.value !== 'once'
             };
             this.syncRendererFormatProperties();
         };
-        ['renderer-video-format', 'renderer-video-fps', 'renderer-video-interpolation',
+        ['renderer-video-start', 'renderer-video-end', 'renderer-video-loop', 'renderer-video-format', 'renderer-video-fps', 'renderer-video-interpolation',
             'renderer-video-mic'].forEach(id => {
             document.getElementById(id)?.addEventListener('input', updateVideoDraft);
             document.getElementById(id)?.addEventListener('change', updateVideoDraft);
@@ -11370,6 +11412,9 @@ class VAseApp {
             const data = await this.api.fetchAtoms();
             if (!data || !data.positions) return;
 
+            this.state.trajectoryBinaryGeneration = (this.state.trajectoryBinaryGeneration || 0) + 1;
+            this.state.trajectoryBinaryCache = null;
+            this.state.trajectoryBinaryPromise = null;
             this.invalidateSelectionPropertyData();
             this.invalidateForceVectorData();
             this.state.atoms = this.applyViewIdentityOverridesToData(data);
@@ -12337,7 +12382,8 @@ class VAseApp {
             preserveRdf = false,
             resetTrajectoryIdentity = false,
             preserveColorScaleRange = false,
-            radiusScopeRemap = null
+            radiusScopeRemap = null,
+            trajectoryFrame = false
         } = {}
     ) {
         const refreshActiveRdf = Boolean(
@@ -12348,7 +12394,17 @@ class VAseApp {
         this.clearCommensurateSupercellProposal({ keepStatus: true });
         this.invalidateSelectionPropertyData();
         this.invalidateAtomColorScaleData({ preserveRange: preserveColorScaleRange });
-        this.invalidateAtomRadiusData();
+        if (trajectoryFrame) {
+            this.atomRadiusRuntime.requestToken += 1;
+            this.atomRadiusRuntime.renderedFrame = -1;
+        } else {
+            this.invalidateAtomRadiusData();
+            // A committed edit can change any cached frame (including undo,
+            // reset and cell edits). Never revive pre-edit binary positions.
+            this.state.trajectoryBinaryGeneration = (this.state.trajectoryBinaryGeneration || 0) + 1;
+            this.state.trajectoryBinaryCache = null;
+            this.state.trajectoryBinaryPromise = null;
+        }
         this.invalidateForceVectorData();
         if (!preserveRdf) {
             this.invalidateRdfResult(
@@ -12407,6 +12463,37 @@ class VAseApp {
                     'The document identity changed without an atom provenance map; frozen radius scope was cleared.',
                     'error'
                 );
+            }
+        }
+        if (previousCount && this.state.display.atomColorScaleScope === 'selected') {
+            const mapping = {indices: this.state.display.atomColorScaleIndices || []};
+            const previous = new Set(mapping.indices);
+            let remapped = null;
+            if (radiusScopeRemap?.kind === 'delete') {
+                const deleted = new Set(radiusScopeRemap.indices || []);
+                const survivors = Array.from({ length: previousCount }, (_, index) => index)
+                    .filter(index => !deleted.has(index));
+                if (survivors.length === nextCount) {
+                    remapped = survivors.flatMap((source, index) => previous.has(source) ? [index] : []);
+                }
+            } else if (radiusScopeRemap?.kind === 'duplicate') {
+                remapped = [...previous];
+                (radiusScopeRemap.sourceIndices || []).forEach((source, position) => {
+                    if (previous.has(source)) remapped.push(radiusScopeRemap.newIndices?.[position]);
+                });
+            } else if (radiusScopeRemap?.kind === 'repeat' && nextCount % previousCount === 0) {
+                remapped = Array.from({ length: nextCount }, (_, index) => index)
+                    .filter(index => previous.has(index % previousCount));
+            } else if (nextCount === previousCount && !resetTrajectoryIdentity) {
+                // A label-only edit or compatible trajectory frame keeps base-atom identity.
+                remapped = [...previous];
+            }
+            if (remapped !== null) {
+                this.state.display.atomColorScaleIndices = [...new Set(remapped.filter(index => Number.isInteger(index)
+                    && index >= 0 && index < nextCount))].sort((a, b) => a - b);
+            } else {
+                this.state.display.atomColorScaleIndices = [];
+                this.setAtomColorScaleStatus('Document identity changed; choose color targets again.');
             }
         }
         if (latticeChanged) this.clearCommensurateRotation({ keepStatus: true, clearSearch: true });
@@ -12490,14 +12577,14 @@ class VAseApp {
         this.updateUI();
         this.syncAtomColorScaleControls();
         this.syncAtomRadiusMappingControls();
-        if (this.state.display.atomColorScaleEnabled && data?.positions?.length) {
+        if (!trajectoryFrame && this.state.display.atomColorScaleEnabled && data?.positions?.length) {
             queueMicrotask(() => {
                 this.updateAtomColorScale({ refreshCatalog: true }).catch(error => {
                     this.handleAtomColorScaleError(error);
                 });
             });
         }
-        if (this.state.display.atomRadiusMapping?.enabled && data?.positions?.length) {
+        if (!trajectoryFrame && this.state.display.atomRadiusMapping?.enabled && data?.positions?.length) {
             queueMicrotask(() => this.updateAtomRadiusMapping({ refreshCatalog: true })
                 .catch(error => this.handleAtomRadiusError(error)));
         }
@@ -12547,8 +12634,13 @@ class VAseApp {
         if (!this.state.atoms?.metadata?.trajectory_positions_binary) return null;
         if (this.state.trajectoryBinaryPromise) return this.state.trajectoryBinaryPromise;
 
+        const generation = this.state.trajectoryBinaryGeneration || 0;
+        const documentId = this.sessionId;
+        const current = () => generation === (this.state.trajectoryBinaryGeneration || 0)
+            && documentId === this.sessionId && !this.disposed;
         const load = async () => {
             const cache = await this.api.fetchTrajectoryPositions();
+            if (!current()) return null;
             const expectedFrames = this.state.atoms?.metadata?.frame_count || 0;
             const expectedAtoms = this.state.atoms?.positions?.length || 0;
             if (cache.frames !== expectedFrames || cache.atoms !== expectedAtoms) {
@@ -12559,11 +12651,12 @@ class VAseApp {
         };
 
         const promise = load().catch(err => {
+            if (!current()) return null;
             if (!background) throw err;
             this.toast(`Trajectory cache failed: ${err.message}`, 'warning');
             return null;
         }).finally(() => {
-            this.state.trajectoryBinaryPromise = null;
+            if (this.state.trajectoryBinaryPromise === promise) this.state.trajectoryBinaryPromise = null;
         });
         this.state.trajectoryBinaryPromise = promise;
         return promise;
@@ -13280,19 +13373,6 @@ class VAseApp {
                 { muted: true }
             );
         }
-        if (
-            this.state.display.atomColorScaleEnabled
-            && this.state.display.atomColorScaleScope === 'selected'
-        ) {
-            const signature = JSON.stringify([
-                [...this.state.selected].sort((a, b) => a - b),
-                [...this.state.replicaSelected.keys()].sort()
-            ]);
-            if (signature !== this.atomColorScaleRuntime.selectionSignature) {
-                this.atomColorScaleRuntime.selectionSignature = signature;
-                this.scheduleAtomColorScaleRefresh();
-            }
-        }
         this.updateSelectionMeasurementOverlay();
         this.observeCollaborationSelection();
         const selectionKey = this.registrySelectionKey();
@@ -13651,6 +13731,8 @@ class VAseApp {
     syncRenderAreaControls() {
         const follow = document.getElementById('render-area-follow-view');
         if (follow) follow.checked = Boolean(this.state.exportPreviewFollowViewport);
+        const savedCamera = document.getElementById('btn-render-area-from-view');
+        if (savedCamera) savedCamera.hidden = Boolean(this.state.exportPreviewFollowViewport);
         const options = document.querySelector('.render-area-options');
         options?.classList.toggle('active', Boolean(this.state.exportPreviewEnabled));
         this.renderer.setRenderAreaGizmo?.(this.state.exportPreviewCamera, {
@@ -17170,36 +17252,19 @@ class VAseApp {
                 this.updateSelectedAppearanceControls();
             });
 
-            const header = document.createElement('div');
-            header.className = 'atom-type-header';
             nameInput.setAttribute('aria-label', `Label for ${symbol}`);
             const count = document.createElement('span');
             count.className = 'atom-type-count';
             count.textContent = String(labelAtomIndices.length);
             count.title = `${labelAtomIndices.length} atoms`;
-            const toggle = (control, text) => {
-                const label = document.createElement('label');
-                label.className = 'atom-type-toggle';
-                const caption = document.createElement('span');
-                caption.textContent = text;
-                label.append(control, caption);
-                return label;
-            };
-            header.append(color, nameInput, count);
-            const fields = document.createElement('div');
-            fields.className = 'atom-type-fields';
-            [[typeSelect, 'Element'], [input, 'Radius / Å'], [opacity, 'Opacity'], [material, 'Material']]
-                .forEach(([control, caption]) => {
-                    const label = document.createElement('label');
-                    const text = document.createElement('span');
-                    text.textContent = caption;
-                    label.append(text, control);
-                    fields.appendChild(label);
+            row.setAttribute('role', 'row');
+            [nameInput, color, visibleBox, selectBox, typeSelect, input, opacity, material, count]
+                .forEach(control => {
+                    const cell = document.createElement('div');
+                    cell.setAttribute('role', 'cell');
+                    cell.append(control);
+                    row.append(cell);
                 });
-            const visibility = document.createElement('div');
-            visibility.className = 'atom-type-visibility';
-            visibility.append(toggle(visibleBox, 'Visible'), toggle(selectBox, 'Select type'));
-            row.append(header, visibility, fields);
             root.appendChild(row);
         });
         const focusMatch = [...root.querySelectorAll('[data-atom-label][data-appearance-field]')]
@@ -20412,8 +20477,8 @@ class VAseApp {
                     this.state.display.atomColorScaleCustomMap
                 );
             const scope = operation.scope === 'selected' ? 'selected' : 'all';
-            const fixedIndices = scope === 'selected' && operation.indices !== undefined
-                ? this.aiOperationIndices(operation)
+            const fixedIndices = scope === 'selected'
+                ? (operation.indices !== undefined ? this.aiOperationIndices(operation) : this.selectedAtomIndices())
                 : [];
             const rangeMode = ['current', 'trajectory', 'manual'].includes(operation.rangeMode)
                 ? operation.rangeMode
@@ -21882,7 +21947,8 @@ class VAseApp {
                     width: request.width || 1920,
                     height: request.height || 1080,
                     fps: request.fps || 12,
-                    format: request.container === 'avi' ? 'avi' : 'mov',
+                    startFrame: request.startFrame ?? 0, endFrame: request.endFrame ?? null, loop: request.loop ?? true,
+                    format: request.container || 'mov',
                     interpolationMultiplier: request.interpolationMultiplier || 1,
                     interpolationMic: request.interpolationMic !== false,
                     ...this.clonePlain(request.options || {})
@@ -21890,12 +21956,12 @@ class VAseApp {
                 null,
                 { returnBlob: true }
             );
-            const container = request.container === 'avi' ? 'avi' : 'mov';
+            const container = request.container || 'mov';
             return {
                 protocol: 'v_ase.ai.v1',
                 format: 'video',
                 filename: `v_ase-trajectory.${container}`,
-                mimeType: blob.type || (container === 'avi' ? 'video/x-msvideo' : 'video/quicktime'),
+                mimeType: blob.type || (container === 'gif' ? 'image/gif' : container === 'avi' ? 'video/x-msvideo' : 'video/quicktime'),
                 bytes: blob.size,
                 ...blob.vaseMetadata,
                 dataUrl: await this.blobToDataUrl(blob)
@@ -22892,7 +22958,7 @@ class VAseApp {
             viewRotationStepDeg: finiteClamped(
                 nextDisplay.viewRotationStepDeg, 15, 0.1, 360
             ),
-            videoFormat: ['mov', 'avi'].includes(nextDisplay.videoFormat)
+            videoFormat: ['mov', 'avi', 'gif'].includes(nextDisplay.videoFormat)
                 ? nextDisplay.videoFormat
                 : 'mov',
             videoFps: finiteClamped(nextDisplay.videoFps, 12, 1, 60),
@@ -22900,6 +22966,9 @@ class VAseApp {
                 nextDisplay.videoInterpolationMultiplier, 1, 1, 64
             ),
             videoInterpolationMic: nextDisplay.videoInterpolationMic !== false,
+            videoStartFrame: integerClamped(nextDisplay.videoStartFrame, 0, 0, Math.max(0, this.loadedFrameCount() - 1)),
+            videoEndFrame: nextDisplay.videoEndFrame == null ? null : integerClamped(nextDisplay.videoEndFrame, 0, 0, Math.max(0, this.loadedFrameCount() - 1)),
+            videoLoop: nextDisplay.videoLoop !== false,
             showDisplacements: Boolean(nextDisplay.showDisplacements),
             displacementReferenceMode: nextDisplay.displacementReferenceMode === 'frame'
                 ? 'frame'
@@ -23016,6 +23085,11 @@ class VAseApp {
         if (!settings) return;
         this.atomRadiusRuntime.fitToken += 1;
         const source = settings.settings || settings;
+        if (Object.keys(source.display || source).some(key => key.startsWith('video'))) {
+            // Reopened projects and history restores own their export settings;
+            // a canceled draft from the previous document must not mask them.
+            this.videoExportDraft = null;
+        }
         const identityChanged = Object.prototype.hasOwnProperty.call(
             source,
             'viewIdentityOverrides'
@@ -25194,6 +25268,9 @@ class VAseApp {
         if (lower.endsWith('.avi')) {
             return [{ description: 'AVI movie', accept: { 'video/x-msvideo': ['.avi'] } }];
         }
+        if (lower.endsWith('.gif')) {
+            return [{ description: 'Animated GIF', accept: { 'image/gif': ['.gif'] } }];
+        }
         if (lower.endsWith('.png')) {
             return [{ description: 'PNG image', accept: { 'image/png': ['.png'] } }];
         }
@@ -25929,7 +26006,7 @@ class VAseApp {
                 </div>
                 <p class="modal-intro">View prioritizes large-data inspection. Edit enables ASE-backed structure changes and calculators.</p>
             </fieldset>
-            <fieldset class="open-file-modes">
+            <fieldset class="open-file-modes"${hasDocument ? '' : ' hidden'}>
                 <legend>Open as</legend>
                 <label class="open-file-mode">
                     <input type="radio" name="open-file-mode" value="replace"${dropped && hasDocument ? '' : ' checked'}>
@@ -25978,7 +26055,7 @@ class VAseApp {
                 append: 'Add Frames',
                 'new-tab': 'Open New Tab', 'new-window': 'Open New Window'
             };
-            if (confirm) confirm.textContent = labels[mode];
+            if (confirm) confirm.textContent = hasDocument ? labels[mode] : 'Open';
         };
         syncConfirmLabel();
         document.querySelectorAll('input[name="open-file-mode"]').forEach(input => {
@@ -26046,6 +26123,9 @@ class VAseApp {
                     enabled: false,
                     indices: []
                 };
+            }
+            if (!isProject && settings?.display?.atomColorScaleScope === 'selected') {
+                settings.display.atomColorScaleIndices = [];
             }
             this.state.labelOrder = [];
             this.state.trajectoryBinaryCache = null;
@@ -26778,7 +26858,7 @@ class VAseApp {
         const height = Math.max(256, parseInt(document.getElementById('image-height').value || '1080', 10));
         const routeDraft = this.videoExportDraft || this.state.display;
         const fps = Math.min(60, Math.max(1, Number(routeDraft.fps ?? routeDraft.videoFps) || this.currentPlaybackFps()));
-        const format = ['mov', 'avi'].includes(routeDraft.format ?? routeDraft.videoFormat)
+        const format = ['mov', 'avi', 'gif'].includes(routeDraft.format ?? routeDraft.videoFormat)
             ? (routeDraft.format ?? routeDraft.videoFormat)
             : 'mov';
         const interpolationMultiplier = normalizeInterpolationMultiplier(
@@ -26798,7 +26878,7 @@ class VAseApp {
         const selected = (value, current) => value === current ? 'selected' : '';
         this.showModal(`
             <h2>Export Video</h2>
-            <p class="modal-intro">Render every loaded trajectory frame using the exact Render Area camera and crop.</p>
+            <p class="modal-intro">Render the chosen source frames using the output frame and camera.</p>
             <div class="export-image-columns">
                 <div class="export-image-column">
                     <div class="export-grid">
@@ -26806,8 +26886,15 @@ class VAseApp {
                         <select id="video-format">
                             <option value="mov" ${selected('mov', format)}>MOV (H.264)</option>
                             <option value="avi" ${selected('avi', format)}>AVI (MPEG-4)</option>
+                            <option value="gif" ${selected('gif', format)}>Animated GIF</option>
                         </select>
-                        <label for="video-width">Width</label>
+                        <label for="video-start">First source frame</label>
+                        <input id="video-start" type="number" min="1" max="${count}" value="${(routeDraft.startFrame ?? routeDraft.videoStartFrame ?? 0) + 1}">
+                        <label for="video-end">Last source frame</label>
+                        <input id="video-end" type="number" min="1" max="${count}" value="${(routeDraft.endFrame ?? routeDraft.videoEndFrame ?? count - 1) + 1}">
+                        <label for="video-loop">GIF playback</label>
+                        <select id="video-loop"><option value="forever" ${(routeDraft.loop ?? routeDraft.videoLoop) !== false ? 'selected' : ''}>Loop forever</option><option value="once" ${(routeDraft.loop ?? routeDraft.videoLoop) === false ? 'selected' : ''}>Play once</option></select>
+                        <label for="video-width">Width / px</label>
                         <input type="number" id="video-width" value="${width}" min="256" step="128">
                         <label for="video-height">Height</label>
                         <input type="number" id="video-height" value="${height}" min="256" step="128">
@@ -26924,7 +27011,10 @@ class VAseApp {
                 interpolationMic: Boolean(
                     document.getElementById('video-interpolation-mic')?.checked
                 ),
-                format: document.getElementById('video-format')?.value === 'avi' ? 'avi' : 'mov',
+                format: document.getElementById('video-format')?.value || 'mov',
+                startFrame: Number(document.getElementById('video-start')?.value) - 1,
+                endFrame: Number(document.getElementById('video-end')?.value) - 1,
+                loop: document.getElementById('video-loop')?.value !== 'once',
                 transparentBackground: false,
                 backgroundColor: '#ffffff',
                 includeGrid: Boolean(document.getElementById('video-grid')?.checked),
@@ -26958,11 +27048,13 @@ class VAseApp {
             }
             const interpolationNote = document.getElementById('video-interpolation-note');
             const interpolationToggle = document.getElementById('video-interpolation-mic');
-            const outputFrames = interpolatedFrameCount(count, options.interpolationMultiplier);
+            const sourceCount = options.endFrame - options.startFrame + 1;
+            const outputFrames = interpolatedFrameCount(Math.max(1, sourceCount), options.interpolationMultiplier);
+            document.getElementById('video-loop').disabled = options.format !== 'gif';
             if (interpolationToggle) interpolationToggle.disabled = options.interpolationMultiplier <= 1;
             if (interpolationNote) {
                 interpolationNote.textContent = options.interpolationMultiplier <= 1
-                    ? `${count} source frames → ${outputFrames} output frames (${(outputFrames / options.fps).toFixed(2)} s). Every source frame is retained once.`
+                    ? `${sourceCount} source frames → ${outputFrames} output frames (${(outputFrames / options.fps).toFixed(2)} s). Every source frame is retained once.`
                     : `${options.interpolationMultiplier}× creates ${outputFrames} frames (${(outputFrames / options.fps).toFixed(2)} s). Higher values take longer to render.`;
             }
             const {
@@ -26982,7 +27074,7 @@ class VAseApp {
             if (this.state.exportPreviewEnabled) this.syncImageExportPreview();
         };
         [
-            'video-width', 'video-height', 'video-pixels-per-angstrom', 'video-fps', 'video-interpolation-multiplier',
+            'video-start', 'video-end', 'video-width', 'video-height', 'video-pixels-per-angstrom', 'video-fps', 'video-interpolation-multiplier',
             'video-smoothness-scale',
             'video-sun-intensity', 'video-sun-position-0', 'video-sun-position-1',
             'video-sun-position-2', 'video-sun-target-0', 'video-sun-target-1',
@@ -26994,7 +27086,7 @@ class VAseApp {
             updateVideoPreview();
         });
         [
-            'video-format', 'video-interpolation-mic', 'video-grid', 'video-axes',
+            'video-loop', 'video-format', 'video-interpolation-mic', 'video-grid', 'video-axes',
             'video-cell', 'video-framing-mode',
             'video-sphere-quality', 'video-render-mode'
         ].forEach(id => document.getElementById(id)?.addEventListener('change', updateVideoPreview));
@@ -27010,13 +27102,15 @@ class VAseApp {
                     videoFormat: options.format,
                     videoFps: options.fps,
                     videoInterpolationMultiplier: options.interpolationMultiplier,
-                    videoInterpolationMic: options.interpolationMic
+                    videoInterpolationMic: options.interpolationMic,
+                    videoStartFrame: options.startFrame, videoEndFrame: options.endFrame, videoLoop: options.loop
                 });
                 this.videoExportDraft = {
                     format: options.format,
                     fps: options.fps,
                     interpolationMultiplier: options.interpolationMultiplier,
-                    interpolationMic: options.interpolationMic
+                    interpolationMic: options.interpolationMic,
+                    startFrame: options.startFrame, endFrame: options.endFrame, loop: options.loop
                 };
                 this.syncRendererFormatProperties();
                 const imageWidthInput = document.getElementById('image-width');
@@ -27024,7 +27118,7 @@ class VAseApp {
                 if (imageWidthInput) imageWidthInput.value = `${options.width}`;
                 if (imageHeightInput) imageHeightInput.value = `${options.height}`;
                 const filename = `v_ase-trajectory.${options.format}`;
-                const outputMime = options.format === 'avi'
+                const outputMime = options.format === 'gif' ? 'image/gif' : options.format === 'avi'
                     ? 'video/x-msvideo'
                     : 'video/quicktime';
                 const destination = await this.chooseSaveDestination(filename, outputMime);
@@ -27078,6 +27172,10 @@ class VAseApp {
                 snapshot.radiusScalarUnavailable = String(error.message || error);
             }
         }
+        if (this.state.display.atomColorScaleEnabled) {
+            const {values} = await this.atomColorScaleValuesForCurrentFrame();
+            snapshot.colorScalarValues = Float64Array.from(values);
+        }
         return snapshot;
     }
 
@@ -27122,6 +27220,23 @@ class VAseApp {
             const a = Number(left[index]);
             const b = Number(right[index]);
             if (!Number.isFinite(a) || !Number.isFinite(b)) return Number.NaN;
+            return discrete ? (amount < 0.5 ? a : b) : a + (b - a) * amount;
+        });
+    }
+
+    interpolateVideoColorScalars(first, second, amount, sample) {
+        if (!this.state.display.atomColorScaleEnabled) return;
+        const field = this.state.display.atomColorScaleField;
+        const component = {'position:x': 0, 'position:y': 1, 'position:z': 2}[field];
+        if (component !== undefined) {
+            sample.colorScalarValues = Float64Array.from({length: sample.count}, (_, i) => sample.positions[i * 3 + component]);
+            return;
+        }
+        const discrete = /^array::(?:tags?|flags?|masks?|bool(?:ean)?)::/i.test(field);
+        sample.colorScalarValues = Float64Array.from({length: sample.count}, (_, i) => {
+            const a = Number(first.colorScalarValues?.[i]);
+            const b = Number(second.colorScalarValues?.[i]);
+            if (!Number.isFinite(a) || !Number.isFinite(b)) return NaN;
             return discrete ? (amount < 0.5 ? a : b) : a + (b - a) * amount;
         });
     }
@@ -27206,13 +27321,14 @@ class VAseApp {
         this.applyFrameLattice(sample.cell, sample.pbc, sample.cell_origin);
         this.renderer.updatePositionsFlat(sample.positions, 0, sample.count);
         this.applyVideoSampleRadiusFactors(sample);
+        if (sample.colorScalarValues) await this.updateAtomColorScale({quiet: true, valuesOverride: sample.colorScalarValues});
         await this.synchronizeVideoAnalysis(sample);
         await this.captureCurrentVideoFrame(capture, sequence, outputIndex, outputCount, outputFps, startedAt);
     }
 
     async exportTrajectoryVideo({
         width, height, fps, format, interpolationMultiplier = 1,
-        interpolationMic = true, ...renderOptions
+        interpolationMic = true, startFrame = 0, endFrame = null, loop = true, ...renderOptions
     }, destination, { returnBlob = false } = {}) {
         if (this.state.videoExportId) throw new Error('A video export is already active.');
         const outputWidth = Number(width ?? 1920);
@@ -27226,14 +27342,22 @@ class VAseApp {
         if (!Number.isInteger(requestedFactor) || requestedFactor < 1 || requestedFactor > 64) throw new Error('Video interpolation multiplier must be an integer from 1 through 64.');
         const interpolationFactor = normalizeInterpolationMultiplier(requestedFactor);
         const outputFormat = String(format || 'mov').toLowerCase();
-        if (!['mov', 'avi'].includes(outputFormat)) throw new Error('Video format must be mov or avi.');
+        if (!['mov', 'avi', 'gif'].includes(outputFormat)) throw new Error('Video format must be mov, avi or gif.');
         await this.stopPlayback();
         const meta = this.state.atoms?.metadata || {};
         const frameCount = meta.frame_count || 1;
         if (frameCount <= 1) throw new Error('A trajectory with at least two frames is required.');
-        const outputFrameCount = interpolatedFrameCount(frameCount, interpolationFactor);
+        const firstFrame = Number(startFrame);
+        const lastFrame = endFrame === null ? frameCount - 1 : Number(endFrame);
+        if (!Number.isInteger(firstFrame) || !Number.isInteger(lastFrame)
+            || firstFrame < 0 || lastFrame < firstFrame || lastFrame >= frameCount) {
+            throw new Error(`Source frame range must be within 1–${frameCount}, with start no later than end.`);
+        }
+        if (typeof loop !== 'boolean') throw new Error('Animation loop must be a boolean.');
+        const sourceFrameCount = lastFrame - firstFrame + 1;
+        const outputFrameCount = interpolatedFrameCount(sourceFrameCount, interpolationFactor);
         const filename = `v_ase-trajectory.${outputFormat}`;
-        const outputMime = outputFormat === 'avi' ? 'video/x-msvideo' : 'video/quicktime';
+        const outputMime = outputFormat === 'gif' ? 'image/gif' : outputFormat === 'avi' ? 'video/x-msvideo' : 'video/quicktime';
         const selectedDestination = returnBlob ? null : (destination || await this.chooseSaveDestination(filename, outputMime));
         if (!returnBlob && !selectedDestination) return false;
         if (this.state.videoExportId) throw new Error('A video export is already active.');
@@ -27253,12 +27377,12 @@ class VAseApp {
         this.closeModal();
         this.setBusy(`Preparing ${outputFrameCount} video frames...`, { title: 'Exporting video', progress: 1 });
         try {
-            sequence = await this.api.beginVideoFrames({width: outputWidth, height: outputHeight, fps: outputFps, frames: outputFrameCount, format: outputFormat});
+            sequence = await this.api.beginVideoFrames({width: outputWidth, height: outputHeight, fps: outputFps, frames: outputFrameCount, format: outputFormat, loop});
             this.state.videoExportId = sequence.export_id;
             capture = this.renderer.beginExportCapture(outputWidth, outputHeight, renderOptions);
             let outputIndex = 0;
             if (interpolationFactor <= 1) {
-                for (let frame = 0; frame < frameCount; frame++) {
+                for (let frame = firstFrame; frame <= lastFrame; frame++) {
                     await this.loadFrame(frame);
                     const sample = await this.videoFrameSnapshot();
                     this.applyVideoSampleRadiusFactors(sample);
@@ -27266,18 +27390,19 @@ class VAseApp {
                     await this.captureCurrentVideoFrame(capture, sequence, ++outputIndex, outputFrameCount, outputFps, startedAt);
                 }
             } else {
-                await this.loadFrame(0);
+                await this.loadFrame(firstFrame);
                 let first = await this.videoFrameSnapshot();
                 this.applyVideoSampleRadiusFactors(first);
                 await this.synchronizeVideoAnalysis(first);
                 await this.captureCurrentVideoFrame(capture, sequence, ++outputIndex, outputFrameCount, outputFps, startedAt);
-                for (let frame = 1; frame < frameCount; frame++) {
+                for (let frame = firstFrame + 1; frame <= lastFrame; frame++) {
                     await this.loadFrame(frame);
                     const second = await this.videoFrameSnapshot();
                     this.videoFramesAreInterpolable(first, second);
                     for (let subframe = 1; subframe < interpolationFactor; subframe++) {
                         const sample = interpolateTrajectoryFrames(first, second, subframe / interpolationFactor, {useMic: interpolationMic});
                         this.interpolateVideoRadiusScalars(first, second, subframe / interpolationFactor, sample);
+                        this.interpolateVideoColorScalars(first, second, subframe / interpolationFactor, sample);
                         if (interpolationMic && !sample.micApplied) micFallback = true;
                         await this.renderVideoCaptureSample(capture, sequence, sample, ++outputIndex, outputFrameCount, outputFps, startedAt);
                     }
@@ -27289,7 +27414,7 @@ class VAseApp {
             const video = await this.api.finishVideoFrames(sequence.export_id);
             sequence = null;
             video.vaseMetadata = {width: outputWidth, height: outputHeight, fps: outputFps,
-                frameCount: outputFrameCount, sourceFrameCount: frameCount,
+                frameCount: outputFrameCount, sourceFrameCount, startFrame: firstFrame, endFrame: lastFrame, loop,
                 interpolationMultiplier: interpolationFactor, interpolationMic,
                 captureMode: 'indexed-png'};
             if (returnBlob) {
@@ -27436,7 +27561,19 @@ class VAseApp {
         }, Math.max(0, delay));
     }
 
-    async loadFrame(index) {
+    loadFrame(index) {
+        // All entry points (scrubbing, playback, semantic commands and export)
+        // share the same queue. Keep the previous canvas until properties agree.
+        const task = (this.frameCommitTask || Promise.resolve()).catch(() => {}).then(async () => {
+            this.renderer.beginFrameUpdate();
+            try { return await this.loadFrameData(index); }
+            finally { this.renderer.endFrameUpdate(); }
+        });
+        this.frameCommitTask = task;
+        return task;
+    }
+
+    async loadFrameData(index) {
         if (
             this.transform.mode !== 'IDLE'
             && !['sun', 'render-area'].includes(this.state.transformSubject)
@@ -27568,7 +27705,8 @@ class VAseApp {
         this.setAtomsData(data, {
             clearSelection: false,
             preserveRdf: true,
-            preserveColorScaleRange: true
+            preserveColorScaleRange: true,
+            trajectoryFrame: true
         });
         await this.completeTrajectoryFrameUpdate();
     }
@@ -27972,11 +28110,9 @@ class VAseApp {
             this.scheduleVisualHistoryCommit('render-area-follow');
         });
         document.getElementById('btn-render-area-from-view')?.addEventListener('click', () => {
-            this.state.exportPreviewFollowViewport = false;
-            this.captureRenderAreaCamera({ syncPreview: false });
+            if (this.state.exportPreviewCamera) this.applyCameraSettings(this.state.exportPreviewCamera);
+            this.setRenderAreaSelected(false, { update: false });
             this.syncImageExportPreview();
-            if (this.editorRoute === 'export') this.syncProjectHtmlProfileFromRenderer();
-            this.scheduleVisualHistoryCommit('render-area-camera');
         });
         document.getElementById('render-area-eye')?.addEventListener('click', event => {
             event.preventDefault();
@@ -28604,6 +28740,8 @@ class VAseApp {
                 return;
             }
             this.state.isDragging = true;
+            // Keep the gesture when its endpoint crosses the floating inspector.
+            canvas.setPointerCapture?.(e.pointerId);
             this.state.pointerDownTime = performance.now();
             this.selection.startPoint.set(e.clientX, e.clientY);
             this.hideMarquee();

@@ -60,7 +60,7 @@ export class AtomScalarStore {
         if (!this.catalogCache.has(key)) {
             const generation = this.generation;
             const catalog = await this.shared(key, () => this.api.fetchAtomScalarCatalog(frame));
-            if (generation !== this.generation) throw new Error('Per-atom property catalog became stale.');
+            if (generation !== this.generation) throw new DOMException('Property request superseded by a document edit.', 'AbortError');
             this.catalogCache.set(key, catalog);
             while (this.catalogCache.size > MAX_CATALOG_ENTRIES) {
                 this.catalogCache.delete(this.catalogCache.keys().next().value);
@@ -96,7 +96,10 @@ export class AtomScalarStore {
                 key,
                 () => this.api.fetchAtomScalarValues(field, frame, allFrames)
             );
-            if (generation !== this.generation) throw new Error('Per-atom property values became stale.');
+            if (generation !== this.generation) throw new DOMException('Property request superseded by a document edit.', 'AbortError');
+            // Coalesced color/radius consumers may resume on the same promise.
+            // Account for the shared buffer exactly once.
+            if (this.valueCache.has(key)) return this.valueCache.get(key);
             const bytes = Number(result?.values?.byteLength || 0);
             if (bytes <= MAX_ATOM_SCALAR_CACHE_BYTES) {
                 this.valueCache.set(key, result);

@@ -52,14 +52,14 @@
             });
         })();
     </script>
-    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.4.2">
-    <link id="editor-style" rel="stylesheet" href="static/editor.css?v=0.4.2">
-    <link id="direct-workspace-style" rel="stylesheet" href="static/direct_workspace.css?v=0.4.2">
+    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.4.3">
+    <link id="editor-style" rel="stylesheet" href="static/editor.css?v=0.4.3">
+    <link id="direct-workspace-style" rel="stylesheet" href="static/direct_workspace.css?v=0.4.3">
     <script>
         window.__V_ASE_MOCK__ = new URLSearchParams(window.location.search).has('v_ase_mock');
         const threeModulePath = window.location.protocol === 'file:'
             ? './vendor/three.module.js'
-            : '/static/vendor/three.module.js?v=0.4.2';
+            : '/static/vendor/three.module.js?v=0.4.3';
         const importMap = document.createElement('script');
         importMap.type = 'importmap';
         importMap.textContent = JSON.stringify({
@@ -159,7 +159,7 @@
     <header id="top-bar" class="glass-panel">
         <div class="logo">
             <img class="brand-logo-asset" src="static/v_ase-logo.png" alt="v_ase">
-            <span class="version">0.4.2</span>
+            <span class="version">0.4.3</span>
         </div>
         <nav id="editor-menu-bar" class="editor-menu-bar" aria-label="Document commands">
             <details><summary>File</summary><div class="editor-menu-popover">
@@ -1339,7 +1339,8 @@
 
         <details class="panel-section" open data-panel="appearance" data-panel-group="structure">
             <summary class="section-header">Appearance</summary>
-            <div class="appearance-section-heading">Atom radius</div>
+<section class="settings-group">
+            <h3 class="appearance-section-heading">Global size</h3>
             <div class="range-row">
                 <div class="range-head">
                     <label for="atom-radius-scale">All atoms · size</label>
@@ -1350,7 +1351,93 @@
                     <input type="number" id="atom-radius-scale-number" value="0.6" min="0.25" max="2.5" step="0.01" aria-label="Global atom size multiplier">
                 </div>
             </div>
-            <div class="atom-radius-mapping-card">
+</section>
+<section class="settings-group">
+            <h3 class="appearance-section-heading">Per-label appearance</h3>
+            <p class="panel-note">One row per label. Scroll horizontally for all columns; values apply to every atom with that label.</p>
+            <div id="appearance-table" class="appearance-table" role="table" aria-label="Per-label atom appearance" tabindex="0">
+                <div class="appearance-row appearance-table-head" role="row">
+                    <div role="columnheader">Label</div><div role="columnheader">Color</div>
+                    <div role="columnheader">Show</div><div role="columnheader">Select</div>
+                    <div role="columnheader">Element</div><div role="columnheader">Radius / Å</div>
+                    <div role="columnheader">Opacity</div><div role="columnheader">Material</div><div role="columnheader">Count</div>
+                </div>
+                <div id="appearance-table-body"></div>
+            </div>
+</section>
+<section class="settings-group">
+            <h3 class="appearance-section-heading">Surface material</h3>
+            <label class="appearance-scope" for="appearance-scope-select"><span>Apply surface to</span>
+                <select id="appearance-scope-select" aria-label="Atom appearance scope">
+                    <option value="all">All atoms</option>
+                    <option value="selected" disabled>Selected atoms</option>
+                </select>
+            </label>
+
+            <div class="appearance-surface-controls">
+                <label for="appearance-material"><span>Material</span>
+                    <select id="appearance-material" aria-label="Material for appearance scope">
+                        <option value="mixed" disabled>Mixed</option>
+                        <option value="standard">Standard</option>
+                        <option value="metal">Metal</option>
+                        <option value="rubber">Rubber</option>
+                    </select>
+                </label>
+                <label for="appearance-opacity"><span>Opacity</span>
+                    <input id="appearance-opacity" type="number" min="0" max="1" step="0.05" value="1" aria-label="Opacity for appearance scope">
+                </label>
+                <p id="appearance-surface-scope-note" class="panel-note">Changes apply to the chosen types.</p>
+            </div>
+</section>
+<section class="settings-group">
+            <h3 class="appearance-section-heading">Selected atom overrides</h3>
+            <div id="selected-appearance" class="selected-appearance">
+                <div class="selected-appearance-head">
+                    <strong>Selected atoms</strong>
+                    <span id="selected-appearance-count">None</span>
+                </div>
+                <div class="selected-appearance-fields">
+                    <label class="selected-appearance-field" for="selected-atom-label">
+                        <span>Label</span>
+                        <input id="selected-atom-label" type="text" placeholder="Select atoms">
+                    </label>
+                    <label class="selected-appearance-field" for="selected-atom-material">
+                        <span>Material</span>
+                        <select id="selected-atom-material">
+                            <option value="mixed" disabled>Mixed</option>
+                            <option value="standard">Standard</option>
+                            <option value="metal">Metal</option>
+                            <option value="rubber">Rubber</option>
+                        </select>
+                    </label>
+                    <label class="selected-appearance-field selected-color-field" for="selected-atom-color">
+                        <span>Color</span>
+                        <input id="selected-atom-color" type="color" value="#808080">
+                    </label>
+                    <label class="selected-appearance-field" for="selected-atom-opacity">
+                        <span>Opacity</span>
+                        <input id="selected-atom-opacity" type="number" min="0" max="1" step="0.05" placeholder="Mixed">
+                    </label>
+                </div>
+                <div class="range-row selected-radius-scale-row">
+                    <div class="range-head">
+                        <label for="selected-atom-radius-scale">Radius scale</label>
+                        <output id="selected-atom-radius-scale-value">1.00x</output>
+                    </div>
+                    <div class="range-with-number">
+                        <input id="selected-atom-radius-scale" type="range" value="1" min="0.25" max="2.5" step="0.01">
+                        <input id="selected-atom-radius-scale-number" type="number" value="1" min="0.25" max="2.5" step="0.01" aria-label="Selected atom radius multiplier">
+                    </div>
+                </div>
+                <label class="check-row selected-bond-inherit-row" for="selected-atom-update-bonds">
+                    <span>Match bond material &amp; opacity</span>
+                    <input id="selected-atom-update-bonds" type="checkbox" checked>
+                </label>
+                <button id="btn-apply-selected-label" class="btn-block" type="button">Apply Selected Appearance</button>
+            </div>
+</section>
+<section class="settings-group">
+<h3 class="appearance-section-heading">Property visualization</h3><p class="panel-note">Maps stored numeric values onto the manual appearance above. Values update together with each trajectory frame.</p>            <div class="atom-radius-mapping-card">
                 <div class="atom-colorscale-title-row">
                     <div>
                         <strong>Property radius mapping</strong>
@@ -1409,7 +1496,6 @@
                     <p id="atom-radius-mapping-status" class="panel-note atom-radius-mapping-status">Values load only while this option is enabled.</p>
                 </div>
             </div>
-            <div class="appearance-section-heading">Color</div>
             <div class="atom-colorscale-card">
                 <div class="atom-colorscale-title-row">
                     <div>
@@ -1442,31 +1528,36 @@
                             <span>Apply to</span>
                             <select id="atom-colorscale-scope">
                                 <option value="all">All atoms</option>
-                                <option value="selected">Selected atoms only</option>
+                                <option value="selected">Fixed atom selection</option>
                             </select>
                         </label>
                     </div>
+                    <div class="atom-radius-scope-status">
+                        <span id="atom-colorscale-scope-count">All atoms in each frame</span>
+                        <button id="btn-atom-colorscale-use-selection" type="button" hidden>Use current selection</button>
+                    </div>
+                    <div class="mapping-subhead">Value range → colors</div>
                     <div class="atom-colorscale-toggle-grid">
                         <label for="chk-atom-colorscale-reverse">
-                            <span>Reverse</span>
+                            <span>Reverse colors</span>
                             <input id="chk-atom-colorscale-reverse" type="checkbox">
                         </label>
                         <div class="atom-colorscale-range-source" aria-label="Active color range source">
-                            <span>Range</span>
+                            <span>Value range source</span>
                             <strong id="atom-colorscale-range-source">CURRENT FRAME</strong>
                         </div>
                     </div>
                     <div class="atom-colorscale-range-actions">
                         <button id="btn-atom-colorscale-fit-current" type="button">Fit current frame</button>
-                        <button id="btn-atom-colorscale-fit-trajectory" type="button">Scan trajectory</button>
+                        <button id="btn-atom-colorscale-fit-trajectory" type="button">Fit entire trajectory</button>
                     </div>
                     <div id="atom-colorscale-range" class="atom-colorscale-range">
                         <label for="atom-colorscale-min">
-                            <span>vmin</span>
+                            <span>Minimum value</span>
                             <input id="atom-colorscale-min" type="number" step="any" value="0">
                         </label>
                         <label for="atom-colorscale-max">
-                            <span>vmax</span>
+                            <span>Maximum value</span>
                             <input id="atom-colorscale-max" type="number" step="any" value="1">
                         </label>
                     </div>
@@ -1482,77 +1573,7 @@
                     </p>
                 </div>
             </div>
-            <div class="appearance-section-heading">Atom types</div>
-            <div id="appearance-table" class="appearance-table">
-                <div id="appearance-table-body"></div>
-            </div>
-            <div class="appearance-section-heading">Surface</div>
-            <label class="appearance-scope" for="appearance-scope-select"><span>Apply surface to</span>
-                <select id="appearance-scope-select" aria-label="Atom appearance scope">
-                    <option value="all">All atoms</option>
-                    <option value="selected" disabled>Selected atoms</option>
-                </select>
-            </label>
-
-            <div class="appearance-surface-controls">
-                <label for="appearance-material"><span>Material</span>
-                    <select id="appearance-material" aria-label="Material for appearance scope">
-                        <option value="mixed" disabled>Mixed</option>
-                        <option value="standard">Standard</option>
-                        <option value="metal">Metal</option>
-                        <option value="rubber">Rubber</option>
-                    </select>
-                </label>
-                <label for="appearance-opacity"><span>Opacity</span>
-                    <input id="appearance-opacity" type="number" min="0" max="1" step="0.05" value="1" aria-label="Opacity for appearance scope">
-                </label>
-                <p id="appearance-surface-scope-note" class="panel-note">Changes apply to the chosen types.</p>
-            </div>
-            <div class="appearance-section-heading">Selected atom properties</div>
-            <div id="selected-appearance" class="selected-appearance">
-                <div class="selected-appearance-head">
-                    <strong>Selected atoms</strong>
-                    <span id="selected-appearance-count">None</span>
-                </div>
-                <div class="selected-appearance-fields">
-                    <label class="selected-appearance-field" for="selected-atom-label">
-                        <span>Label</span>
-                        <input id="selected-atom-label" type="text" placeholder="Select atoms">
-                    </label>
-                    <label class="selected-appearance-field" for="selected-atom-material">
-                        <span>Material</span>
-                        <select id="selected-atom-material">
-                            <option value="mixed" disabled>Mixed</option>
-                            <option value="standard">Standard</option>
-                            <option value="metal">Metal</option>
-                            <option value="rubber">Rubber</option>
-                        </select>
-                    </label>
-                    <label class="selected-appearance-field selected-color-field" for="selected-atom-color">
-                        <span>Color</span>
-                        <input id="selected-atom-color" type="color" value="#808080">
-                    </label>
-                    <label class="selected-appearance-field" for="selected-atom-opacity">
-                        <span>Opacity</span>
-                        <input id="selected-atom-opacity" type="number" min="0" max="1" step="0.05" placeholder="Mixed">
-                    </label>
-                </div>
-                <div class="range-row selected-radius-scale-row">
-                    <div class="range-head">
-                        <label for="selected-atom-radius-scale">Radius scale</label>
-                        <output id="selected-atom-radius-scale-value">1.00x</output>
-                    </div>
-                    <div class="range-with-number">
-                        <input id="selected-atom-radius-scale" type="range" value="1" min="0.25" max="2.5" step="0.01">
-                        <input id="selected-atom-radius-scale-number" type="number" value="1" min="0.25" max="2.5" step="0.01" aria-label="Selected atom radius multiplier">
-                    </div>
-                </div>
-                <label class="check-row selected-bond-inherit-row" for="selected-atom-update-bonds">
-                    <span>Match bond material &amp; opacity</span>
-                    <input id="selected-atom-update-bonds" type="checkbox" checked>
-                </label>
-                <button id="btn-apply-selected-label" class="btn-block" type="button">Apply Selected Appearance</button>
-            </div>
+</section>
         </details>
 
         <details class="panel-section" open data-panel="cell-replication" data-panel-group="structure">
@@ -2121,10 +2142,10 @@
                         <label class="check-row" for="renderer-include-axes"><span>Include axes</span><input id="renderer-include-axes" type="checkbox"></label>
                         <label class="check-row" for="renderer-include-cell"><span>Include cell</span><input id="renderer-include-cell" type="checkbox" checked></label>
                         <div class="prop-row"><label for="renderer-background">Background</label><input id="renderer-background" type="color" value="#ffffff"></div>
-                        <button id="btn-preview-image" class="btn-block export-preview-toggle" type="button" aria-pressed="false" data-requires-atoms>Render Area</button>
-                        <div class="render-area-options">
-                            <label class="check-row" for="render-area-follow-view"><span>Follow viewport</span><input type="checkbox" id="render-area-follow-view" checked></label>
-                            <button id="btn-render-area-from-view" type="button" data-requires-atoms>Set from Current View</button>
+                        <button id="btn-preview-image" class="btn-block export-preview-toggle" type="button" aria-pressed="false" data-requires-atoms>Show output frame</button>
+                        <p class="panel-note">The outline marks the exported region of this canvas. Select and edit atoms normally. A saved camera is shown when you align the editing view to it.</p><div class="render-area-options">
+                            <label class="check-row" for="render-area-follow-view"><span>Follow editing view</span><input type="checkbox" id="render-area-follow-view" checked></label>
+                            <button id="btn-render-area-from-view" class="btn-block" type="button" data-requires-atoms>View saved output camera</button>
                         </div>
                 </div>
             </div>
@@ -2140,10 +2161,15 @@
             <div class="export-group renderer-format-config renderer-video-config">
                 <div class="panel-subhead">Video</div>
                 <div class="prop-row"><label for="renderer-video-format">Container</label>
-                    <select id="renderer-video-format"><option value="mov">MOV · H.264</option><option value="avi">AVI · MPEG-4</option></select></div>
+                    <select id="renderer-video-format"><option value="mov">MOV · H.264</option><option value="avi">AVI · MPEG-4</option><option value="gif">Animated GIF</option></select></div>
+                <div class="video-source-range">
+                    <label for="renderer-video-start">First source frame<input id="renderer-video-start" type="number" min="1" step="1" value="1"></label>
+                    <label for="renderer-video-end">Last source frame<input id="renderer-video-end" type="number" min="1" step="1" value="1"></label>
+                </div>
+                <div class="prop-row"><label for="renderer-video-loop">GIF playback</label><select id="renderer-video-loop"><option value="forever">Loop forever</option><option value="once">Play once</option></select></div>
                 <div class="prop-row"><label for="renderer-video-fps">Frames per second</label>
                     <input id="renderer-video-fps" type="number" min="1" max="60" step="1" value="12"></div>
-                <div class="prop-row"><label for="renderer-video-interpolation">Interpolation</label>
+                <div class="prop-row"><label for="renderer-video-interpolation">Steps per frame interval</label>
                     <input id="renderer-video-interpolation" type="number" min="1" max="64" step="1" value="1"></div>
                 <label class="check-row" for="renderer-video-mic"><span>Minimum image convention</span><input id="renderer-video-mic" type="checkbox" checked></label>
                 <p id="renderer-video-estimate" class="panel-note" aria-live="polite"></p>
@@ -2423,7 +2449,7 @@
         }
         const modulePath = (window.location.protocol === 'file:' || window.location.pathname.endsWith('/static/index.html'))
             ? './main.js'
-            : './static/main.js?v=0.4.2';
+            : './static/main.js?v=0.4.3';
         import(modulePath).catch(error => {
             console.error('v_ase failed to initialize:', error?.stack || error);
         });

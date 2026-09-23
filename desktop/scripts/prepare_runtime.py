@@ -60,7 +60,7 @@ def main():
                    check=True, env=environment)
     subprocess.run([str(interpreter), "-I", "-m", "pip", "check"], check=True)
     subprocess.run([str(interpreter), "-I", "-c",
-                    "from v_ase._version import __version__; assert __version__ == '0.4.2'; "
+                    "from v_ase._version import __version__; assert __version__ == '0.4.3'; "
                     "import ase, matscipy, skimage, rhino3dm, mcp; print('Runtime verified:', __version__)"], check=True)
     if key == ("Darwin", "x86_64"):
         extension = next((runtime / "python").glob("lib/python3.11/site-packages/cryptography/hazmat/bindings/_rust*.so"))
@@ -75,7 +75,7 @@ def main():
     skill = "visualizing-atomic-structures-with-v-ase"
     shutil.copytree(ROOT.parent / "v_ase/skills" / skill, package / "skills" / skill, dirs_exist_ok=True)
     (runtime / "python" / "v_ase-desktop-runtime.json").write_text(json.dumps({
-        "v_ase": "0.4.2", "python": PYTHON, "source": name, "sha256": expected,
+        "v_ase": "0.4.3", "python": PYTHON, "source": name, "sha256": expected,
         "platform": target,
         "agent_documentation": "Canonical repository Skill with desktop connection guidance",
     }, indent=2) + "\n")

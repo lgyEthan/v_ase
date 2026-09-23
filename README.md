@@ -15,7 +15,7 @@
 [Issues](https://github.com/lgyEthan/v_ase/issues) ·
 [Software paper and LaTeX source](paper/joss/README.md)
 
-**v_ase 0.4.2 — editor interaction and desktop workspace improvements** ·
+**v_ase 0.4.3 — clearer scientific controls, synchronized trajectories and GIF export** ·
 [Changes](https://v-ase.readthedocs.io/en/latest/whats-new.html)
 
 An ASE-native workspace for building, editing and visualizing atomic structures,
@@ -23,13 +23,15 @@ trajectories and volumetric data.
 
 ![Phosphorene nanoribbon manipulation](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_phosphorene_twist.gif)
 
-Trajectory navigation retains double-precision coordinates through editing and scientific project exports. Renderer scale and atom radius remain independent.
+Trajectory navigation retains double-precision coordinates and committed edits
+through frame switches, animation output and scientific project exports.
+Renderer scale and atom radius remain independent.
 
 ## Installation And Launch
 
 macOS and Windows users can install the self-contained
 [desktop app](https://v-ase.readthedocs.io/en/latest/desktop.html) from
-[GitHub Releases](https://github.com/lgyEthan/v_ase/releases/tag/v0.4.2).
+[GitHub Releases](https://github.com/lgyEthan/v_ase/releases/tag/v0.4.3).
 It runs the same GUI with native Command/Ctrl shortcuts and file dialogs;
 Python installation is not required. Python and Jupyter remain available
 independently. Drag a desktop tab out to detach it into another window.
@@ -38,11 +40,11 @@ window closes independently; Windows Alt+F4 closes the active window, while
 explicit Quit checks all windows. The app icon now features the full atomic-bead
 castle with its small Pinocchio detail and no projecting red foundation board.
 
-| Desktop download (0.4.2) | Install and launch |
+| Desktop download (0.4.3) | Install and launch |
 | --- | --- |
-| [Mac, Apple silicon](https://github.com/lgyEthan/v_ase/releases/download/v0.4.2/v_ase-0.4.2-mac-arm64.dmg) | macOS 15+: open the DMG, drag **v_ase** to **Applications**, eject the disk image, then launch the Applications copy. |
-| [Mac, Intel](https://github.com/lgyEthan/v_ase/releases/download/v0.4.2/v_ase-0.4.2-mac-x64.dmg) | Same steps; choose Intel when **About This Mac** shows an Intel processor. |
-| [Windows, Intel/AMD x64](https://github.com/lgyEthan/v_ase/releases/download/v0.4.2/v_ase-0.4.2-win-x64.exe) | Windows 10/11, 64-bit: run the EXE installer, complete installation, then launch **v_ase** from Start. |
+| [Mac, Apple silicon](https://github.com/lgyEthan/v_ase/releases/download/v0.4.3/v_ase-0.4.3-mac-arm64.dmg) | macOS 15+: open the DMG, drag **v_ase** to **Applications**, eject the disk image, then launch the Applications copy. |
+| [Mac, Intel](https://github.com/lgyEthan/v_ase/releases/download/v0.4.3/v_ase-0.4.3-mac-x64.dmg) | Same steps; choose Intel when **About This Mac** shows an Intel processor. |
+| [Windows, Intel/AMD x64](https://github.com/lgyEthan/v_ase/releases/download/v0.4.3/v_ase-0.4.3-win-x64.exe) | Windows 10/11, 64-bit: run the EXE installer, complete installation, then launch **v_ase** from Start. |
 
 The Mac downloads are **Developer ID signed and Apple-notarized**, with
 stapled tickets for the app and DMG. macOS may show its normal first-open
@@ -99,6 +101,19 @@ selection; click one and drag in the viewport, or enter an axis and value.
 Apply/Enter confirms, Cancel/Escape restores the original, and switching tools
 cancels a provisional transform. Keyboard G/R/S retains its modal workflow.
 Saved per-atom colorscales are applied before a reopened project is ready to render.
+Atom appearance uses compact per-label rows with horizontal scrolling, distinct
+scope headings, and explicit property/range/target controls. Scrollable tables
+keep their headers flush with the top border, including Relaxation cutoffs. **Fixed atom
+selection** captures colorscale targets until you choose **Use current selection**;
+selection changes never redirect the mapping. Trajectory coordinates, colors and
+radii are presented together. **Show output frame** draws a crop guide over the
+editable canvas. Video supports inclusive source-frame ranges and animated GIF
+with **Loop forever** or **Play once**, alongside MOV/AVI.
+Desktop project and structure files have paper-shaped document icons bearing
+the castle; the application keeps its full castle icon. Only `.vase` is registered
+as the native default type. Structure formats including `.extxyz`, `.xyz`, `.vasp`
+and `.cif` appear under **Open with** without changing their existing defaults.
+An empty workspace opens its first file without replacement/append choices.
 The right panel overlays the scene without shifting the camera and expands up
 to 900 px when the window permits. Bonds opens editable pair specifications by
 default; **Reset to suggested cutoffs** restores radius-derived suggestions.

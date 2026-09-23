@@ -187,8 +187,9 @@ await ai.apply({
 Set `followViewport:true` while composing, or provide an explicit
 `renderArea.camera` with `position`, `target`, `up`, `projection`, and the
 matching projection fields. `describe().renderArea` reports `enabled`,
-`followViewport`, camera, width, and height. The GUI gray mask and pointer
-projection use that same camera; never infer the crop from a page screenshot.
+`followViewport`, camera, width, and height. The GUI draws a crop guide only when the editing and output cameras align.
+Picking always uses the editing viewport. Use View saved output camera to align
+them; never infer the crop from an unrelated page screenshot.
 
 Use `describe --profile render` before export. `effectiveRender.source` reports
 whether pixels will use an `explicit-request`, active `render-area`, retained
@@ -754,8 +755,8 @@ atom appearance immediately.
 Use `capabilities().atomColorScale.rangeUrl` to inspect a current-frame or
 full-trajectory range before applying it. A selected-only scan uses explicit
 `indices` when supplied; that fixed subset survives later GUI selection
-changes and project save/reopen. Without `indices`, it follows the current
-selection on every frame and fails if that selection contains no finite value. `gamma` is a
+changes and project save/reopen. Without `indices`, it snapshots the current
+selection once; an empty target list maps no atoms. `gamma` is a
 contrast transform in the valid range `0.1..5.0`; `1.0` is unchanged. Once a
 range is resolved, viewport playback and image, video, HTML, and geometry
 exports use that same range. Do not refit each frame during playback.
@@ -1567,7 +1568,7 @@ Supported formats:
 | Format | Output |
 | --- | --- |
 | `image` | PNG/JPEG/PDF/WebP, using render fields plus `imageFormat` |
-| `video` | MOV/H.264 or AVI/MPEG-4 |
+| `video` | MOV/H.264, AVI/MPEG-4 or animated GIF |
 | `poscar` | current structure |
 | `pickle` | ASE state and valid SinglePointCalculator |
 | `blender` | optimized Blender Python scene |
@@ -1712,3 +1713,19 @@ captureMode="indexed-png". Decode the file to check these values and both
 trajectory endpoints. Do not accept an HTTP success response as frame-count
 proof. A missing, duplicate, wrong-sized or out-of-order raster fails the
 sequence. The original displayed frame is restored when export ends.
+
+## Fixed colorscale targets and ranged animation exports
+
+`set-atom-colorscale` with `scope:"selected"` always freezes base-atom indices.
+Explicit `indices` select those targets; omission snapshots the current GUI
+selection once. An empty target list maps no atoms. Reissue the operation to
+retarget it. Delete/duplicate/repeat provenance updates targets; later clicks
+and trajectory frames do not change them. Older saved selected scopes with an
+empty list require explicit reapplication rather than live selection binding.
+
+`video` accepts `container:"gif"`, inclusive zero-based `startFrame`/`endFrame`
+(default whole trajectory), and boolean `loop` (true forever, false once).
+Returned metadata includes the range, `sourceFrameCount`, `frameCount` and loop.
+Continuous colorscale and radius scalars interpolate before mapping; categorical
+scalars use nearest endpoints. GIF timing rounds to centiseconds. MOV/AVI retain
+constant requested FPS. Output pixels are independent of display DPI and resize.

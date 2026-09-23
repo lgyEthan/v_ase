@@ -158,3 +158,27 @@ def test_indexed_video_rejects_incomplete_sequence_and_cleans_abort(tmp_path):
     encoder.abort()
     assert not path.exists()
     assert encoder.process.poll() is not None
+
+
+@pytest.mark.parametrize('loop', [True, False])
+def test_indexed_gif_has_exact_frames_and_explicit_repeat_mode(loop):
+    import io
+    from PIL import Image
+    from v_ase.video_frames import VideoFrameEncoder
+    encoder = VideoFrameEncoder(128, 96, 10, 3, 'gif', loop=loop)
+    try:
+        for index, color in enumerate(['red', 'green', 'blue']):
+            data = io.BytesIO()
+            Image.new('RGB', (128, 96), color).save(data, format='PNG')
+            encoder.append(index, data.getvalue())
+        path, filename, mime = encoder.finish()
+        assert filename.endswith('.gif') and mime == 'image/gif'
+        with Image.open(path) as result:
+            assert result.size == (128, 96)
+            assert result.n_frames == 3
+            assert result.info.get('loop') == (0 if loop else None)
+            for index in range(3):
+                result.seek(index)
+                assert result.info['duration'] == 100
+    finally:
+        encoder.abort()

@@ -3071,7 +3071,8 @@ def test_empty_workspace_opens_a_complete_trajectory_from_the_browser(tmp_path):
                 page.click('#btn-empty-open')
             chooser_info.value.set_files(str(source))
             assert page.locator('#open-file-name').inner_text() == source.name
-            assert page.locator('.open-file-modes').is_visible()
+            assert page.locator('.open-file-modes').is_hidden()
+            assert page.locator('#open-file-confirm').inner_text() == 'Open'
             assert page.locator('[name="open-file-mode"][value="replace"]').is_checked()
             assert page.locator('input[name="open-runtime-mode"][value="edit"]').is_checked()
             page.locator('input[name="open-runtime-mode"][value="view"]').check()
@@ -5634,7 +5635,8 @@ def test_export_preview_is_screen_fixed_and_matches_the_png_render():
             assert initial["frameAspect"] == pytest.approx(2.0, abs=0.004)
             assert initial["output"] == [1600, 800]
             assert initial["frame"][1] >= initial["safeBounds"][0]
-            assert initial["frame"][0] + initial["frame"][2] <= initial["safeBounds"][1]
+            # The guide is centered on the canvas, even behind a floating panel.
+            assert initial["frame"][0] + initial["frame"][2] > initial["safeBounds"][1]
             assert initial["frame"][1] + initial["frame"][3] <= initial["safeBounds"][2]
             assert initial["previewProjection"] == pytest.approx(initial["directProjection"])
             assert initial["render"] == [1600, 800]
@@ -5819,84 +5821,23 @@ def test_export_preview_is_screen_fixed_and_matches_the_png_render():
             assert physical["span"] == pytest.approx([20.0, 10.0])
             assert physical["projection"] == pytest.approx(physical["directProjection"])
 
-            # Use the actual CSS frame dimensions as output pixels, then compare
-            # the rendered inset and PNG. Both must share camera and scene state.
-            frame_width = round(zoomed["frame"][2])
-            frame_height = round(zoomed["frame"][3])
-            page.fill('#image-width', str(frame_width))
-            page.fill('#image-height', str(frame_height))
-            page.wait_for_function(
-                "([w, h]) => window.__ASE_APP__.renderer.lastExportPreview?.outputSize?.[0] === w && "
-                "window.__ASE_APP__.renderer.lastExportPreview?.outputSize?.[1] === h",
-                arg=[frame_width, frame_height],
-            )
-            comparison = page.evaluate("""async () => {
-                const app = window.__ASE_APP__;
-                app.state.display.showGrid = false;
-                app.state.display.showAxes = false;
-                app.renderer.setDisplayOptions(app.state.display, { rebuild: false });
-                app.syncImageExportPreview();
-                app.renderer.renderNow();
-
-                const renderer = app.renderer;
-                const rect = renderer.lastExportPreview.frameRect;
-                const width = renderer.lastExportPreview.outputSize[0];
-                const height = renderer.lastExportPreview.outputSize[1];
-                const sourceUrl = renderer.domElement.toDataURL('image/png');
-                const loadImage = url => new Promise((resolve, reject) => {
-                    const image = new Image();
-                    image.onload = () => resolve(image);
-                    image.onerror = reject;
-                    image.src = url;
+            # The canvas remains the editor, while its guide projects the
+            # identical output camera. Overlay/lighting choices affect export only.
+            alignment = page.evaluate("""() => {
+                const a=window.__ASE_APP__,r=a.renderer;
+                a.syncImageExportPreview();r.renderNow();
+                const view=r.exportCameraSetup(1600,800,a.imagePreviewOptions());
+                const rect=r.lastExportPreview.frameRect;
+                const box=r.domElement.getBoundingClientRect();
+                return [...r.atomMeshByIndex.values()].map(mesh=>{
+                    const normal=r.projectWorldToClient(mesh.position);
+                    const out=mesh.position.clone().project(view.camera);
+                    return [normal.x-box.left-(rect.left+(out.x+1)*rect.width/2),
+                        normal.y-box.top-(rect.top+(1-out.y)*rect.height/2)];
                 });
-                const source = await loadImage(sourceUrl);
-                const ratioX = source.naturalWidth / renderer.domElement.clientWidth;
-                const ratioY = source.naturalHeight / renderer.domElement.clientHeight;
-                const previewCanvas = document.createElement('canvas');
-                previewCanvas.width = width;
-                previewCanvas.height = height;
-                const previewContext = previewCanvas.getContext('2d', { willReadFrequently: true });
-                previewContext.drawImage(
-                    source,
-                    rect.left * ratioX,
-                    rect.top * ratioY,
-                    rect.width * ratioX,
-                    rect.height * ratioY,
-                    0,
-                    0,
-                    width,
-                    height
-                );
-
-                const options = app.imagePreviewOptions();
-                const exportedUrl = renderer.exportPNG(width, height, options);
-                const exported = await loadImage(exportedUrl);
-                const exportCanvas = document.createElement('canvas');
-                exportCanvas.width = width;
-                exportCanvas.height = height;
-                const exportContext = exportCanvas.getContext('2d', { willReadFrequently: true });
-                exportContext.drawImage(exported, 0, 0);
-                const previewPixels = previewContext.getImageData(0, 0, width, height).data;
-                const exportPixels = exportContext.getImageData(0, 0, width, height).data;
-                let total = 0;
-                let maximum = 0;
-                for (let index = 0; index < previewPixels.length; index += 1) {
-                    const difference = Math.abs(previewPixels[index] - exportPixels[index]);
-                    total += difference;
-                    maximum = Math.max(maximum, difference);
-                }
-                return {
-                    meanAbsoluteDifference: total / previewPixels.length,
-                    maximumDifference: maximum,
-                    size: [width, height],
-                    frame: [rect.left, rect.top, rect.width, rect.height],
-                    outputAspect: width / height,
-                    frameAspect: rect.width / rect.height
-                };
             }""")
-            assert comparison["size"] == [frame_width, frame_height]
-            assert comparison["frameAspect"] == pytest.approx(comparison["outputAspect"], abs=0.004)
-            assert comparison["meanAbsoluteDifference"] < 1.0
+            for delta in alignment:
+                assert delta == pytest.approx([0, 0], abs=0.01)
 
             # The preview uses the existing demand renderer and must not create
             # a hidden animation loop while the scene is idle.
@@ -5994,7 +5935,8 @@ def test_render_area_keeps_an_independent_camera_and_maps_selection_to_its_gate(
                     ).kind,
                 };
             }""")
-            assert configured["context"] == "render-area"
+            assert configured["context"] == "viewport"
+            assert page.locator("#export-preview-frame").is_hidden()
             assert configured["preview"] == configured["saved"]
             assert configured["current"]["position"] != pytest.approx(
                 configured["saved"]["position"], abs=1e-8
@@ -6004,6 +5946,11 @@ def test_render_area_keeps_an_independent_camera_and_maps_selection_to_its_gate(
             assert left <= pointer_x <= left + width
             assert top <= pointer_y <= top + height
 
+            page.click('#btn-render-area-from-view')
+            page.evaluate("window.__ASE_APP__.setInspectorCollapsed(true)")
+            point = page.evaluate("""() => {const r=window.__ASE_APP__.renderer;
+                const p=r.projectWorldToClient(r.atomMeshByIndex.get(0).position);return [p.x,p.y];}""")
+            pointer_x, pointer_y = point
             page.mouse.click(pointer_x, pointer_y)
             page.wait_for_function("JSON.stringify([...window.__ASE_APP__.state.selected]) === '[0]'")
 
@@ -6443,35 +6390,11 @@ def test_image_export_modal_is_the_authoritative_retina_preview(tmp_path):
                 contract["preview"]["cameraQuaternion"]
             )
 
-            preview_url = page.evaluate("""async () => {
-                const renderer = window.__ASE_APP__.renderer;
-                renderer.renderNow();
-                const rect = renderer.lastExportPreview.frameRect;
-                const sourceUrl = renderer.domElement.toDataURL('image/png');
-                const source = await new Promise((resolve, reject) => {
-                    const image = new Image();
-                    image.onload = () => resolve(image);
-                    image.onerror = reject;
-                    image.src = sourceUrl;
-                });
-                const ratioX = source.naturalWidth / renderer.domElement.clientWidth;
-                const ratioY = source.naturalHeight / renderer.domElement.clientHeight;
-                const canvas = document.createElement('canvas');
-                canvas.width = 640;
-                canvas.height = 640;
-                const context = canvas.getContext('2d');
-                context.drawImage(
-                    source,
-                    rect.left * ratioX,
-                    rect.top * ratioY,
-                    rect.width * ratioX,
-                    rect.height * ratioY,
-                    0,
-                    0,
-                    640,
-                    640
-                );
-                return canvas.toDataURL('image/png');
+            # A guide does not change viewport lighting. Compare the actual
+            # download with a direct output capture using the committed profile.
+            preview_url = page.evaluate("""() => {
+                const a=window.__ASE_APP__;
+                return a.renderer.exportPNG(640,640,a.currentImageExportProfile().options);
             }""")
             preview_bytes = base64.b64decode(preview_url.split(',', 1)[1])
             preview = Image.open(io.BytesIO(preview_bytes)).convert('RGBA')
@@ -8290,13 +8213,14 @@ def test_label_opacity_updates_instanced_atoms_supercell_2d_and_visual_history()
             _expand_inspector(page)
             _select_structure_section(page, "appearance")
             page.evaluate("window.__ASE_APP__.resetHistoryTimeline()")
-            # Type properties are complete forms, with no horizontal scrolling.
+            # Per-label properties stay in one row, with intentional horizontal scrolling.
             for width in (352, 520, 760):
                 page.evaluate("width => window.__ASE_APP__.setInspectorWidth(width)", width)
                 metrics = page.locator("#appearance-table").evaluate(
                     "element => ({ client: element.clientWidth, scroll: element.scrollWidth })"
                 )
-                assert metrics["scroll"] <= metrics["client"] + 1
+                assert metrics["scroll"] >= metrics["client"]
+                assert page.locator("#appearance-table-body .appearance-row").first.bounding_box()["height"] <= 42
                 for selector in ('.atom-label-input', '.chemical-type-select', '.label-opacity-input'):
                     assert page.locator(f'{selector}[data-atom-label="C_faded"]').is_visible()
 

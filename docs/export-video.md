@@ -2,7 +2,7 @@
 
 Export a trajectory using the same camera, crop and resolution as image
 rendering. Open **Render → Video** with a multi-frame document. The route shows
-container, FPS, interpolation and MIC controls with a live output-frame and
+container, first/last source frame, FPS, interpolation, GIF repeat and MIC controls with a live output-frame and
 duration estimate; the Export dialog previews the complete render options.
 
 ## Example: export the C60 relaxation
@@ -14,7 +14,7 @@ Download {download}`crowded_c60_relaxation.traj <assets/examples/crowded_c60_rel
    and frame rate on **Video**.
 3. Choose source frames for a direct record, or interpolation for a smooth
    visual transition. Interpolation does not add calculated physical data.
-4. Export MOV or AVI and inspect both the first and last output frames.
+4. Export MOV, AVI or animated GIF and inspect both the first and last output frames.
 5. Check duration and crop; overlay state should follow the exported frame.
 
 The Video dialog can use the viewport-derived frame scale or an independent
@@ -34,7 +34,7 @@ The source relaxation sequence; a GIF preview is not the exported MOV/AVI.
 
 ## Video output
 
-Trajectory video supports H.264 MOV and MPEG-4 AVI at a constant requested
+Trajectory video supports H.264 MOV, MPEG-4 AVI and animated GIF at a constant requested
 frame rate. The browser captures each rendered frame, then the bundled
 imageio-ffmpeg runtime transcodes the final portable file.
 
@@ -48,7 +48,7 @@ for each output frame rather than copied from one source frame.
 
 ## Deterministic video frames
 
-MOV and AVI exports encode one indexed raster per source or interpolated frame.
+MOV, AVI and GIF exports encode one indexed raster per source or interpolated frame.
 Frame timestamps come from the chosen FPS, not the time taken to render. With
 N source frames and interpolation factor k, the output contains (N−1)k+1 frames,
 including both endpoints. Native dimensions must be even integers in 64..8192;
@@ -60,3 +60,21 @@ only one raster needs to be staged at a time. Video is opaque.
 The original GUI frame is restored after export. Semantic edits and another
 capture wait until the video is complete. Closing the page aborts its encoder;
 failed sequences do not return a partial movie as a successful export.
+
+## Frame range and GIF repeat
+
+**First source frame** and **Last source frame** are inclusive, starting at 1 in
+the GUI. For example, 11 through 20 exports ten source frames; at interpolation
+2 it produces 19 output frames. The whole trajectory is the initial default.
+The original displayed frame is restored after either success or failure.
+
+Choose **Animated GIF**, then **Loop forever** or **Play once**. GIF uses a
+per-frame palette and dithering, with duration rounded to its centisecond timing
+resolution. For exact FPS metadata use MOV or AVI. GIF is opaque, like the movie
+formats. Property colors and radii are interpolated from raw continuous values;
+categorical tags/flags use the nearest endpoint.
+
+MCP `vase_export_video` accepts `container:"gif"`, inclusive **zero-based**
+`startFrame`/`endFrame`, and boolean `loop`. For the GUI 11–20 example, send
+`startFrame:10,endFrame:19`. Results report range, source/output frame counts
+and repeat mode. Screen DPI and viewport resizing do not change output pixels.

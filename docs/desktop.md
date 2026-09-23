@@ -6,15 +6,15 @@ provide document shortcuts without browser conflicts or fullscreen mode.
 
 ## Choose a download
 
-Open the [v0.4.2 GitHub release](https://github.com/lgyEthan/v_ase/releases/tag/v0.4.2)
+Open the [v0.4.3 GitHub release](https://github.com/lgyEthan/v_ase/releases/tag/v0.4.3)
 and expand **Assets**, or use a direct installer link below. GitHub's **Source
 code** archives and the Python `.whl`/`.tar.gz` files are not desktop installers.
 
 | Computer | Requirement | Installer |
 | --- | --- | --- |
-| Apple silicon Mac (M-series) | macOS 15 or newer | [Download Apple silicon DMG](https://github.com/lgyEthan/v_ase/releases/download/v0.4.2/v_ase-0.4.2-mac-arm64.dmg) |
-| Intel Mac | macOS 15 or newer | [Download Intel DMG](https://github.com/lgyEthan/v_ase/releases/download/v0.4.2/v_ase-0.4.2-mac-x64.dmg) |
-| Windows PC, Intel/AMD x64 | Windows 10 or 11, 64-bit | [Download Windows EXE](https://github.com/lgyEthan/v_ase/releases/download/v0.4.2/v_ase-0.4.2-win-x64.exe) |
+| Apple silicon Mac (M-series) | macOS 15 or newer | [Download Apple silicon DMG](https://github.com/lgyEthan/v_ase/releases/download/v0.4.3/v_ase-0.4.3-mac-arm64.dmg) |
+| Intel Mac | macOS 15 or newer | [Download Intel DMG](https://github.com/lgyEthan/v_ase/releases/download/v0.4.3/v_ase-0.4.3-mac-x64.dmg) |
+| Windows PC, Intel/AMD x64 | Windows 10 or 11, 64-bit | [Download Windows EXE](https://github.com/lgyEthan/v_ase/releases/download/v0.4.3/v_ase-0.4.3-win-x64.exe) |
 
 On a Mac, **Apple menu → About This Mac** shows either an Apple **Chip** or an
 Intel **Processor**. On Windows, **Settings → System → About → System type**
@@ -55,7 +55,7 @@ the final downloads. No Apple developer account is needed to install the app.
 
 ## Install on Windows
 
-1. Download **v_ase-0.4.2-win-x64.exe** and open it from File Explorer.
+1. Download **v_ase-0.4.3-win-x64.exe** and open it from File Explorer.
 2. The current build is **not publisher-signed**. If SmartScreen displays
    **Windows protected your PC**, verify the source and checksum, then use
    **More info → Run anyway** if offered. Do not disable SmartScreen or
@@ -83,17 +83,17 @@ The Windows ZIP does not run the installer or register file associations;
 choose the executable manually when configuring **Open with**. Moving it
 later invalidates that saved association.
 
-Download [desktop-SHA256SUMS.txt](https://github.com/lgyEthan/v_ase/releases/download/v0.4.2/desktop-SHA256SUMS.txt)
+Download [desktop-SHA256SUMS.txt](https://github.com/lgyEthan/v_ase/releases/download/v0.4.3/desktop-SHA256SUMS.txt)
 from the same release. In the download directory, compute the relevant hash:
 
 ```sh
 # macOS Terminal; substitute mac-x64 for an Intel download.
-shasum -a 256 v_ase-0.4.2-mac-arm64.dmg
+shasum -a 256 v_ase-0.4.3-mac-arm64.dmg
 ```
 
 ```powershell
 # Windows PowerShell.
-Get-FileHash .\v_ase-0.4.2-win-x64.exe -Algorithm SHA256
+Get-FileHash .\v_ase-0.4.3-win-x64.exe -Algorithm SHA256
 ```
 
 Compare it with the line for that exact filename in the checksum file.
@@ -138,20 +138,28 @@ for `.vase`; Windows 10 exposes **Choose default apps by file type**. See
 
 Double-clicking a file hands it to the existing v_ase window, or starts the app
 if needed. It opens the usual **Open File** dialog: choose **View** or **Edit**,
-then **Replace**, or **Open in new tab → Open New Tab** when another document
+then **Open** in an empty workspace. In a populated document choose **Replace**, or **Open in new tab → Open New Tab** when another document
 is present. It is not a silent replacement of unsaved work. **Replace** and
 **Open in new tab** restore a project's appearance; **Add to trajectory**
 imports its structures only.
 
 ## Open .vasp and other structure files
 
-**This is already supported; a future version is not required.** Repeat the
-association steps above using a `.vasp` file. Unlike `.vase`, `.vasp` is not
-predeclared by the installer, so you may need to browse to v_ase manually.
-You can choose it just once or make it the default for `.vasp`. The same method
-works for other [supported formats](formats.md), such as `.xyz` and `.cif`.
-An OS association only selects the application; it does not add a new reader
-or turn an unsupported file into a supported structure.
+The Mac app and Windows installer register readable structure extensions as
+**Open with** candidates: `.extxyz`, `.xyz`, `.vasp`, `.cif`, `.traj`, `.pdb`,
+`.cube`, `.xsf`, LAMMPS and the remaining ASE reader extensions, plus v_ase HTML.
+Only `.vase` is declared as the native default project type. Existing defaults
+for other formats are preserved; choose **Always**/**Change All** yourself if
+you want a different default. Generic `.html`, `.xml`, `.json` and similar
+extensions still need contents that an installed structure/project reader supports.
+The portable Windows ZIP cannot register associations; use the installer or
+browse to its executable manually.
+
+The application has the full castle icon. `.vase` documents use a paper icon
+with the castle and a teal **VASE** footer; structure documents use an **ATOM**
+footer when v_ase supplies their icon. Other applications' default icons remain
+their own. Finder/Explorer may cache icons until a folder refresh or relaunch.
+
 
 For `.vasp`, **Auto detect** normally selects the VASP reader. If the name is
 ambiguous, select **Reader → POSCAR / CONTCAR** in the Open File dialog.

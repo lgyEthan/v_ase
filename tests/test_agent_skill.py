@@ -639,6 +639,9 @@ def test_agent_endpoints_serve_the_canonical_skill_and_schema():
         )
 
     colorscale_schema = operation_schema("set-atom-colorscale")
+    color_notes = schema["operation_parameters"]["set-atom-colorscale"]["notes"]
+    assert "freez" in color_notes.lower()
+    assert "follows the live GUI selection" not in color_notes
     assert "indices" in schema["operation_parameters"]["set-atom-colorscale"][
         "optional"
     ]

@@ -228,19 +228,17 @@ body.editor-shell #inspector .atom-colorscale-title-row input[type="checkbox"] {
     .workbench-tools { padding-inline: 13px; }
 }
 
-/* Type rows are readable forms, not an eight-column table in a narrow panel. */
-body.editor-shell #appearance-table { overflow: visible; padding: 0; border: 0; background: transparent; }
-body.editor-shell #appearance-table .appearance-row { display: flex; flex-direction: column; align-items: stretch; min-width: 0; width: 100%; gap: 8px; padding: 12px 0; border-bottom: 1px solid var(--line); background: transparent; }
-body.editor-shell #appearance-table .appearance-row > :first-child { padding: 0; width: auto; min-width: 0; position: static; border: 0; background: transparent; }
-.atom-type-header { display: grid; grid-template-columns: 28px minmax(0,1fr) max-content; align-items: center; gap: 8px; }
-body.editor-shell #appearance-table .atom-type-header input[type="color"] { height: 28px; width: 28px; padding: 2px; border-radius: 50%; }
-body.editor-shell #appearance-table .atom-label-input { width: 100%; min-width: 0; height: 30px; }
+/* Label overrides are a data table: one compact row, never stacked forms. */
+body.editor-shell #appearance-table { overflow-x: auto; padding: 0; border: 1px solid var(--line-strong); border-radius: 4px; background: var(--panel); }
+body.editor-shell #appearance-table .appearance-row { min-height: 39px; display: grid; grid-template-columns: 90px 42px 40px 44px 70px 80px 68px 102px 48px; align-items: center; min-width: 700px; width: max-content; gap: 6px; padding: 5px 8px; border-bottom: 1px solid var(--line); }
+body.editor-shell #appearance-table .appearance-row > div { min-width: 0; display: flex; justify-content: center; align-items: center; }
+body.editor-shell #appearance-table .appearance-row > :first-child { position: sticky; left: 0; padding: 0; width: 90px; background: var(--panel); z-index: 1; }
+body.editor-shell #appearance-table .appearance-table-head { min-height: 32px; background: var(--panel-raised); font: 600 11px/1.3 var(--font-ui); color: var(--muted); }
+body.editor-shell #appearance-table .appearance-table-head > :first-child { background: var(--panel-raised); }
+body.editor-shell #appearance-table :is(input:not([type=checkbox]),select) { width: 100%; min-width: 0; height: 28px; min-height: 28px; padding: 3px 5px; font-size: 12px; }
+body.editor-shell #appearance-table input[type=color] { width: 28px; padding: 2px; border-radius: 4px; }
+body.editor-shell #appearance-table input[type=checkbox] { margin: 0; }
 .atom-type-count { color: var(--muted); font: 11px var(--font-mono); }
-.atom-type-visibility { display: flex; justify-content: space-between; gap: 14px; }
-.atom-type-toggle { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--muted); }
-.atom-type-fields { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 8px 12px; }
-.atom-type-fields label { display: grid; min-width: 0; gap: 4px; font-size: 11px; color: var(--muted); }
-body.editor-shell #appearance-table .atom-type-fields :is(input,select) { width: 100%; min-width: 0; max-width: 100%; text-align: left; padding-inline: 7px; }
 body.editor-shell #inspector .atom-radius-mapping-card, body.editor-shell #inspector .atom-colorscale-card { margin: 10px 0; padding-block: 10px; }
 body.editor-shell #inspector .atom-colorscale-title-row strong { font-size: 12px; }
 body.editor-shell #inspector .atom-colorscale-title-row span { font-size: 11px; line-height: 1.4; }
@@ -378,3 +376,33 @@ body.editor-shell .viewport-tools button:disabled:hover { background: transparen
 .viewport-transform-context span { color: var(--muted); }
 .viewport-transform-context button { display: grid; place-items: center; width: 27px; height: 27px; padding: 0; border: 0; background: var(--panel-raised); color: var(--text); border-radius: 3px; }
 body.editor-shell #inspector #btn-bond-reset-specifications { min-width: 0; width: calc(100% - 16px); }
+
+/* Consistent hierarchy: route title, bounded section, then individual fields. */
+body.editor-shell #inspector .settings-group { margin: 0 0 14px; padding: 0 0 12px; border-bottom: 0; }
+body.editor-shell #inspector :is(.settings-group > .appearance-section-heading, .panel-subhead) { color: var(--text); font: 600 13px/1.4 var(--font-ui); margin: 0 0 10px; padding: 10px 0 7px; border-bottom: 1px solid var(--line); }
+body.editor-shell #inspector :is(.export-group, .cell-matrix-editor, .constraint-settings) { margin-block: 12px; padding-block: 10px; border-top: 1px solid var(--line-strong); }
+/* Scroll tables own their header; section spacing belongs outside the border. */
+body.editor-shell #inspector :is(.repulsion-pair-panel, .pairwise-bond-panel, #appearance-table) { padding: 0; isolation: isolate; }
+body.editor-shell #inspector :is(.pairwise-bond-panel, #appearance-table) { max-height: min(44vh, 360px); overflow: auto; }
+body.editor-shell #inspector :is(.repulsion-pair-panel, .pairwise-bond-panel) > .mini-table-head,
+body.editor-shell #appearance-table > .appearance-table-head { position: sticky; top: 0; z-index: 5; margin: 0; background: var(--panel-raised); }
+body.editor-shell #inspector :is(.repulsion-pair-panel, .pairwise-bond-panel) > .mini-table-head > :first-child { text-align: center; }
+body.editor-shell #inspector :is(.atom-colorscale-card, .atom-radius-mapping-card) { padding: 12px; border: 1px solid var(--line-strong); border-radius: 4px; background: var(--panel-raised); margin-block: 12px; }
+body.editor-shell #inspector :is(.atom-colorscale-title-row, .selected-appearance-head) { border-bottom: 1px solid var(--line); padding-bottom: 10px; margin-bottom: 10px; }
+body.editor-shell #inspector .mapping-subhead { font-size: 12px; font-weight: 600; padding-top: 14px; margin-top: 10px; border-top: 1px solid var(--line); }
+body.editor-shell #inspector .atom-colorscale-grid { grid-template-columns: minmax(0,1fr); gap: 12px; }
+body.editor-shell #inspector .atom-radius-scope-status { display: grid; gap: 6px; font-size: 11px; color: var(--muted); line-height: 1.5; }
+body.editor-shell #inspector .atom-radius-scope-status button { justify-self: start; padding: 5px 8px; }
+body.editor-shell #inspector .video-source-range { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10px; margin: 12px 0; }
+body.editor-shell #inspector .video-source-range label { display: grid; gap: 5px; font-size: 12px; }
+body.editor-shell #inspector .video-source-range input { width: 100%; }
+body.editor-shell #inspector .render-area-options { display: grid; grid-template-columns: minmax(0,1fr); gap: 8px; margin-top: 10px; }
+body.editor-shell #inspector .render-area-options .check-row { margin: 0; }
+body.editor-shell #inspector .render-area-options button { width: 100%; min-width: 0; white-space: normal; padding: 7px 10px; }
+body.editor-shell #inspector [hidden], .open-file-modes[hidden] { display: none !important; }
+
+body.editor-shell .export-preview-frame { border-color: var(--teal); box-shadow: 0 0 0 9999px rgb(0 0 0 / 18%); }
+body.editor-shell .export-preview-caption { top: auto; bottom: 8px; left: 58px; max-width: calc(100% - 116px); box-shadow: none; }
+body.editor-shell #inspector .atom-colorscale-range-actions button { white-space: normal; text-overflow: clip; overflow: visible; padding: 6px 8px; line-height: 1.35; }
+body.editor-shell #inspector .prop-row > input[type=color] { flex: 0 0 42px; width: 42px; height: 30px; padding: 3px; }
+body.editor-shell #inspector .settings-group > .appearance-section-heading { background: var(--panel-raised); margin: 0 -5px 10px; padding: 8px 5px; border-block: 1px solid var(--line); }

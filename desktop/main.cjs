@@ -135,7 +135,7 @@ function registerIPC() {
         authorized(event);
         const target = BrowserWindow.fromWebContents(event.sender);
         const result = await dialog.showOpenDialog(target, { title: 'Open structure or project', properties: ['openFile'],
-            filters: [{ name: 'Structures and projects', extensions: ['vase', 'html', 'htm', 'traj', 'xyz', 'extxyz', 'cif', 'vasp', 'pdb', 'cube', 'xsf', 'xml', 'lammpstrj', 'data'] },
+            filters: [{ name: 'Structures and projects', extensions: ['vase', ...require('./file-formats.json').structureExtensions] },
                       { name: 'All files', extensions: ['*'] }] });
         return result.canceled ? null : describeOpenFile(result.filePaths[0], target);
     });

@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <path d="M222 56h414l196 196v652a64 64 0 0 1-64 64H222a64 64 0 0 1-64-64V120a64 64 0 0 1 64-64Z" fill="#f8fafb" stroke="#b8c3ca" stroke-width="14" stroke-linejoin="round"/>
+  <path d="M636 56v142a54 54 0 0 0 54 54h142" fill="#dce5ea" stroke="#b8c3ca" stroke-width="14" stroke-linejoin="round"/>
+  <image x="195" y="258" width="595" height="530" xlink:href="icon.png" preserveAspectRatio="xMidYMid meet"/>
+  <path d="M165 816h660v88a57 57 0 0 1-57 57H222a57 57 0 0 1-57-57Z" fill="#176b6b"/>
+  <text x="495" y="915" fill="white" text-anchor="middle" font-family="Arial, sans-serif" font-size="82" font-weight="700" letter-spacing="12">VASE</text>
+</svg>

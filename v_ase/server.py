@@ -5781,7 +5781,8 @@ if FASTAPI_AVAILABLE:
             try:
                 encoder = VideoFrameEncoder(payload.get("width"), payload.get("height"),
                                             payload.get("fps", 12), payload.get("frames"),
-                                            str(payload.get("format") or "mov"))
+                                            str(payload.get("format") or "mov"),
+                                            loop=payload.get("loop", True))
             except (TypeError, ValueError) as exc:
                 raise HTTPException(status_code=400, detail=str(exc)) from exc
             export_id = str(uuid.uuid4())

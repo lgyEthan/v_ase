@@ -2830,6 +2830,10 @@ export class ASERenderer {
     }
 
     updateRenderQuality() {
+        if (this.exportCaptureActive || this.frameUpdateDepth) {
+            this.exportCaptureQualityPending = true;
+            return;
+        }
         const pixelsPerAngstrom = this.camera && this.controls
             ? this.currentPixelsPerAngstrom()
             : null;
@@ -3063,15 +3067,9 @@ export class ASERenderer {
                 camera.bottom = -worldHeight / 2;
             } else if (camera.isPerspectiveCamera) {
                 camera.aspect = outputAspect;
-                const effectiveFov = camera.getEffectiveFOV?.() || camera.fov || 50;
-                const halfAngle = THREE.MathUtils.degToRad(effectiveFov) / 2;
-                const distance = worldHeight / Math.max(2 * Math.tan(halfAngle), 1e-6);
-                const offset = new THREE.Vector3().subVectors(camera.position, target);
-                if (offset.lengthSq() < 1e-12) {
-                    camera.getWorldDirection(offset).multiplyScalar(-1);
-                }
-                camera.position.copy(target).addScaledVector(offset.normalize(), distance);
-                camera.lookAt(target);
+                const distance = Math.max(1e-6, camera.position.distanceTo(target));
+                const baseHeight = 2 * distance * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2);
+                camera.zoom = baseHeight / worldHeight;
             }
         } else {
             if (camera.isPerspectiveCamera) {
@@ -3158,53 +3156,16 @@ export class ASERenderer {
         if (previousSignature !== nextSignature) this.requestRender();
     }
 
-    exportPreviewRect(width, height) {
-        const canvasRect = this.domElement.getBoundingClientRect();
-        const canvasWidth = Math.max(1, this.domElement.clientWidth || canvasRect.width || window.innerWidth || 1);
-        const canvasHeight = Math.max(1, this.domElement.clientHeight || canvasRect.height || window.innerHeight || 1);
-        const outputAspect = Math.max(0.01, Number(width) / Math.max(1, Number(height)));
-        const compact = canvasWidth < 640 || canvasHeight < 560;
-        const edge = compact ? 12 : 24;
-
-        const topBar = document.getElementById('top-bar')?.getBoundingClientRect();
-        const topInset = topBar
-            ? Math.max(edge, topBar.bottom - canvasRect.top + (compact ? 10 : 18))
-            : edge;
-        const commandBar = document.getElementById('command-bar');
-        const commandRect = commandBar && getComputedStyle(commandBar).display !== 'none'
-            ? commandBar.getBoundingClientRect()
-            : null;
-        const bottomInset = commandRect && commandRect.height > 0
-            ? Math.max(edge, canvasRect.bottom - commandRect.top + (compact ? 8 : 16))
-            : edge;
-        const inspector = document.getElementById('inspector');
-        const inspectorRect = inspector && !document.body.classList.contains('inspector-collapsed')
-            ? inspector.getBoundingClientRect()
-            : null;
-        const rightInset = inspectorRect && inspectorRect.width > 1
-            ? Math.max(edge, canvasRect.right - inspectorRect.left + (compact ? 8 : 18))
-            : edge;
-
-        const availableWidth = Math.max(120, canvasWidth - edge - rightInset);
-        const availableHeight = Math.max(90, canvasHeight - topInset - bottomInset);
-        const maxWidth = Math.max(96, Math.min(1100, availableWidth * (compact ? 0.94 : 0.90)));
-        const maxHeight = Math.max(54, Math.min(720, availableHeight * (compact ? 0.94 : 0.88)));
-        let frameWidth = Math.floor(maxWidth);
-        let frameHeight = Math.max(1, Math.round(frameWidth / outputAspect));
-        if (frameHeight > maxHeight) {
-            frameHeight = Math.floor(maxHeight);
-            frameWidth = Math.max(1, Math.round(frameHeight * outputAspect));
-        }
-        const left = Math.round(edge + (availableWidth - frameWidth) / 2);
-        const top = Math.round(topInset + (availableHeight - frameHeight) / 2);
-        return {
-            left,
-            top,
-            width: frameWidth,
-            height: frameHeight,
-            canvasWidth,
-            canvasHeight
-        };
+    exportPreviewRect(width, height, exportView = this.exportCameraSetup(width, height, this.exportPreview?.options || {})) {
+        const { width: canvasWidth, height: canvasHeight } = this.containerSize();
+        // Project the output's field of view into the existing editor camera.
+        // No second scene, inspector-dependent repositioning or picking camera.
+        const view = this.camera.projectionMatrix.elements;
+        const output = exportView.camera.projectionMatrix.elements;
+        const frameWidth = canvasWidth * Math.abs(view[0] / output[0]);
+        const frameHeight = canvasHeight * Math.abs(view[5] / output[5]);
+        return { left: (canvasWidth - frameWidth) / 2, top: (canvasHeight - frameHeight) / 2,
+            width: frameWidth, height: frameHeight, canvasWidth, canvasHeight };
     }
 
     updateExportPreviewFrame(rect) {
@@ -3218,28 +3179,6 @@ export class ASERenderer {
 
     interactionProjectionContext(clientX, clientY) {
         const canvasRect = this.domElement.getBoundingClientRect();
-        const preview = this.lastExportPreview?.frameRect;
-        if (this.exportPreview?.enabled && preview && this.exportPreviewCamera) {
-            const rect = {
-                left: canvasRect.left + preview.left,
-                top: canvasRect.top + preview.top,
-                width: preview.width,
-                height: preview.height
-            };
-            rect.right = rect.left + rect.width;
-            rect.bottom = rect.top + rect.height;
-            if (
-                clientX >= rect.left && clientX <= rect.right
-                && clientY >= rect.top && clientY <= rect.bottom
-            ) {
-                return {
-                    camera: this.exportPreviewCamera,
-                    target: this.exportPreviewTarget,
-                    rect,
-                    kind: 'render-area'
-                };
-            }
-        }
         return {
             camera: this.camera,
             target: this.controls?.target,
@@ -3446,6 +3385,13 @@ export class ASERenderer {
     renderExportCaptureFrame(capture) {
         if (!capture || capture.ended) throw new Error('Export capture is not active.');
         const { exportView, sceneState } = capture;
+        // A frame can rebuild atoms (and request a viewport-quality change).
+        // Encoding always uses output pixels, independently of screen DPI.
+        const size = this.renderer.getDrawingBufferSize(new THREE.Vector2());
+        if (size.x !== exportView.outputWidth || size.y !== exportView.outputHeight) {
+            this.renderer.setPixelRatio(1);
+            this.renderer.setSize(exportView.outputWidth, exportView.outputHeight, false);
+        }
         this.renderer.setViewport(0, 0, exportView.outputWidth, exportView.outputHeight);
         this.renderer.setScissorTest(false);
         this.renderer.clear(true, true, true);
@@ -3491,6 +3437,10 @@ export class ASERenderer {
         this.syncSelectionOutlines();
         this.updateViewLighting();
         this.exportCaptureActive = false;
+        if (this.exportCaptureQualityPending) {
+            this.exportCaptureQualityPending = false;
+            this.updateRenderQuality();
+        }
         if (this.exportCaptureResizePending) {
             this.exportCaptureResizePending = false;
             this.onResize();
@@ -3501,68 +3451,28 @@ export class ASERenderer {
     renderExportPreview() {
         if (!this.exportPreview?.enabled || !this.exportPreviewFrame) return;
         const { width, height, options } = this.exportPreview;
-        const rect = this.exportPreviewRect(width, height);
-        this.updateExportPreviewFrame(rect);
         const exportView = this.exportCameraSetup(width, height, options);
+        const aligned = exportView.camera.position.distanceTo(this.camera.position) < 1e-5
+            && exportView.camera.quaternion.angleTo(this.camera.quaternion) < 1e-5;
+        this.exportPreviewFrame.classList.toggle('hidden', !aligned);
+        this.domElement.dataset.exportGuideAligned = String(aligned);
+        const rect = this.exportPreviewRect(width, height, exportView);
+        this.updateExportPreviewFrame(rect);
         this.exportPreviewCamera = exportView.camera;
         this.exportPreviewTarget = exportView.target;
-        const oldViewport = this.renderer.getViewport(new THREE.Vector4());
-        const oldScissor = this.renderer.getScissor(new THREE.Vector4());
-        const oldScissorTest = this.renderer.getScissorTest();
-        const sceneState = this.beginExportScene(options);
-
-        const frameX = Math.max(0, Math.round(rect.left));
-        const frameY = Math.max(0, Math.round(rect.canvasHeight - rect.top - rect.height));
-        const frameWidth = Math.max(1, Math.round(rect.width));
-        const frameHeight = Math.max(1, Math.round(rect.height));
-        const scaleX = frameWidth / exportView.outputWidth;
-        const scaleY = frameHeight / exportView.outputHeight;
-        const contentX = frameX + Math.round(exportView.offsetX * scaleX);
-        const contentY = frameY + Math.round(exportView.offsetY * scaleY);
-        const contentWidth = Math.max(1, Math.round(exportView.renderWidth * scaleX));
-        const contentHeight = Math.max(1, Math.round(exportView.renderHeight * scaleY));
-
-        try {
-            this.renderer.setViewport(frameX, frameY, frameWidth, frameHeight);
-            this.renderer.setScissor(frameX, frameY, frameWidth, frameHeight);
-            this.renderer.setScissorTest(true);
-            this.renderer.clear(true, true, true);
-            this.renderer.setViewport(contentX, contentY, contentWidth, contentHeight);
-            this.renderer.setScissor(contentX, contentY, contentWidth, contentHeight);
-            this.renderExportView(exportView, sceneState);
-            this.previewRenderCount += 1;
-            this.domElement.dataset.previewRenderCount = `${this.previewRenderCount}`;
-            this.lastExportPreview = {
-                frameRect: { ...rect },
-                contentRect: {
-                    left: contentX,
-                    bottom: contentY,
-                    width: contentWidth,
-                    height: contentHeight
-                },
-                outputSize: [exportView.outputWidth, exportView.outputHeight],
-                renderSize: [exportView.renderWidth, exportView.renderHeight],
-                offset: [exportView.offsetX, exportView.offsetY],
-                scaleMode: exportView.scaleMode,
-                pixelsPerAngstrom: exportView.pixelsPerAngstrom,
-                cameraProjection: exportView.camera.projectionMatrix.elements.slice(),
-                cameraPosition: exportView.camera.position.toArray(),
-                cameraQuaternion: exportView.camera.quaternion.toArray(),
-                cameraTarget: exportView.target.toArray(),
-                options: JSON.parse(JSON.stringify(options || {}))
-            };
-        } finally {
-            sceneState.restore();
-            this.renderer.setViewport(oldViewport.x, oldViewport.y, oldViewport.z, oldViewport.w);
-            this.renderer.setScissor(oldScissor.x, oldScissor.y, oldScissor.z, oldScissor.w);
-            this.renderer.setScissorTest(oldScissorTest);
-            this.updateBondPositions();
-            this.updateDisplacementVectorMatrices(true);
-            this.updateForceVectorMatrices(true);
-            this.updateFlatCellEdgeMatrices(true);
-            this.syncSelectionOutlines();
-            this.updateViewLighting();
-        }
+        this.previewRenderCount += 1;
+        this.domElement.dataset.previewRenderCount = `${this.previewRenderCount}`;
+        this.lastExportPreview = {
+            guideOnly: true, aligned, frameRect: { ...rect },
+            contentRect: { left: rect.left, bottom: rect.canvasHeight - rect.top - rect.height,
+                width: rect.width, height: rect.height },
+            outputSize: [width, height], renderSize: [width, height], offset: [0, 0],
+            scaleMode: exportView.scaleMode, pixelsPerAngstrom: exportView.pixelsPerAngstrom,
+            cameraProjection: exportView.camera.projectionMatrix.elements.slice(),
+            cameraPosition: exportView.camera.position.toArray(),
+            cameraQuaternion: exportView.camera.quaternion.toArray(),
+            cameraTarget: exportView.target.toArray(), options: JSON.parse(JSON.stringify(options || {}))
+        };
     }
 
     rebuildCell(cell) {
@@ -9238,7 +9148,7 @@ export class ASERenderer {
 
     onResize() {
         if (this.suspended) return;
-        if (this.exportCaptureActive) {
+        if (this.exportCaptureActive || this.frameUpdateDepth) {
             this.exportCaptureResizePending = true;
             return;
         }
@@ -9298,8 +9208,27 @@ export class ASERenderer {
         this.onResize();
     }
 
+    beginFrameUpdate() {
+        this.frameUpdateDepth = (this.frameUpdateDepth || 0) + 1;
+    }
+
+    endFrameUpdate() {
+        this.frameUpdateDepth = Math.max(0, (this.frameUpdateDepth || 0) - 1);
+        if (!this.frameUpdateDepth) {
+            if (!this.exportCaptureActive && this.exportCaptureQualityPending) {
+                this.exportCaptureQualityPending = false;
+                this.updateRenderQuality();
+            }
+            if (!this.exportCaptureActive && this.exportCaptureResizePending) {
+                this.exportCaptureResizePending = false;
+                this.onResize();
+            }
+            this.requestRender();
+        }
+    }
+
     requestRender() {
-        if (this.suspended || this.exportCaptureActive) return;
+        if (this.suspended || this.exportCaptureActive || this.frameUpdateDepth) return;
         if (this.renderRequestId !== null) return;
         this.renderRequestId = requestAnimationFrame(() => {
             this.renderRequestId = null;
@@ -9309,7 +9238,7 @@ export class ASERenderer {
     }
 
     renderFrame() {
-        if (this.suspended) return;
+        if (this.suspended || this.exportCaptureActive || this.frameUpdateDepth) return;
         this.controls.update();
         if (this.effectiveBondStyle() === 'flat') this.updateBondPositions();
         if (this.displacementStyle() === '2d') this.updateDisplacementVectorMatrices();

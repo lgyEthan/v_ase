@@ -1,4 +1,4 @@
-import { projectProvenanceFromApp } from './project_provenance.js?v=0.4.2';
+import { projectProvenanceFromApp } from './project_provenance.js?v=0.4.3';
 
 // Parent-owned runtime state. Browser handles never enter the project archive.
 export function captureDocumentRecovery(entry, app = entry?.pane?.contentWindow?.__ASE_APP__) {

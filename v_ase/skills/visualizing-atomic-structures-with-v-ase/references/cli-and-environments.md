@@ -8,7 +8,7 @@ A cloud agent still needs the documented MCP/tunnel setup; its own localhost
 cannot reach a person's desktop app.
 
 For desktop installation, use the [step-by-step user guide](https://v-ase.readthedocs.io/en/latest/desktop.html).
-The 0.4.2 downloads are Mac DMGs (Apple silicon or Intel, macOS 15+) and a
+The 0.4.3 downloads are Mac DMGs (Apple silicon or Intel, macOS 15+) and a
 Windows x64 EXE installer (Windows 10/11). Mac users copy the app to Applications;
 Windows users complete the installer and launch from Start. ZIPs require full
 extraction; the Windows ZIP does not install file associations. Check the
@@ -42,13 +42,13 @@ separately for VASP. Setting a default app does not convert file contents.
 Install the tested release into the active Python environment:
 
 ```bash
-python -m pip install "v_ase-gui==0.4.2"
+python -m pip install "v_ase-gui==0.4.3"
 ```
 
 Optional Rhino export:
 
 ```bash
-python -m pip install "v_ase-gui[rhino]==0.4.2"
+python -m pip install "v_ase-gui[rhino]==0.4.3"
 ```
 
 Runtime dependencies are ASE, matscipy, FastAPI, Uvicorn, NumPy, SciPy,
@@ -65,7 +65,7 @@ the complete environment with the same interpreter instead of replacing NumPy
 alone:
 
 ```bash
-python -m pip install --upgrade --force-reinstall "v_ase-gui==0.4.2"
+python -m pip install --upgrade --force-reinstall "v_ase-gui==0.4.3"
 ```
 
 v_ase uses the `AGPL-3.0-or-later` license. Preserve the license and source
@@ -288,7 +288,7 @@ Main outputs:
 
 - structure: POSCAR or ASE pickle;
 - image: PNG by default, or JPEG, PDF, and lossless WebP;
-- trajectory movie: MOV/H.264 or AVI/MPEG-4;
+- trajectory movie: MOV/H.264, AVI/MPEG-4 or animated GIF;
 - editable scene: Blender Python, Rhino 3DM, or OBJ bundle;
 - shareable view or save file: one offline HTML document with an optimized
   Quick Look poster and optional embedded `.vase` recovery;
@@ -424,7 +424,7 @@ to an untrusted network.
 Install the tested release:
 
 ```bash
-python -m pip install "v_ase-gui==0.4.2"
+python -m pip install "v_ase-gui==0.4.3"
 ```
 
 Start the terminal-oriented API session yourself:
@@ -491,3 +491,9 @@ remain the final authority for visual-quality checks.
 
 Desktop windows close independently. Windows Alt+F4 closes its active window;
 explicit Quit checks every open window before stopping the shared backend.
+
+Desktop structure extensions are Open With candidates (Mac Alternate rank,
+Windows OpenWithProgids). Only `.vase` is a native default type; existing user
+choices take precedence. Document icons are paper-shaped castle marks, separate
+from the application castle. The first file in an empty document has no
+replacement/append prompt. Extensionless POSCAR/CONTCAR remain available via Open.

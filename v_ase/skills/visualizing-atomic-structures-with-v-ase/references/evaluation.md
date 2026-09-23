@@ -136,8 +136,8 @@ Run all scenarios, not only static document checks:
      materials and lighting to return without reloading structure data;
    - capture a persistent Render Area, disable Follow Viewport, orbit the work
      camera, and require the stored export camera to remain unchanged; select
-     through the gray-masked frame and require picking to use the Render Area
-     projection, then move its eye with `G` in Edit and verify
+     in the editing canvas and require picking to keep its viewport projection;
+     the guide must hide while a saved output camera is unaligned, then move its eye with `G` in Edit and verify
      `describe().renderArea` and image/video/HTML exports share that camera;
    - play a trajectory while moving the Sun and Render Area and changing atom
      appearance; require uninterrupted playback and immediate visual updates.
@@ -729,8 +729,8 @@ Every browser render test must check:
   nearby file for write-back; Save As adopts a distinct file only on success;
 - the native file picker confirms one file with Enter and does not immediately
   reopen from a trailing key event;
-- the Render Area gray mask, eye marker, border, pointer projection, live
-  lighting, and exported image decode to the same composition and camera;
+- the output guide projects the exported crop without redrawing the scene;
+  normal viewport picking remains active and export lighting stays independent;
 - README assets are inspected after regeneration, not merely written.
 
 ## Release Gate
@@ -795,3 +795,20 @@ concurrent edits, stale revisions, and tab-identity rejection. Run the legacy
 HTTP/CLI matrix as well. Record provider-reported tokens only when available;
 serialized byte counts do not stand in for tokens. A fresh agent should use
 native tools as its primary path and test CLI parity separately.
+
+### Property/animation regression gate
+
+Run `tests/test_browser_property_frames.py`: freeze and explicitly replace a
+color target; inspect single-row horizontally scrollable label settings; delay
+scalar requests while rapidly scrubbing and require synchronized visible radius,
+color and frame; encode an exact-size Retina GIF for a bounded source range,
+check interpolated properties, actual decoded frame count, timing and loop mode;
+require only one scene render per editor frame while the output guide is shown.
+Run the desktop file-association tests and generator `--check`; inspect platform
+metadata and verify non-vase defaults are not overwritten by the installer.
+
+For trajectory edits, warm the binary position cache, move an unconstrained atom
+on a nonzero source frame, switch away and back, then export an animation and a
+project. Decode the project's ASE trajectory and assert that the edit remains on
+that frame. Repeat with a pre-edit cache request completing after the edit. The
+GUI and saved trajectory must agree; a successful immediate move is insufficient.

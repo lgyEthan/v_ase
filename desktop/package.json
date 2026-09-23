@@ -1,7 +1,7 @@
 {
   "name": "v-ase-desktop",
   "productName": "v_ase",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "private": true,
   "description": "The v_ase scientific editor with native desktop shortcuts and file dialogs",
   "author": "v_ase contributors",
@@ -23,12 +23,131 @@
     "appId": "org.v-ase.desktop",
     "artifactName": "v_ase-${version}-${os}-${arch}.${ext}",
     "afterPack": "scripts/after_pack.cjs",
-    "directories": {"output": "dist", "buildResources": "assets"},
-    "files": ["*.cjs", "*.js", "*.html", "package.json", "LICENSE"],
-    "extraResources": [{"from": "runtime/python", "to": "python", "filter": ["**/*", "!**/__pycache__/**", "!**/*.pyc"]}],
-    "mac": {"category": "public.app-category.education", "minimumSystemVersion": "15.0", "identity": "-", "hardenedRuntime": true, "icon": "assets/icon.icns", "target": ["dmg", "zip"]},
-    "win": {"icon": "assets/icon.ico", "target": ["nsis", "zip"]},
-    "nsis": {"oneClick": false, "perMachine": false, "allowToChangeInstallationDirectory": true},
-    "fileAssociations": [{"ext": "vase", "name": "v_ase project", "role": "Editor"}]
+    "directories": {
+      "output": "dist",
+      "buildResources": "assets"
+    },
+    "files": [
+      "*.cjs",
+      "*.js",
+      "*.html",
+      "package.json",
+      "LICENSE",
+      "file-formats.json"
+    ],
+    "extraResources": [
+      {
+        "from": "runtime/python",
+        "to": "python",
+        "filter": [
+          "**/*",
+          "!**/__pycache__/**",
+          "!**/*.pyc"
+        ]
+      },
+      {
+        "from": "assets/structure-document.ico",
+        "to": "file-icons/structure-document.ico"
+      }
+    ],
+    "mac": {
+      "category": "public.app-category.education",
+      "minimumSystemVersion": "15.0",
+      "identity": "-",
+      "hardenedRuntime": true,
+      "icon": "assets/icon.icns",
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "fileAssociations": [
+        {
+          "ext": [
+            "34",
+            "arc",
+            "ascii",
+            "car",
+            "castep",
+            "cell",
+            "chg",
+            "chgcar",
+            "cif",
+            "cjson",
+            "com",
+            "con",
+            "config",
+            "contcar",
+            "cub",
+            "cube",
+            "dat",
+            "data",
+            "dcd",
+            "elfcar",
+            "extxyz",
+            "f34",
+            "g96",
+            "geom",
+            "gjf",
+            "gro",
+            "htm",
+            "html",
+            "in",
+            "json",
+            "lammpsdump",
+            "lammpstrj",
+            "locpot",
+            "log",
+            "md",
+            "nomad-json",
+            "nwi",
+            "nwo",
+            "out",
+            "parchg",
+            "pdb",
+            "phonon",
+            "poscar",
+            "pwi",
+            "pwo",
+            "restart",
+            "rmc6f",
+            "shelx",
+            "traj",
+            "vasp",
+            "xdatcar",
+            "xml",
+            "xsf",
+            "xtl",
+            "xyz"
+          ],
+          "name": "Atomic structure or v_ase HTML project",
+          "role": "Editor",
+          "rank": "Alternate",
+          "icon": "assets/structure-document"
+        }
+      ]
+    },
+    "win": {
+      "icon": "assets/icon.ico",
+      "target": [
+        "nsis",
+        "zip"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "include": "assets/file-associations.nsh"
+    },
+    "fileAssociations": [
+      {
+        "ext": "vase",
+        "name": "v_ase project",
+        "description": "v_ase project",
+        "role": "Editor",
+        "rank": "Owner",
+        "icon": "assets/document"
+      }
+    ]
   }
 }

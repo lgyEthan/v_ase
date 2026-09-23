@@ -19,7 +19,9 @@ class VideoFrameEncoder:
     Frame uploads apply backpressure through ffmpeg's stdin. The encoder never
     samples wall-clock playback, pads dimensions, or invents missing frames.
     """
-    def __init__(self, width: int, height: int, fps: float, frames: int, output_format: str):
+    def __init__(self, width: int, height: int, fps: float, frames: int, output_format: str, *, loop: bool = True):
+        if not isinstance(loop, bool):
+            raise ValueError("Animation loop must be a boolean.")
         for value in (width, height):
             if isinstance(value, bool) or not isinstance(value, int) or not 64 <= value <= 8192 or value % 2:
                 raise ValueError("Video width and height must be even integers from 64 through 8192.")
@@ -37,9 +39,12 @@ class VideoFrameEncoder:
         self.path = target.name
         target.close()
         self.stderr = tempfile.TemporaryFile()
+        codec_args = list(self.config['codec_args'])
+        if output_format.lower() == 'gif':
+            codec_args[codec_args.index('-loop') + 1] = '0' if loop else '-1'
         command = [imageio_ffmpeg.get_ffmpeg_exe(), '-hide_banner', '-loglevel', 'error', '-y',
                    '-f', 'rawvideo', '-pixel_format', 'rgba', '-video_size', f'{width}x{height}',
-                   '-framerate', str(fps), '-i', 'pipe:0', '-an', *self.config['codec_args'], self.path]
+                   '-framerate', str(fps), '-i', 'pipe:0', '-an', *codec_args, self.path]
         try:
             self.process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
                                             stderr=self.stderr)

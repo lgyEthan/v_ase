@@ -3,6 +3,8 @@ from pathlib import Path
 import argparse
 import os
 import platform
+import json
+import plistlib
 import subprocess
 import tempfile
 
@@ -20,6 +22,19 @@ if len(candidates) != 1:
     raise SystemExit(f"Expected one packaged application, got {candidates}")
 if platform.system() == "Darwin":
     subprocess.run(["codesign", "--verify", "--deep", "--strict", str(candidates[0].parents[2])], check=True)
+    contents = candidates[0].parents[1]
+    info = plistlib.loads((contents / 'Info.plist').read_bytes())
+    types = info['CFBundleDocumentTypes']
+    project = next(item for item in types if 'vase' in item.get('CFBundleTypeExtensions', []))
+    structures = next(item for item in types if 'extxyz' in item.get('CFBundleTypeExtensions', []))
+    assert project['LSHandlerRank'] == 'Owner'
+    assert structures['LSHandlerRank'] == 'Alternate'
+    expected = json.loads((root / 'file-formats.json').read_text())['structureExtensions']
+    assert set(structures['CFBundleTypeExtensions']) == set(expected)
+    icons = [info['CFBundleIconFile'], project['CFBundleTypeIconFile'], structures['CFBundleTypeIconFile']]
+    assert len(set(icons)) == 3, icons
+    for icon in icons:
+        assert (contents / 'Resources' / icon).is_file(), icon
 output = Path(os.environ.get("V_ASE_SMOKE_DIR", root / "smoke-output" / "packaged")).resolve()
 output.mkdir(parents=True, exist_ok=True)
 (output / "result.json").unlink(missing_ok=True)

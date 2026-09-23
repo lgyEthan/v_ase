@@ -65,6 +65,9 @@ jobs:
         run: npm run dist
       - name: Test the packaged application and relocated Python
         run: python scripts/test_packaged.py
+      - name: Verify Windows install and uninstall file associations
+        if: runner.os == 'Windows'
+        run: python scripts/test_windows_associations.py
       - name: Keep test evidence
         if: always()
         uses: actions/upload-artifact@v4

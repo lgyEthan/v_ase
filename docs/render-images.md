@@ -45,24 +45,27 @@ The sphere button opens a separate panel; it remains clickable below the toolbar
 
 ## Render Area
 
-Image, video, and HTML use one persistent **Render Area**. Its visible boundary
-and gray outside mask define the exact saved composition.
+Image, video and HTML share the stored **Render Area** camera and dimensions.
+**Show output frame** draws a boundary and outside mask on the same editable
+canvas. It does not draw another scene or introduce another picking camera.
+Select, move and measure atoms normally inside or outside the guide; opening
+or resizing the inspector does not shift its composition.
 
-- **Follow viewport** keeps the export camera synchronized while you orbit,
-  pan, zoom, and align the working view.
-- Disable it and choose **Set from Current View** to lock a composition while
-  continuing to inspect or edit in the main viewport.
-- In Edit, the Render Area eye can be selected and moved with `G`, translating
-  its camera and target together.
-
-The Render Area owns aspect ratio, dimensions, projection/camera, overlay
-choices, quality, and crop. Picking inside it uses the same camera, so pointer
-selection remains aligned with visible atoms.
+- **Follow editing view** keeps the export camera synchronized with orbit,
+  pan, zoom and alignment.
+- Disable it to preserve an output camera. When the editing camera differs,
+  the guide is hidden instead of displaying an unrelated miniature scene.
+  **View saved output camera** aligns the editable canvas to it.
+- Existing semantic saved-camera operations and the camera-eye transform remain
+  available. Export lighting, overlays and transparency are applied when rendering;
+  the guide indicates geometry and crop rather than overriding editor shading.
+- The guide can extend beyond the visible canvas for a wider output aspect or
+  physical span. Its camera projection still defines the complete export.
 
 For exact physical sizing, choose **Physical scale** and enter output px/Å on
 the Renderer page. The Image, Video and Interactive HTML routes also show
 these shared frame controls alongside their format-specific settings and
-export actions. Image selects PNG, JPEG, WebP or PDF; Video offers MOV/AVI,
+export actions. Image selects PNG, JPEG, WebP or PDF; Video offers MOV/AVI/GIF, source-frame ranges, repeat mode,
 FPS, interpolation/MIC and an output-duration estimate; Interactive HTML
 chooses whether to embed the editable project and explains its offline poster.
 **Copy viewport scale** takes the current camera scale as a starting value;

@@ -1504,9 +1504,9 @@ AI_OPERATION_PARAMETERS = {
             "current, trajectory, or manual; every trajectory frame uses the same "
             "resolved minimum and maximum. Use map=custom with a customMap containing "
             "two or more ordered 0-1 color stops and continuous or discrete mode. "
-            "gamma controls contrast. For scope=selected, optional indices freezes "
-            "the target atom indices independently of later GUI selection changes. "
-            "Without indices, the scope follows the live GUI selection. Disabling it immediately restores the saved "
+            "gamma controls contrast. scope=selected always freezes target indices; "
+            "explicit indices overrides the current selection snapshot. Later GUI "
+            "selection changes do not retarget the colorscale; an empty list maps no atoms. Disabling it immediately restores the saved "
             "label and element colors."
         ),
     },
@@ -2053,9 +2053,9 @@ AI_EXPORT_PARAMETERS = {
     "video": {
         "optional": [
             "container", "width", "height", "fps",
-            "interpolationMultiplier", "interpolationMic", "options",
+            "interpolationMultiplier", "interpolationMic", "startFrame", "endFrame", "loop", "options",
         ],
-        "notes": "container is mov or avi and requires a loaded trajectory. Indexed PNG frames preserve every source/interpolated frame without wall-clock sampling. Native dimensions must be even integers in 64..8192; fps is 1..60 and interpolationMultiplier is 1..64. Video is opaque. The result reports exact width, height, fps, frameCount and sourceFrameCount.",
+        "notes": "container is mov, avi or gif and requires a loaded trajectory. startFrame/endFrame are inclusive zero-based source indices (default entire trajectory); loop controls GIF repetition (true forever, false once). GIF timing is quantized to centiseconds. Indexed PNG frames preserve every source/interpolated frame without wall-clock sampling. Native dimensions must be even integers in 64..8192; fps is 1..60 and interpolationMultiplier is 1..64. Video is opaque. The result reports exact width, height, fps, frameCount and sourceFrameCount.",
     },
     "poscar": {"optional": [], "notes": "ASE rejects Cartesian directional constraints that cannot be represented as POSCAR selective dynamics for the current cell. Constraints are never silently removed; use project or pickle to preserve them."},
     "pickle": {"optional": []},
@@ -2413,6 +2413,9 @@ def _ai_apply_method_schema() -> Dict[str, Any]:
     properties['display']['properties']['polyhedraRules'] = {
         'type': 'array', 'maxItems': 32, 'items': {'type': 'object'},
         'description': 'Complete replacement list. Read the configure-polyhedra operation schema for exact rule fields.'}
+    properties['display']['properties']['atomRadiusMapping'] = {
+        'type': 'object',
+        'description': 'Read the set-atom-radius-mapping operation schema for exact property mapping fields.'}
     operation_names = sorted(AI_OPERATION_PARAMETERS)
     properties["operation"] = {
         "description": (

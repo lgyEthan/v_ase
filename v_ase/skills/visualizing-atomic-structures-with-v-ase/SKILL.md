@@ -17,6 +17,12 @@ claim that installing the app forcibly takes over `.vase` or `.vasp` files.
 Check the release's current platform-specific signing status in that guide;
 Apple notarization does not establish Windows publisher signing.
 Lengths are Angstrom, angles degrees, atom/frame indices zero-based.
+Colorscale `scope:"selected"` captures fixed targets, even when `indices` is
+omitted; it never follows later GUI selection changes. Video exports accept
+MOV/AVI/GIF, inclusive zero-based `startFrame`/`endFrame`, and GIF `loop`.
+The output-frame guide stays on the editable canvas; picking always uses the
+editing camera. A differently oriented saved output camera hides the guide
+until the user aligns the view; it remains the export camera.
 For rotation/scaling, the GUI label “Selection COM” currently denotes an
 unweighted coordinate centroid; use an explicit pivot for a mass-weighted center.
 

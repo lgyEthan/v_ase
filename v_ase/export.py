@@ -36,6 +36,13 @@ class VideoExportError(RuntimeError):
 
 
 VIDEO_EXPORT_FORMATS = {
+    "gif": {
+        "suffix": ".gif",
+        "media_type": "image/gif",
+        "filename": "v_ase-trajectory.gif",
+        # A palette per frame bounds memory while preserving scientific colors.
+        "codec_args": ["-filter_complex", "[0:v]split[a][b];[a]palettegen=stats_mode=single[p];[b][p]paletteuse=new=1:dither=sierra2_4a", "-loop", "0"],
+    },
     "mov": {
         "suffix": ".mov",
         "media_type": "video/quicktime",

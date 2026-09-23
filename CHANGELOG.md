@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.4.3
+
+- Distinguish the castle application icon from paper-shaped VASE/ATOM document
+  icons. Register readable structures as Open With candidates on Mac/Windows;
+  only `.vase` is the native default type, preserving other application defaults.
+- Reorganize Atoms into explicit scope sections, restore compact one-row-per-label
+  tables with horizontal scrolling, and clarify property, range and mapping targets.
+- Freeze selected colorscale targets until explicit reapplication; preserve them
+  across compatible frames and known deletion/duplication/replication operations.
+- Commit trajectory coordinates, colors and radii together, coalesce frame loads,
+  retain bounded property caches and discard superseded requests without errors.
+- Invalidate pre-edit trajectory position caches so frame roundtrips and video
+  export preserve committed physical edits, including late cache responses.
+- Pin table headers directly against their top border, without inset gaps or
+  rows showing above them; bound long label/bond tables with local scrolling.
+- Replace the rendered inset with a crop guide on the editable canvas. Preserve
+  viewport picking and stable composition when the floating inspector changes.
+- Fix output framebuffer resizing during Retina video capture; add inclusive
+  source-frame ranges and animated GIF with loop-forever/play-once control.
+  Interpolate raw continuous colorscale and radius values for animation samples.
+- Simplify first-open dialogs in empty workspaces and complete selection drags
+  reliably across the floating inspector.
+
 ## 0.4.2
 
 - Replace repeated workbench symbols with 23 distinct section icons, hover/focus

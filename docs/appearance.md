@@ -171,3 +171,18 @@ to replace the whole value. Tab moves to the next cutoff; Shift+Tab moves to
 the previous one. Resize the label column with its divider or widen the entire
 right panel. Controls reflow within the available width. The relaxation
 calculator's pair distances are independent of these displayed bonds.
+
+## Read the Atoms panel
+
+**Style → Atoms** groups global size, per-label appearance, surface material,
+selected-atom overrides, and property visualization separately. The per-label
+editor is a table with one row per label: label, color, visibility, selection,
+element, radius in Å, opacity, material and count. Scroll it horizontally to
+reach additional columns, or widen the floating inspector. Its label column
+stays visible while scrolling. Selected-atom overrides remain a separate scope;
+property mappings multiply manual radii or replace colors at their fixed targets.
+
+Long label and bond tables scroll within their own borders. Their column headers
+stay flush with the top edge while rows move underneath; the label column stays
+visible during horizontal scrolling. Relaxation cutoff tables use the same
+header treatment.

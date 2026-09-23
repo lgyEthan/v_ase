@@ -219,9 +219,11 @@ def tool_catalog() -> dict[str, ToolSpec]:
     export_properties = {
         **RENDER_PROPERTIES, **RDF_PROPERTIES,
         "imageFormat": {"enum": ["png", "jpeg", "webp", "pdf"]},
-        "container": {"enum": ["mov", "avi"]},
+        "container": {"enum": ["mov", "avi", "gif"]},
         "fps": {"type": "number", "exclusiveMinimum": 0},
         "interpolationMultiplier": {"type": "integer", "minimum": 1},
+        "startFrame": {"type": "integer", "minimum": 0},
+        "endFrame": {"type": "integer", "minimum": 0}, "loop": BOOLEAN,
         "interpolationMic": BOOLEAN, "includeCell": BOOLEAN, "embedProject": BOOLEAN,
     }
     for op in ("calculate-commensurate", "calculate-registry-map"):

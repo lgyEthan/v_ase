@@ -66,6 +66,15 @@ def test_all_tools_and_unit_fields_fit_desktop_narrow_and_mobile():
                             if (document.documentElement.scrollWidth > innerWidth + 1) issues.push('page overflow');
                             document.querySelectorAll('#inspector-content input, #inspector-content select, #inspector-content textarea, #inspector-content button').forEach(element => {
                                 if (!visible(element) || element.type === 'hidden') return;
+                                // The label table intentionally scrolls horizontally;
+                                // its own boundary, not each offscreen cell, must fit.
+                                const table=element.closest('#appearance-table');
+                                if (table) {
+                                    const t=table.getBoundingClientRect();
+                                    if (t.left<inspector.left-1 || t.right>inspector.right+1
+                                        || getComputedStyle(table).overflowX!=='auto') issues.push('label table overflow');
+                                    return;
+                                }
                                 const r = element.getBoundingClientRect();
                                 if (!r.width || !r.height) return;
                                 if (r.left < inspector.left - 1 || r.right > inspector.right + 1) {
@@ -157,6 +166,50 @@ def test_export_dialog_units_and_controls_fit_narrow_windows():
                         });
                     }'''), (width, route)
                     page.locator('#modal-close').click()
+            browser.close()
+    finally:
+        editor.close()
+
+
+def test_scrolled_table_headers_meet_the_top_border_without_row_bleed(tmp_path):
+    atoms = Atoms('CHOFeCuSiNaClArNe', positions=[[i * 2, 0, 0] for i in range(10)])
+    editor = view(atoms, notebook=True, block=False, port=find_free_port(),
+                  viz_only=False, close_on_disconnect=False)
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            page = browser.new_page(viewport={'width': 1440, 'height': 900})
+            page.goto(editor.url)
+            page.wait_for_function('window.__ASE_APP__?.collaborationReady')
+            for width in (1440, 390):
+                page.set_viewport_size({'width': width, 'height': 900})
+                for route, selector, head in [
+                    ('scientific-tools', '#repulsion-pair-panel', '.mini-table-head'),
+                    ('bonding', '#pairwise-bond-panel', '.mini-table-head'),
+                    ('appearance', '#appearance-table', '.appearance-table-head'),
+                ]:
+                    open_editor_route(page, route)
+                    table = page.locator(selector)
+                    table.scroll_into_view_if_needed()
+                    for offset in (0, 75, 150):
+                        geometry = table.evaluate('''(table,args) => {
+                            table.scrollTop=args.offset;
+                            const header=table.querySelector(args.head);
+                            const box=table.getBoundingClientRect(), h=header.getBoundingClientRect();
+                            const hit=document.elementFromPoint(box.left+table.clientWidth/2, box.top+table.clientTop+2);
+                            return {gap:h.top-box.top-table.clientTop,
+                                topPadding:getComputedStyle(table).paddingTop,
+                                covered:header===hit || header.contains(hit),
+                                scroll:table.scrollTop};
+                        }''', {'offset': offset, 'head': head})
+                        assert abs(geometry['gap']) <= 1, (width, route, offset, geometry)
+                        assert geometry['topPadding'] == '0px'
+                        assert geometry['covered'], (width, route, offset, geometry)
+                        if offset:
+                            assert geometry['scroll'] > 0
+                    if directory := os.environ.get('V_ASE_UI_QA_DIR'):
+                        Path(directory).mkdir(parents=True, exist_ok=True)
+                        table.screenshot(path=str(Path(directory) / f'table-{route}-{width}.png'))
             browser.close()
     finally:
         editor.close()

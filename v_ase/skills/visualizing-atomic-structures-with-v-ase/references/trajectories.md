@@ -74,3 +74,16 @@ Browser frame transport requests float64 coordinates for both cached and streame
 trajectories. Scientific edits and project/structure exports preserve those
 double-precision values. Scalar/vector visualization buffers may use float32;
 this does not replace original per-atom arrays in scientific exports.
+
+Colorscale selected scope is fixed at application time, like radius scope. GUI
+First/Last source frames use 1-based inclusive values; semantic animation export
+uses inclusive 0-based `startFrame`/`endFrame`. GIF `loop:false` plays once;
+`loop:true` loops forever. Coordinates, colors and radii commit together during
+playback; the previous canvas stays visible while scalar data loads.
+
+Committed physical edits invalidate cached trajectory positions, including
+requests started before the edit. Frame switching and animation export must
+retain those edits in the original source frame; read structure positions after
+a roundtrip when validating a scientific workflow. A selected scalar field is
+retained if one frame omits it: missing values use the base appearance, while the
+field and locked range remain available for subsequent frames.

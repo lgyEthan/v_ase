@@ -178,6 +178,12 @@ async function runSmoke({ app, win, handshake, vault, sendCommand }) {
                     if (d.documentElement.scrollWidth>f.innerWidth+1) issues.push('page overflow');
                     for (const element of d.querySelectorAll('#inspector-content input,#inspector-content select,#inspector-content textarea,#inspector-content button')) {
                         if (!visible(element) || element.type==='hidden') continue;
+                        const table=element.closest('#appearance-table');
+                        if (table) {
+                            const box=table.getBoundingClientRect();
+                            if (box.left<inspector.left-1 || box.right>inspector.right+1 || f.getComputedStyle(table).overflowX!=='auto') issues.push('label table overflow');
+                            continue;
+                        }
                         const r=element.getBoundingClientRect();
                         if (r.width && (r.left<inspector.left-1 || r.right>inspector.right+1)) issues.push(element.id || element.className);
                     }

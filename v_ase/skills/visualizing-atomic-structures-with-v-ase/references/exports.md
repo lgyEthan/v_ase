@@ -82,3 +82,9 @@ connectors with base indices/cell offsets, without adding physical atoms. Blende
 animation updates sites, connectors, faces and edges together. Display repetition
 uses the same centered cell offsets as the GUI (three cells: −1, 0, 1). Exact
 2D shading is guaranteed by PNG/HTML; editable geometry uses its host renderer.
+
+Animation export supports MOV, AVI and GIF. Choose inclusive zero-based
+`startFrame`/`endFrame` to render a source interval and GIF `loop` for repeat.
+A source interval of N frames at multiplier k produces (N-1)k+1 frames. The
+editable-canvas output guide shows crop geometry, not a second rendered inset;
+output lighting is applied at capture. Display DPI never resizes the encoder.

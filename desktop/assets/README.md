@@ -29,3 +29,16 @@ python desktop/scripts/build_icons.py
 
 This encoding step needs Pillow. The ICO contains 16–256 px images; the ICNS
 contains the Mac sizes up to 1024 px. Keep the alpha channel.
+
+## Document icons
+
+`document.svg` is the editable vector document silhouette with the unchanged
+castle PNG inset. A teal VASE footer denotes projects; a slate ATOM footer
+identifies structure files. These are separate from the full castle app icon.
+Run `python desktop/scripts/build_document_icons.py` (Playwright Chromium and
+Pillow) to regenerate PNG/ICNS/ICO variants. It embeds the original PNG without
+network access or AI modification. File associations use Mac Alternate rank and
+Windows OpenWithProgids for structures; regenerate Windows registration with
+`python desktop/scripts/generate_file_associations.py` and validate `--check`.
+
+Registration follows [Microsoft Open With guidance](https://learn.microsoft.com/en-us/windows/win32/shell/how-to-include-an-application-on-the-open-with-dialog-box) and keeps user-chosen defaults intact.
