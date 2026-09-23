@@ -54,6 +54,16 @@ platform validation and signing evidence as specified in `desktop/README.md`.
 
 ## Release gates
 
+During desktop promotion, a fast numeric-input check compared the undo baseline
+before its queued bond-display callback ran. Diagnostic evidence showed the
+extra entry was the pending H–O cutoff change (1.19 to 2.5 Å), not a transfer
+mutation. The smoke test now awaits display callbacks, verifies the committed
+cutoff, and compares every undo action exactly after transfer. The About dialog
+also uses the installed package version instead of the previous release's text.
+These desktop-only corrections do not replace the published 0.4.3 Python wheel
+or tag; the desktop source commit and fresh three-platform checks are identified
+in the release evidence.
+
 - Core suite: **1,030 passed** in 621.03 seconds. The 273 warnings are upstream
   deprecation warnings. Asset consistency ran after the final capture, with
   **13 passed**: **1,043 tests passed** in total, no failures or skips.

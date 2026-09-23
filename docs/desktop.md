@@ -234,6 +234,7 @@ offers **Reset coordinates** and **Full reset**.
 
 ## Python, Jupyter and agents
 
+**Help → About this runtime** reports the installed desktop version.
 The private desktop runtime does not replace your Python environments.
 `pip install v_ase-gui`, `v_ase gui`, Python `view(...)`, and `%v_ase inline`,
 `%v_ase browser` and `%v_ase auto` continue to work. Use your Python environment

@@ -35,6 +35,7 @@ macOS and Windows users can install the self-contained
 It runs the same GUI with native Command/Ctrl shortcuts and file dialogs;
 Python installation is not required. Python and Jupyter remain available
 independently. Drag a desktop tab out to detach it into another window.
+**Help → About this runtime** shows the installed desktop version.
 Dropped files offer trajectory, new-tab and new-window destinations. Each
 window closes independently; Windows Alt+F4 closes the active window, while
 explicit Quit checks all windows. The app icon now features the full atomic-bead

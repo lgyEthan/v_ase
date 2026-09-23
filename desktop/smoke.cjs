@@ -58,6 +58,16 @@ async function runSmoke({ app, win, handshake, vault, sendCommand }) {
         await wait(`${appRef}.state.atoms.positions.length === 3`);
     }
     await wait(`${appRef}?.collaborationReady`);
+    const originalMessageBox = require('electron').dialog.showMessageBox;
+    let about;
+    require('electron').dialog.showMessageBox = async (_window, options) => {
+        about = options;
+        return { response: 0 };
+    };
+    try { await Menu.getApplicationMenu().getMenuItemById('about-runtime').click(); }
+    finally { require('electron').dialog.showMessageBox = originalMessageBox; }
+    assert.equal(about.message, `v_ase ${app.getVersion()}`);
+    assert.equal(about.title, about.message);
     assert.equal(await js('typeof require'), 'undefined');
     assert.equal(await js(`${active}.vaseDesktop`), undefined);
     const fixture = path.join(output, 'desktop-fixture.xyz');
@@ -219,13 +229,19 @@ async function runSmoke({ app, win, handshake, vault, sendCommand }) {
     win.webContents.insertText('2.5');
     await wait(`${active}.document.querySelectorAll('.pairwise-bond-max')[1].value === '2.5'`);
     await js(`${active}.document.activeElement.blur()`);
+    // Numeric edits are applied on the next animation frame. Scientific HTTP
+    // settlement alone does not drain these display callbacks. Compare history
+    // only after the tested edits have actually reached the document model.
+    await wait(`${appRef}.state.displayApplyRequest === null && ${appRef}.state.bondApplyRequest === null`);
     await js(`${appRef}.settleScientificMutations().then(()=>${appRef}.flushVisualHistoryCommit())`);
+    assert.equal(await js(`${appRef}.state.display.pairwiseBondRanges['H-O'].max`), 2.5);
     const movedId = await js(`${appRef}.sessionId`);
     const documentState = `({format:${appRef}.projectFile.format, filename:${appRef}.projectFile.filename,
         positions:${appRef}.renderer.currentPositions(), camera:${appRef}.cameraSettingsSnapshot(),
         pixelsPerAngstrom:${appRef}.renderer.currentPixelsPerAngstrom(),
         undo:${appRef}.undoTimeline.length, dirty:${appRef}.updateProjectDirtyState()})`;
     const beforeMove = await js(documentState);
+    const beforeHistory = await js(`({undo:${appRef}.undoTimeline, pending:${appRef}.visualHistoryPending, displayRAF:${appRef}.state.displayApplyRequest,bondRAF:${appRef}.state.bondApplyRequest})`);
     const tabPoint = await js(`(()=>{const r=window.__V_ASE_WORKSPACE__.tabs.get('${movedId}').select.getBoundingClientRect();return {x:Math.round(r.x+r.width/2),y:Math.round(r.y+r.height/2)};})()`);
     await js(`(() => { window.__smokePointer=[]; for (const d of [document,${active}.document]) for(const type of ['pointerdown','pointermove','pointerup','click']) d.addEventListener(type,e=>window.__smokePointer.push({type,target:e.target.className,x:e.clientX,y:e.clientY,top:d===document}),true); })()`);
     win.show(); win.focus(); win.webContents.focus();
@@ -241,7 +257,8 @@ async function runSmoke({ app, win, handshake, vault, sendCommand }) {
     const detachedJS = code => detached.webContents.executeJavaScript(code);
     const detachedWorkspaceId = new URL(detached.webContents.getURL()).searchParams.get('workspace_id');
     const afterMove = await detachedJS(documentState);
-    await fs.writeFile(path.join(output, 'detached-state.json'), JSON.stringify({beforeMove, afterMove}, null, 2));
+    const afterHistory = await detachedJS(`({undo:${appRef}.undoTimeline, pending:${appRef}.visualHistoryPending})`);
+    await fs.writeFile(path.join(output, 'detached-state.json'), JSON.stringify({beforeMove, afterMove, beforeHistory, afterHistory}, null, 2));
     assert.ok(Math.abs(afterMove.pixelsPerAngstrom - beforeMove.pixelsPerAngstrom) < 0.001,
         'Detach preserves physical magnification even when the OS fits the new window to the screen');
     // Raw orthographic zoom/span depend on viewport height. Windows may clamp a
@@ -256,6 +273,7 @@ async function runSmoke({ app, win, handshake, vault, sendCommand }) {
         return value;
     };
     assert.deepEqual(comparable(afterMove), comparable(beforeMove), 'Detach preserves visual state, history, dirty state and the save format');
+    assert.deepEqual(afterHistory.undo, beforeHistory.undo, 'Detach preserves every committed undo action exactly');
     assert.ok(await detachedJS(`${appRef}.projectFile.handle?.desktopToken`), 'Native file grant moves with the tab');
     await detachedJS(`${appRef}.saveDocument()`);
     assert.equal(await detachedJS(`${appRef}.updateProjectDirtyState()`), false);

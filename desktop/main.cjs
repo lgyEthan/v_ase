@@ -99,8 +99,8 @@ function createMenu(registry = {}) {
                 const id = new URL(target.webContents.getURL()).searchParams.get('workspace_id');
                 if (id) clipboard.writeText(`${backendOrigin}/api/ai/command/workspace/${id}`);
             } },
-            { label: 'About this runtime', click: () => dialog.showMessageBox(focusedWindow(), { type: 'info',
-                title: 'v_ase 0.4.2', message: 'v_ase 0.4.2',
+            { id: 'about-runtime', label: 'About this runtime', click: () => dialog.showMessageBox(focusedWindow(), { type: 'info',
+                title: `v_ase ${app.getVersion()}`, message: `v_ase ${app.getVersion()}`,
                 detail: 'The same v_ase GUI and Python backend, bundled with CPython 3.11.16.\n\nPython/Jupyter installations remain independent.\nSource: github.com/lgyEthan/v_ase\nLicense: AGPL-3.0-or-later' }) }] },
     ];
     Menu.setApplicationMenu(Menu.buildFromTemplate(menu));

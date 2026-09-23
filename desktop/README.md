@@ -91,6 +91,9 @@ verify physical pixels per angstrom alongside camera pose and document state.
 The OS may fit a new window to its work area, so raw orthographic zoom/span are
 not required to match between different viewport heights. Retain
 `detached-state.json` with each platform's evidence.
+The numeric-input test waits for queued display callbacks before taking its
+transfer baseline, then compares every undo action before and after the move.
+The native About dialog must report `app.getVersion()`, not a hard-coded release.
 Software-rendered CI allows up to 60 seconds for each readiness condition;
 the same assertions apply, and normal GPU smoke retains its 10-second limit.
 The desktop smoke also checks all 23 workbench routes at 1440, 1024 and 390
