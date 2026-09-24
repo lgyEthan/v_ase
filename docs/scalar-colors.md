@@ -33,7 +33,7 @@ Cu force colors use a locked range across the analytic probe trajectory.
 Open **Style > Atoms > Color scale**. Enable it, then select a field,
 map, scope, range, and contrast.
 
-Available fields are discovered lazily. Built-ins include:
+The field catalog is preloaded; scalar arrays and optional colormaps load only when needed. Built-ins include:
 
 - `position:x`, `position:y`, `position:z`;
 - `force:norm` when stored forces exist;
@@ -48,13 +48,19 @@ trajectory.
 ### Scope
 
 - **All atoms** maps every visible atom with a finite value.
-- **Fixed atom selection** captures the current base-atom indices once. Changing
+- **Selected atoms** captures the current base-atom indices once. Changing
   the GUI selection does not redirect the mapping. **Use current selection**
   explicitly replaces its targets; an empty target list colors no atoms.
   Semantic `scope:"selected"` freezes explicit `indices`, or snapshots the
   current selection when `indices` is omitted. Targets persist in projects,
   follow known delete/duplicate/repeat provenance, and clear when document
-  identity changes without a provenance map.
+  identity changes without a provenance map. Trajectory count and element changes
+  retain the saved indices; missing indices resume when they reappear.
+- Label choices in **Apply to** capture the current members as base indices.
+  They do not dynamically switch targets when labels or elements change.
+  Changing the target or using **Use current selection** preserves manually
+  locked bounds and the chosen range mode; use a Fit button to refit explicitly.
+  The separate **Use current selection** button replaces that captured subset.
 
 A partially colored all-atom frame is not a successful application. Missing
 or nonfinite values must remain explicitly unavailable.

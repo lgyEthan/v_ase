@@ -78,3 +78,8 @@ MCP `vase_export_video` accepts `container:"gif"`, inclusive **zero-based**
 `startFrame`/`endFrame`, and boolean `loop`. For the GUI 11–20 example, send
 `startFrame:10,endFrame:19`. Results report range, source/output frame counts
 and repeat mode. Screen DPI and viewport resizing do not change output pixels.
+
+Video and GIF use the same effective output camera as image rendering, including
+a fixed Render Area after editor zoom/orbit. Explicit `options.camera` overrides
+that saved camera. Semantic video results include `camera` and `effectiveRender`
+so an agent can verify composition rather than inferring it from dimensions.

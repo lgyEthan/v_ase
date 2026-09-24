@@ -1,34 +1,34 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.4.3';
-import { ASERenderer } from './renderer.js?v=0.4.3';
-import { ASESelection } from './selection.js?v=0.4.3';
-import { ASETransform } from './transform.js?v=0.4.3';
+import { ASEApi } from './api.js?v=0.4.4';
+import { ASERenderer } from './renderer.js?v=0.4.4';
+import { ASESelection } from './selection.js?v=0.4.4';
+import { ASETransform } from './transform.js?v=0.4.4';
 
-import { installPolyhedra } from './polyhedra.js?v=0.4.3';
-import { installAIScene } from './ai_scene.js?v=0.4.3';
-import { AtomScalarStore } from './atom_properties.js?v=0.4.3';
-import { DirectWorkspace } from './direct_workspace.js?v=0.4.3';
-import { projectProvenanceFromLoad } from './project_provenance.js?v=0.4.3';
-import { installShortcutCapture } from './shortcut_capture.js?v=0.4.3';
-import { openFileInWindow } from './workspace_windows.js?v=0.4.3';
-import { installEditorInteractions } from './editor_interactions.js?v=0.4.3';
-import { WORKBENCH_ROUTES, mountWorkbenchTools, syncWorkbenchRoute } from './editor_ui.js?v=0.4.3';
+import { installPolyhedra } from './polyhedra.js?v=0.4.4';
+import { installAIScene } from './ai_scene.js?v=0.4.4';
+import { AtomScalarStore } from './atom_properties.js?v=0.4.4';
+import { DirectWorkspace } from './direct_workspace.js?v=0.4.4';
+import { projectProvenanceFromLoad } from './project_provenance.js?v=0.4.4';
+import { installShortcutCapture } from './shortcut_capture.js?v=0.4.4';
+import { openFileInWindow } from './workspace_windows.js?v=0.4.4';
+import { installEditorInteractions } from './editor_interactions.js?v=0.4.4';
+import { WORKBENCH_ROUTES, mountWorkbenchTools, syncWorkbenchRoute } from './editor_ui.js?v=0.4.4';
 import {
     EDITOR_COMMANDS, commandIdForEvent, resolveShortcutPlatform,
     editorShortcutLabel, editorAriaShortcut, editorShortcutSearchTerms,
     viewportNavigationForEvent
-} from './editor_commands.js?v=0.4.3';
+} from './editor_commands.js?v=0.4.4';
 import {
     DEFAULT_ATOM_RADIUS_MAPPING,
     atomRadiusFactors,
     normalizeAtomRadiusMapping,
     radiusMappingPreset
-} from './radius_mapping.js?v=0.4.3';
+} from './radius_mapping.js?v=0.4.4';
 import {
     interpolateTrajectoryFrames,
     interpolatedFrameCount,
     normalizeInterpolationMultiplier
-} from './trajectory.js?v=0.4.3';
+} from './trajectory.js?v=0.4.4';
 
 const EDITOR_ROUTES = Object.freeze({
     'structure-info': { group: 'inspect', category: 'scene', title: 'Scene overview' },
@@ -354,6 +354,7 @@ class VAseApp {
                 },
                 atomColorScaleReverse: false,
                 atomColorScaleScope: 'all',
+                atomColorScaleTargetLabel: '',
                 atomColorScaleIndices: [],
                 atomColorScaleAutoRange: true,
                 atomColorScaleRangeMode: 'current',
@@ -1801,7 +1802,7 @@ class VAseApp {
                 this.setAtomColorScaleStatus('Values load only while this option is enabled.');
                 return;
             }
-            this.updateAtomColorScale({ refreshCatalog: true }).catch(error => {
+            this.updateAtomColorScale().catch(error => {
                 this.handleAtomColorScaleError(error);
             });
         });
@@ -1826,17 +1827,24 @@ class VAseApp {
             this.scheduleVisualHistoryCommit('atom-colorscale-reverse');
         });
         scope?.addEventListener('change', () => {
-            this.state.display.atomColorScaleScope = scope.value === 'selected' ? 'selected' : 'all';
-            this.state.display.atomColorScaleIndices = scope.value === 'selected' ? this.selectedAtomIndices() : [];
+            const label = scope.value.startsWith('label:') ? scope.value.slice(6) : '';
+            this.state.display.atomColorScaleScope = scope.value === 'all' ? 'all' : 'selected';
+            this.state.display.atomColorScaleTargetLabel = label;
+            // Both selection and label choices capture base indices. Later frame
+            // count/type changes must never silently reinterpret the target.
+            this.state.display.atomColorScaleIndices = label
+                ? (this.state.atoms?.symbols || []).flatMap((value, index) => value === label ? [index] : [])
+                : scope.value === 'selected' ? this.selectedAtomIndices() : [];
             this.syncAtomColorScaleControls();
-            this.state.display.atomColorScaleRangeMode = 'current';
-            this.state.display.atomColorScaleAutoRange = true;
+            // Target changes preserve locked bounds and the user's range mode.
+            // Automatic modes recompute through the invalidated signature below.
             this.atomColorScaleRuntime.rangeSignature = '';
             this.updateAtomColorScale().catch(error => this.handleAtomColorScaleError(error));
             this.scheduleVisualHistoryCommit('atom-colorscale-scope');
         });
         document.getElementById('btn-atom-colorscale-use-selection')?.addEventListener('click', () => {
             this.state.display.atomColorScaleScope = 'selected';
+            this.state.display.atomColorScaleTargetLabel = '';
             this.state.display.atomColorScaleIndices = this.selectedAtomIndices();
             this.atomColorScaleRuntime.rangeSignature = '';
             this.syncAtomColorScaleControls();
@@ -1901,7 +1909,18 @@ class VAseApp {
         setChecked('chk-atom-colorscale-reverse', display.atomColorScaleReverse);
         setValue('atom-colorscale-field', display.atomColorScaleField || 'position:z');
         setValue('atom-colorscale-map', display.atomColorScaleMap || 'viridis');
-        setValue('atom-colorscale-scope', display.atomColorScaleScope === 'selected' ? 'selected' : 'all');
+        const scope = document.getElementById('atom-colorscale-scope');
+        const labels = [...new Set([...(this.state.atoms?.symbols || []), display.atomColorScaleTargetLabel].filter(Boolean))];
+        const signature = JSON.stringify(labels);
+        if (scope && scope.dataset.labels !== signature) {
+            scope.dataset.labels = signature;
+            scope.replaceChildren(new Option('All atoms', 'all'), new Option('Selected atoms', 'selected'));
+            const group = document.createElement('optgroup'); group.label = 'Labels';
+            labels.forEach(label => group.appendChild(new Option(label, `label:${label}`)));
+            scope.appendChild(group);
+        }
+        setValue('atom-colorscale-scope', display.atomColorScaleScope === 'selected'
+            ? (display.atomColorScaleTargetLabel ? `label:${display.atomColorScaleTargetLabel}` : 'selected') : 'all');
         setValue(
             'atom-colorscale-min',
             this.formatAtomColorScaleValue(
@@ -1941,7 +1960,7 @@ class VAseApp {
         const targets = this.state.display.atomColorScaleIndices || [];
         const targetLabel = document.getElementById('atom-colorscale-scope-count');
         if (targetLabel) targetLabel.textContent = frozen
-            ? `${targets.length} fixed atoms · selection changes do not change this target`
+            ? `${targets.length} atom indices saved · use the button to update from your selection`
             : 'All atoms in each frame';
         const retarget = document.getElementById('btn-atom-colorscale-use-selection');
         if (retarget) retarget.hidden = !frozen;
@@ -2165,6 +2184,12 @@ class VAseApp {
         const select = document.getElementById('atom-radius-mapping-field');
         if (!select) return;
         const requested = this.normalizedAtomRadiusMapping().field;
+        const signature = JSON.stringify([fields, fields.some(item => item.id === requested) ? '' : requested]);
+        if (select.dataset.catalog === signature) {
+            select.value = requested;
+            return;
+        }
+        select.dataset.catalog = signature;
         const groups = new Map();
         fields.forEach(descriptor => {
             const group = descriptor.group || 'Other';
@@ -2438,6 +2463,13 @@ class VAseApp {
         const select = document.getElementById('atom-colorscale-field');
         if (!select) return;
         const requested = this.state.display.atomColorScaleField || 'position:z';
+        const signature = JSON.stringify([fields, fields.some(item => item.id === requested) ? '' : requested]);
+        if (select.dataset.catalog === signature) {
+            select.value = requested;
+            this.populateAtomRadiusFields(fields);
+            return;
+        }
+        select.dataset.catalog = signature;
         const groups = new Map();
         fields.forEach(descriptor => {
             const group = descriptor.group || 'Other';
@@ -2469,6 +2501,9 @@ class VAseApp {
         const select = document.getElementById('atom-colorscale-map');
         if (!select) return;
         const requested = this.state.display.atomColorScaleMap || catalog.default || 'viridis';
+        const signature = JSON.stringify(catalog.maps || []);
+        if (select.dataset.catalog === signature) { select.value = requested; return; }
+        select.dataset.catalog = signature;
         const groups = new Map();
         (catalog.maps || []).forEach(item => {
             const group = item.category || 'Other';
@@ -2501,7 +2536,7 @@ class VAseApp {
         if (this.atomColorScaleRuntime.colormapMenu) this.renderAtomColormapMenu();
     }
 
-    async ensureAtomColorScaleCatalog({ refresh = false } = {}) {
+    async ensureAtomScalarCatalog({ refresh = false } = {}) {
         const runtime = this.atomColorScaleRuntime;
         const catalogKey = this.atomScalarStore.contextKey();
         if (refresh || runtime.catalogKey !== catalogKey) {
@@ -2525,6 +2560,16 @@ class VAseApp {
             }
             await runtime.catalogPromise;
         }
+        // Scalar choices become usable before the optional Matplotlib palette
+        // catalog finishes loading. Ignore replies from a superseded frame.
+        if (runtime.catalogKey !== catalogKey) throw new DOMException('Property catalog superseded.', 'AbortError');
+        this.populateAtomScalarFields(runtime.catalog?.fields || []);
+        return runtime.catalog;
+    }
+
+    async ensureAtomColorScaleCatalog({ refresh = false } = {}) {
+        const catalog = await this.ensureAtomScalarCatalog({ refresh });
+        const runtime = this.atomColorScaleRuntime;
         if (!runtime.colormapCatalog) {
             if (!runtime.colormapCatalogPromise) {
                 runtime.colormapCatalogPromise = this.api.fetchColormapCatalog().then(catalog => {
@@ -2538,9 +2583,8 @@ class VAseApp {
             }
             await runtime.colormapCatalogPromise;
         }
-        this.populateAtomScalarFields(runtime.catalog?.fields || []);
         this.populateColormaps(runtime.colormapCatalog || {});
-        return runtime.catalog;
+        return catalog;
     }
 
     atomColorScaleDescriptor() {
@@ -2925,6 +2969,8 @@ class VAseApp {
         document.getElementById('atom-colorscale-legend-gradient').style.background = `linear-gradient(90deg, ${stops.join(', ')})`;
         const scope = document.getElementById('atom-colorscale-legend-scope');
         scope?.classList.toggle('hidden', this.state.display.atomColorScaleScope !== 'selected');
+        if (scope) scope.textContent = this.state.display.atomColorScaleTargetLabel
+            ? `Label ${this.state.display.atomColorScaleTargetLabel} · saved indices` : 'Selected atoms';
     }
 
     async updateAtomColorScale({
@@ -4959,21 +5005,33 @@ class VAseApp {
         ].join(','));
     }
 
-    commitInputValue(element, { dispatchChange = true } = {}) {
+    commitInputValue(element, { dispatchChange = true, restoreInvalid = false } = {}) {
         if (!this.isCommittableInput(element)) return true;
+        const record = this.controlCommitState.get(element);
+        const dirty = !record || record.dirty || record.value !== element.value;
         const validity = element.validity;
         // step is a spinner increment, not a scientific precision constraint.
         const invalid = validity && (validity.badInput || validity.rangeUnderflow
             || validity.rangeOverflow || validity.valueMissing || validity.patternMismatch
             || validity.typeMismatch || validity.customError);
+        if (invalid && !dirty && this.invalidDraftInput !== element) {
+            // A programmatically populated value is not a user's invalid draft.
+            if (this.invalidDraftInput === element) this.invalidDraftInput = null;
+            return true;
+        }
+        if (invalid && restoreInvalid && record) {
+            element.value = record.value;
+            this.controlCommitState.set(element, { value: element.value, dirty: false });
+            this.invalidDraftInput = null;
+            this.toast('Invalid entry discarded; the previous value is unchanged.', 'warning');
+            return true;
+        }
         if (invalid) {
             this.invalidDraftInput = element;
             this.toast('Finish the invalid field before leaving this control.', 'warning');
             element.focus({ preventScroll: true });
             return false;
         }
-        const record = this.controlCommitState.get(element);
-        const dirty = !record || record.dirty || record.value !== element.value;
         this.controlCommitState.set(element, { value: element.value, dirty: false });
         if (dispatchChange && dirty) {
             element.dispatchEvent(new Event('change', { bubbles: true }));
@@ -5008,8 +5066,14 @@ class VAseApp {
     }
 
     setupInputCommitBehavior() {
+        const passthrough = active => document.getElementById('selection-measure-readout')
+            ?.classList.toggle('selection-through', active);
+        window.addEventListener('keydown', event => { if (event.key === 'Shift') passthrough(true); }, true);
+        window.addEventListener('keyup', event => { if (event.key === 'Shift') passthrough(false); }, true);
+        window.addEventListener('blur', () => passthrough(false));
         document.addEventListener('focusin', event => {
             if (!this.isCommittableInput(event.target)) return;
+            if (this.invalidDraftInput === event.target) return;
             this.controlCommitState.set(event.target, { value: event.target.value, dirty: false });
         }, true);
         document.addEventListener('input', event => {
@@ -5020,6 +5084,13 @@ class VAseApp {
         }, true);
         document.addEventListener('change', event => {
             if (!this.isCommittableInput(event.target)) return;
+            const v = event.target.validity;
+            if (v.badInput || v.rangeUnderflow || v.rangeOverflow || v.valueMissing
+                || v.patternMismatch || v.typeMismatch || v.customError) {
+                // Invalid drafts must not reach feature-specific change handlers.
+                event.stopImmediatePropagation();
+                return;
+            }
             this.controlCommitState.set(event.target, { value: event.target.value, dirty: false });
         }, true);
         document.addEventListener('keydown', event => {
@@ -6097,6 +6168,8 @@ class VAseApp {
     }
 
     openEditorRoute(route, { focus = null } = {}) {
+        const draft = this.invalidDraftInput?.isConnected ? this.invalidDraftInput : document.activeElement;
+        if (this.isCommittableInput(draft) && !this.commitInputValue(draft, { restoreInvalid: true })) return;
         const description = EDITOR_ROUTES[route];
         if (!description) return false;
         document.body.classList.remove('editor-search-open');
@@ -6193,9 +6266,9 @@ class VAseApp {
             return true;
         }
         const active = this.isCommittableInput(target) ? target : document.activeElement;
-        if (this.isCommittableInput(active) && !this.commitInputValue(active)) return true;
+        if (this.isCommittableInput(active) && !this.commitInputValue(active, { restoreInvalid: Boolean(command.section) })) return true;
         if (this.invalidDraftInput?.isConnected && this.invalidDraftInput !== active
-            && !this.commitInputValue(this.invalidDraftInput)) return true;
+            && !this.commitInputValue(this.invalidDraftInput, { restoreInvalid: Boolean(command.section) })) return true;
         if (command.section) {
             const focus = commandId === 'renderer'
                 && this.currentImageExportProfile().options.scaleMode === 'physical'
@@ -11470,6 +11543,9 @@ class VAseApp {
             
             this.updateSelectionVisuals();
             this.updateDocumentAvailability();
+            this.ensureAtomScalarCatalog().catch(error => {
+                if (error?.name !== 'AbortError') this.setAtomColorScaleStatus(error.message, 'error');
+            });
             if (this.state.exportPreviewEnabled) this.syncImageExportPreview();
             this.notifyWorkspaceDocument();
             this.scheduleDisplacementAnalysisRefresh();
@@ -11662,7 +11738,8 @@ class VAseApp {
                 : (this.canShowAutomaticGeometry(selectedEntries) ? 'MEASURE' : 'SELECT');
         }
         const summary = this.getSelectionMeasureSummary(selectedEntries);
-        readoutValue.innerText = summary;
+        readoutValue.innerText = selectedEntries.length === 1 ? detail : summary;
+        readout.classList.toggle('single-atom-properties', selectedEntries.length === 1);
         readoutValue.title = selectedEntries.length === 1 ? detail : summary;
         readout.classList.toggle('hidden', selectedEntries.length === 0);
         if (selectedEntries.length === 1) this.ensureSingleSelectionProperties(selectedEntries[0]);
@@ -12428,7 +12505,11 @@ class VAseApp {
         if (topologyChanged) this.state.measurementIntent = { kind: 'none', keys: [] };
         const previousCount = this.state.atoms?.positions?.length || 0;
         const nextCount = data?.positions?.length || 0;
-        if (previousCount && this.state.display.atomRadiusMapping?.scope === 'indices') {
+        // A coordinate/label refresh on a short frame must not prune targets
+        // belonging to indices present in other frames of this same document.
+        const preserveAbsentTargets = !resetTrajectoryIdentity && !radiusScopeRemap
+            && nextCount === previousCount;
+        if (!trajectoryFrame && previousCount && this.state.display.atomRadiusMapping?.scope === 'indices') {
             const mapping = this.normalizedAtomRadiusMapping();
             const previous = new Set(mapping.indices);
             let remapped = null;
@@ -12455,7 +12536,7 @@ class VAseApp {
                 this.state.display.atomRadiusMapping = {
                     ...mapping,
                     indices: [...new Set(remapped.filter(index => Number.isInteger(index)
-                        && index >= 0 && index < nextCount))].sort((a, b) => a - b)
+                        && index >= 0 && (preserveAbsentTargets || index < nextCount)))].sort((a, b) => a - b)
                 };
             } else {
                 this.state.display.atomRadiusMapping = { ...mapping, enabled: false, indices: [] };
@@ -12465,7 +12546,7 @@ class VAseApp {
                 );
             }
         }
-        if (previousCount && this.state.display.atomColorScaleScope === 'selected') {
+        if (!trajectoryFrame && previousCount && this.state.display.atomColorScaleScope === 'selected') {
             const mapping = {indices: this.state.display.atomColorScaleIndices || []};
             const previous = new Set(mapping.indices);
             let remapped = null;
@@ -12490,7 +12571,7 @@ class VAseApp {
             }
             if (remapped !== null) {
                 this.state.display.atomColorScaleIndices = [...new Set(remapped.filter(index => Number.isInteger(index)
-                    && index >= 0 && index < nextCount))].sort((a, b) => a - b);
+                    && index >= 0 && (preserveAbsentTargets || index < nextCount)))].sort((a, b) => a - b);
             } else {
                 this.state.display.atomColorScaleIndices = [];
                 this.setAtomColorScaleStatus('Document identity changed; choose color targets again.');
@@ -12596,6 +12677,9 @@ class VAseApp {
             });
         }
         this.updateDocumentAvailability();
+        this.ensureAtomScalarCatalog().catch(error => {
+            if (error?.name !== 'AbortError') this.setAtomColorScaleStatus(error.message, 'error');
+        });
         this.scheduleDisplacementAnalysisRefresh();
         this.updateForceVectorStatus();
         this.observeCollaborationFrame();
@@ -13699,6 +13783,26 @@ class VAseApp {
         return camera;
     }
 
+    viewOutputCamera() {
+        if (!this.state.exportPreviewCamera) this.captureRenderAreaCamera({ syncPreview: false });
+        // Camera view is an editor zoom of a fixed output composition. Fitting
+        // must not change output px/Å, optics, position, or saved dimensions.
+        this.state.exportPreviewFollowViewport = false;
+        this.state.exportPreviewEnabled = true;
+        const profile = this.currentImageExportProfile();
+        const composition = this.renderer.exportCompositionSnapshot(profile.width, profile.height,
+            {...profile.options, camera: this.state.exportPreviewCamera});
+        this.applyCameraSettings(composition.camera, { syncScale: false });
+        const size = this.renderer.containerSize();
+        const fit = 0.82 * Math.min(1, (size.width / size.height) / (profile.width / profile.height));
+        this.renderer.camera.zoom *= fit;
+        this.renderer.camera.updateProjectionMatrix();
+        this.syncAtomicScaleFromCamera({ forceInput: true });
+        this.setRenderAreaSelected(false, { update: false });
+        this.syncImageExportPreview();
+        this.scheduleVisualHistoryCommit('view-output-camera');
+    }
+
     setRenderAreaSelected(selected, { update = true } = {}) {
         const next = Boolean(selected && this.state.exportPreviewEnabled);
         this.state.renderAreaSelected = next;
@@ -13732,7 +13836,16 @@ class VAseApp {
         const follow = document.getElementById('render-area-follow-view');
         if (follow) follow.checked = Boolean(this.state.exportPreviewFollowViewport);
         const savedCamera = document.getElementById('btn-render-area-from-view');
-        if (savedCamera) savedCamera.hidden = Boolean(this.state.exportPreviewFollowViewport);
+        if (savedCamera) savedCamera.disabled = !this.state.exportPreviewCamera;
+        const help = document.getElementById('render-area-mode-help');
+        if (help) help.textContent = this.state.exportPreviewFollowViewport
+            ? 'Following view · orbit and axis views move the output camera.'
+            : 'Fixed in space · orbit, axis views and zoom only change your editing view. Wheel zoom in camera view leaves the output unchanged.';
+        this.renderer.controls.zoomInPlace = () => Boolean(
+            !this.state.exportPreviewFollowViewport && this.state.exportPreviewEnabled
+            && this.renderer.exportPreviewCamera
+            && this.renderer.exportPreviewCamera.quaternion.angleTo(this.renderer.camera.quaternion) < 1e-5
+        );
         const options = document.querySelector('.render-area-options');
         options?.classList.toggle('active', Boolean(this.state.exportPreviewEnabled));
         this.renderer.setRenderAreaGizmo?.(this.state.exportPreviewCamera, {
@@ -14232,7 +14345,7 @@ class VAseApp {
         };
         return [
             'Per-atom properties:',
-            ...properties.map(property => {
+            ...properties.slice().sort((a, b) => Number(a.source === 'ase') - Number(b.source === 'ase')).map(property => {
                 const source = sourceLabels[property.source] || property.source || 'Property';
                 const unit = property.unit ? ` ${property.unit}` : '';
                 return `[${source}] ${property.name} = ${this.formatMeasurePropertyValue(property.value)}${unit}`;
@@ -20499,6 +20612,7 @@ class VAseApp {
                 atomColorScaleCustomMap: customMap,
                 atomColorScaleReverse: operation.reverse === true,
                 atomColorScaleScope: scope,
+                atomColorScaleTargetLabel: '',
                 atomColorScaleIndices: fixedIndices,
                 atomColorScaleAutoRange: rangeMode !== 'manual',
                 atomColorScaleRangeMode: rangeMode,
@@ -22894,9 +23008,6 @@ class VAseApp {
                 const mapping = this.normalizedAtomRadiusMapping(
                     nextDisplay.atomRadiusMapping ?? DEFAULT_ATOM_RADIUS_MAPPING
                 );
-                if (mapping.scope === 'indices') {
-                    mapping.indices = mapping.indices.filter(index => index < atomCount);
-                }
                 return mapping;
             })(),
             atomRadiusScales,
@@ -22914,11 +23025,11 @@ class VAseApp {
             ),
             atomColorScaleReverse: Boolean(nextDisplay.atomColorScaleReverse),
             atomColorScaleScope: nextDisplay.atomColorScaleScope === 'selected' ? 'selected' : 'all',
+            atomColorScaleTargetLabel: String(nextDisplay.atomColorScaleTargetLabel || ''),
             atomColorScaleIndices: Array.isArray(nextDisplay.atomColorScaleIndices)
                 ? [...new Set(nextDisplay.atomColorScaleIndices.map(Number))].filter(
                     index => Number.isInteger(index)
                         && index >= 0
-                        && index < (this.state.atoms?.positions?.length || 0)
                 )
                 : [],
             atomColorScaleAutoRange: ['current', 'trajectory'].includes(nextDisplay.atomColorScaleRangeMode)
@@ -26126,6 +26237,7 @@ class VAseApp {
             }
             if (!isProject && settings?.display?.atomColorScaleScope === 'selected') {
                 settings.display.atomColorScaleIndices = [];
+                settings.display.atomColorScaleTargetLabel = '';
             }
             this.state.labelOrder = [];
             this.state.trajectoryBinaryCache = null;
@@ -26553,6 +26665,7 @@ class VAseApp {
         if (button) {
             button.setAttribute('aria-pressed', enabled ? 'true' : 'false');
             button.title = enabled ? 'Hide Render Area' : 'Show the exact exported Render Area';
+            button.textContent = enabled ? 'Hide output frame' : 'Show output frame';
         }
         if (!enabled) this.setRenderAreaSelected(false, { update: false });
         this.syncRenderAreaControls();
@@ -27336,6 +27449,10 @@ class VAseApp {
         if (![outputWidth, outputHeight].every(value => Number.isInteger(value) && value >= 64 && value <= 8192 && value % 2 === 0)) {
             throw new Error('Video width and height must be even integers from 64 through 8192.');
         }
+        const effectiveRender = this.aiEffectiveRenderSnapshot({
+            width: outputWidth, height: outputHeight, requestOptions: renderOptions
+        });
+        renderOptions = effectiveRender.options;
         const outputFps = Number(fps ?? 12);
         if (!Number.isFinite(outputFps) || outputFps < 1 || outputFps > 60) throw new Error('Video fps must be between 1 and 60.');
         const requestedFactor = Number(interpolationMultiplier);
@@ -27416,7 +27533,7 @@ class VAseApp {
             video.vaseMetadata = {width: outputWidth, height: outputHeight, fps: outputFps,
                 frameCount: outputFrameCount, sourceFrameCount, startFrame: firstFrame, endFrame: lastFrame, loop,
                 interpolationMultiplier: interpolationFactor, interpolationMic,
-                captureMode: 'indexed-png'};
+                captureMode: 'indexed-png', camera: this.clonePlain(effectiveRender.camera), effectiveRender};
             if (returnBlob) {
                 this.setBusyProgress(100, {message: 'Video export complete.', etaSeconds: 0, complete: true});
                 await new Promise(resolve => setTimeout(resolve, 160));
@@ -28093,7 +28210,7 @@ class VAseApp {
         document.getElementById('btn-preview-image').onclick = () => {
             this.state.exportPreviewProfile = null;
             this.state.exportPreviewEnabled = !this.state.exportPreviewEnabled;
-            if (this.state.exportPreviewEnabled) {
+            if (this.state.exportPreviewEnabled && (this.state.exportPreviewFollowViewport || !this.state.exportPreviewCamera)) {
                 this.captureRenderAreaCamera({ syncPreview: false });
             } else {
                 this.setRenderAreaSelected(false, { update: false });
@@ -28102,18 +28219,19 @@ class VAseApp {
         };
         document.getElementById('render-area-follow-view')?.addEventListener('change', event => {
             this.state.exportPreviewFollowViewport = Boolean(event.target.checked);
-            if (this.state.exportPreviewFollowViewport) {
-                this.captureRenderAreaCamera({ syncPreview: false });
-            }
+            // Switching to fixed captures the physical pose visible right now.
+            this.captureRenderAreaCamera({ syncPreview: false });
             this.syncImageExportPreview();
             if (this.editorRoute === 'export') this.syncProjectHtmlProfileFromRenderer();
             this.scheduleVisualHistoryCommit('render-area-follow');
         });
-        document.getElementById('btn-render-area-from-view')?.addEventListener('click', () => {
-            if (this.state.exportPreviewCamera) this.applyCameraSettings(this.state.exportPreviewCamera);
-            this.setRenderAreaSelected(false, { update: false });
-            this.syncImageExportPreview();
+        document.getElementById('btn-render-area-align-view')?.addEventListener('click', () => {
+            this.state.exportPreviewFollowViewport = false;
+            this.captureRenderAreaCamera();
+            this.syncRenderAreaControls();
+            this.scheduleVisualHistoryCommit('output-camera-to-view');
         });
+        document.getElementById('btn-render-area-from-view')?.addEventListener('click', () => this.viewOutputCamera());
         document.getElementById('render-area-eye')?.addEventListener('click', event => {
             event.preventDefault();
             event.stopPropagation();

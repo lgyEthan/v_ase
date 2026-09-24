@@ -171,7 +171,8 @@ def test_renderer_route_controls_committed_physical_scale_without_viewport_zoom_
             })''')
             page.keyboard.press('Control+Shift+a')
             visible_controls = page.evaluate('''() => {
-                const ids = ['renderer-pixels-per-angstrom', 'renderer-lighting-mode'];
+                // Output is the navigation target; lighting remains in its own scrollable section.
+                const ids = ['renderer-pixels-per-angstrom', 'renderer-framing-mode'];
                 return ids.map(id => {
                     const rect = document.getElementById(id).getBoundingClientRect();
                     return rect.width > 0 && rect.height > 0 && rect.top >= 0
@@ -355,7 +356,7 @@ def test_build_and_analyze_routes_expose_distinct_property_bodies():
         editor.close()
 
 
-def test_required_shortcuts_commit_valid_fields_retain_invalid_drafts_and_block_transforms():
+def test_required_shortcuts_commit_valid_fields_discard_invalid_drafts_and_block_transforms():
     editor = view(Atoms('H', positions=[[0, 0, 0]], cell=[6, 6, 6], pbc=True),
                   notebook=True, block=False, port=find_free_port(),
                   close_on_disconnect=False, viz_only=False)
@@ -369,8 +370,9 @@ def test_required_shortcuts_commit_valid_fields_retain_invalid_drafts_and_block_
             repeat = page.locator('#super-x')
             repeat.fill('0')
             repeat.press('Control+Shift+p')
-            assert page.evaluate("document.activeElement?.id") == 'super-x'
-            assert page.evaluate('window.__ASE_APP__.editorRoute') == 'cell-replication'
+            page.wait_for_function("window.__ASE_APP__.editorRoute === 'appearance'")
+            assert page.evaluate('window.__ASE_APP__.state.display.supercell[0]') == 1
+            page.keyboard.press('Control+Shift+b')
             repeat.fill('2')
             repeat.press('Control+Shift+p')
             page.wait_for_function("document.activeElement?.id === 'atom-radius-scale-number'")

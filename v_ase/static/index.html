@@ -52,14 +52,14 @@
             });
         })();
     </script>
-    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.4.3">
-    <link id="editor-style" rel="stylesheet" href="static/editor.css?v=0.4.3">
-    <link id="direct-workspace-style" rel="stylesheet" href="static/direct_workspace.css?v=0.4.3">
+    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.4.4">
+    <link id="editor-style" rel="stylesheet" href="static/editor.css?v=0.4.4">
+    <link id="direct-workspace-style" rel="stylesheet" href="static/direct_workspace.css?v=0.4.4">
     <script>
         window.__V_ASE_MOCK__ = new URLSearchParams(window.location.search).has('v_ase_mock');
         const threeModulePath = window.location.protocol === 'file:'
             ? './vendor/three.module.js'
-            : '/static/vendor/three.module.js?v=0.4.3';
+            : '/static/vendor/three.module.js?v=0.4.4';
         const importMap = document.createElement('script');
         importMap.type = 'importmap';
         importMap.textContent = JSON.stringify({
@@ -159,7 +159,7 @@
     <header id="top-bar" class="glass-panel">
         <div class="logo">
             <img class="brand-logo-asset" src="static/v_ase-logo.png" alt="v_ase">
-            <span class="version">0.4.3</span>
+            <span class="version">0.4.4</span>
         </div>
         <nav id="editor-menu-bar" class="editor-menu-bar" aria-label="Document commands">
             <details><summary>File</summary><div class="editor-menu-popover">
@@ -1528,7 +1528,7 @@
                             <span>Apply to</span>
                             <select id="atom-colorscale-scope">
                                 <option value="all">All atoms</option>
-                                <option value="selected">Fixed atom selection</option>
+                                <option value="selected">Selected atoms</option>
                             </select>
                         </label>
                     </div>
@@ -2102,6 +2102,29 @@
         <section class="panel-section export-section" data-panel="export" data-panel-group="export">
             <div class="renderer-properties">
                 <div class="section-header static-header">Renderer</div>
+                <div class="export-group rendered-output-group renderer-output-group">
+                    <div class="panel-subhead">Output frame &amp; scale</div>
+                    <div class="relax-grid export-dimensions">
+                        <label for="image-width">Width</label><input type="number" id="image-width" value="1920" step="128" min="256" max="8192">
+                        <label for="image-height">Height</label><input type="number" id="image-height" value="1080" step="128" min="256" max="8192">
+                    </div>
+                    <div class="prop-row"><label for="renderer-framing-mode">Framing</label>
+                        <select id="renderer-framing-mode"><option value="viewport">Viewport</option><option value="physical">Physical scale</option></select></div>
+                    <div class="prop-row"><label for="renderer-pixels-per-angstrom">Output scale</label>
+                        <span class="unit-input"><input id="renderer-pixels-per-angstrom" type="number" min="0.1" max="5000" step="0.1" aria-label="Output pixels per angstrom"><span>px/Å</span></span></div>
+                    <div class="renderer-subsection">
+                        <div class="mapping-subhead">Output camera</div>
+                        <button id="btn-preview-image" class="btn-block export-preview-toggle" type="button" aria-pressed="false" data-requires-atoms>Show output frame</button>
+                        <div class="render-area-options">
+                            <label class="check-row" for="render-area-follow-view"><span>Camera follows editing view</span><input type="checkbox" id="render-area-follow-view" checked></label>
+                            <p id="render-area-mode-help" class="panel-note"></p>
+                            <div class="render-camera-actions">
+                                <button id="btn-render-area-align-view" type="button" data-requires-atoms title="Place the output camera at the current editing viewpoint">Camera to view</button>
+                                <button id="btn-render-area-from-view" type="button" data-requires-atoms title="Look through the output camera and fit its frame on screen">View camera</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
                 <div class="export-group renderer-lighting-group">
                     <div class="panel-subhead">Lighting</div>
                     <div class="prop-row"><label for="renderer-lighting-mode">Mode</label>
@@ -2125,28 +2148,13 @@
                         <select id="renderer-sphere-quality"><option value="viewport">Viewport quality</option><option value="auto">Automatic</option><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="ultra">Ultra</option></select></div>
                     <label class="check-row" for="renderer-antialias"><span>Anti-aliasing</span><input id="renderer-antialias" type="checkbox"></label>
                 </div>
-                <div class="export-group rendered-output-group renderer-output-group">
-                    <div class="panel-subhead">Output frame &amp; scale</div>
-                    <div class="relax-grid export-dimensions">
-                        <label for="image-width">Width</label><input type="number" id="image-width" value="1920" step="128" min="256" max="8192">
-                        <label for="image-height">Height</label><input type="number" id="image-height" value="1080" step="128" min="256" max="8192">
-                    </div>
-                    <div class="prop-row"><label for="renderer-framing-mode">Framing</label>
-                        <select id="renderer-framing-mode"><option value="viewport">Viewport</option><option value="physical">Physical scale</option></select></div>
-                    <div class="prop-row"><label for="renderer-pixels-per-angstrom">Output scale</label>
-                        <span class="unit-input"><input id="renderer-pixels-per-angstrom" type="number" min="0.1" max="5000" step="0.1" aria-label="Output pixels per angstrom"><span>px/Å</span></span></div>
-                </div>
                 <div class="export-group renderer-extras-group">
-                        <div class="panel-subhead">Overlays, background &amp; render area</div>
+                        <div class="panel-subhead">Overlays &amp; background</div>
                         <label class="check-row" for="renderer-include-grid"><span>Include grid</span><input id="renderer-include-grid" type="checkbox"></label>
                         <label class="check-row" for="renderer-include-axes"><span>Include axes</span><input id="renderer-include-axes" type="checkbox"></label>
                         <label class="check-row" for="renderer-include-cell"><span>Include cell</span><input id="renderer-include-cell" type="checkbox" checked></label>
                         <div class="prop-row"><label for="renderer-background">Background</label><input id="renderer-background" type="color" value="#ffffff"></div>
-                        <button id="btn-preview-image" class="btn-block export-preview-toggle" type="button" aria-pressed="false" data-requires-atoms>Show output frame</button>
-                        <p class="panel-note">The outline marks the exported region of this canvas. Select and edit atoms normally. A saved camera is shown when you align the editing view to it.</p><div class="render-area-options">
-                            <label class="check-row" for="render-area-follow-view"><span>Follow editing view</span><input type="checkbox" id="render-area-follow-view" checked></label>
-                            <button id="btn-render-area-from-view" class="btn-block" type="button" data-requires-atoms>View saved output camera</button>
-                        </div>
+
                 </div>
             </div>
             <div class="export-group renderer-format-config renderer-image-config">
@@ -2449,7 +2457,7 @@
         }
         const modulePath = (window.location.protocol === 'file:' || window.location.pathname.endsWith('/static/index.html'))
             ? './main.js'
-            : './static/main.js?v=0.4.3';
+            : './static/main.js?v=0.4.4';
         import(modulePath).catch(error => {
             console.error('v_ase failed to initialize:', error?.stack || error);
         });

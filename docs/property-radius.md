@@ -10,6 +10,8 @@ cell. It can be used alongside the independent property colorscale.
 2. Choose **All atoms** or freeze the current selected base-atom indices. A
    frozen scope does not follow later selection changes. Deleting, duplicating
    or materializing an editable supercell remaps that scope by atom provenance.
+   During playback, indices persist across atom-count and element changes; an
+   absent index is ignored in that frame and resumes when it appears again.
 3. Choose identity or absolute-value transform. **Fit current frame** scans
    the displayed frame; **Fit trajectory** scans the loaded compatible frames
    without requiring a full trajectory cube in browser memory. Missing values

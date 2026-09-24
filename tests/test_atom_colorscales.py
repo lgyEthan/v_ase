@@ -214,8 +214,9 @@ def test_single_atom_measure_lists_current_frame_properties_lazily():
             assert "[Calculator] charges = 0.3 e" in first_measure
             assert "[Calculator] energies = -1.1 eV" in first_measure
             summary = page.locator("#selection-measure-value").inner_text()
-            assert summary.startswith("Element O | Label O_site | #1 | Position ")
-            assert "properties" not in summary.lower()
+            assert "Element: O" in summary and "Label: O_site" in summary
+            assert "[ASE array] descriptor = [3, 4]" in summary
+            assert "[Calculator] charges = 0.3 e" in summary
             if path := os.environ.get("V_ASE_SINGLE_MEASURE_QA_SCREENSHOT"):
                 page.screenshot(path=path, full_page=True)
             assert len(property_requests) == 1
@@ -524,7 +525,7 @@ def test_browser_colorscale_is_lazy_selection_scoped_frame_aware_and_reversible(
 
             assert not [
                 url for url in requests
-                if "/api/analysis/atom-scalars/" in url or "/api/analysis/colormaps/" in url
+                if "/api/analysis/atom-scalars/values/" in url or "/api/analysis/colormaps/" in url
             ]
             base_colors = page.evaluate("""() => [0, 1, 2].map(index => (
                 window.__ASE_APP__.renderer.atomVisualColor(index)
@@ -746,7 +747,7 @@ def test_browser_colorscale_is_lazy_selection_scoped_frame_aware_and_reversible(
 
             request_count = len([
                 url for url in requests
-                if "/api/analysis/atom-scalars/" in url or "/api/analysis/colormaps/" in url
+                if "/api/analysis/atom-scalars/values/" in url or "/api/analysis/colormaps/" in url
             ])
             page.evaluate("""() => {
                 const input = document.getElementById('chk-atom-colorscale');
@@ -768,7 +769,7 @@ def test_browser_colorscale_is_lazy_selection_scoped_frame_aware_and_reversible(
             page.wait_for_timeout(100)
             assert len([
                 url for url in requests
-                if "/api/analysis/atom-scalars/" in url or "/api/analysis/colormaps/" in url
+                if "/api/analysis/atom-scalars/values/" in url or "/api/analysis/colormaps/" in url
             ]) == request_count
 
             capabilities = page.evaluate("window.v_aseAI.capabilities()")
@@ -1029,3 +1030,36 @@ def test_fresh_project_open_applies_stored_scalar_colors_before_ready(tmp_path):
             browser.close()
     finally:
         editor.close()
+
+
+def test_saved_color_indices_override_live_selection_in_offline_frames():
+    from v_ase.export import _html_atom_color_scale_frames
+    frames = []
+    for symbols, values in [('H2', [.2, .8]), ('He', [.4]), ('CO', [.3, .7])]:
+        atoms = Atoms(symbols, positions=np.zeros((len(values), 3)))
+        atoms.new_array('existence', np.array(values))
+        frames.append(atoms)
+    settings = {'display': {'atomColorScaleEnabled': True,
+        'atomColorScaleField': 'array::existence::scalar', 'atomColorScaleScope': 'selected',
+        'atomColorScaleIndices': [1], 'atomColorScaleRangeMode': 'manual',
+        'atomColorScaleMin': 0, 'atomColorScaleMax': 1}}
+    result = _html_atom_color_scale_frames(frames, settings, [0])
+    assert result[0]['colors'][0] is None
+    assert result[0]['colors'][1]
+    assert result[1] is None or result[1]['colors'] == [None]
+    assert result[2]['colors'][0] is None
+    assert result[2]['colors'][1]
+
+
+def test_trajectory_range_keeps_indices_absent_from_current_short_frame():
+    from v_ase.server import _session_atom_scalar_range
+    first = Atoms('H', positions=[[0, 0, 0]])
+    second = Atoms('CO', positions=[[0, 0, 0], [1, 0, 0]])
+    first.new_array('existence', np.array([.2]))
+    second.new_array('existence', np.array([.3, .7]))
+    session = EditorSession('short-current-frame', first.copy(), first.copy(),
+        original_frames=[first.copy(), second.copy()], trajectory_frames=[first.copy(), second.copy()])
+    result = _session_atom_scalar_range(session, {'field_id': 'array::existence::scalar',
+        'frame_index': 0, 'all_frames': True, 'indices': [1]})
+    assert result['finite_values'] == 1
+    assert result['minimum'] < .7 < result['maximum']

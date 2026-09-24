@@ -1,7 +1,7 @@
 {
   "name": "v-ase-desktop",
   "productName": "v_ase",
-  "version": "0.4.3",
+  "version": "0.4.4",
   "private": true,
   "description": "The v_ase scientific editor with native desktop shortcuts and file dialogs",
   "author": "v_ase contributors",

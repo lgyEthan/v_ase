@@ -1,5 +1,27 @@
 # What is new
 
+## 0.4.4
+
+- Clarify colorscale targets with **Selected atoms**, an explicit **Use current
+  selection** button, and label choices that capture base indices. Preserve
+  manual bounds and the chosen range mode when changing targets.
+- Retain color and radius targets through trajectories with changing atom
+  counts and elements, including saved projects at a shorter frame. Missing
+  indices resume their mapping when they return. Match these targets in HTML.
+- Preload scalar metadata and retain dropdown options for faster property
+  selection. Show all stored single-atom properties, including custom arrays
+  such as existence, in the scrollable bottom readout.
+- Put the output guide and camera controls inside **Output frame & scale**,
+  separate from Lighting, Quality, and Overlays & background.
+- Add **Camera to view** and **View camera**. A fixed physical output camera
+  stays independent of editing orbit, axis views, pan and zoom; looking through
+  it fits the whole output frame. Follow mode continues to track editing views.
+- Use the same saved camera for PNG and default video/GIF output. Report the
+  effective camera in video metadata and verify GIF framing against PNG output.
+- Let settings navigation recover from invalid drafts without applying them,
+  preserving Command/Ctrl+Shift+P and Command/Ctrl+Shift+A. Save and explicit
+  commits continue to reject invalid scientific values.
+
 ## 0.4.3
 
 - Distinguish the castle application icon from paper-shaped VASE/ATOM document

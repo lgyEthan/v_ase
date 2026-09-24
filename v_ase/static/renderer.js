@@ -393,7 +393,7 @@ class BlenderTumbleControls {
 
     doZoom(deltaY) {
         const factor = Math.exp(deltaY * this.zoomSpeed);
-        if (this.camera.isOrthographicCamera) {
+        if (this.camera.isOrthographicCamera || this.zoomInPlace?.()) {
             this.camera.zoom = Math.max(1e-4, Math.min(1e5, this.camera.zoom / factor));
             this.camera.updateProjectionMatrix();
             this.onChange?.();
@@ -3158,14 +3158,18 @@ export class ASERenderer {
 
     exportPreviewRect(width, height, exportView = this.exportCameraSetup(width, height, this.exportPreview?.options || {})) {
         const { width: canvasWidth, height: canvasHeight } = this.containerSize();
-        // Project the output's field of view into the existing editor camera.
-        // No second scene, inspector-dependent repositioning or picking camera.
-        const view = this.camera.projectionMatrix.elements;
-        const output = exportView.camera.projectionMatrix.elements;
-        const frameWidth = canvasWidth * Math.abs(view[0] / output[0]);
-        const frameHeight = canvasHeight * Math.abs(view[5] / output[5]);
-        return { left: (canvasWidth - frameWidth) / 2, top: (canvasHeight - frameHeight) / 2,
-            width: frameWidth, height: frameHeight, canvasWidth, canvasHeight };
+        // Project the output plane at its target into the editing view. Unlike
+        // a projection-matrix ratio this also handles viewport pan/dolly and
+        // orthographic/perspective changes without moving the output camera.
+        const camera = exportView.camera;
+        const depth = exportView.target.clone().project(camera).z;
+        const points = [[-1, -1], [-1, 1], [1, -1], [1, 1]].map(([x, y]) =>
+            new THREE.Vector3(x, y, depth).unproject(camera).project(this.camera));
+        const xs = points.map(p => (p.x + 1) * canvasWidth / 2);
+        const ys = points.map(p => (1 - p.y) * canvasHeight / 2);
+        const left = Math.min(...xs), top = Math.min(...ys);
+        return { left, top, width: Math.max(...xs) - left, height: Math.max(...ys) - top,
+            canvasWidth, canvasHeight };
     }
 
     updateExportPreviewFrame(rect) {
@@ -3452,8 +3456,7 @@ export class ASERenderer {
         if (!this.exportPreview?.enabled || !this.exportPreviewFrame) return;
         const { width, height, options } = this.exportPreview;
         const exportView = this.exportCameraSetup(width, height, options);
-        const aligned = exportView.camera.position.distanceTo(this.camera.position) < 1e-5
-            && exportView.camera.quaternion.angleTo(this.camera.quaternion) < 1e-5;
+        const aligned = exportView.camera.quaternion.angleTo(this.camera.quaternion) < 1e-5;
         this.exportPreviewFrame.classList.toggle('hidden', !aligned);
         this.domElement.dataset.exportGuideAligned = String(aligned);
         const rect = this.exportPreviewRect(width, height, exportView);

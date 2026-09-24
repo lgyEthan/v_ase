@@ -188,14 +188,19 @@ Set `followViewport:true` while composing, or provide an explicit
 `renderArea.camera` with `position`, `target`, `up`, `projection`, and the
 matching projection fields. `describe().renderArea` reports `enabled`,
 `followViewport`, camera, width, and height. The GUI draws a crop guide only when the editing and output cameras align.
-Picking always uses the editing viewport. Use View saved output camera to align
-them; never infer the crop from an unrelated page screenshot.
+With `followViewport:false`, editor orbit/zoom/axis changes preserve the output
+pose and px/Å. GUI Camera to view is `renderArea:{fromCurrentView:true}`;
+GUI View camera is editor-only alignment/fit and switches followViewport off.
+Picking always uses the editing viewport. Use View camera to align and fit the editing view without changing output
+scale; never infer the crop from an unrelated page screenshot.
 
 Use `describe --profile render` before export. `effectiveRender.source` reports
 whether pixels will use an `explicit-request`, active `render-area`, retained
 `image-export-profile`, or `viewport` camera. `render` accepts
 `cameraSource:"auto"|"viewport"|"render-area"|"image-export"|"explicit"`;
-the result returns the exact effective camera used. `explicit` requires
+the result returns the exact effective camera used. Video/GIF also defaults to
+that saved camera and reports `camera` and `effectiveRender`; an explicit
+`options.camera` overrides it. `explicit` requires
 `options.camera`. Never compare a viewport camera to pixels produced by a
 different stored export camera.
 

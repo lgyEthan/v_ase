@@ -51,16 +51,23 @@ canvas. It does not draw another scene or introduce another picking camera.
 Select, move and measure atoms normally inside or outside the guide; opening
 or resizing the inspector does not shift its composition.
 
-- **Follow editing view** keeps the export camera synchronized with orbit,
-  pan, zoom and alignment.
-- Disable it to preserve an output camera. When the editing camera differs,
-  the guide is hidden instead of displaying an unrelated miniature scene.
-  **View saved output camera** aligns the editable canvas to it.
-- Existing semantic saved-camera operations and the camera-eye transform remain
-  available. Export lighting, overlays and transparency are applied when rendering;
-  the guide indicates geometry and crop rather than overriding editor shading.
-- The guide can extend beyond the visible canvas for a wider output aspect or
-  physical span. Its camera projection still defines the complete export.
+The frame toggle, dimensions, px/Å and camera controls live together under
+**Output frame & scale**. Lighting, Quality and Overlays are separate sections.
+
+- **Camera follows editing view** keeps the output camera synchronized with orbit,
+  pan, zoom and X/Y/Z alignment. Turn it off to capture the current physical pose.
+- **Camera to view** places and fixes the output camera at your current editing viewpoint.
+- **View camera** looks through the saved camera and fits the whole output frame
+  on screen, switching to fixed mode. Scrolling changes only the editor zoom;
+  output pixels per Å and composition stay unchanged, including in perspective.
+- In fixed mode, X/Y/Z, orbit and pan do not modify the saved output camera.
+  The crop guide hides when looking from another angle; the camera gizmo remains.
+  Use **View camera** to return, or **Camera to view** to deliberately replace the pose.
+- Output lighting, overlays and transparency are applied when rendering; the guide
+  indicates geometry and crop without overriding editor shading or atom editing.
+
+The distinction between navigating a camera view and moving the camera follows
+[Blender's camera-view interaction](https://docs.blender.org/manual/en/latest/editors/3dview/navigate/camera_view.html).
 
 For exact physical sizing, choose **Physical scale** and enter output px/Å on
 the Renderer page. The Image, Video and Interactive HTML routes also show

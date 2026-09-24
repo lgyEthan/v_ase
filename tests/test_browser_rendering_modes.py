@@ -3820,6 +3820,9 @@ def test_shift_box_and_shift_select_all_invert_existing_selection():
             page = browser.new_page(viewport={"width": 1200, "height": 820})
             page.goto(f"http://127.0.0.1:{port}/?session_id={editor.session_id}")
             page.wait_for_function("window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 4")
+            # Mesh creation precedes removal of the startup overlay. A raw mouse
+            # drag must start on the ready canvas, not on the still-visible loader.
+            page.locator("#busy-overlay").wait_for(state="hidden")
             bounds = page.evaluate("""() => {
                 const app = window.__ASE_APP__;
                 app.clearAtomSelection();
@@ -7407,8 +7410,8 @@ def test_grid_button_and_ordered_distance_angle_torsion_measurements():
             assert "[ASE] atomic_number = 1" in one["detail"]
             assert "[ASE] mass = " in one["detail"]
             assert "[ASE] tag = 0" in one["detail"]
-            assert one["summary"].startswith("Element H | Label H | #0 | Position ")
-            assert "properties" not in one["summary"].lower()
+            assert "Element: H" in one["summary"] and "Label: H" in one["summary"]
+            assert "[ASE] atomic_number = 1" in one["summary"]
 
             click_atom(1, additive=True)
             two = measurement_state()

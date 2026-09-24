@@ -15,7 +15,7 @@
 [Issues](https://github.com/lgyEthan/v_ase/issues) ·
 [Software paper and LaTeX source](paper/joss/README.md)
 
-**v_ase 0.4.3 — clearer scientific controls, synchronized trajectories and GIF export** ·
+**v_ase 0.4.4 — persistent property mappings and an independent output camera** ·
 [Changes](https://v-ase.readthedocs.io/en/latest/whats-new.html)
 
 An ASE-native workspace for building, editing and visualizing atomic structures,
@@ -31,7 +31,7 @@ Renderer scale and atom radius remain independent.
 
 macOS and Windows users can install the self-contained
 [desktop app](https://v-ase.readthedocs.io/en/latest/desktop.html) from
-[GitHub Releases](https://github.com/lgyEthan/v_ase/releases/tag/v0.4.3).
+[GitHub Releases](https://github.com/lgyEthan/v_ase/releases/tag/v0.4.4).
 It runs the same GUI with native Command/Ctrl shortcuts and file dialogs;
 Python installation is not required. Python and Jupyter remain available
 independently. Drag a desktop tab out to detach it into another window.
@@ -41,11 +41,11 @@ window closes independently; Windows Alt+F4 closes the active window, while
 explicit Quit checks all windows. The app icon now features the full atomic-bead
 castle with its small Pinocchio detail and no projecting red foundation board.
 
-| Desktop download (0.4.3) | Install and launch |
+| Desktop download (0.4.4) | Install and launch |
 | --- | --- |
-| [Mac, Apple silicon](https://github.com/lgyEthan/v_ase/releases/download/v0.4.3/v_ase-0.4.3-mac-arm64.dmg) | macOS 15+: open the DMG, drag **v_ase** to **Applications**, eject the disk image, then launch the Applications copy. |
-| [Mac, Intel](https://github.com/lgyEthan/v_ase/releases/download/v0.4.3/v_ase-0.4.3-mac-x64.dmg) | Same steps; choose Intel when **About This Mac** shows an Intel processor. |
-| [Windows, Intel/AMD x64](https://github.com/lgyEthan/v_ase/releases/download/v0.4.3/v_ase-0.4.3-win-x64.exe) | Windows 10/11, 64-bit: run the EXE installer, complete installation, then launch **v_ase** from Start. |
+| [Mac, Apple silicon](https://github.com/lgyEthan/v_ase/releases/download/v0.4.4/v_ase-0.4.4-mac-arm64.dmg) | macOS 15+: open the DMG, drag **v_ase** to **Applications**, eject the disk image, then launch the Applications copy. |
+| [Mac, Intel](https://github.com/lgyEthan/v_ase/releases/download/v0.4.4/v_ase-0.4.4-mac-x64.dmg) | Same steps; choose Intel when **About This Mac** shows an Intel processor. |
+| [Windows, Intel/AMD x64](https://github.com/lgyEthan/v_ase/releases/download/v0.4.4/v_ase-0.4.4-win-x64.exe) | Windows 10/11, 64-bit: run the EXE installer, complete installation, then launch **v_ase** from Start. |
 
 The Mac downloads are **Developer ID signed and Apple-notarized**, with
 stapled tickets for the app and DMG. macOS may show its normal first-open
@@ -104,11 +104,17 @@ cancels a provisional transform. Keyboard G/R/S retains its modal workflow.
 Saved per-atom colorscales are applied before a reopened project is ready to render.
 Atom appearance uses compact per-label rows with horizontal scrolling, distinct
 scope headings, and explicit property/range/target controls. Scrollable tables
-keep their headers flush with the top border, including Relaxation cutoffs. **Fixed atom
-selection** captures colorscale targets until you choose **Use current selection**;
-selection changes never redirect the mapping. Trajectory coordinates, colors and
-radii are presented together. **Show output frame** draws a crop guide over the
-editable canvas. Video supports inclusive source-frame ranges and animated GIF
+keep their headers flush with the top border, including Relaxation cutoffs. **Apply to → Selected atoms** captures colorscale targets until you choose
+**Use current selection**; label choices capture the indices belonging to that label.
+Later selection, element changes and shorter trajectory frames never redirect or
+clear these targets. Indices absent from a frame resume their mapping when present
+again. Property menus are preloaded without fetching unused scalar arrays.
+Trajectory coordinates, colors and radii are presented together.
+**Render → Output frame & scale → Show output frame** draws a crop guide over the
+editable canvas. **Camera to view** places the output camera at the editing view;
+**View camera** returns to its angle and fits the frame on screen. With **Camera
+follows editing view** off, wheel zoom, orbit and X/Y/Z leave the output camera,
+physical scale and exported image unchanged. Video supports inclusive source-frame ranges and animated GIF
 with **Loop forever** or **Play once**, alongside MOV/AVI.
 Desktop project and structure files have paper-shaped document icons bearing
 the castle; the application keeps its full castle icon. Only `.vase` is registered
@@ -136,9 +142,10 @@ child-tab reloads. Exact delivered Command shortcuts on macOS and Ctrl
 shortcuts on Windows/Linux are listed in
 [Keyboard shortcuts](https://v-ase.readthedocs.io/en/latest/shortcuts.html).
 Plain arrow keys orbit or tilt the structure view; Option+Left/Right on macOS
-or Alt+Left/Right on Windows/Linux steps the selected trajectory. A single
-atom's Measure readout leads with its chemical element and user label rather
-than a property count.
+or Alt+Left/Right on Windows/Linux steps the selected trajectory. A single atom's bottom readout shows its element, label, coordinates and all stored
+properties, with custom arrays (including existence) and calculator data first.
+Navigation shortcuts discard an invalid draft and retain the last valid value;
+invalid edits still cannot be committed with Enter, Tab or Save.
 Analysis plots open in a resizable dock below the canvas, with a full-work-area
 Back view on short windows.
 

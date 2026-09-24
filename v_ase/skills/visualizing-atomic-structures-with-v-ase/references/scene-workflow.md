@@ -1,5 +1,13 @@
 # Scene workflow
 
+## Contents
+
+- [Inspect the actual figure](#inspect-the-actual-figure)
+- [Patch related visual settings](#patch-related-visual-settings)
+- [Completion and failure](#completion-and-failure)
+- [Polyhedra](#polyhedra)
+- [Human lighting controls](#human-lighting-controls)
+
 ## Inspect the actual figure
 
 `vase_scene_snapshot` defaults to a short summary, including the camera source,
@@ -55,7 +63,13 @@ This transient intent is not a physical or persisted project property.
 The optional `display.atomRadiusMapping` has `enabled`, scalar catalog `field`,
 `valueTransform` (`identity`/`absolute`), locked `min`/`max`, `rangeMode`,
 `minMultiplier`/`maxMultiplier`, `exponent`, and `scope`/frozen `indices`.
+Saved radius and colorscale indices persist when trajectory frames change count
+or chemical elements. Missing indices are skipped, not removed; a project saved
+on a short frame retains them. Full-trajectory range scans accept indices absent
+from the current frame. Structural delete/duplicate/repeat still remap by provenance.
 Its factor is applied after the manual global/label/index radius settings.
+GUI colorscale target changes preserve the chosen range mode and manual bounds;
+the Fit buttons explicitly recompute the bounds.
 Zero hides a glyph without deleting its scientific atom. Discover field IDs
 through the atom-scalar catalog rather than guessing a charge or occupancy name.
 Use `set-atom-radius-mapping` for an atomic field/scope/range fit; `minimum` and

@@ -728,7 +728,7 @@ def _html_atom_color_scale_frames(
     gamma = float(display.get("atomColorScaleGamma", 1.0))
     if not math.isfinite(gamma) or gamma < 0.1 or gamma > 5.0:
         gamma = 1.0
-    selected = set(selection)
+    selected = set(display.get("atomColorScaleIndices", selection))
     custom_map = None
     if map_name == "custom":
         custom_palette = custom_colormap_lut(

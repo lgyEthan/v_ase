@@ -12,6 +12,7 @@ DISPLAY_PROPERTIES = {'atomBondStyles': {'additionalProperties': {'type': 'numbe
  'atomColorScaleRangeMode': {'type': 'string'},
  'atomColorScaleReverse': {'type': 'boolean'},
  'atomColorScaleScope': {'type': 'string'},
+ 'atomColorScaleTargetLabel': {'type': 'string'},
  'atomColors': {'additionalProperties': {'type': 'number'}, 'type': 'object'},
  'atomDisplayMode': {'type': 'string'},
  'atomMaterials': {'additionalProperties': {'type': 'number'}, 'type': 'object'},

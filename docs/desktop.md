@@ -6,15 +6,15 @@ provide document shortcuts without browser conflicts or fullscreen mode.
 
 ## Choose a download
 
-Open the [v0.4.3 GitHub release](https://github.com/lgyEthan/v_ase/releases/tag/v0.4.3)
+Open the [v0.4.4 GitHub release](https://github.com/lgyEthan/v_ase/releases/tag/v0.4.4)
 and expand **Assets**, or use a direct installer link below. GitHub's **Source
 code** archives and the Python `.whl`/`.tar.gz` files are not desktop installers.
 
 | Computer | Requirement | Installer |
 | --- | --- | --- |
-| Apple silicon Mac (M-series) | macOS 15 or newer | [Download Apple silicon DMG](https://github.com/lgyEthan/v_ase/releases/download/v0.4.3/v_ase-0.4.3-mac-arm64.dmg) |
-| Intel Mac | macOS 15 or newer | [Download Intel DMG](https://github.com/lgyEthan/v_ase/releases/download/v0.4.3/v_ase-0.4.3-mac-x64.dmg) |
-| Windows PC, Intel/AMD x64 | Windows 10 or 11, 64-bit | [Download Windows EXE](https://github.com/lgyEthan/v_ase/releases/download/v0.4.3/v_ase-0.4.3-win-x64.exe) |
+| Apple silicon Mac (M-series) | macOS 15 or newer | [Download Apple silicon DMG](https://github.com/lgyEthan/v_ase/releases/download/v0.4.4/v_ase-0.4.4-mac-arm64.dmg) |
+| Intel Mac | macOS 15 or newer | [Download Intel DMG](https://github.com/lgyEthan/v_ase/releases/download/v0.4.4/v_ase-0.4.4-mac-x64.dmg) |
+| Windows PC, Intel/AMD x64 | Windows 10 or 11, 64-bit | [Download Windows EXE](https://github.com/lgyEthan/v_ase/releases/download/v0.4.4/v_ase-0.4.4-win-x64.exe) |
 
 On a Mac, **Apple menu → About This Mac** shows either an Apple **Chip** or an
 Intel **Processor**. On Windows, **Settings → System → About → System type**
@@ -55,7 +55,7 @@ the final downloads. No Apple developer account is needed to install the app.
 
 ## Install on Windows
 
-1. Download **v_ase-0.4.3-win-x64.exe** and open it from File Explorer.
+1. Download **v_ase-0.4.4-win-x64.exe** and open it from File Explorer.
 2. The current build is **not publisher-signed**. If SmartScreen displays
    **Windows protected your PC**, verify the source and checksum, then use
    **More info → Run anyway** if offered. Do not disable SmartScreen or
@@ -83,17 +83,17 @@ The Windows ZIP does not run the installer or register file associations;
 choose the executable manually when configuring **Open with**. Moving it
 later invalidates that saved association.
 
-Download [desktop-SHA256SUMS.txt](https://github.com/lgyEthan/v_ase/releases/download/v0.4.3/desktop-SHA256SUMS.txt)
+Download [desktop-SHA256SUMS.txt](https://github.com/lgyEthan/v_ase/releases/download/v0.4.4/desktop-SHA256SUMS.txt)
 from the same release. In the download directory, compute the relevant hash:
 
 ```sh
 # macOS Terminal; substitute mac-x64 for an Intel download.
-shasum -a 256 v_ase-0.4.3-mac-arm64.dmg
+shasum -a 256 v_ase-0.4.4-mac-arm64.dmg
 ```
 
 ```powershell
 # Windows PowerShell.
-Get-FileHash .\v_ase-0.4.3-win-x64.exe -Algorithm SHA256
+Get-FileHash .\v_ase-0.4.4-win-x64.exe -Algorithm SHA256
 ```
 
 Compare it with the line for that exact filename in the checksum file.

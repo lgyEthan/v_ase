@@ -98,6 +98,21 @@ async function runSmoke({ app, win, handshake, vault, sendCommand }) {
         await key(...chord);
         await wait(`${active}.document.body.dataset.currentEditorRoute === ${JSON.stringify(routes[command])}`);
     }
+    // Output-camera UI must not let an invalid numeric draft trap native routing.
+    await key('A', true);
+    await wait(`${active}.document.body.dataset.currentEditorRoute === 'export'`);
+    await js(`${active}.document.querySelector('#btn-preview-image').click()`);
+    const outputScaleBefore = await js(`${appRef}.currentImageExportProfile().options.pixelsPerAngstrom`);
+    await js(`(()=>{const f=${active},x=f.document.querySelector('#renderer-pixels-per-angstrom');
+        x.focus();x.value='-2';x.dispatchEvent(new f.Event('input',{bubbles:true}));})()`);
+    await key('P', true);
+    await wait(`${active}.document.body.dataset.currentEditorRoute === 'appearance'`);
+    assert.equal(await js(`${appRef}.currentImageExportProfile().options.pixelsPerAngstrom`), outputScaleBefore);
+    await key('A', true);
+    await wait(`${active}.document.body.dataset.currentEditorRoute === 'export'`);
+    await js(`${active}.document.querySelector('#btn-render-area-from-view').click()`);
+    assert.equal(await js(`${appRef}.state.exportPreviewFollowViewport`), false);
+    await js(`${active}.document.querySelector('#btn-preview-image').click()`);
     await js(`new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))`);
     await js(`${active}.addEventListener('keydown',e=>{${active}.__smokeKey={code:e.code,key:e.key,meta:e.metaKey,ctrl:e.ctrlKey,prevented:e.defaultPrevented,target:e.target.id}}); ${appRef}.renderer.domElement.focus()`);
     await key('A');

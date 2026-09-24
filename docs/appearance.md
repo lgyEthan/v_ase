@@ -186,3 +186,27 @@ Long label and bond tables scroll within their own borders. Their column headers
 stay flush with the top edge while rows move underneath; the label column stays
 visible during horizontal scrolling. Relaxation cutoff tables use the same
 header treatment.
+
+## Colorscale targets and single-atom data
+
+**Apply to** offers **All atoms**, **Selected atoms**, and the document's labels.
+Selected atoms captures the current base indices; **Use current selection** is
+an explicit button below the selector to replace them. Selecting a label captures
+its current indices using the same semantics. This does not add any FixAtoms
+constraint. Targets do not follow later GUI selections or changing element names.
+Shorter trajectory frames skip absent indices without deleting them, including
+when saved and reopened on a shorter frame. Offline HTML uses these saved targets,
+not the atoms currently highlighted in the editor.
+
+The property catalog loads in advance. Stored scalar values and optional color
+palettes are fetched only when needed; unchanged catalogs preserve the dropdown's
+options rather than rebuilding them during interaction.
+
+Select one atom to see its coordinates and all stored properties in the bottom
+readout. Custom arrays, including `existence`, and calculator results appear first;
+ASE intrinsic values follow. The readout scrolls for long vectors/tensors and its
+text can be selected and copied.
+
+Hold Shift when adding atoms to a measurement; picks pass through the bottom
+readout so it cannot intercept a nearby atom. Release Shift to scroll or copy
+property text.

@@ -406,3 +406,42 @@ body.editor-shell .export-preview-caption { top: auto; bottom: 8px; left: 58px; 
 body.editor-shell #inspector .atom-colorscale-range-actions button { white-space: normal; text-overflow: clip; overflow: visible; padding: 6px 8px; line-height: 1.35; }
 body.editor-shell #inspector .prop-row > input[type=color] { flex: 0 0 42px; width: 42px; height: 30px; padding: 3px; }
 body.editor-shell #inspector .settings-group > .appearance-section-heading { background: var(--panel-raised); margin: 0 -5px 10px; padding: 8px 5px; border-block: 1px solid var(--line); }
+
+/* Output settings have one clear section heading and indented subcontrols. */
+body.editor-shell #inspector .renderer-properties > .export-group {
+    margin: 18px 0; padding: 0 0 12px; border: 1px solid var(--line-strong); border-radius: 4px;
+}
+body.editor-shell #inspector .renderer-properties > .export-group > .panel-subhead {
+    margin: 0 0 12px; padding: 10px 12px; background: var(--panel-raised);
+    border-bottom: 1px solid var(--line-strong); font-size: 13px;
+}
+body.editor-shell #inspector .renderer-properties > .export-group > :not(.panel-subhead) {
+    margin-left: 12px; margin-right: 12px;
+}
+body.editor-shell #inspector .renderer-subsection { border-top: 1px solid var(--line); margin-top: 14px; }
+body.editor-shell #inspector .renderer-subsection > .mapping-subhead { border: 0; margin: 0; padding: 12px 0 8px; }
+.render-camera-actions { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 8px; }
+.render-camera-actions button { min-width: 0; white-space: normal; }
+/* Single-atom data is visible and selectable above the footer, never tooltip-only. */
+body.editor-shell #selection-measure-readout.single-atom-properties {
+    position: absolute; bottom: calc(100% + 8px); left: 56px; align-items: flex-start;
+    width: max-content; max-width: min(660px, calc(100vw - 80px)); max-height: min(28vh, 220px);
+    padding: 10px 12px; overflow: auto; pointer-events: auto; white-space: normal;
+    background: var(--panel); border: 1px solid var(--line-strong); border-radius: 4px;
+}
+body.editor-shell #selection-measure-readout.single-atom-properties #selection-measure-value {
+    white-space: pre-wrap; overflow-wrap: anywhere; overflow: visible; font: 12px/1.65 var(--font-mono);
+    user-select: text; min-width: 0;
+}
+
+body.editor-shell #inspector :is(.render-camera-actions button, #btn-atom-colorscale-use-selection) {
+    font: 500 12px/1.4 var(--font-ui); color: var(--text); background: var(--panel);
+    border: 1px solid var(--line-strong); border-radius: 4px; padding: 7px 10px; cursor: pointer;
+}
+body.editor-shell #inspector :is(.render-camera-actions button, #btn-atom-colorscale-use-selection):hover {
+    background: var(--teal-soft); border-color: var(--teal);
+}
+
+body.editor-shell #selection-measure-readout.single-atom-properties.selection-through {
+    pointer-events: none;
+}

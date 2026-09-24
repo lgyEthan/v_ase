@@ -4974,7 +4974,7 @@ def _session_atom_scalar_range(session: EditorSession, payload: Dict[str, Any]):
             selected = np.asarray(sorted({int(index) for index in requested_indices}), dtype=np.int64)
             if selected.size == 0:
                 raise ValueError("Select at least one atom before fitting a selected-atom color range.")
-            if selected[0] < 0 or selected[-1] >= len(current_atoms):
+            if selected[0] < 0 or (not requested_all_frames and selected[-1] >= len(current_atoms)):
                 raise ValueError("A selected atom index is outside the current structure.")
 
         frame_indices = (

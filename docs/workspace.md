@@ -46,7 +46,8 @@ active; unsupported or denied capture leaves File actions usable. A notebook
 iframe offers **Open full editor** for the same session rather than claiming
 that an embedded frame can capture browser-reserved keys.
 Continuous appearance, lighting, vector, bond and field sliders also provide
-editable numeric values; an invalid draft stays in its field without changing
+editable numeric values. Enter/Tab/Save reject invalid drafts. Navigating to another
+section discards an invalid draft with a notice and restores its prior value without changing
 the current rendered setting.
 Analysis results live in a dock below the canvas. Drag its top edge to give
 plots more room without changing the camera's px/Å scale; on short windows,
