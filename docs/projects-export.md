@@ -21,12 +21,13 @@ the recipient must recover.
 Image, video, and HTML use one persistent **Render Area**. Its visible boundary
 and gray outside mask define the exact saved composition.
 
-- **Follow viewport** keeps the export camera synchronized while you orbit,
-  pan, zoom, and align the working view.
-- Disable it and choose **Set from Current View** to lock a composition while
-  continuing to inspect or edit in the main viewport.
-- In Edit, the Render Area eye can be selected and moved with `G`, translating
-  its camera and target together.
+- **Navigate → Scene** keeps the output fixed while inspecting or editing.
+- **Navigate → Camera** uses subsequent navigation to compose the output.
+  Switching targets preserves the current composition.
+- **Look through camera** fits the stored output on screen; **Align camera to
+  view** deliberately replaces its pose.
+- Select the wire camera or crop-frame camera button for **G/R/S** move,
+  rotation and frame scaling. Enter applies; Escape cancels.
 
 The Render Area owns aspect ratio, dimensions, projection/camera, overlay
 choices, quality, and crop. Picking inside it uses the same camera, so pointer

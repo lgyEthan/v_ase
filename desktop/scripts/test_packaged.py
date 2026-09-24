@@ -28,7 +28,7 @@ if platform.system() == "Darwin":
     project = next(item for item in types if 'vase' in item.get('CFBundleTypeExtensions', []))
     structures = next(item for item in types if 'extxyz' in item.get('CFBundleTypeExtensions', []))
     assert project['LSHandlerRank'] == 'Owner'
-    assert structures['LSHandlerRank'] == 'Alternate'
+    assert structures['LSHandlerRank'] == 'None'
     expected = json.loads((root / 'file-formats.json').read_text())['structureExtensions']
     assert set(structures['CFBundleTypeExtensions']) == set(expected)
     icons = [info['CFBundleIconFile'], project['CFBundleTypeIconFile'], structures['CFBundleTypeIconFile']]

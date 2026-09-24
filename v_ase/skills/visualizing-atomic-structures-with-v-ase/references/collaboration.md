@@ -27,6 +27,8 @@ ordinary mutation. Review a human event before editing. Do not force stale
 arguments by dropping guards. A scene patch checks again after preparation,
 briefly holds interactive input while applying, and produces one undo step.
 Queries/captures wait for the mutation queue, while readiness can report progress.
+Revision snapshots also await collaboration events already being published,
+including debounce callbacks, so a completed flush is a publication barrier.
 
 Desktop documents can move into independent windows without changing their
 scientific session ID. Workspace membership changes; rediscover it after a human
@@ -41,6 +43,10 @@ Consume `vase_events` with its cursor while sharing work. A gap means events wer
 lost: read current state rather than guessing a replay. Polling unchanged state
 is unnecessary in a short isolated edit. Keep the session alive only while the
 user needs collaboration; closing an owned MCP server closes its owned GUI.
+Video export temporarily visits source frames and restores the original frame,
+selection and measurement intent. Those internal visits do not publish human
+frame/selection edits or advance the collaboration revision.
+
 Human changes to data or frame invalidate cached atom references when topology
 or identity changes. Read the requested focused state to rebuild that mapping.
 

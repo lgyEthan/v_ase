@@ -1,34 +1,34 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.4.4';
-import { ASERenderer } from './renderer.js?v=0.4.4';
-import { ASESelection } from './selection.js?v=0.4.4';
-import { ASETransform } from './transform.js?v=0.4.4';
+import { ASEApi } from './api.js?v=0.4.5';
+import { ASERenderer } from './renderer.js?v=0.4.5';
+import { ASESelection } from './selection.js?v=0.4.5';
+import { ASETransform } from './transform.js?v=0.4.5';
 
-import { installPolyhedra } from './polyhedra.js?v=0.4.4';
-import { installAIScene } from './ai_scene.js?v=0.4.4';
-import { AtomScalarStore } from './atom_properties.js?v=0.4.4';
-import { DirectWorkspace } from './direct_workspace.js?v=0.4.4';
-import { projectProvenanceFromLoad } from './project_provenance.js?v=0.4.4';
-import { installShortcutCapture } from './shortcut_capture.js?v=0.4.4';
-import { openFileInWindow } from './workspace_windows.js?v=0.4.4';
-import { installEditorInteractions } from './editor_interactions.js?v=0.4.4';
-import { WORKBENCH_ROUTES, mountWorkbenchTools, syncWorkbenchRoute } from './editor_ui.js?v=0.4.4';
+import { installPolyhedra } from './polyhedra.js?v=0.4.5';
+import { installAIScene } from './ai_scene.js?v=0.4.5';
+import { AtomScalarStore } from './atom_properties.js?v=0.4.5';
+import { DirectWorkspace } from './direct_workspace.js?v=0.4.5';
+import { projectProvenanceFromLoad } from './project_provenance.js?v=0.4.5';
+import { installShortcutCapture } from './shortcut_capture.js?v=0.4.5';
+import { openFileInWindow } from './workspace_windows.js?v=0.4.5';
+import { installEditorInteractions } from './editor_interactions.js?v=0.4.5';
+import { WORKBENCH_ROUTES, mountWorkbenchTools, syncWorkbenchRoute } from './editor_ui.js?v=0.4.5';
 import {
     EDITOR_COMMANDS, commandIdForEvent, resolveShortcutPlatform,
     editorShortcutLabel, editorAriaShortcut, editorShortcutSearchTerms,
     viewportNavigationForEvent
-} from './editor_commands.js?v=0.4.4';
+} from './editor_commands.js?v=0.4.5';
 import {
     DEFAULT_ATOM_RADIUS_MAPPING,
     atomRadiusFactors,
     normalizeAtomRadiusMapping,
     radiusMappingPreset
-} from './radius_mapping.js?v=0.4.4';
+} from './radius_mapping.js?v=0.4.5';
 import {
     interpolateTrajectoryFrames,
     interpolatedFrameCount,
     normalizeInterpolationMultiplier
-} from './trajectory.js?v=0.4.4';
+} from './trajectory.js?v=0.4.5';
 
 const EDITOR_ROUTES = Object.freeze({
     'structure-info': { group: 'inspect', category: 'scene', title: 'Scene overview' },
@@ -265,10 +265,9 @@ class VAseApp {
                 forceInput: event?.source !== 'scale-input'
             });
             if (this.state?.exportPreviewFollowViewport) {
-                this.captureRenderAreaCamera({
-                    syncPreview: Boolean(this.state.exportPreviewEnabled)
-                });
+                this.followRenderAreaNavigation();
             }
+            this.renderAreaPreviousView = this.currentCameraForExport();
             this.observeCollaborationCamera(event?.source || 'camera');
             this.scheduleProjectDirtyStateUpdate();
         };
@@ -709,6 +708,7 @@ class VAseApp {
             this.setupNumberInputHoldGuards();
             await this.loadUserVisualDefaults();
             await this.refresh();
+            this.restoreProjectPresentation(this.state.atoms?.metadata?.config?.initial_design_settings);
             const initialBinding = this.state.atoms?.metadata?.project_file_binding;
             if (initialBinding?.id) {
                 this.projectFile.format = initialBinding.format;
@@ -2885,7 +2885,9 @@ class VAseApp {
         }
 
         if (this.state.display.atomColorScaleScope === 'selected' && !selected.size) {
-            throw new Error('Select at least one atom before scanning the trajectory color range.');
+            // An explicitly empty target maps no atoms. Playback/export must
+            // still work, without scanning or inventing a new selection.
+            return stored || { minimum: 0, maximum: 1 };
         }
         let cachedRange = this.atomColorScaleRuntime.rangeCaches.get(signature)
             || this.atomColorScaleRangeFromTrajectoryCache(selected);
@@ -5913,6 +5915,7 @@ class VAseApp {
             set(`renderer-sun-target-${axis}`, Number(display.sunTarget?.[index] ?? 0));
         });
         set('renderer-sphere-quality', display.imageSphereQuality || this.state.sphereQuality || 'high');
+        set('renderer-atom-display-mode', display.atomDisplayMode || '3d');
         const aa = document.getElementById('renderer-antialias');
         if (aa) aa.checked = document.getElementById('chk-antialias')?.checked !== false;
         set('renderer-framing-mode', profile.options.scaleMode);
@@ -5990,6 +5993,12 @@ class VAseApp {
     }
 
     setupRendererProperties() {
+        document.getElementById('renderer-atom-display-mode')?.addEventListener('change', event => {
+            const main = document.getElementById('atom-display-mode');
+            main.value = event.target.value;
+            main.dispatchEvent(new Event('change', {bubbles: true}));
+            this.syncRendererProperties();
+        });
         const lightingIds = ['renderer-lighting-mode', 'renderer-sun-intensity',
             ...['position', 'target'].flatMap(kind => ['x', 'y', 'z'].map(axis => `renderer-sun-${kind}-${axis}`))];
         const commitLighting = () => {
@@ -10886,6 +10895,7 @@ class VAseApp {
         this.syncViewControls();
         this.renderer.setDisplayOptions(this.state.display);
         this.syncLightingControls();
+        this.syncRendererProperties();
         if (this.state.display.atomDisplayMode === '2d' && this.state.sunSelected) {
             this.setSunSelected(false);
         }
@@ -10989,6 +10999,7 @@ class VAseApp {
             rotateIncrementDeg: Number(this.state.rotateIncrementDeg) || 0,
             imageExportProfile: this.clonePlain(this.currentImageExportProfile()),
             renderArea: {
+                visible: Boolean(this.state.exportPreviewEnabled),
                 followViewport: Boolean(this.state.exportPreviewFollowViewport),
                 camera: this.clonePlain(this.state.exportPreviewCamera || null)
             },
@@ -13767,6 +13778,7 @@ class VAseApp {
 
     captureRenderAreaCamera({ syncPreview = true } = {}) {
         const camera = this.normalizedCameraSettings(this.currentCameraForExport());
+        this.renderAreaPreviousView = this.clonePlain(camera);
         this.state.exportPreviewCamera = camera;
         if (this.state.imageExportProfile) {
             const profile = this.normalizedImageExportProfile(this.state.imageExportProfile);
@@ -13783,6 +13795,45 @@ class VAseApp {
         return camera;
     }
 
+    followRenderAreaNavigation() {
+        const before = this.renderAreaPreviousView;
+        const after = this.currentCameraForExport();
+        const saved = this.state.exportPreviewCamera;
+        if (!before || !saved) return this.captureRenderAreaCamera();
+        const pose = value => this.renderer.cameraFromSettings(value, value.aspect).camera;
+        const rotation = pose(after).quaternion.multiply(pose(before).quaternion.invert());
+        const span = value => value.projection === 'orthographic' ? value.ortho_scale
+            : new THREE.Vector3(...value.position).distanceTo(new THREE.Vector3(...value.target))
+                * Math.tan(THREE.MathUtils.degToRad(value.fov) / 2) / value.zoom;
+        const ratio = Math.max(1e-8, span(after) / Math.max(1e-8, span(before)));
+        const scale = Math.abs(ratio - 1) < 1e-6 ? 1 : ratio;
+        const source = new THREE.Vector3(...before.target);
+        const destination = new THREE.Vector3(...after.target);
+        const move = value => new THREE.Vector3(...value).sub(source)
+            .applyQuaternion(rotation).multiplyScalar(scale).add(destination).toArray();
+        this.state.exportPreviewCamera = this.normalizedCameraSettings({...saved,
+            position: move(saved.position), target: move(saved.target),
+            up: new THREE.Vector3(0, 1, 0).applyQuaternion(pose(saved).quaternion)
+                .applyQuaternion(rotation).normalize().toArray(),
+            ortho_scale: saved.ortho_scale * scale});
+        const profile = this.currentImageExportProfile();
+        if (profile.options.scaleMode === 'physical') profile.options.pixelsPerAngstrom /= scale;
+        profile.options.camera = this.clonePlain(this.state.exportPreviewCamera);
+        this.state.imageExportProfile = this.normalizedImageExportProfile(profile);
+        if (this.state.exportPreviewEnabled) this.syncImageExportPreview();
+    }
+
+    setRenderCameraNavigation(follow) {
+        if (this.transform.mode !== 'IDLE') this.cancelTransform();
+        if (!this.state.exportPreviewCamera) this.captureRenderAreaCamera({syncPreview: false});
+        // Changing the navigation target never replaces the saved composition.
+        this.state.exportPreviewFollowViewport = Boolean(follow);
+        this.renderAreaPreviousView = this.currentCameraForExport();
+        this.setRenderAreaSelected(false, {update: false});
+        this.syncImageExportPreview();
+        this.scheduleVisualHistoryCommit('camera-navigation');
+    }
+
     viewOutputCamera() {
         if (!this.state.exportPreviewCamera) this.captureRenderAreaCamera({ syncPreview: false });
         // Camera view is an editor zoom of a fixed output composition. Fitting
@@ -13797,6 +13848,7 @@ class VAseApp {
         const fit = 0.82 * Math.min(1, (size.width / size.height) / (profile.width / profile.height));
         this.renderer.camera.zoom *= fit;
         this.renderer.camera.updateProjectionMatrix();
+        this.renderAreaPreviousView = this.currentCameraForExport();
         this.syncAtomicScaleFromCamera({ forceInput: true });
         this.setRenderAreaSelected(false, { update: false });
         this.syncImageExportPreview();
@@ -13811,6 +13863,7 @@ class VAseApp {
         frame?.classList.toggle('selected', next);
         eye?.setAttribute('aria-pressed', next ? 'true' : 'false');
         this.renderer.setRenderAreaGizmo?.(this.state.exportPreviewCamera, {
+            profile: this.currentImageExportProfile(),
             visible: Boolean(
                 this.state.exportPreviewEnabled
                 && !this.state.exportPreviewFollowViewport
@@ -13835,12 +13888,17 @@ class VAseApp {
     syncRenderAreaControls() {
         const follow = document.getElementById('render-area-follow-view');
         if (follow) follow.checked = Boolean(this.state.exportPreviewFollowViewport);
+        document.querySelectorAll('[data-camera-navigation]').forEach(button => {
+            const selected = (button.dataset.cameraNavigation === 'camera') === this.state.exportPreviewFollowViewport;
+            button.setAttribute('aria-pressed', String(selected));
+            button.classList.toggle('active', selected);
+        });
         const savedCamera = document.getElementById('btn-render-area-from-view');
         if (savedCamera) savedCamera.disabled = !this.state.exportPreviewCamera;
         const help = document.getElementById('render-area-mode-help');
         if (help) help.textContent = this.state.exportPreviewFollowViewport
-            ? 'Following view · orbit and axis views move the output camera.'
-            : 'Fixed in space · orbit, axis views and zoom only change your editing view. Wheel zoom in camera view leaves the output unchanged.';
+            ? 'Camera navigation: orbit, pan, zoom and axis views adjust the output. Switch to Scene to keep this composition fixed.'
+            : 'Scene navigation: edit and inspect the structure freely. The output camera stays fixed. Select its frame for G / R / S.';
         this.renderer.controls.zoomInPlace = () => Boolean(
             !this.state.exportPreviewFollowViewport && this.state.exportPreviewEnabled
             && this.renderer.exportPreviewCamera
@@ -13848,13 +13906,6 @@ class VAseApp {
         );
         const options = document.querySelector('.render-area-options');
         options?.classList.toggle('active', Boolean(this.state.exportPreviewEnabled));
-        this.renderer.setRenderAreaGizmo?.(this.state.exportPreviewCamera, {
-            visible: Boolean(
-                this.state.exportPreviewEnabled
-                && !this.state.exportPreviewFollowViewport
-            ),
-            selected: Boolean(this.state.renderAreaSelected)
-        });
         this.setRenderAreaSelected(this.state.renderAreaSelected, { update: false });
     }
 
@@ -15614,11 +15665,7 @@ class VAseApp {
         this.measureToolArmed = false;
         this.updateToolState();
         if (this.state.renderAreaSelected) {
-            if (mode !== 'MOVE') {
-                this.toast('The Render Area eye can be moved with G.', 'warning');
-                return;
-            }
-            this.enterRenderAreaTransformMode();
+            this.enterRenderAreaTransformMode(mode);
             return;
         }
         if (this.selectedAddAtomsRegionIds().size) {
@@ -15943,12 +15990,8 @@ class VAseApp {
         this.updateUI();
     }
 
-    enterRenderAreaTransformMode() {
+    enterRenderAreaTransformMode(mode = 'MOVE') {
         if (!this.state.renderAreaSelected || !this.state.exportPreviewEnabled) return;
-        if (!this.canEditAtoms()) {
-            this.toast('Switch to Edit mode to move the Render Area eye.', 'warning');
-            return;
-        }
         if (!this.state.exportPreviewCamera) {
             this.captureRenderAreaCamera({ syncPreview: false });
         }
@@ -15956,12 +15999,16 @@ class VAseApp {
         if (!camera) return;
         this.state.exportPreviewFollowViewport = false;
         this.state.renderAreaTransformOriginal = this.clonePlain(camera);
+        this.renderAreaTransformProfile = this.clonePlain(this.currentImageExportProfile());
         this.state.transformSubject = 'render-area';
         this.state.transformReadout = '';
         this.state.transformStartPointer.copy(this.state.lastPointer);
         const pivot = new THREE.Vector3(...camera.target);
+        this.state.rotationScreenPivot.copy(this.worldToScreen(pivot));
+        this.state.rotationLastAngle = 0;
+        this.state.rotationPointerActive = false;
         this.readTransformSettings();
-        this.transform.enter('MOVE', pivot, this.renderer.camera);
+        this.transform.enter(mode, pivot, this.renderer.camera);
         this.renderer.controls.enabled = false;
         this.syncRenderAreaControls();
         this.updateToolState();
@@ -15971,20 +16018,35 @@ class VAseApp {
     applyRenderAreaTransformPreview() {
         const original = this.state.renderAreaTransformOriginal;
         if (!original) return;
-        const delta = this.sunTransformMoveDelta();
-        const position = new THREE.Vector3(...original.position).add(delta);
-        const target = new THREE.Vector3(...original.target).add(delta);
+        const position = new THREE.Vector3(...original.position);
+        const target = new THREE.Vector3(...original.target);
+        const up = new THREE.Vector3(...original.up);
+        const profile = this.clonePlain(this.renderAreaTransformProfile);
+        let scale = 1;
+        if (this.transform.mode === 'MOVE') {
+            const delta = this.sunTransformMoveDelta();
+            position.add(delta); target.add(delta);
+            this.state.transformReadout = `Camera ${this.formatMoveReadout(delta)}`;
+        } else if (this.transform.mode === 'ROTATE') {
+            const {angle, quaternion} = this.sunTransformRotation();
+            position.sub(target).applyQuaternion(quaternion).add(target);
+            up.applyQuaternion(quaternion);
+            this.state.transformReadout = `Camera ${this.formatRotateReadout(angle)}`;
+        } else if (this.transform.mode === 'SCALE') {
+            scale = this.transformScaleFactor();
+            if (!Number.isFinite(scale) || scale <= 0) return;
+            if (profile.options.scaleMode === 'physical') profile.options.pixelsPerAngstrom /= scale;
+            this.state.transformReadout = `Output frame ${this.formatScaleReadout(scale)}`;
+        }
         this.state.exportPreviewCamera = this.normalizedCameraSettings({
             ...original,
             position: position.toArray(),
-            target: target.toArray()
+            target: target.toArray(), up: up.toArray(),
+            ortho_scale: original.ortho_scale * scale,
+            zoom: original.zoom / scale
         });
-        if (this.state.imageExportProfile) {
-            this.state.imageExportProfile.options.camera = this.clonePlain(
-                this.state.exportPreviewCamera
-            );
-        }
-        this.state.transformReadout = `Render Area eye Δ ${delta.x.toFixed(3)}, ${delta.y.toFixed(3)}, ${delta.z.toFixed(3)} Å`;
+        profile.options.camera = this.clonePlain(this.state.exportPreviewCamera);
+        this.state.imageExportProfile = profile;
         this.syncImageExportPreview();
         this.transform.updateGuides(this.renderer.camera);
         this.updateCommandReadout();
@@ -16003,12 +16065,18 @@ class VAseApp {
 
     commitRenderAreaTransform() {
         if (this.transform.mode === 'IDLE') return;
+        if (this.transform.mode === 'SCALE' && this.transform.getNumericValue() !== null
+            && this.transform.getNumericValue() <= 0) {
+            this.toast('Scale factor must be greater than zero.', 'warning');
+            return;
+        }
         this.finishRenderAreaTransform();
         this.scheduleVisualHistoryCommit('render-area-camera');
     }
 
     cancelRenderAreaTransform() {
         if (this.state.renderAreaTransformOriginal) {
+            this.state.imageExportProfile = this.clonePlain(this.renderAreaTransformProfile);
             this.state.exportPreviewCamera = this.clonePlain(
                 this.state.renderAreaTransformOriginal
             );
@@ -18475,6 +18543,19 @@ class VAseApp {
     }
 
     async flushCollaborationEvents(source = null) {
+        // A debounce callback may already have removed a pending event while
+        // its HTTP publication is still in flight. Every caller must await
+        // those publications before it receives a usable revision barrier.
+        const previous = this.collaborationFlushPromise || Promise.resolve();
+        const flush = previous.then(() => this.drainCollaborationEvents(source));
+        this.collaborationFlushPromise = flush;
+        try { return await flush; }
+        finally {
+            if (this.collaborationFlushPromise === flush) this.collaborationFlushPromise = null;
+        }
+    }
+
+    async drainCollaborationEvents(source = null) {
         while (true) {
             const actors = source
                 ? (this.collaborationPending.has(source) ? [source] : [])
@@ -18536,6 +18617,7 @@ class VAseApp {
         }
         if (signature === this.collaborationSelectionSignature) return;
         this.collaborationSelectionSignature = signature;
+        if (this.state.videoExportId) return;
         this.scheduleCollaborationEvent({
             source: this.currentCollaborationActor(),
             categories: ['selection'],
@@ -18552,6 +18634,7 @@ class VAseApp {
         }
         if (frame === this.collaborationFrame) return;
         this.collaborationFrame = frame;
+        if (this.state.videoExportId) return;
         this.scheduleCollaborationEvent({
             source: this.currentCollaborationActor(),
             categories: ['frame', 'trajectory'],
@@ -20188,11 +20271,11 @@ class VAseApp {
         return value.map(Number);
     }
 
-    aiOperationIndices(operation) {
+    aiOperationIndices(operation, { allowEmpty = false } = {}) {
         const values = operation.indices === undefined
             ? this.selectedAtomIndices()
             : operation.indices;
-        if (!Array.isArray(values) || !values.length) {
+        if (!Array.isArray(values) || (!allowEmpty && !values.length)) {
             throw new Error('The operation requires selected atoms or a non-empty indices array.');
         }
         const atomCount = this.state.atoms?.positions?.length || 0;
@@ -20591,7 +20674,7 @@ class VAseApp {
                 );
             const scope = operation.scope === 'selected' ? 'selected' : 'all';
             const fixedIndices = scope === 'selected'
-                ? (operation.indices !== undefined ? this.aiOperationIndices(operation) : this.selectedAtomIndices())
+                ? (operation.indices !== undefined ? this.aiOperationIndices(operation, {allowEmpty: true}) : this.selectedAtomIndices())
                 : [];
             const rangeMode = ['current', 'trajectory', 'manual'].includes(operation.rangeMode)
                 ? operation.rangeMode
@@ -21910,6 +21993,7 @@ class VAseApp {
             }
             if (renderArea.followViewport !== undefined) {
                 this.state.exportPreviewFollowViewport = Boolean(renderArea.followViewport);
+                this.renderAreaPreviousView = this.currentCameraForExport();
             }
             if (renderArea.camera !== undefined) {
                 const camera = this.normalizedCameraSettings(renderArea.camera);
@@ -22150,7 +22234,7 @@ class VAseApp {
             const rendered = await this.renderHtmlCompositionPreview(profile);
             blob = await this.api.exportHtml(
                 positions,
-                this.designSettingsSnapshot({ includeIdentityOverrides: true }),
+                this.projectSettingsSnapshot('html', rendered.contract),
                 this.state.applyConstraints,
                 [...this.state.selected],
                 this.workspaceDocumentTitle(),
@@ -22163,7 +22247,7 @@ class VAseApp {
         } else if (format === 'project') {
             blob = await this.api.saveProject(
                 positions,
-                this.designSettingsSnapshot({ includeIdentityOverrides: true }),
+                this.projectSettingsSnapshot('vase'),
                 this.state.applyConstraints
             );
             filename = this.projectFilename();
@@ -22584,6 +22668,7 @@ class VAseApp {
             renderArea: {
                 followViewport: Boolean(this.state.exportPreviewFollowViewport),
                 camera: this.clonePlain(
+                    // The output pose is independent of the editor camera.
                     this.state.exportPreviewCamera
                     || this.currentImageExportProfile()?.options?.camera
                     || null
@@ -22593,12 +22678,22 @@ class VAseApp {
         if (includeIdentityOverrides) {
             snapshot.viewIdentityOverrides = this.viewIdentityOverridesSnapshot();
         }
+        snapshot.renderArea.visible = Boolean(this.state.exportPreviewEnabled);
         if (includeCamera) snapshot.camera = this.currentCameraForExport();
         return snapshot;
     }
 
     projectSettingsSnapshot(format, profile = null) {
         const settings = this.designSettingsSnapshot({ includeIdentityOverrides: true });
+        settings.documentMode = this.state.vizOnly ? 'view' : 'edit';
+        settings.presentation = {
+            route: this.editorRoute,
+            inspectorCollapsed: document.body.classList.contains('inspector-collapsed'),
+            inspectorWidth: parseFloat(document.documentElement.style.getPropertyValue('--inspector-width')) || 352,
+            inspectorScroll: document.getElementById('inspector-content')?.scrollTop || 0,
+            selection: this.clonePlain(this.selectionEntries()),
+            measurementIntent: this.clonePlain(this.state.measurementIntent)
+        };
         settings.projectSave = {
             schema: 'v_ase.project_save.v1',
             format,
@@ -22609,6 +22704,27 @@ class VAseApp {
             } : null
         };
         return settings;
+    }
+
+    restoreProjectPresentation(settings) {
+        const saved = settings?.presentation;
+        if (!saved || typeof saved !== 'object') return;
+        this.applySelectionAction({ references: Array.isArray(saved.selection) ? saved.selection : [], origin: 'project' });
+        if (saved.measurementIntent?.kind === 'ordered' && Array.isArray(saved.measurementIntent.keys)) {
+            this.state.measurementIntent = this.clonePlain(saved.measurementIntent);
+            this.updateSelectionVisuals();
+            this.updateUI();
+        }
+        if (EDITOR_ROUTES[saved.route]) this.openEditorRoute(saved.route);
+        if (Number.isFinite(saved.inspectorWidth)) {
+            this.inspectorWidthCustom = true;
+            this.setInspectorWidth(saved.inspectorWidth, false);
+        }
+        this.setInspectorCollapsed(saved.inspectorCollapsed === true, false);
+        requestAnimationFrame(() => {
+            const content = document.getElementById('inspector-content');
+            if (content) content.scrollTop = Math.max(0, Number(saved.inspectorScroll) || 0);
+        });
     }
 
     geometryExportDisplaySnapshot() {
@@ -23188,6 +23304,7 @@ class VAseApp {
         camera.lookAt(this.renderer.controls.target);
         camera.updateProjectionMatrix();
         camera.updateMatrixWorld(true);
+        this.renderAreaPreviousView = this.currentCameraForExport();
         if (syncScale) this.syncAtomicScaleFromCamera({ forceInput: true });
         this.renderer.requestRender();
     }
@@ -23206,6 +23323,7 @@ class VAseApp {
             'viewIdentityOverrides'
         ) && this.restoreViewIdentityOverrides(source.viewIdentityOverrides);
         const nextDisplay = this.reconcileDesignDisplay(source.display || source);
+        nextDisplay.vizOnly = this.state.vizOnly;
         const requestedAtomicScale = Number(nextDisplay.atomicScalePixelsPerAngstrom);
         this.state.display = {
             ...this.state.display,
@@ -23239,10 +23357,13 @@ class VAseApp {
         }
         if ('moveIncrement' in source) this.state.moveIncrement = Number(source.moveIncrement) || 0;
         if ('rotateIncrementDeg' in source) this.state.rotateIncrementDeg = Number(source.rotateIncrementDeg) || 0;
-        this.state.imageExportProfile = source.imageExportProfile
-            ? this.normalizedImageExportProfile(source.imageExportProfile)
-            : null;
+        if (Object.prototype.hasOwnProperty.call(source, 'imageExportProfile')) {
+            this.state.imageExportProfile = source.imageExportProfile
+                ? this.normalizedImageExportProfile(source.imageExportProfile)
+                : null;
+        }
         if (source.renderArea && typeof source.renderArea === 'object') {
+            this.state.exportPreviewEnabled = source.renderArea.visible === true;
             this.state.exportPreviewFollowViewport = source.renderArea.followViewport !== false;
             this.state.exportPreviewCamera = this.normalizedCameraSettings(source.renderArea.camera);
         } else if (this.state.imageExportProfile?.options?.camera) {
@@ -23308,7 +23429,7 @@ class VAseApp {
                 this.updateAtomColorScaleLegend(null);
             }
         }
-        if (this.state.exportPreviewEnabled) this.syncImageExportPreview();
+        this.syncImageExportPreview();
         this.syncRendererProperties({ force: true });
         this.syncRendererFormatProperties();
         this.scheduleVisualHistoryCommit('visual-settings');
@@ -26083,6 +26204,13 @@ class VAseApp {
     showOpenFileModal(file, { handle = null, dropped = false } = {}) {
         const newTabAvailable = Boolean(this.sessionId);
         const hasDocument = this.hasScratchContent();
+        if (/\.vase$/i.test(file.name)) {
+            // A project already declares its mode, frame, appearance and camera.
+            // Opening it is not an import operation and needs no reader dialog.
+            return hasDocument
+                ? this.openStructureFileInNewTab(file, 'vase', ':', null, { handle })
+                : this.loadStructureFile(file, 'vase', ':', null, { handle });
+        }
         const currentRuntimeMode = this.state.vizOnly ? 'view' : 'edit';
         this.showModal(`
             <h2>Open File</h2>
@@ -26225,6 +26353,12 @@ class VAseApp {
             );
             if (loadGeneration !== this.projectLoadGeneration) return false;
             this.resetHistoryTimeline();
+            // The backend has adopted the project's saved mode. Same-tab and
+            // semantic loads must adopt it before interpreting atom identities
+            // or display snapshots; retaining the previous tab's mode is wrong.
+            if (typeof data.metadata?.config?.viz_only === 'boolean') {
+                this.state.vizOnly = data.metadata.config.viz_only;
+            }
             const isProject = data.loaded_file?.kind === 'project' || Boolean(data.project);
             const projectSettings = data.project?.settings || data.metadata?.config?.initial_design_settings;
             const settings = isProject ? projectSettings : inheritedSettings;
@@ -26274,6 +26408,7 @@ class VAseApp {
             if (runtimeMode === 'view' || runtimeMode === 'edit') {
                 await this.switchRuntimeMode(runtimeMode === 'view');
             }
+            if (isProject) this.restoreProjectPresentation(settings);
             this.resetVisualHistoryBaseline();
             this.adoptProjectProvenance(projectProvenanceFromLoad(data, {
                 filename: file.name, file, handle
@@ -26423,7 +26558,7 @@ class VAseApp {
                         inputFormat,
                         index,
                         volumetricPrecision: this.volumetricImportPrecision(),
-                        runtimeMode: runtimeMode || (this.state.vizOnly ? 'view' : 'edit')
+                        runtimeMode
                     }, window.location.origin);
                 })
             );
@@ -26641,7 +26776,7 @@ class VAseApp {
         const profile = this.state.exportPreviewProfile || this.currentImageExportProfile();
         const { width, height } = profile;
         const enabled = Boolean(this.state.exportPreviewEnabled && this.state.atoms?.positions?.length);
-        if (this.state.exportPreviewFollowViewport || !this.state.exportPreviewCamera) {
+        if (!this.state.exportPreviewCamera) {
             this.state.exportPreviewCamera = this.normalizedCameraSettings(
                 this.currentCameraForExport()
             );
@@ -27479,6 +27614,8 @@ class VAseApp {
         if (!returnBlob && !selectedDestination) return false;
         if (this.state.videoExportId) throw new Error('A video export is already active.');
         const originalFrame = meta.current_frame || 0;
+        const originalSelection = this.clonePlain(this.selectionEntries());
+        const originalMeasurement = this.clonePlain(this.state.measurementIntent);
         const startedAt = performance.now();
         this.state.videoExportId = 'starting';
         this.state.videoExportStartedAt = startedAt;
@@ -27555,6 +27692,10 @@ class VAseApp {
                 await this.loadFrame(originalFrame);
                 await this.synchronizeVideoAnalysis(await this.videoFrameSnapshot());
                 await this.updateAtomRadiusMapping();
+                this.applySelectionAction({references: originalSelection, origin: 'export-restore'});
+                this.state.measurementIntent = originalMeasurement;
+                this.updateSelectionVisuals();
+                this.updateUI();
             } finally {
                 this.state.videoExportId = null;
                 this.state.videoExportStartedAt = null;
@@ -28218,12 +28359,12 @@ class VAseApp {
             this.syncImageExportPreview();
         };
         document.getElementById('render-area-follow-view')?.addEventListener('change', event => {
-            this.state.exportPreviewFollowViewport = Boolean(event.target.checked);
-            // Switching to fixed captures the physical pose visible right now.
-            this.captureRenderAreaCamera({ syncPreview: false });
-            this.syncImageExportPreview();
+            this.setRenderCameraNavigation(Boolean(event.target.checked));
             if (this.editorRoute === 'export') this.syncProjectHtmlProfileFromRenderer();
             this.scheduleVisualHistoryCommit('render-area-follow');
+        });
+        document.querySelectorAll('[data-camera-navigation]').forEach(button => {
+            button.addEventListener('click', () => this.setRenderCameraNavigation(button.dataset.cameraNavigation === 'camera'));
         });
         document.getElementById('btn-render-area-align-view')?.addEventListener('click', () => {
             this.state.exportPreviewFollowViewport = false;
@@ -29157,10 +29298,11 @@ class VAseApp {
                 }
                 if (
                     this.state.renderAreaSelected
-                    && this.isPhysicalKey(e, 'KeyG', ['g'])
+                    && (this.isPhysicalKey(e, 'KeyG', ['g']) || this.isPhysicalKey(e, 'KeyR', ['r']) || this.isPhysicalKey(e, 'KeyS', ['s']))
                 ) {
                     e.preventDefault();
-                    this.enterRenderAreaTransformMode();
+                    this.enterRenderAreaTransformMode(this.isPhysicalKey(e, 'KeyR', ['r']) ? 'ROTATE'
+                        : this.isPhysicalKey(e, 'KeyS', ['s']) ? 'SCALE' : 'MOVE');
                     return;
                 }
                 if (this.state.sunSelected &&

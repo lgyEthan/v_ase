@@ -1,11 +1,11 @@
 // Adopt a direct/notebook editor in place. The original app and its opaque
 // browser file handle stay alive as the first tab; only later tabs use iframes.
-import { projectProvenanceFromLoad } from './project_provenance.js?v=0.4.4';
-import { captureDocumentRecovery, restoreDocumentRecovery } from './workspace_recovery.js?v=0.4.4';
-import { createWorkspaceAIBridge, handleWorkspaceAICommand } from './workspace_ai.js?v=0.4.4';
-import { installShortcutCapture } from './shortcut_capture.js?v=0.4.4';
+import { projectProvenanceFromLoad } from './project_provenance.js?v=0.4.5';
+import { captureDocumentRecovery, restoreDocumentRecovery } from './workspace_recovery.js?v=0.4.5';
+import { createWorkspaceAIBridge, handleWorkspaceAICommand } from './workspace_ai.js?v=0.4.5';
+import { installShortcutCapture } from './shortcut_capture.js?v=0.4.5';
 import { commandIdForEvent, editorAriaShortcut, editorShortcutLabel, resolveShortcutPlatform,
-    viewportNavigationForEvent } from './editor_commands.js?v=0.4.4';
+    viewportNavigationForEvent } from './editor_commands.js?v=0.4.5';
 
 export class DirectWorkspace {
     constructor(app) {
@@ -309,6 +309,7 @@ export class DirectWorkspace {
     async closeDocument(sessionId) {
         const entry = this.tabs.get(sessionId);
         if (!entry || entry.closing) return false;
+        if (this.tabs.size === 1 && this.closeLastDocument) return this.closeLastDocument();
         entry.closing = true;
         entry.close.disabled = true;
         try {

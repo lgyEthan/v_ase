@@ -146,3 +146,25 @@ def test_corrupt_project_upload_preserves_previous_document_and_binding(tmp_path
     assert current_project_binding(session)['id'] == binding['id']
     assert session.scientific_content_identity() == identity
     assert original.read_bytes().startswith(b'PK')
+
+
+@pytest.mark.parametrize('saved_view', [True, False])
+def test_project_mode_is_saved_without_frontend_and_replaces_destination_mode(tmp_path, saved_view):
+    from v_ase.project import read_project_archive, replace_session_from_project
+    atoms = Atoms('H', positions=[[0, 0, 0]])
+    original = EditorSession('original-mode', atoms.copy(), atoms.copy(), config={'viz_only': saved_view})
+    destination = EditorSession('destination-mode', atoms.copy(), atoms.copy(), config={'viz_only': not saved_view})
+    path = write_project_archive(tmp_path / 'mode.vase', original, {'display': {}})
+    loaded = read_project_archive(path)
+    assert loaded.settings['documentMode'] == ('view' if saved_view else 'edit')
+    replace_session_from_project(destination, loaded)
+    assert destination.config['viz_only'] is saved_view
+    assert (destination.working_atoms.calc is None) is saved_view
+
+
+def test_legacy_project_mode_is_typed_and_has_a_deterministic_fallback():
+    from v_ase.project import project_viz_only
+    assert project_viz_only({'display': {'vizOnly': True}})
+    assert not project_viz_only({'display': {'vizOnly': False}})
+    assert not project_viz_only({})
+    assert not project_viz_only({'documentMode': {}, 'display': {'vizOnly': 'false'}})

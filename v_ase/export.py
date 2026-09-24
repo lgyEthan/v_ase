@@ -990,6 +990,7 @@ def export_html_response(session, payload: Dict[str, Any]):
             (static_dir / "vendor" / "three.module.js").read_bytes()
         ),
         "{{BSP_SOURCE_BASE64}}": _base64_text((static_dir / "polyhedra_bsp.js").read_bytes()),
+        "{{GRID_SOURCE_BASE64}}": _base64_text((static_dir / "viewport_grid.js").read_bytes()),
         "{{RENDERER_SOURCE_BASE64}}": _base64_text(
             (static_dir / "renderer.js").read_bytes()
         ),

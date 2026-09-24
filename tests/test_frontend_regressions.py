@@ -365,7 +365,8 @@ def test_image_export_has_exact_preview_and_option_modal_controls():
     assert "cameraFromSettings(settings, aspect = 1)" in renderer_js
     assert "const configured = this.cameraFromSettings(options.camera, outputAspect)" in renderer_js
     assert "interactionProjectionContext(clientX, clientY)" in renderer_js
-    assert 'id="render-area-follow-view"' in index_html
+    assert 'data-camera-navigation="scene"' in index_html
+    assert 'data-camera-navigation="camera"' in index_html
     assert 'id="render-area-eye"' in index_html
     assert "camera.aspect = outputAspect" in renderer_js
     assert "const halfWidth = halfHeight * outputAspect" in renderer_js
@@ -869,8 +870,7 @@ def test_camera_view_background_and_2d_display_controls_are_wired():
     assert "new THREE.HemisphereLight(0xffffff, 0xd6dcda, 0.38)" in renderer_js
     assert "new THREE.AmbientLight(0xffffff, 0.30)" in renderer_js
     assert "new THREE.DirectionalLight(0xffffff, 0.88)" in renderer_js
-    assert "lightViewport ? '#e3e8e5'" in renderer_js
-    assert "lightViewport ? 0.48 : 0.58" in renderer_js
+    assert "createViewportGrid(lightViewport)" in renderer_js
     assert "effectiveBondStyle()" in renderer_js
     assert "this.atomDisplayMode() === '2d'" in renderer_js
     assert "new THREE.MeshBasicMaterial" in renderer_js
@@ -1722,7 +1722,11 @@ def test_grid_guides_scale_to_large_unit_cells():
     assert "desiredGuideSize" in renderer_js
     assert "replaceViewportGuides" in renderer_js
     assert "refreshViewportGuidesForStructure" in renderer_js
-    assert "new THREE.GridHelper(guideSize, divisions" in renderer_js
+    assert "createViewportGrid(lightViewport)" in renderer_js
+    grid_js = (ROOT / "v_ase/static/viewport_grid.js").read_text()
+    assert "depthWrite: false" in grid_js
+    assert "depthTest: false" in grid_js
+    assert "mesh.renderOrder = -10" in grid_js
     assert "[0, 0, -half], [0, 0, half]" in renderer_js
 
 

@@ -10,7 +10,9 @@ import winreg
 if os.environ.get('CI') != 'true':
     raise SystemExit('Run only on a disposable CI runner; this exercises the installer.')
 root = Path(__file__).resolve().parents[1]
-extensions = json.loads((root / 'file-formats.json').read_text())['structureExtensions']
+formats = json.loads((root / 'file-formats.json').read_text())
+extensions = formats['structureExtensions']
+legacy = formats['legacyGenericExtensions']
 installers = list((root / 'dist').glob('v_ase-*-win-x64.exe'))
 assert len(installers) == 1, installers
 classes = r'Software\Classes'
@@ -24,7 +26,11 @@ def value(path, name=''):
         return None
 
 
-before = {ext: value('.' + ext) for ext in extensions}
+before = {ext: value('.' + ext) for ext in [*extensions, *legacy]}
+# Simulate an older installer without taking over any existing user default.
+for ext in legacy:
+    with winreg.CreateKey(winreg.HKEY_CURRENT_USER, classes + '\\.' + ext + r'\OpenWithProgids') as key:
+        winreg.SetValueEx(key, 'org.v-ase.structure', 0, winreg.REG_NONE, b'')
 with tempfile.TemporaryDirectory(prefix='vase-associations-') as temp:
     install = Path(temp) / 'app'
     subprocess.run([str(installers[0]), '/S', '/currentuser', f'/D={install}'], check=True, timeout=300)
@@ -33,6 +39,9 @@ with tempfile.TemporaryDirectory(prefix='vase-associations-') as temp:
     for ext in extensions:
         assert value('.' + ext) == before[ext], f'Changed the default for .{ext}'
         assert value('.' + ext + r'\OpenWithProgids', 'org.v-ase.structure') is not None, ext
+    for ext in legacy:
+        assert value('.' + ext) == before[ext], f'Changed the generic default for .{ext}'
+        assert value('.' + ext + r'\OpenWithProgids', 'org.v-ase.structure') is None, ext
     progid = value('.vase')[0]
     command = value(progid + r'\shell\open\command')[0]
     assert str(executable).lower() in command.lower() and '"%1"' in command

@@ -208,3 +208,9 @@ the move is confirmed or canceled.
   contact-distance multiplier scales covalent or van der Waals reference
   radii together; a disabled pair or `0 Å` distance remains inactive.
 - Torch is optional; NumPy fallback is used when torch is not installed.
+
+On desktop, **⌘W / Ctrl+W** closes the current document; the last document closes
+its window, and the last window quits. An empty window also closes. Dirty
+documents still offer Save, Discard and Cancel. Browser/notebook windows keep
+a blank internal document. When the output camera is selected, **G/R/S** apply
+to its position, orientation and frame scale; **Enter/Escape** commit/cancel.

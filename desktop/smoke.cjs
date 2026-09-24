@@ -38,8 +38,24 @@ async function runSmoke({ app, win, handshake, vault, sendCommand }) {
         const dialog = require('electron').dialog;
         const original = dialog.showOpenDialog;
         dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [filename] });
+        const previousSession = await js('window.__V_ASE_WORKSPACE__.activeSessionId');
+        const previousCount = await js('window.__V_ASE_WORKSPACE__.tabs.size');
         try { await js("window.__vaseDesktopHost.command('open')"); }
         finally { dialog.showOpenDialog = original; }
+        if (filename.toLowerCase().endsWith('.vase')) {
+            await wait(`window.__V_ASE_WORKSPACE__.tabs.size === ${previousCount + 1}`);
+            await wait(`${appRef}?.collaborationReady && ${appRef}.projectFile.handle?.desktopToken`);
+            assert.equal(await js(`${active}.document.querySelector('#modal-container').classList.contains('hidden')`), true);
+            if (!newTab) {
+                // Close the previous fixture through the normal dirty-document guard.
+                await js(`void window.__V_ASE_WORKSPACE__.closeDocument('${previousSession}')`);
+                await new Promise(resolve=>setTimeout(resolve,100));
+                await js(`(()=>{const w=window.__V_ASE_WORKSPACE__,d=w.tabs.get('${previousSession}')?.pane?.contentDocument;
+                    d?.querySelector('#modal-discard-document')?.click();})()`);
+                await wait(`!window.__V_ASE_WORKSPACE__.tabs.has('${previousSession}')`);
+            }
+            return;
+        }
         if (newTab) {
             const count = await js('window.__V_ASE_WORKSPACE__.tabs.size');
             await js(`${active}.document.querySelector('[name="open-file-mode"][value="new-tab"]').checked=true; ${active}.document.querySelector('#open-file-confirm').click()`);
@@ -117,7 +133,7 @@ async function runSmoke({ app, win, handshake, vault, sendCommand }) {
     await js(`${active}.addEventListener('keydown',e=>{${active}.__smokeKey={code:e.code,key:e.key,meta:e.metaKey,ctrl:e.ctrlKey,prevented:e.defaultPrevented,target:e.target.id}}); ${appRef}.renderer.domElement.focus()`);
     await key('A');
     await wait(`${appRef}.state.selected.size === 3`);
-    await js(`${active}.document.querySelector('#matrix-00').focus()`);
+    await js(`${appRef}.openEditorRoute('bonding'); ${active}.document.querySelector('.pairwise-bond-max').focus()`);
     await key('A');
     assert.equal(await js(`${appRef}.state.selected.size`), 3);
     for (const command of ['save', 'save-as']) {
@@ -160,7 +176,7 @@ async function runSmoke({ app, win, handshake, vault, sendCommand }) {
     await open(html);
     assert.equal(await js(`${appRef}.projectFile.format`), 'html');
     assert.equal(await js(`${appRef}.projectFile.outputProfile.width`), 720);
-    await js(`(()=>{const f=${active}; const input=f.document.querySelector('#atom-radius-scale-number'); input.value='0.9'; input.dispatchEvent(new f.Event('change',{bubbles:true})); f.__ASE_APP__.updateProjectDirtyState(); window.__smokeQuit=window.__vaseDesktopHost.confirmQuit(); })()`);
+    await js(`(()=>{const f=${active}; const input=f.document.querySelector('#atom-radius-scale-number'); input.value='0.9'; input.dispatchEvent(new f.Event('change',{bubbles:true})); f.__ASE_APP__.updateProjectDirtyState(); window.__smokeQuit=window.vaseDesktop.closeWindow(); })()`);
     await wait(`${active}.document.querySelector('#modal-keep-editing')`);
     await js(`${active}.document.querySelector('#modal-keep-editing').click()`);
     assert.equal(await js('window.__smokeQuit'), false);
@@ -294,7 +310,10 @@ async function runSmoke({ app, win, handshake, vault, sendCommand }) {
     assert.equal(await detachedJS(`${appRef}.updateProjectDirtyState()`), false);
     await fs.writeFile(path.join(output, 'detached-window.png'), (await detached.webContents.capturePage()).toPNG());
     const quittingOther = new Promise(resolve => detached.once('closed', resolve));
-    detached.close(); await quittingOther;
+    detached.show(); detached.focus(); detached.webContents.focus();
+    detached.webContents.sendInputEvent({type:'keyDown', keyCode:'W', modifiers:[modifier]});
+    detached.webContents.sendInputEvent({type:'keyUp', keyCode:'W', modifiers:[modifier]});
+    await quittingOther;
     assert.equal(win.isDestroyed(), false, 'Closing the detached window leaves the original window running');
     assert.equal((await fetch(`${new URL(handshake.human_url).origin}/api/workspace/${detachedWorkspaceId}`)).status, 400,
         'Closing a native window releases its backend workspace');
@@ -335,6 +354,27 @@ async function runSmoke({ app, win, handshake, vault, sendCommand }) {
         commands: 10, nativeControlA: true, verticalCutoffTab: true, droppedFileGrant: true, detachedWindow: true, detachedSave: true, transferRollback: true, openNewWindow: true, independentWindowClose: true, nativeKeyInput: true, nativeSave: true, scientificProject: true,
         htmlProfile: [720,480], openNewTab: true, quitCancellation: true, render: [800, 600],
         oxygenPixels, geometryRoutes, nodeIsolation: true };
+    // The remaining source window contains only disposable blank tabs after detach.
+    while (await js('window.__V_ASE_WORKSPACE__.tabs.size') > 1) {
+        const count=await js('window.__V_ASE_WORKSPACE__.tabs.size');
+        await key('W'); await wait(`window.__V_ASE_WORKSPACE__.tabs.size === ${count - 1}`);
+        await wait(`${appRef}?.collaborationReady`);
+    }
+    assert.equal(await js(`${appRef}.hasScratchContent()`), false);
+    const requestedQuit = new Promise(resolve => app.once('will-quit', event => {
+        // Let the harness persist its evidence before the normal smoke exit.
+        event.preventDefault(); resolve(true);
+    }));
+    await key('W');
+    let timer;
+    try {
+        await Promise.race([requestedQuit,new Promise((_,reject)=>{
+            timer=setTimeout(()=>reject(new Error('Closing the empty last window did not quit')),10000);
+        })]);
+    } finally {clearTimeout(timer);}
+    assert.equal(win.isDestroyed(),true);
+    result.lastDocumentClosesWindow=true;
+    result.emptyLastWindowRequestsQuit=true;
     await fs.writeFile(path.join(output, 'result.json'), JSON.stringify(result, null, 2));
     console.log(JSON.stringify(result));
 }

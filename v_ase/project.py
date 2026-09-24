@@ -518,6 +518,9 @@ def write_project_archive(
 ) -> Path:
     destination = Path(path)
     clean_settings = normalize_visual_settings(settings)
+    # Runtime mode belongs to the document, including saves made through the
+    # Python/API paths which need not supply a frontend display snapshot.
+    clean_settings["documentMode"] = "view" if session.config.get("viz_only", False) else "edit"
     frames = session_project_frames(session, current_positions=current_positions)
     current_frame = max(0, min(int(session.current_frame), len(frames) - 1))
     manifest = {
@@ -985,7 +988,17 @@ def read_project_document(path: str | Path) -> VaseProject:
     return read_project_archive(source)
 
 
+def project_viz_only(settings: dict[str, Any]) -> bool:
+    """Recover the saved mode, with a legacy display-snapshot fallback."""
+    mode = settings.get("documentMode")
+    if mode in ("view", "edit"):
+        return mode == "view"
+    display = settings.get("display", {})
+    return display.get("vizOnly") is True if isinstance(display, dict) else False
+
+
 def replace_session_from_project(session: EditorSession, project: VaseProject) -> None:
+    session.config["viz_only"] = project_viz_only(project.settings)
     replace_session_frames(
         session,
         project.frames,

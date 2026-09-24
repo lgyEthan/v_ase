@@ -422,6 +422,9 @@ body.editor-shell #inspector .renderer-subsection { border-top: 1px solid var(--
 body.editor-shell #inspector .renderer-subsection > .mapping-subhead { border: 0; margin: 0; padding: 12px 0 8px; }
 .render-camera-actions { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 8px; }
 .render-camera-actions button { min-width: 0; white-space: normal; }
+.camera-navigation { display: flex; min-width: 0; border: 1px solid var(--line-strong); border-radius: 4px; overflow: hidden; }
+body.editor-shell #inspector .camera-navigation button { flex: 1; min-width: 0; border: 0; border-radius: 0; padding: 7px 10px; font: 500 12px/1.4 var(--font-ui); background: var(--panel); color: var(--text); }
+body.editor-shell #inspector .camera-navigation button.active { background: var(--teal-soft); color: var(--teal); box-shadow: inset 0 -2px var(--teal); }
 /* Single-atom data is visible and selectable above the footer, never tooltip-only. */
 body.editor-shell #selection-measure-readout.single-atom-properties {
     position: absolute; bottom: calc(100% + 8px); left: 56px; align-items: flex-start;

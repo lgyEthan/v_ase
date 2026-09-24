@@ -52,14 +52,14 @@
             });
         })();
     </script>
-    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.4.4">
-    <link id="editor-style" rel="stylesheet" href="static/editor.css?v=0.4.4">
-    <link id="direct-workspace-style" rel="stylesheet" href="static/direct_workspace.css?v=0.4.4">
+    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.4.5">
+    <link id="editor-style" rel="stylesheet" href="static/editor.css?v=0.4.5">
+    <link id="direct-workspace-style" rel="stylesheet" href="static/direct_workspace.css?v=0.4.5">
     <script>
         window.__V_ASE_MOCK__ = new URLSearchParams(window.location.search).has('v_ase_mock');
         const threeModulePath = window.location.protocol === 'file:'
             ? './vendor/three.module.js'
-            : '/static/vendor/three.module.js?v=0.4.4';
+            : '/static/vendor/three.module.js?v=0.4.5';
         const importMap = document.createElement('script');
         importMap.type = 'importmap';
         importMap.textContent = JSON.stringify({
@@ -112,10 +112,9 @@
         <div id="export-preview-frame" class="export-preview-frame hidden" aria-hidden="true">
             <div class="export-preview-caption">
                 <button id="render-area-eye" class="render-area-eye" type="button"
-                        aria-pressed="false" aria-label="Select render area" title="Select render area; press G in Edit mode to move it">
+                        aria-pressed="false" aria-label="Select output camera" title="Select output camera: G move, R rotate, S scale frame">
                     <svg viewBox="0 0 24 24" aria-hidden="true">
-                        <path d="M2.2 12s3.6-6 9.8-6 9.8 6 9.8 6-3.6 6-9.8 6-9.8-6-9.8-6Z"></path>
-                        <circle cx="12" cy="12" r="2.8"></circle>
+                        <path d="M3 7h12v10H3z M15 10l6-3v10l-6-3 M6 7l2-3h4l2 3"></path>
                     </svg>
                 </button>
                 <span>RENDER AREA</span>
@@ -159,7 +158,7 @@
     <header id="top-bar" class="glass-panel">
         <div class="logo">
             <img class="brand-logo-asset" src="static/v_ase-logo.png" alt="v_ase">
-            <span class="version">0.4.4</span>
+            <span class="version">0.4.5</span>
         </div>
         <nav id="editor-menu-bar" class="editor-menu-bar" aria-label="Document commands">
             <details><summary>File</summary><div class="editor-menu-popover">
@@ -2116,11 +2115,14 @@
                         <div class="mapping-subhead">Output camera</div>
                         <button id="btn-preview-image" class="btn-block export-preview-toggle" type="button" aria-pressed="false" data-requires-atoms>Show output frame</button>
                         <div class="render-area-options">
-                            <label class="check-row" for="render-area-follow-view"><span>Camera follows editing view</span><input type="checkbox" id="render-area-follow-view" checked></label>
+                            <div class="prop-row"><span>Navigate</span><div class="camera-navigation" role="group" aria-label="Navigation target">
+                                <button type="button" data-camera-navigation="scene" aria-pressed="false">Scene</button>
+                                <button type="button" data-camera-navigation="camera" aria-pressed="true">Camera</button>
+                            </div></div>
                             <p id="render-area-mode-help" class="panel-note"></p>
                             <div class="render-camera-actions">
-                                <button id="btn-render-area-align-view" type="button" data-requires-atoms title="Place the output camera at the current editing viewpoint">Camera to view</button>
-                                <button id="btn-render-area-from-view" type="button" data-requires-atoms title="Look through the output camera and fit its frame on screen">View camera</button>
+                                <button id="btn-render-area-from-view" type="button" data-requires-atoms title="Inspect the saved output composition without changing it">Look through camera</button>
+                                <button id="btn-render-area-align-view" type="button" data-requires-atoms title="Replace the camera pose with the current editing viewpoint">Align camera to view</button>
                             </div>
                         </div>
                     </div>
@@ -2144,6 +2146,8 @@
                 </div>
                 <div class="export-group renderer-quality-group">
                     <div class="panel-subhead">Quality</div>
+                    <div class="prop-row"><label for="renderer-atom-display-mode">Atom rendering</label>
+                        <select id="renderer-atom-display-mode"><option value="3d">3D spheres</option><option value="2d">2D flat</option></select></div>
                     <div class="prop-row"><label for="renderer-sphere-quality">Atom smoothness</label>
                         <select id="renderer-sphere-quality"><option value="viewport">Viewport quality</option><option value="auto">Automatic</option><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="ultra">Ultra</option></select></div>
                     <label class="check-row" for="renderer-antialias"><span>Anti-aliasing</span><input id="renderer-antialias" type="checkbox"></label>
@@ -2457,7 +2461,7 @@
         }
         const modulePath = (window.location.protocol === 'file:' || window.location.pathname.endsWith('/static/index.html'))
             ? './main.js'
-            : './static/main.js?v=0.4.4';
+            : './static/main.js?v=0.4.5';
         import(modulePath).catch(error => {
             console.error('v_ase failed to initialize:', error?.stack || error);
         });

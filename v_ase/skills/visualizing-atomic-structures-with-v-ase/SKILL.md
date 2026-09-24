@@ -23,12 +23,19 @@ frames and element changes by index, resuming when absent indices return. The GU
 also captures label members as indices; `atomColorScaleTargetLabel` is only a UI
 annotation, not a dynamic label selector or a physical constraint. Video exports accept
 MOV/AVI/GIF, inclusive zero-based `startFrame`/`endFrame`, and GIF `loop`.
-The output-frame guide stays on the editable canvas; picking always uses the
-editing camera. A differently oriented saved output camera hides the guide
-until the user chooses View camera; it remains the export camera. View camera
-fits the output on screen and switches to fixed mode; wheel zoom then changes only
-the editing view. Camera to view deliberately replaces the output pose. In fixed
-mode, X/Y/Z and editor orbit never move the saved output camera.
+The output-frame guide stays on the editable canvas; picking uses the editing
+camera. Navigate → Scene keeps the saved output fixed; Navigate → Camera applies
+subsequent orbit/pan/zoom/axis changes to the output without recapturing it when
+switching targets. Look through camera fits the saved output on screen and
+switches to Scene. Align camera to view deliberately replaces the output pose.
+An off-axis camera is an oriented wire camera and output-plane outline, never
+an opaque eye. Selected camera G/R/S moves, rotates about the output center or
+scales the frame (including all geometry in the composition); Escape restores
+its previous pose and scale. Both Viewport and Renderer expose 2D/3D atom style.
+`.vase` opens without import/mode prompts, restoring saved Edit/View mode,
+frame, cameras, appearance, selection and panel presentation in a new tab when
+another document is open. Desktop Command/Ctrl+W closes the last tab's window
+and quits only after the last window, with normal dirty-document guards.
 For rotation/scaling, the GUI label “Selection COM” currently denotes an
 unweighted coordinate centroid; use an explicit pivot for a mass-weighted center.
 

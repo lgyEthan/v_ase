@@ -107,6 +107,10 @@ function createMenu(registry = {}) {
 }
 
 function registerIPC() {
+    ipcMain.handle('vase:close-window', async event => {
+        authorized(event);
+        return closeWindowSafely(BrowserWindow.fromWebContents(event.sender));
+    });
     ipcMain.handle('vase:open-dropped-file', (event, filename) => {
         authorized(event);
         if (typeof filename !== 'string' || !path.isAbsolute(filename)) throw new Error('Drop a local file from Finder or Explorer.');
@@ -135,7 +139,7 @@ function registerIPC() {
         authorized(event);
         const target = BrowserWindow.fromWebContents(event.sender);
         const result = await dialog.showOpenDialog(target, { title: 'Open structure or project', properties: ['openFile'],
-            filters: [{ name: 'Structures and projects', extensions: ['vase', ...require('./file-formats.json').structureExtensions] },
+            filters: [{ name: 'Structures and projects', extensions: ['vase', ...require('./file-formats.json').structureExtensions, ...require('./file-formats.json').projectImportExtensions] },
                       { name: 'All files', extensions: ['*'] }] });
         return result.canceled ? null : describeOpenFile(result.filePaths[0], target);
     });
@@ -198,11 +202,11 @@ async function launchBackend() {
 }
 
 async function closeWindowSafely(target) {
-    if (!target || target.isDestroyed() || closingWindows.has(target)) return;
+    if (!target || target.isDestroyed() || closingWindows.has(target)) return false;
     closingWindows.add(target);
     try {
         const allowed = await target.webContents.executeJavaScript('window.__vaseDesktopHost?.confirmQuit() ?? true');
-        if (!allowed) return;
+        if (!allowed) return false;
         const workspaceId = new URL(target.webContents.getURL()).searchParams.get('workspace_id');
         if (workspaceId) {
             const result = await fetch(`${backendOrigin}/api/workspace/${workspaceId}/close`, { method: 'POST' });
@@ -211,8 +215,10 @@ async function closeWindowSafely(target) {
         await vault.revoke(target.webContents.id);
         windows.delete(target); target.destroy();
         if (!windows.size) { exiting = true; stopBackend(); app.quit(); }
+        return true;
     } catch (error) {
         dialog.showErrorBox('Unable to finish closing', `The window remains open. ${error.message}`);
+        return false;
     } finally { closingWindows.delete(target); }
 }
 
@@ -329,7 +335,7 @@ async function createEditorWindow(url, { snapshot = null, sourceOwner = null, po
             if (smoke && initial) {
                 const { runSmoke } = require('./smoke.cjs');
                 await runSmoke({ app, win, handshake, vault, sendCommand });
-                exiting = true; win.destroy(); stopBackend(); app.exit(0);
+                exiting = true; if (!win.isDestroyed()) win.destroy(); stopBackend(); app.exit(0);
             }
         } catch (error) {
             console.error(error); clearTimeout(readyTimeout);

@@ -54,17 +54,29 @@ or resizing the inspector does not shift its composition.
 The frame toggle, dimensions, px/Å and camera controls live together under
 **Output frame & scale**. Lighting, Quality and Overlays are separate sections.
 
-- **Camera follows editing view** keeps the output camera synchronized with orbit,
-  pan, zoom and X/Y/Z alignment. Turn it off to capture the current physical pose.
-- **Camera to view** places and fixes the output camera at your current editing viewpoint.
-- **View camera** looks through the saved camera and fits the whole output frame
-  on screen, switching to fixed mode. Scrolling changes only the editor zoom;
-  output pixels per Å and composition stay unchanged, including in perspective.
-- In fixed mode, X/Y/Z, orbit and pan do not modify the saved output camera.
-  The crop guide hides when looking from another angle; the camera gizmo remains.
-  Use **View camera** to return, or **Camera to view** to deliberately replace the pose.
-- Output lighting, overlays and transparency are applied when rendering; the guide
-  indicates geometry and crop without overriding editor shading or atom editing.
+- **Navigate → Scene** lets you orbit, pan, zoom, use X/Y/Z and edit atoms while
+  preserving the output camera and px/Å.
+- **Navigate → Camera** applies subsequent navigation to the output composition.
+  Switching between Scene and Camera does not recapture the current editor zoom
+  or resize the output frame.
+- **Look through camera** fits the saved frame on screen and switches to Scene.
+  Wheel zoom then changes only the editor zoom, including in perspective.
+- **Align camera to view** deliberately replaces the output pose with the editing
+  viewpoint. This is an action, not another navigation mode.
+- Off-axis, a wire camera body and oriented output-plane outline show position,
+  facing direction and framing without a filled surface that covers atoms.
+  Click its outline or the camera button on the crop guide to select it.
+- **G** translates camera and target together; **R** rotates around the output
+  center (X/Y/Z constrain the world axis); **S** uniformly scales the frame,
+  inversely changing physical px/Å when enabled. Enter applies, Escape restores
+  both camera and scale. Camera transforms work in View as well as Edit and
+  compose all rendered geometry, including the unit cell.
+- Output lighting, overlays and transparency apply when rendering. Both
+  **Style → Viewport** and **Render → Quality → Atom rendering** expose
+  **2D flat / 3D spheres**, independently of camera projection.
+- The viewport work grid is an adaptive analytic plane with a fading horizon.
+  It has no finite mesh edge and never writes depth or masks atoms. Camera clip
+  limits adapt to the rendered structure without changing stored composition.
 
 The distinction between navigating a camera view and moving the camera follows
 [Blender's camera-view interaction](https://docs.blender.org/manual/en/latest/editors/3dview/navigate/camera_view.html).

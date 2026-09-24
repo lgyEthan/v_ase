@@ -8,7 +8,7 @@ A cloud agent still needs the documented MCP/tunnel setup; its own localhost
 cannot reach a person's desktop app.
 
 For desktop installation, use the [step-by-step user guide](https://v-ase.readthedocs.io/en/latest/desktop.html).
-The 0.4.4 downloads are Mac DMGs (Apple silicon or Intel, macOS 15+) and a
+The 0.4.5 downloads are Mac DMGs (Apple silicon or Intel, macOS 15+) and a
 Windows x64 EXE installer (Windows 10/11). Mac users copy the app to Applications;
 Windows users complete the installer and launch from Start. ZIPs require full
 extraction; the Windows ZIP does not install file associations. Check the
@@ -42,13 +42,13 @@ separately for VASP. Setting a default app does not convert file contents.
 Install the tested release into the active Python environment:
 
 ```bash
-python -m pip install "v_ase-gui==0.4.4"
+python -m pip install "v_ase-gui==0.4.5"
 ```
 
 Optional Rhino export:
 
 ```bash
-python -m pip install "v_ase-gui[rhino]==0.4.4"
+python -m pip install "v_ase-gui[rhino]==0.4.5"
 ```
 
 Runtime dependencies are ASE, matscipy, FastAPI, Uvicorn, NumPy, SciPy,
@@ -65,7 +65,7 @@ the complete environment with the same interpreter instead of replacing NumPy
 alone:
 
 ```bash
-python -m pip install --upgrade --force-reinstall "v_ase-gui==0.4.4"
+python -m pip install --upgrade --force-reinstall "v_ase-gui==0.4.5"
 ```
 
 v_ase uses the `AGPL-3.0-or-later` license. Preserve the license and source
@@ -424,7 +424,7 @@ to an untrusted network.
 Install the tested release:
 
 ```bash
-python -m pip install "v_ase-gui==0.4.4"
+python -m pip install "v_ase-gui==0.4.5"
 ```
 
 Start the terminal-oriented API session yourself:
@@ -492,8 +492,15 @@ remain the final authority for visual-quality checks.
 Desktop windows close independently. Windows Alt+F4 closes its active window;
 explicit Quit checks every open window before stopping the shared backend.
 
-Desktop structure extensions are Open With candidates (Mac Alternate rank,
+Desktop structure extensions are Open With candidates (Mac None rank for explicit selection,
 Windows OpenWithProgids). Only `.vase` is a native default type; existing user
 choices take precedence. Document icons are paper-shaped castle marks, separate
 from the application castle. The first file in an empty document has no
 replacement/append prompt. Extensionless POSCAR/CONTCAR remain available via Open.
+
+Saved `.vase` projects open immediately using their stored Edit/View mode and
+presentation, in a new internal tab if needed. Generic JSON/XML/HTML/MD/log
+extensions are not OS document associations; import compatible content with
+File → Open instead. Desktop Command/Ctrl+W closes the last tab's window, and
+the last window quits, after Save/Discard/Cancel guards. Browser/notebook use
+keeps its internal blank tab.

@@ -12,10 +12,9 @@
 [Documentation](https://v-ase.readthedocs.io/en/latest/) ·
 [PyPI](https://pypi.org/project/v-ase-gui/) ·
 [Changelog](https://v-ase.readthedocs.io/en/latest/whats-new.html) ·
-[Issues](https://github.com/lgyEthan/v_ase/issues) ·
-[Software paper and LaTeX source](paper/joss/README.md)
+[Issues](https://github.com/lgyEthan/v_ase/issues)
 
-**v_ase 0.4.4 — persistent property mappings and an independent output camera** ·
+**v_ase 0.4.5 — restored project views and clearer camera controls** ·
 [Changes](https://v-ase.readthedocs.io/en/latest/whats-new.html)
 
 An ASE-native workspace for building, editing and visualizing atomic structures,
@@ -25,27 +24,33 @@ trajectories and volumetric data.
 
 Trajectory navigation retains double-precision coordinates and committed edits
 through frame switches, animation output and scientific project exports.
+Animation export restores the current frame and selection; an empty colorscale
+target maps no atoms and does not block export. GUI and agent project saves
+both retain the document's mode and presentation.
+Agent revision snapshots wait for pending change notifications to finish.
 Renderer scale and atom radius remain independent.
 
 ## Installation And Launch
 
 macOS and Windows users can install the self-contained
 [desktop app](https://v-ase.readthedocs.io/en/latest/desktop.html) from
-[GitHub Releases](https://github.com/lgyEthan/v_ase/releases/tag/v0.4.4).
+[GitHub Releases](https://github.com/lgyEthan/v_ase/releases/tag/v0.4.5).
 It runs the same GUI with native Command/Ctrl shortcuts and file dialogs;
 Python installation is not required. Python and Jupyter remain available
 independently. Drag a desktop tab out to detach it into another window.
 **Help → About this runtime** shows the installed desktop version.
-Dropped files offer trajectory, new-tab and new-window destinations. Each
+Dropped structures offer trajectory, new-tab and new-window destinations. Saved
+`.vase` projects open immediately in their saved Edit/View mode and presentation,
+using a new tab when the current document has content. Each
 window closes independently; Windows Alt+F4 closes the active window, while
 explicit Quit checks all windows. The app icon now features the full atomic-bead
 castle with its small Pinocchio detail and no projecting red foundation board.
 
-| Desktop download (0.4.4) | Install and launch |
+| Desktop download (0.4.5) | Install and launch |
 | --- | --- |
-| [Mac, Apple silicon](https://github.com/lgyEthan/v_ase/releases/download/v0.4.4/v_ase-0.4.4-mac-arm64.dmg) | macOS 15+: open the DMG, drag **v_ase** to **Applications**, eject the disk image, then launch the Applications copy. |
-| [Mac, Intel](https://github.com/lgyEthan/v_ase/releases/download/v0.4.4/v_ase-0.4.4-mac-x64.dmg) | Same steps; choose Intel when **About This Mac** shows an Intel processor. |
-| [Windows, Intel/AMD x64](https://github.com/lgyEthan/v_ase/releases/download/v0.4.4/v_ase-0.4.4-win-x64.exe) | Windows 10/11, 64-bit: run the EXE installer, complete installation, then launch **v_ase** from Start. |
+| [Mac, Apple silicon](https://github.com/lgyEthan/v_ase/releases/download/v0.4.5/v_ase-0.4.5-mac-arm64.dmg) | macOS 15+: open the DMG, drag **v_ase** to **Applications**, eject the disk image, then launch the Applications copy. |
+| [Mac, Intel](https://github.com/lgyEthan/v_ase/releases/download/v0.4.5/v_ase-0.4.5-mac-x64.dmg) | Same steps; choose Intel when **About This Mac** shows an Intel processor. |
+| [Windows, Intel/AMD x64](https://github.com/lgyEthan/v_ase/releases/download/v0.4.5/v_ase-0.4.5-win-x64.exe) | Windows 10/11, 64-bit: run the EXE installer, complete installation, then launch **v_ase** from Start. |
 
 The Mac downloads are **Developer ID signed and Apple-notarized**, with
 stapled tickets for the app and DMG. macOS may show its normal first-open
@@ -111,15 +116,24 @@ clear these targets. Indices absent from a frame resume their mapping when prese
 again. Property menus are preloaded without fetching unused scalar arrays.
 Trajectory coordinates, colors and radii are presented together.
 **Render → Output frame & scale → Show output frame** draws a crop guide over the
-editable canvas. **Camera to view** places the output camera at the editing view;
-**View camera** returns to its angle and fits the frame on screen. With **Camera
-follows editing view** off, wheel zoom, orbit and X/Y/Z leave the output camera,
-physical scale and exported image unchanged. Video supports inclusive source-frame ranges and animated GIF
+editable canvas. **Navigate → Scene** keeps the output camera fixed while you
+edit or inspect the structure; **Navigate → Camera** makes navigation adjust the
+output. Switching targets preserves the composition. **Look through camera**
+fits the saved frame on screen without changing the export; **Align camera to
+view** deliberately replaces its pose. Select the camera/frame for **G** move,
+**R** rotation about the output center and **S** frame scaling, with Enter to
+apply and Escape to cancel. These framing operations include atoms, cell and
+all other exported geometry. The camera has an oriented wire outline, and the
+work grid has no finite mesh boundary. **Renderer → Quality → Atom rendering**
+also exposes 2D flat / 3D spheres. Video supports inclusive source-frame ranges and animated GIF
 with **Loop forever** or **Play once**, alongside MOV/AVI.
 Desktop project and structure files have paper-shaped document icons bearing
 the castle; the application keeps its full castle icon. Only `.vase` is registered
 as the native default type. Structure formats including `.extxyz`, `.xyz`, `.vasp`
-and `.cif` appear under **Open with** without changing their existing defaults.
+and `.cif` remain optional handlers: select v_ase explicitly in Open With / Get
+Info. macOS never automatically chooses it for these secondary types. Generic
+`.json`, `.xml`, `.html`, `.md` and `.log` associations are not registered;
+project HTML and specialized files are still importable through File → Open.
 An empty workspace opens its first file without replacement/append choices.
 The right panel overlays the scene without shifting the camera and expands up
 to 900 px when the window permits. Bonds opens editable pair specifications by
@@ -131,8 +145,10 @@ Save
 reuses an approved writable project target; Save As chooses a new one. When
 the browser only supports downloads, v_ase labels the result a copy rather
 than implying it can overwrite the original. Closing a changed document
-offers Save, Discard and Cancel and keeps a replacement blank tab when the
-last tab closes. Direct and notebook editors adopt tabs in place without
+offers Save, Discard and Cancel. On desktop, Command/Ctrl+W closes the active
+tab, or its window when it is the last tab; closing the last window quits.
+An empty desktop window also closes. Browser/notebook editors retain a blank
+internal tab and never intentionally close the host browser tab. Direct and notebook editors adopt tabs in place without
 reloading the original document. Pending physical edits settle before Save,
 Close or Replace can discard anything; invalid scientific inputs block Save
 before a file destination is chosen. Uploaded project tabs retain their

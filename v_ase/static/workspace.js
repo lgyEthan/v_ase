@@ -1,10 +1,10 @@
-import { restoreWindowDocument } from './workspace_windows.js?v=0.4.4';
-import { projectProvenanceFromLoad } from './project_provenance.js?v=0.4.4';
-import { captureDocumentRecovery, restoreDocumentRecovery } from './workspace_recovery.js?v=0.4.4';
-import { createWorkspaceAIBridge, handleWorkspaceAICommand } from './workspace_ai.js?v=0.4.4';
-import { installShortcutCapture } from './shortcut_capture.js?v=0.4.4';
+import { restoreWindowDocument } from './workspace_windows.js?v=0.4.5';
+import { projectProvenanceFromLoad } from './project_provenance.js?v=0.4.5';
+import { captureDocumentRecovery, restoreDocumentRecovery } from './workspace_recovery.js?v=0.4.5';
+import { createWorkspaceAIBridge, handleWorkspaceAICommand } from './workspace_ai.js?v=0.4.5';
+import { installShortcutCapture } from './shortcut_capture.js?v=0.4.5';
 import { commandIdForEvent, editorAriaShortcut, editorShortcutLabel, resolveShortcutPlatform,
-    viewportNavigationForEvent } from './editor_commands.js?v=0.4.4';
+    viewportNavigationForEvent } from './editor_commands.js?v=0.4.5';
 
 class VAseWorkspace {
     constructor() {
@@ -433,6 +433,7 @@ class VAseWorkspace {
 
     async closeDocument(sessionId) {
         if (!this.tabs.has(sessionId)) return;
+        if (this.tabs.size === 1 && this.closeLastDocument) return this.closeLastDocument();
         const ordered = [...this.tabs.keys()];
         const index = ordered.indexOf(sessionId);
         const fallback = ordered[index + 1] || ordered[index - 1];

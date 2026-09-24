@@ -117,6 +117,19 @@ def test_interactive_scene_payloads_and_distribution_contract():
     extension = (DOCS / "_ext" / "vase_demo.py").read_text(encoding="utf-8")
     assert 'HTML_BUILDERS = {"html", "dirhtml", "singlehtml"}' in extension
     assert 'return [nodes.image(uri=fallback, alt=alt)]' in extension
+    # The standalone renderer's local imports must ship with the docs runtime.
+    # Otherwise Sphinx succeeds while the interactive logo fails in the browser.
+    import ast
+    import re
+    module = ast.parse(extension)
+    runtime = next(ast.literal_eval(node.value) for node in module.body
+                   if isinstance(node, ast.Assign)
+                   and any(isinstance(t, ast.Name) and t.id == 'RUNTIME_FILES' for t in node.targets))
+    for name in runtime:
+        if name.endswith('.js'):
+            source = (ROOT / 'v_ase/static' / name).read_text()
+            for dependency in re.findall(r"from\s+['\"]\./([^'\"]+)['\"]", source):
+                assert dependency.split('?')[0] in runtime
 
     manifest = (ROOT / "MANIFEST.in").read_text(encoding="utf-8")
     assert "recursive-include docs/_ext *.py" in manifest

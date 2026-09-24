@@ -136,8 +136,20 @@ Replacing a dirty tab uses the same choice. Closing or reloading the browser
 page requests the browser's supported unsaved-changes confirmation; canceling
 that exit leaves the live session intact. Save waits for pending physical
 application and playback/frame work before taking the project snapshot.
-Closing the last tab creates a new blank document, keeping the workspace alive.
+In the browser, closing the last tab creates a new blank document. In the desktop
+app, Command/Ctrl+W on the last tab closes its window; the last window exits the
+app. The same Save/Discard/Cancel guard applies.
 
 Image and video progress is monotonic across render, capture, upload, encode,
 download, and final write. Completion reaches 100% only after the destination
 is finished.
+
+## Reopening the saved workspace
+
+Open a `.vase` file directly: no reader or Edit/View prompt appears. Its saved
+mode, active trajectory frame, camera, appearance, output-frame visibility,
+selection and properties-panel location are restored. The first project uses
+an empty startup tab; another project opens in a new tab and preserves the
+current document. Older archives restore the fields they contain and default
+to Edit only when no mode was stored. Different window sizes retain physical
+view magnification while adapting the available UI area.

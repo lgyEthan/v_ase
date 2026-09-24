@@ -55,7 +55,9 @@ Before every release:
 3. open `human_url`, then call `capabilities` through
    `v_ase api "$COMMAND_URL"`;
 4. compare every reported state field, apply key, operation, and export with
-   `references/semantic-api.md`;
+   the canonical Skill, its relevant focused references, the generated typed
+   tool reference, and the live operation schemas; `semantic-api.md` describes
+   the legacy HTTP surface and is not the complete native-tool index;
 5. compare the JSON Schema at `schema_url`;
 6. verify `events_url`, collaboration protocol, and `expectedRevision`;
 7. fail if code has an undocumented capability or the skill documents a
@@ -76,6 +78,9 @@ Also validate the token-efficient path independently from the full audit:
 
 Current operation coverage:
 
+- load-structure, append-structure, load-settings, configure-calculator,
+  set-playback, apply-scene, duplicate-selection, configure-polyhedra,
+  style-polyhedra, select-volumetric-planes;
 - wrap, translate-all, center-selection-at-origin, compose-view, set-unit-cell, build-bulk,
   set-supercell, make-supercell;
 - add-atom, scatter-atoms, scatter-molecules, update-add-atoms-region,
@@ -134,10 +139,12 @@ Run all scenarios, not only static document checks:
      outlines, flat bonds/vectors/cell/regions, and an X on FixAtoms while
      preserving atom color and radius; switch back and require the prior 3D
      materials and lighting to return without reloading structure data;
-   - capture a persistent Render Area, disable Follow Viewport, orbit the work
+   - capture a persistent Render Area, select Navigate: Scene, orbit the work
      camera, and require the stored export camera to remain unchanged; select
      in the editing canvas and require picking to keep its viewport projection;
-     the guide must hide while a saved output camera is unaligned, then move its eye with `G` in Edit and verify
+     the screen guide must give way to the oriented wire camera and output plane
+     while unaligned; select that camera, use `G`, `R`, and uniform `S` in either
+     mode, cancel a preview, and verify
      `describe().renderArea` and image/video/HTML exports share that camera;
    - play a trajectory while moving the Sun and Render Area and changing atom
      appearance; require uninterrupted playback and immediate visual updates.

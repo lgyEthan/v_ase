@@ -184,14 +184,14 @@ await ai.apply({
 });
 ```
 
-Set `followViewport:true` while composing, or provide an explicit
+Set `followViewport:true` for Camera navigation (subsequent view deltas change the output; switching does not replace its pose), or provide an explicit
 `renderArea.camera` with `position`, `target`, `up`, `projection`, and the
 matching projection fields. `describe().renderArea` reports `enabled`,
-`followViewport`, camera, width, and height. The GUI draws a crop guide only when the editing and output cameras align.
+`followViewport`, camera, width, and height. The GUI draws an on-screen crop guide when the cameras align, and a world-space wire camera/output-plane outline otherwise.
 With `followViewport:false`, editor orbit/zoom/axis changes preserve the output
-pose and px/Å. GUI Camera to view is `renderArea:{fromCurrentView:true}`;
-GUI View camera is editor-only alignment/fit and switches followViewport off.
-Picking always uses the editing viewport. Use View camera to align and fit the editing view without changing output
+pose and px/Å. GUI Align camera to view is `renderArea:{fromCurrentView:true}`;
+GUI Look through camera is editor-only alignment/fit and switches followViewport off.
+Picking always uses the editing viewport. Use Look through camera to align and fit the editing view without changing output
 scale; never infer the crop from an unrelated page screenshot.
 
 Use `describe --profile render` before export. `effectiveRender.source` reports

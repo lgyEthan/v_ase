@@ -20,6 +20,7 @@ SCENE_ID = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
 HTML_BUILDERS = {"html", "dirhtml", "singlehtml"}
 RUNTIME_FILES = (
     "renderer.js",
+    "viewport_grid.js",
     "polyhedra_bsp.js",
     "standalone.js",
     "standalone.css",

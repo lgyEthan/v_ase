@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { PolyhedraBSP } from './polyhedra_bsp.js';
+import { createViewportGrid } from './viewport_grid.js';
 
 function numberArrayEqual(first = [], second = []) {
     if (first === second) return true;
@@ -1198,103 +1199,64 @@ export class ASERenderer {
 
     buildRenderAreaGizmo() {
         const group = new THREE.Group();
-        group.name = 'v_ase_render_area_eye';
+        group.name = 'v_ase_output_camera';
         group.visible = false;
-        group.renderOrder = 140;
-
-        const canvas = document.createElement('canvas');
-        canvas.width = 160;
-        canvas.height = 112;
-        const context = canvas.getContext('2d');
-        context.clearRect(0, 0, canvas.width, canvas.height);
-        context.lineWidth = 8;
-        context.lineCap = 'round';
-        context.lineJoin = 'round';
-        context.strokeStyle = '#69dfc7';
-        context.fillStyle = 'rgba(17, 31, 31, 0.82)';
-        context.beginPath();
-        context.moveTo(12, 56);
-        context.bezierCurveTo(44, 10, 116, 10, 148, 56);
-        context.bezierCurveTo(116, 102, 44, 102, 12, 56);
-        context.closePath();
-        context.fill();
-        context.stroke();
-        context.beginPath();
-        context.arc(80, 56, 22, 0, Math.PI * 2);
-        context.fillStyle = '#69dfc7';
-        context.fill();
-        context.beginPath();
-        context.arc(80, 56, 9, 0, Math.PI * 2);
-        context.fillStyle = '#10201f';
-        context.fill();
-        const texture = new THREE.CanvasTexture(canvas);
-        texture.colorSpace = THREE.SRGBColorSpace;
-        texture.needsUpdate = true;
-        const material = new THREE.SpriteMaterial({
-            map: texture,
-            transparent: true,
-            depthTest: false,
-            depthWrite: false,
-            sizeAttenuation: true
-        });
-        const eye = new THREE.Sprite(material);
-        eye.name = 'v_ase_render_area_eye_handle';
-        eye.userData.renderAreaEye = true;
-        eye.renderOrder = 142;
-
-        const directionMaterial = new THREE.LineDashedMaterial({
-            color: 0x69dfc7,
-            transparent: true,
-            opacity: 0.54,
-            dashSize: 0.22,
-            gapSize: 0.16,
-            depthTest: false,
-            depthWrite: false
-        });
-        const direction = new THREE.Line(
-            new THREE.BufferGeometry().setFromPoints([
-                new THREE.Vector3(10, 10, 10),
-                new THREE.Vector3(0, 0, 0)
-            ]),
-            directionMaterial
-        );
-        direction.name = 'v_ase_render_area_direction';
-        direction.renderOrder = 139;
-        direction.computeLineDistances();
-        group.add(direction, eye);
-        group.userData = { eye, direction };
+        const geometry = new THREE.BufferGeometry();
+        const material = new THREE.LineBasicMaterial({color: 0x278c7b,
+            transparent: true, opacity: 0.72, depthTest: true, depthWrite: false});
+        const outline = new THREE.LineSegments(geometry, material);
+        outline.name = 'v_ase_output_camera_outline';
+        group.add(outline);
+        group.userData = {outline, signature: null};
         return group;
     }
 
-    setRenderAreaGizmo(cameraSettings, { visible = false, selected = false } = {}) {
+    setRenderAreaGizmo(cameraSettings, {visible = false, selected = false, profile = null} = {}) {
         const group = this.renderAreaGizmoGroup;
         if (!group) return;
+        const signature = JSON.stringify([cameraSettings, visible, selected, profile?.width,
+            profile?.height, profile?.options?.scaleMode, profile?.options?.pixelsPerAngstrom]);
+        if (signature === group.userData.signature) return;
+        group.userData.signature = signature;
         group.visible = Boolean(visible && cameraSettings);
-        if (!group.visible) {
-            this.requestRender();
-            return;
+        if (group.visible) {
+            const {camera, target} = this.exportCameraSetup(profile?.width || 1920,
+                profile?.height || 1080, {...profile?.options, camera: cameraSettings});
+            const distance = camera.position.distanceTo(target);
+            const height = camera.isOrthographicCamera ? (camera.top - camera.bottom) / camera.zoom
+                : 2 * distance * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2) / camera.zoom;
+            const aspect = (profile?.width || 1920) / (profile?.height || 1080);
+            const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
+            const up = new THREE.Vector3(0, 1, 0).applyQuaternion(camera.quaternion);
+            const corners = [[-1,-1],[1,-1],[1,1],[-1,1]].map(([x,y]) => target.clone()
+                .addScaledVector(right, x * height * aspect / 2).addScaledVector(up, y * height / 2));
+            const points = [];
+            const line = (a,b) => points.push(a.clone(),b.clone());
+            corners.forEach((corner,i) => {
+                line(corner,corners[(i+1)%4]);
+            });
+            // A compact, oriented camera body plus the full output-plane edge.
+            // Avoid long diagonal rays through the middle of the structure.
+            const forward = target.clone().sub(camera.position).normalize();
+            const bodySize = Math.max(0.1, height * 0.045);
+            const lens = camera.position.clone().addScaledVector(forward, bodySize * 1.6);
+            const body = [[-1,-1],[1,-1],[1,1],[-1,1]].map(([x,y]) => lens.clone()
+                .addScaledVector(right,x * bodySize).addScaledVector(up,y * bodySize * 0.7));
+            body.forEach((corner,i) => { line(corner,body[(i+1)%4]); line(corner,camera.position); });
+            const top = target.clone().addScaledVector(up, height / 2);
+            const tip = top.clone().addScaledVector(up, height * 0.09);
+            line(top.clone().addScaledVector(right,-height * 0.06),tip);
+            line(tip,top.clone().addScaledVector(right,height * 0.06));
+            const geometry = new THREE.BufferGeometry().setFromPoints(points);
+            group.userData.outline.geometry.dispose();
+            group.userData.outline.geometry = geometry;
+            group.userData.outline.material.color.set(selected ? 0xc58a13 : 0x278c7b);
         }
-        const position = new THREE.Vector3(...cameraSettings.position);
-        const target = new THREE.Vector3(...cameraSettings.target);
-        const { eye, direction } = group.userData;
-        eye.position.copy(position);
-        eye.material.color.set(selected ? 0xffc857 : 0xffffff);
-        const attribute = direction.geometry.getAttribute('position');
-        attribute.setXYZ(0, position.x, position.y, position.z);
-        attribute.setXYZ(1, target.x, target.y, target.z);
-        attribute.needsUpdate = true;
-        direction.geometry.computeBoundingSphere();
-        direction.computeLineDistances();
-        direction.material.color.set(selected ? 0xffc857 : 0x69dfc7);
-        this.updateRenderAreaGizmoScale();
         this.requestRender();
     }
 
     updateRenderAreaGizmoScale() {
-        if (!this.renderAreaGizmoGroup?.visible) return;
-        const eye = this.renderAreaGizmoGroup.userData.eye;
-        const scale = Math.max(0.42, this.sunWorldPerPixel(eye.position) * 64);
-        eye.scale.set(scale * 1.42, scale, 1);
+        // The frustum is world geometry and has no camera-facing sprite.
     }
 
     pickRenderAreaEye(event) {
@@ -1302,13 +1264,10 @@ export class ASERenderer {
         const rect = this.domElement.getBoundingClientRect();
         const pointer = new THREE.Vector2(
             ((event.clientX - rect.left) / Math.max(1, rect.width)) * 2 - 1,
-            -((event.clientY - rect.top) / Math.max(1, rect.height)) * 2 + 1
-        );
+            -((event.clientY - rect.top) / Math.max(1, rect.height)) * 2 + 1);
         this.renderAreaRaycaster.setFromCamera(pointer, this.camera);
-        return this.renderAreaRaycaster.intersectObject(
-            this.renderAreaGizmoGroup.userData.eye,
-            false
-        ).length > 0;
+        this.renderAreaRaycaster.params.Line.threshold = this.sunWorldPerPixel(this.controls.target) * 5;
+        return this.renderAreaRaycaster.intersectObject(this.renderAreaGizmoGroup.userData.outline, false).length > 0;
     }
 
     normalizedLightingVector(value, fallback) {
@@ -2251,12 +2210,7 @@ export class ASERenderer {
         const divisions = this.gridDivisionsForSize(guideSize);
         const gridGroup = new THREE.Group();
         const lightViewport = this.viewportBackgroundMode === 'white';
-        const grid = new THREE.GridHelper(guideSize, divisions,
-            lightViewport ? '#aeb7b3' : cssColor('--neutral-600', '#56625e'),
-            lightViewport ? '#e3e8e5' : cssColor('--neutral-650', '#35403d'));
-        grid.rotation.x = Math.PI / 2;
-        grid.material.transparent = true;
-        grid.material.opacity = lightViewport ? 0.48 : 0.58;
+        const grid = createViewportGrid(lightViewport);
         grid.userData = { guide: true, guideSize, divisions };
         gridGroup.add(grid);
 
@@ -2266,7 +2220,7 @@ export class ASERenderer {
                 new THREE.Vector3(...start),
                 new THREE.Vector3(...end)
             ]);
-            const mat = new THREE.LineBasicMaterial({ color, transparent: true, opacity });
+            const mat = new THREE.LineBasicMaterial({ color, transparent: true, opacity, depthWrite: false });
             return new THREE.Line(geo, mat);
         };
         axisGroup.add(makeLine([-half, 0, 0], [half, 0, 0], cssColor('--axis-x', '#f05b55'), 0.68));
@@ -3332,9 +3286,9 @@ export class ASERenderer {
             this.updateHookeanPositions();
             this.updateViewLighting(exportView.camera, exportView.target);
             this.preparePolyhedraView(exportView.camera);
-            this.renderer.render(this.scene, exportView.camera);
+            this.renderScientificScene(exportView.camera);
             if (sceneState.requestedMode === 'studio-shadow') {
-                this.renderer.render(this.scene, exportView.camera);
+                this.renderScientificScene(exportView.camera);
             }
         } finally {
             this.flatOrientationCamera = previousFlatOrientationCamera;
@@ -3372,6 +3326,7 @@ export class ASERenderer {
                 oldScissor: this.renderer.getScissor(new THREE.Vector4()),
                 oldScissorTest: this.renderer.getScissorTest(),
                 sceneState: this.beginExportScene(options),
+                options: {...options},
                 ended: false
             };
             this.renderer.setPixelRatio(1);
@@ -3412,7 +3367,11 @@ export class ASERenderer {
             exportView.renderHeight
         );
         this.renderer.setScissorTest(true);
-        this.renderExportView(exportView, sceneState);
+        // Loading a different topology can replace meshes and re-enable editor
+        // guides. Reapply the export contract to every freshly built frame.
+        const frameState = this.beginExportScene(capture.options);
+        try { this.renderExportView(exportView, frameState); }
+        finally { frameState.restore(); }
     }
 
     endExportCapture(capture) {
@@ -9240,6 +9199,27 @@ export class ASERenderer {
         });
     }
 
+    renderScientificScene(camera) {
+        // Fit clipping to the current geometry, not the geometry from the last
+        // Fit View. Orthographic views can safely include geometry behind their
+        // nominal eye. Keep these drawing limits out of saved camera optics.
+        const bounds = this.lightingStructureBounds();
+        const center = bounds.getCenter(new THREE.Vector3());
+        const radius = Math.max(1, bounds.getSize(new THREE.Vector3()).length() * 0.5);
+        const direction = camera.getWorldDirection(new THREE.Vector3());
+        const depth = center.sub(camera.position).dot(direction);
+        const near = camera.near, far = camera.far;
+        camera.near = camera.isOrthographicCamera ? Math.min(near, depth - radius * 2 - 10)
+            : Math.max(0.001, Math.min(near, depth - radius * 2));
+        camera.far = Math.max(far, depth + radius * 2 + 100);
+        camera.updateProjectionMatrix();
+        try { this.renderer.render(this.scene, camera); }
+        finally {
+            camera.near = near; camera.far = far;
+            camera.updateProjectionMatrix();
+        }
+    }
+
     renderFrame() {
         if (this.suspended || this.exportCaptureActive || this.frameUpdateDepth) return;
         this.controls.update();
@@ -9251,7 +9231,7 @@ export class ASERenderer {
         this.onFrame?.();
         this.updateViewLighting();
         this.preparePolyhedraView(this.camera);
-        this.renderer.render(this.scene, this.camera);
+        this.renderScientificScene(this.camera);
         this.renderExportPreview();
         this.renderCount += 1;
         this.domElement.dataset.renderCount = String(this.renderCount);

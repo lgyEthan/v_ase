@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.4.5
+
+- Reopen `.vase` immediately in its saved Edit/View mode, source frame,
+  camera, appearance, selection and inspector presentation. Use a new tab
+  when another document has content; remove redundant project import prompts.
+- Separate **Navigate: Scene / Camera**, **Look through camera** and **Align
+  camera to view**. Switching the navigation target preserves the output
+  composition. Add camera G/R/S with cancellable previews and saved scale.
+- Replace the floating eye marker with an oriented wire camera and output
+  plane. Keep atoms visible through orbit and close camera positions with
+  geometry-aware drawing limits; replace finite grid tiles with an adaptive
+  analytic work plane that cannot occlude atoms.
+- Expose 2D/3D atom style in Renderer as well as Viewport. Keep export profiles
+  through appearance edits and exclude viewport guides consistently in every
+  captured animation frame.
+- Preserve selection and measurement intent across animation export without
+  reporting internal capture frames as human edits. Allow empty selected
+  colorscale targets through native commands and trajectory export.
+- Wait for already-publishing collaboration events before returning a revision
+  barrier, preventing delayed notifications from invalidating a fresh guard.
+- Limit automatic desktop file handling to `.vase`. Remove JSON and generic
+  suffix registrations; retain explicit scientific-format opening without
+  replacing another application's defaults. Clean only v_ase's obsolete
+  Windows Open With registrations during upgrade.
+- Make desktop Command/Ctrl+W close the last document's window and quit after
+  the last window, including an empty window. Preserve save/cancel guards and
+  other windows; browser documents retain their internal blank-tab behavior.
+
 ## 0.4.4
 
 - Clarify colorscale targets with **Selected atoms**, an explicit **Use current

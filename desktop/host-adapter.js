@@ -2,9 +2,9 @@
 (async () => {
     if (window.__vaseDesktopHost || !window.vaseDesktop) return;
     const native = window.vaseDesktop;
-    const { EDITOR_COMMANDS, commandIdForEvent } = await import('/static/editor_commands.js?v=0.4.2');
+    const { EDITOR_COMMANDS, commandIdForEvent } = await import('/static/editor_commands.js?v=0.4.5');
     const installed = new WeakSet();
-    const { detachWorkspaceDocument, restoreWindowDocument } = await import('/static/workspace_windows.js?v=0.4.2');
+    const { detachWorkspaceDocument, restoreWindowDocument } = await import('/static/workspace_windows.js?v=0.4.5');
     let transfer = null;
     const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     const workspace = () => window.__V_ASE_WORKSPACE__;
@@ -68,6 +68,8 @@
     function install(app) {
         if (!app || installed.has(app)) return;
         installed.add(app);
+        const ws = workspace();
+        if (ws) ws.closeLastDocument = () => native.closeWindow();
         app.droppedFileHandle = async file => {
             const selected = await native.openDropped(file);
             return selected ? fileHandle(selected) : null;
@@ -101,7 +103,7 @@
                         type: 'v_ase:document-open-new', sessionId: app.sessionId, requestId,
                         file, handle: options.handle, fileName: file.name, inputFormat, index,
                         volumetricPrecision: app.volumetricImportPrecision(),
-                        runtimeMode: runtimeMode || (app.state.vizOnly ? 'view' : 'edit'),
+                        runtimeMode,
                     });
                 });
             } catch (error) { app.workspaceOpenRequests.delete(requestId); report(error); }
@@ -112,7 +114,7 @@
             showShortcuts();
             for (const note of doc.querySelectorAll('#modal-content .panel-note')) {
                 if (note.textContent.includes('Browser or operating-system reserved')) {
-                    note.textContent = 'Desktop commands work in ordinary and fullscreen windows. Command on macOS; Ctrl on Windows. Close document keeps the application open; Quit closes it after checking every document.';
+                    note.textContent = 'Desktop commands work in ordinary and fullscreen windows. Command on macOS; Ctrl on Windows. Closing the last tab closes its window; closing the last window quits after checking unsaved work.';
                 }
             }
         };

@@ -9211,14 +9211,16 @@ def test_camera_toolbar_white_background_and_flat_2d_display():
                     background: `#${app.renderer.scene.background.getHexString()}`,
                     dataset: app.renderer.domElement.dataset.viewportBackground,
                     sidebar: document.getElementById('viewport-background').value,
-                    gridOpacity: grid.material.opacity
+                    gridDepthWrite: grid.material.depthWrite,
+                    gridColor: `#${grid.material.uniforms.gridColor.value.getHexString()}`
                 };
             }""")
             assert white_state == {
                 "background": "#ffffff",
                 "dataset": "white",
                 "sidebar": "white",
-                "gridOpacity": pytest.approx(0.48),
+                "gridDepthWrite": False,
+                "gridColor": "#aeb7b3",
             }
 
             page.select_option("#atom-display-mode", "2d")

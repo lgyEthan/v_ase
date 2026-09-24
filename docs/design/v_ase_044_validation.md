@@ -90,17 +90,37 @@ as 0.4.3 rather than claiming to test a published 0.4.4 wheel.
   rejection. Actual PNG output was visually inspected. Evidence remains in
   `/tmp/vase-044-wheel-verification/`; the disposable environment was removed
   after verification to recover disk space. This is not a published-wheel check.
-- No 0.4.4 distribution has been published. Native/packaged tests, three-platform
-  CI, Mac signing/notarization, published-wheel and public-asset verification
-  must complete before declaring the release finished.
+- The tested Python distributions were published on 2026-09-24. GitHub and
+  PyPI expose identical wheel/sdist hashes. A clean environment installed the
+  actual published wheel and repeated the GUI/CLI property, PNG/GIF, served
+  Skill and stale-revision checks successfully; see the release validation
+  archive's `published-wheel/` evidence.
+- All three native and packaged desktop CI targets passed at
+  `c46ec4acb0c84c3dd3ec479ce6ee97ee62bced35`: Apple silicon, physical Intel Mac
+  and Windows x64. Each run passed all ten document/settings commands and 69
+  panel/width checks. Windows installation/uninstallation also preserved
+  existing structure-file defaults. Actual packaged screenshots were inspected.
+- Read the Docs `latest` and `v0.4.4` builds passed at the release commit. Public
+  installation/property/render pages, search indexes, PDF and EPUB downloads
+  were verified. The `stable` channel remains inactive.
+- The maintainer installed the notarized Apple-silicon DMG through Finder.
+  The installed `/Applications/v_ase.app` reports 0.4.4, passes strict deep
+  signature verification and Gatekeeper's Notarized Developer ID assessment,
+  and contains all 100 scientific/GUI package files byte-for-byte identical
+  to the published wheel. An earlier agent-initiated bundle replacement was
+  denied by macOS and temporarily left the old installation incomplete; the
+  user completed the normal DMG replacement and the repaired installation was
+  verified before the temporary recovery backup was removed.
 
 ## Release promotion
 
-Local verification is complete. The initial lock-screen blocker was resolved;
-the final development smoke passed on 2026-09-24. This release now follows
-`docs/release_checklist.md` and `desktop/README.md`: publish the tested core
-version, verify the published wheel, pass all three packaged CI jobs, sign and
-notarize both Mac builds, publish platform artifacts/evidence, and verify the
-actual public downloads and Read the Docs builds. Record the final remote and
-packaged results in the release artifacts. Preserve unrelated untracked research
-and evaluation work.
+The initial lock-screen blocker was resolved; the final development smoke
+passed on 2026-09-24. The tested core is published and all three packaged CI
+jobs passed. Mac signing/notarization and final public-desktop verification
+follow `desktop/README.md`; those remaining gates are recorded below only
+after completion. Unrelated untracked research and evaluation work is preserved.
+
+- [GitHub release](https://github.com/lgyEthan/v_ase/releases/tag/v0.4.4)
+- [PyPI package](https://pypi.org/project/v-ase-gui/0.4.4/)
+- [Cross-platform desktop CI](https://github.com/lgyEthan/v_ase/actions/runs/35939857270)
+- [Versioned installation guide](https://v-ase.readthedocs.io/en/v0.4.4/desktop.html)

@@ -7,6 +7,7 @@ const { contextBridge, ipcRenderer, webUtils } = require('electron');
 if (process.isMainFrame) contextBridge.exposeInMainWorld('vaseDesktop', Object.freeze({
     platform: process.platform,
     newWindow: payload => ipcRenderer.invoke('vase:new-window', payload),
+    closeWindow: () => ipcRenderer.invoke('vase:close-window'),
     chooseOpen: () => ipcRenderer.invoke('vase:open-dialog'),
     // webUtils accepts a real OS-backed File, not a renderer-supplied path.
     openDropped: file => {

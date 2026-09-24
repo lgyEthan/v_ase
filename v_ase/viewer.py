@@ -456,9 +456,10 @@ def view(
         settings["display"] = display
         initial_design_settings = settings
     elif source_path and source_path.lower().endswith((".vase", ".html", ".htm")):
-        from .project import read_project_document
+        from .project import project_viz_only, read_project_document
 
         project = read_project_document(atoms)
+        viz_only = project_viz_only(project.settings)
         atoms = project.frames
         volumetric_datasets = project.volumetric_datasets
         initial_frame = project.current_frame

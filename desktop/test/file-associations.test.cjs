@@ -7,12 +7,13 @@ const root = path.join(__dirname, '..');
 const config = require('../package.json').build;
 const extensions = require('../file-formats.json').structureExtensions;
 
-test('only vase is registered as a default; Mac structure handlers are Alternate', () => {
+test('only vase is registered as a default; Mac structure handlers never become automatic defaults', () => {
     assert.deepEqual(config.fileAssociations.map(item => item.ext), ['vase']);
     const formats = config.mac.fileAssociations[0];
-    assert.equal(formats.rank, 'Alternate');
+    assert.equal(formats.rank, 'None');
     assert.deepEqual(formats.ext, extensions);
-    for (const ext of ['extxyz', 'xyz', 'vasp', 'cif', 'traj', 'html', 'cube']) assert.ok(extensions.includes(ext));
+    for (const ext of ['extxyz', 'xyz', 'vasp', 'cif', 'traj', 'cube']) assert.ok(extensions.includes(ext));
+    for (const ext of ['json', 'xml', 'html', 'log', 'md', 'dat', 'in', 'out']) assert.ok(!extensions.includes(ext));
 });
 test('Windows structure candidates never modify extension defaults or UserChoice', () => {
     const source = fs.readFileSync(path.join(root, 'assets/file-associations.nsh'), 'utf8');
@@ -25,6 +26,12 @@ test('Windows structure candidates never modify extension defaults or UserChoice
     }
     assert.match(source, /AllowSilentDefaultTakeOver/);
     assert.match(source, /DeleteRegValue.*OpenWithProgids/);
+    const legacy = require('../file-formats.json').legacyGenericExtensions;
+    for (const ext of legacy) {
+        assert.ok(!registryWrites.some(line => line.includes(`\\.${ext}\\`)));
+        assert.ok(source.split('\n').some(line => line.includes('DeleteRegValue')
+            && line.includes(`\\.${ext}\\OpenWithProgids`) && line.includes('org.v-ase.structure')));
+    }
 });
 test('documents use dedicated platform icons, separate from the application castle', () => {
     for (const extension of ['icns', 'ico', 'png']) {
