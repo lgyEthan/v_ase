@@ -5,6 +5,26 @@ file associations, camera interaction, viewport rendering, desktop closure and
 saved-project restoration. It supersedes neither historical 0.4.4 evidence nor
 the independent scientific-study files elsewhere in this checkout.
 
+## Desktop promotion follow-up
+
+The first three-platform CI run eventually returned success, but inspection
+of its Intel packaged evidence found an empty `result.json`. That candidate
+set must not be promoted. Closing the final window requested `app.quit()`
+both directly and from `window-all-closed`, bypassing the smoke harness's
+single cancelled `will-quit` event while its asynchronous report was written.
+Final-window closure now delegates the quit request to `window-all-closed`;
+explicit Quit owns its single request after releasing all windows. Four Node
+regressions execute the production handlers, including cancellation and
+multi-window preservation. The desktop Node suite now contains 13 tests.
+Packaged validation must parse the entire report and require every completion
+flag, so process exit zero or an empty file can no longer pass the gate.
+
+This is a desktop-only follow-up: the already published 0.4.5 Python package,
+scientific files, version tag and distributions remain unchanged. Require a
+fresh three-platform CI run for the desktop commit. Record that commit
+separately from the Python release commit in `mac-notarization.json` and use
+it for the downloadable desktop source archive.
+
 ## Implemented behavior
 
 | Requirement | Implementation and verification |

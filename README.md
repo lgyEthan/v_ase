@@ -147,7 +147,8 @@ the browser only supports downloads, v_ase labels the result a copy rather
 than implying it can overwrite the original. Closing a changed document
 offers Save, Discard and Cancel. On desktop, Command/Ctrl+W closes the active
 tab, or its window when it is the last tab; closing the last window quits.
-An empty desktop window also closes. Browser/notebook editors retain a blank
+An empty desktop window also closes. Native shutdown issues a single quit
+request after its save/cancel checks. Browser/notebook editors retain a blank
 internal tab and never intentionally close the host browser tab. Direct and notebook editors adopt tabs in place without
 reloading the original document. Pending physical edits settle before Save,
 Close or Replace can discard anything; invalid scientific inputs block Save

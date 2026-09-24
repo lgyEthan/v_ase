@@ -82,6 +82,11 @@ renderer, native menus and keyboard input, project opening, dirty Save, Save As,
 selection, exact PNG rendering, internal New/Close and Node isolation. Inspect
 screenshots as well as `result.json`. Core regressions are recorded in
 `docs/design/v_ase_041_validation.md`.
+Packaged checks parse the complete JSON report and require every regression
+flag; an empty or truncated file fails even when the process exits with zero.
+Node lifecycle tests exercise last-window closure, explicit Quit and cancelled
+closure through the real main-process handlers. Only one quit request may be
+issued, so a cancelled `will-quit` event cannot be bypassed by a duplicate.
 Packaged Mac checks inspect the actual application/document icon resources and
 Owner/None file-type ranks. The disposable Windows CI runner also installs
 and uninstalls the NSIS package, checks every Open With registration, and asserts

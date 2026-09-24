@@ -22,7 +22,7 @@ const vault = new FileVault();
 let win, backend, backendOrigin, handshake, exiting = false;
 const windows = new Set();
 const closingWindows = new Set();
-let quitting = false;
+let quitting = false, quitRequested = false;
 const focusedWindow = () => BrowserWindow.getFocusedWindow() || [...windows].find(w => !w.isDestroyed());
 let commands = {};
 const pendingFiles = [];
@@ -213,13 +213,23 @@ async function closeWindowSafely(target) {
             if (!result.ok && result.status !== 404) throw new Error('The workspace could not close. Try again after pending work finishes.');
         }
         await vault.revoke(target.webContents.id);
-        windows.delete(target); target.destroy();
-        if (!windows.size) { exiting = true; stopBackend(); app.quit(); }
+        windows.delete(target);
+        if (!windows.size) exiting = true;
+        // Destroying the last window emits window-all-closed synchronously.
+        // That event owns this quit request; a second app.quit() here can
+        // bypass will-quit cancellation and interrupt pending shutdown work.
+        target.destroy();
         return true;
     } catch (error) {
         dialog.showErrorBox('Unable to finish closing', `The window remains open. ${error.message}`);
         return false;
     } finally { closingWindows.delete(target); }
+}
+
+function requestApplicationQuit() {
+    if (quitRequested) return;
+    quitRequested = true;
+    exiting = true; stopBackend(); app.quit();
 }
 
 async function quitSafely() {
@@ -235,7 +245,7 @@ async function quitSafely() {
         for (const target of [...windows]) {
             await vault.revoke(target.webContents.id); windows.delete(target); target.destroy();
         }
-        stopBackend(); app.quit();
+        requestApplicationQuit();
     } catch (error) { dialog.showErrorBox('Unable to finish quitting', error.message); }
     finally { quitting = false; }
 }
@@ -370,7 +380,11 @@ else {
     });
     for (const value of process.argv.slice(app.isPackaged ? 1 : 2)) if (!value.startsWith('-') && fs.existsSync(value) && fs.statSync(value).isFile()) pendingFiles.push(value);
     app.on('before-quit', event => { if (!exiting && windows.size) { event.preventDefault(); quitSafely(); } });
-    app.on('window-all-closed', () => { stopBackend(); app.quit(); });
+    app.on('window-all-closed', () => {
+        // Explicit Quit owns its request after all windows have been released.
+        if (quitting) return;
+        requestApplicationQuit();
+    });
     app.on('will-quit', stopBackend);
     app.whenReady().then(start).catch(error => {
         console.error(error); exiting = true; stopBackend();

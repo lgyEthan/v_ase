@@ -48,8 +48,20 @@ with tempfile.TemporaryDirectory(prefix="vase-packaged-") as directory:
     (output / "application.log").write_text(result.stdout + result.stderr, encoding="utf-8")
     if result.returncode:
         raise SystemExit(result.returncode)
-if not (output / "result.json").is_file():
-    raise SystemExit("The application exited without completing its checks")
+try:
+    report = json.loads((output / "result.json").read_text())
+except (OSError, ValueError) as error:
+    raise SystemExit("The application exited without complete JSON test evidence") from error
+expected_version = json.loads((root / "package.json").read_text())["version"]
+required = ("nativeControlA", "verticalCutoffTab", "droppedFileGrant", "detachedWindow",
+            "detachedSave", "transferRollback", "openNewWindow", "independentWindowClose",
+            "nativeKeyInput", "nativeSave", "scientificProject", "openNewTab",
+            "quitCancellation", "nodeIsolation", "lastDocumentClosesWindow",
+            "emptyLastWindowRequestsQuit")
+if (report.get("version") != expected_version or report.get("geometryRoutes") != 69
+        or report.get("commands") != 10 or report.get("oxygenPixels", 0) <= 100
+        or any(report.get(key) is not True for key in required)):
+    raise SystemExit("The packaged application did not complete every required regression check")
 if platform.system() == "Darwin":
     # Import caches or other runtime writes must not break the sealed bundle.
     subprocess.run(["codesign", "--verify", "--deep", "--strict", str(candidates[0].parents[2])], check=True)
