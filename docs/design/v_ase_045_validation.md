@@ -62,8 +62,8 @@ it for the downloadable desktop source archive.
 
 The work uses actual Chromium/Electron renders, numerical project round trips,
 native keyboard injection and isolated backend sessions. It does not rely only
-on static source assertions. Test output lives under `/tmp/vase-045-*`; final
-public desktop evidence will be attached to the GitHub release.
+on static source assertions. Local output lives under `/tmp/vase-045-*`;
+sanitized final desktop evidence is attached to the GitHub release.
 
 - `tests/test_browser_camera_project_reopen.py`: both saved modes, immediate
   new-tab opening, same-tab semantic restoration, saved selection, color/radius
@@ -88,18 +88,17 @@ checks. Final distribution, CI, signing and download evidence is recorded with
 the [0.4.5 release](https://github.com/lgyEthan/v_ase/releases/tag/v0.4.5),
 including `desktop-validation.zip` and `mac-notarization.json`.
 
-- [x] Final-code suite: 1,066 passed in 658.03 seconds; only the README asset
-      synchronization assertion was deferred until concurrent media capture
-      finished. That assertion passed separately: **1,067 tests total**, no failures.
-      A tracked-only checkout also passed all 13 repository consistency checks.
-- [x] Nine desktop Node tests; final native Mac smoke passed all ten commands,
+- [x] Final suite after the desktop lifecycle follow-up: **1,072 passed** in
+      578.64 seconds, including the five packaged-evidence regressions. All
+      13 repository consistency checks also passed.
+- [x] **13 desktop Node tests**; final native Mac smoke passed all ten commands,
       69 layout checks, save/transfer/cancel and last-window close checks.
 - [x] Complete README media regenerated; GitHub assets synchronized. Logo,
       constraints, measurements, scalar maps, volumes and animation frames
       visually inspected. Edge-on grid and atom occlusion inspected at full size.
 - [x] Strict Sphinx HTML build and 16 desktop/narrow page checks, search and
-      interactive logo. New-release public download links are checked after
-      installers are published; before publication those links return 404.
+      interactive logo. Strict Sphinx linkcheck passed after publication,
+      including all three installer links and the final checksum file.
 - [x] Typed canonical Skill/schema reference check and independent evaluator.
       Initial/final evaluation: 129 calls, 894,158 serialized bytes; bounded
       publication-barrier retest: 16 MCP calls, 70,195 bytes, no errors. Provider
@@ -112,12 +111,27 @@ including `desktop-validation.zip` and `mac-notarization.json`.
       GIF, index-scoped mapping, served Skill and stale-revision checks.
       Sdist documentation/selected assets/Skill inclusion and exclusion of
       unrelated local research files were verified.
-- [ ] Matching GitHub main/tag and PyPI distributions; published-wheel verification.
-- [ ] Apple silicon, Intel Mac and Windows native/packaged CI at the release commit.
-- [ ] Both Mac architectures Developer ID signed, Apple Accepted app/DMG,
-      stapled, Gatekeeper verified and tested after signing.
-- [ ] All public desktop assets re-downloaded and checked against post-staple
-      checksums, with source and sanitized validation evidence.
+- [x] Python tag `v0.4.5` and PyPI distributions are commit
+      `15635d7e998b80a8b0c19d8bece470b7e018f89d`. The downloaded GitHub
+      wheel/sdist match PyPI; a clean published-wheel scientific workflow passed.
+      Desktop-only follow-up `8fe0ace99b8606813f8ff8364dd3dbb3e4decb01`
+      is published on main and does not replace the original Python tag.
+- [x] Apple silicon, Intel Mac and Windows native/packaged checks passed in
+      [CI run 35957840573](https://github.com/lgyEthan/v_ase/actions/runs/35957840573)
+      at the desktop follow-up commit. All six complete reports were parsed;
+      Windows installation/uninstallation preserved existing file defaults.
+- [x] Both Mac architectures Developer ID signed, Apple Accepted app/DMG,
+      stapled, Gatekeeper verified and tested after signing. All 273 native
+      components per app passed verification. Both public DMGs and ZIPs were
+      downloaded again; the public Intel ZIP also completed the entire
+      packaged smoke in a fresh path. Interrupted local runs with confirmed
+      manual input were rejected and repeated without changing application bytes.
+- [x] All **11** public desktop assets were downloaded again and checked
+      against GitHub digests, local final bytes and post-stapling checksums.
+      The matching desktop source, cross-platform evidence, signed-app evidence
+      and `mac-notarization.json` are attached to the release. Windows remains
+      explicitly publisher-unsigned; the bundled 101 package files were checked
+      against PyPI (canonical agent documentation permits CRLF-only differences).
 
 The installed user application is not patched in place. Installing the release
 uses the documented DMG/Applications or Windows installer workflow.
