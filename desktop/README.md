@@ -99,6 +99,9 @@ camera after its scale has been adapted to the destination. Retain
 `detached-state.json` with each platform's evidence.
 The numeric-input test waits for queued display callbacks before taking its
 transfer baseline, then compares every undo action before and after the move.
+It also waits for actual native Control+A key delivery before inserting replacement
+text: Electron queues key events separately from its asynchronous text-insertion
+IPC, so sending both without a delivery barrier tests their race instead of editing.
 The native About dialog must report `app.getVersion()`, not a hard-coded release.
 Software-rendered CI allows up to 60 seconds for each readiness condition;
 the same assertions apply, and normal GPU smoke retains its 10-second limit.

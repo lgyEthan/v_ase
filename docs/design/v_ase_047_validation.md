@@ -95,12 +95,20 @@ restore. It now stores viewport dimensions and measured scale, preserves exact
 same-size rollback, and adapts the working camera at a different size without
 altering the saved render camera. A native Undo/Redo regression covers this path.
 
+The first 0.4.7 Mac arm64 CI exposed an asynchronous test-input race: the
+fixture contained selected `1.2342`, showing text insertion had arrived before
+the queued Control+A selection. The harness now focuses its window, waits for
+the actual native keyup, and awaits Electron text insertion. The original
+replacement/Tab assertions are unchanged. The local native smoke passed after
+this correction; the CI run is repeated across all three targets. This changes
+only the desktop test harness, not the published Python package.
+
 ## Release gates
 
 - [x] Final full regression suite: 1,094 passed (1,075 behavioral tests in 615.36 s plus 19 synchronized asset/version tests).
 - [x] Patched-source wheel/sdist build, `twine check`, and package-content equality (103 package files).
-- [ ] Same tested version published to PyPI and GitHub main/tag.
-- [ ] Clean published-wheel GUI/CLI workflow and served canonical Skill.
+- [x] Same tested version published to PyPI and GitHub main/tag (`3ae466565c5cdb8da7f0a7d1d15ff5798b925427`).
+- [x] Clean published-wheel GUI/CLI workflow and served canonical Skill; PyPI hashes match the tested distributions.
 - [ ] All three native/packaged desktop CI targets.
 - [ ] Both Mac architectures Developer ID signed, notarized and stapled;
       packaged smoke, all native-component verification and Gatekeeper checks.

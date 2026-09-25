@@ -256,15 +256,24 @@ async function runSmoke({ app, win, handshake, vault, sendCommand }) {
     await fs.writeFile(path.join(output, 'workspace.png'), (await win.webContents.capturePage()).toPNG());
     // Real native Ctrl+A (also on macOS) and one-Tab cutoff editing.
     await js(`${appRef}.openEditorRoute('bonding')`);
-    await js(`(()=>{const d=${active}.document; const input=d.querySelector('.pairwise-bond-max'); input.focus(); input.value='1.234'; })()`);
+    win.show(); win.focus(); win.webContents.focus();
+    await js(`(()=>{const d=${active}.document; const input=d.querySelector('.pairwise-bond-max');
+        input.focus(); input.value='1.234'; window.__smokeSelectAllReleased=false;
+        input.addEventListener('keyup',event=>{
+            if (event.code==='KeyA' && event.ctrlKey) window.__smokeSelectAllReleased=true;
+        },{once:true}); })()`);
     win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'A', modifiers: ['control'] });
     win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'A', modifiers: ['control'] });
-    win.webContents.insertText('2');
+    // sendInputEvent queues native events; insertText is a separate async IPC.
+    // Wait for actual key delivery or text can arrive before Ctrl+A, leaving
+    // the selected value "1.2342" instead of testing replacement with "2".
+    await wait('window.__smokeSelectAllReleased');
+    await win.webContents.insertText('2');
     await wait(`${active}.document.querySelector('.pairwise-bond-max').value === '2'`);
     win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Tab' });
     win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Tab' });
     await wait(`${active}.document.activeElement === ${active}.document.querySelectorAll('.pairwise-bond-max')[1]`);
-    win.webContents.insertText('2.5');
+    await win.webContents.insertText('2.5');
     await wait(`${active}.document.querySelectorAll('.pairwise-bond-max')[1].value === '2.5'`);
     await js(`${active}.document.activeElement.blur()`);
     // Numeric edits are applied on the next animation frame. Scientific HTTP
