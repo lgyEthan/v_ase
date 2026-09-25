@@ -147,9 +147,28 @@ is finished.
 ## Reopening the saved workspace
 
 Open a `.vase` file directly: no reader or Edit/View prompt appears. Its saved
-mode, active trajectory frame, camera, appearance, output-frame visibility,
+mode, active trajectory frame, camera, appearance, render-area visibility,
 selection and properties-panel location are restored. The first project uses
 an empty startup tab; another project opens in a new tab and preserves the
 current document. Older archives restore the fields they contain and default
 to Edit only when no mode was stored. Different window sizes retain physical
 view magnification while adapting the available UI area.
+
+## Render area and visible objects
+
+**Render → Renderer → Render area & scale** owns dimensions, physical px/Å,
+and **Show render area**. **Lock camera to → World** fixes its physical pose;
+**Viewport** keeps its frame on screen while navigation adjusts the composition.
+The camera-view icon beside the axis views returns to the camera without changing
+that lock. Orbiting in World mode deactivates the icon; zoom and pan do not.
+**Align camera to current view** deliberately changes the output camera.
+
+Select the **Camera** badge or the outlined camera wedge/plane, then G/R/S to
+translate, rotate or scale the render area. The editable scene remains live.
+In Viewport lock, the frame stays still while atoms, cell and the surrounding
+scene move together. PNG and animation capture use the same stored render camera.
+**Objects** visibility also applies to rendering, including grid, axes, cell,
+bonds and constraints. Hiding Constraints changes only drawing; ASE constraints
+remain stored and enforced. Renderer overlay controls mirror those same choices.
+Saving a GUI image/video export synchronizes its guide choices with Objects.
+Enable a hidden guide in Objects first; export settings cannot reveal it alone.

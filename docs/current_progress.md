@@ -538,7 +538,7 @@ same implementation for compatibility.
   Lightweight HTML omits `.vase` by default. The unified **Save Project**
   dialog writes compact `.vase` unless **Include interactive rendered view** is
   enabled, which changes the output to HTML and embeds the validated archive.
-  Both use the exact image/video Preview Area
+  Both use the exact image/video Render area
   camera crop, include an optimized high-resolution Finder/Quick Look poster,
   open from `file://`, provide view navigation and trajectory playback only,
   and make no network request. The poster is the complete initial preview

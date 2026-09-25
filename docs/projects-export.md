@@ -21,11 +21,13 @@ the recipient must recover.
 Image, video, and HTML use one persistent **Render Area**. Its visible boundary
 and gray outside mask define the exact saved composition.
 
-- **Navigate → Scene** keeps the output fixed while inspecting or editing.
-- **Navigate → Camera** uses subsequent navigation to compose the output.
-  Switching targets preserves the current composition.
-- **Look through camera** fits the stored output on screen; **Align camera to
-  view** deliberately replaces its pose.
+- **Lock camera to → World** keeps the output fixed while inspecting or editing.
+- **Lock camera to → Viewport** keeps the render area fixed on screen while
+  navigation and camera transforms change the composition.
+  Switching locks preserves the current composition.
+- The **Look through camera** icon beside the axis views indicates alignment and
+  returns to the stored camera without changing its lock. **Align camera to
+  current view** separately replaces the stored camera pose.
 - Select the wire camera or crop-frame camera button for **G/R/S** move,
   rotation and frame scaling. Enter applies; Escape cancels.
 

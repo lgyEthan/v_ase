@@ -1,5 +1,5 @@
 # Rebuild deliberately after validating dependency changes on both operating systems.
-v_ase-gui[mcp,rhino]==0.4.5
+v_ase-gui[mcp,rhino]==0.4.6
 annotated-doc==0.0.5
 annotated-types==0.8.0
 anyio==4.15.1

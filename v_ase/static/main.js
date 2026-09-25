@@ -1,34 +1,36 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.4.5';
-import { ASERenderer } from './renderer.js?v=0.4.5';
-import { ASESelection } from './selection.js?v=0.4.5';
-import { ASETransform } from './transform.js?v=0.4.5';
+import { ASEApi } from './api.js?v=0.4.6';
+import { ASERenderer } from './renderer.js?v=0.4.6';
+import { ASESelection } from './selection.js?v=0.4.6';
+import { ASETransform } from './transform.js?v=0.4.6';
+import { SelectedAppearanceEditor } from './selected_appearance.js?v=0.4.6';
+import { installActivityIndicators } from './ui_activity.js?v=0.4.6';
 
-import { installPolyhedra } from './polyhedra.js?v=0.4.5';
-import { installAIScene } from './ai_scene.js?v=0.4.5';
-import { AtomScalarStore } from './atom_properties.js?v=0.4.5';
-import { DirectWorkspace } from './direct_workspace.js?v=0.4.5';
-import { projectProvenanceFromLoad } from './project_provenance.js?v=0.4.5';
-import { installShortcutCapture } from './shortcut_capture.js?v=0.4.5';
-import { openFileInWindow } from './workspace_windows.js?v=0.4.5';
-import { installEditorInteractions } from './editor_interactions.js?v=0.4.5';
-import { WORKBENCH_ROUTES, mountWorkbenchTools, syncWorkbenchRoute } from './editor_ui.js?v=0.4.5';
+import { installPolyhedra } from './polyhedra.js?v=0.4.6';
+import { installAIScene } from './ai_scene.js?v=0.4.6';
+import { AtomScalarStore } from './atom_properties.js?v=0.4.6';
+import { DirectWorkspace } from './direct_workspace.js?v=0.4.6';
+import { projectProvenanceFromLoad } from './project_provenance.js?v=0.4.6';
+import { installShortcutCapture } from './shortcut_capture.js?v=0.4.6';
+import { openFileInWindow } from './workspace_windows.js?v=0.4.6';
+import { installEditorInteractions } from './editor_interactions.js?v=0.4.6';
+import { WORKBENCH_ROUTES, mountWorkbenchTools, syncWorkbenchRoute } from './editor_ui.js?v=0.4.6';
 import {
     EDITOR_COMMANDS, commandIdForEvent, resolveShortcutPlatform,
     editorShortcutLabel, editorAriaShortcut, editorShortcutSearchTerms,
     viewportNavigationForEvent
-} from './editor_commands.js?v=0.4.5';
+} from './editor_commands.js?v=0.4.6';
 import {
     DEFAULT_ATOM_RADIUS_MAPPING,
     atomRadiusFactors,
     normalizeAtomRadiusMapping,
     radiusMappingPreset
-} from './radius_mapping.js?v=0.4.5';
+} from './radius_mapping.js?v=0.4.6';
 import {
     interpolateTrajectoryFrames,
     interpolatedFrameCount,
     normalizeInterpolationMultiplier
-} from './trajectory.js?v=0.4.5';
+} from './trajectory.js?v=0.4.6';
 
 const EDITOR_ROUTES = Object.freeze({
     'structure-info': { group: 'inspect', category: 'scene', title: 'Scene overview' },
@@ -264,12 +266,28 @@ class VAseApp {
             this.syncAtomicScaleFromCamera({
                 forceInput: event?.source !== 'scale-input'
             });
-            if (this.state?.exportPreviewFollowViewport) {
+            if (event?.source !== 'resize' && this.collaborationReady
+                && !this.restoringDesignSettings && this.state?.exportPreviewFollowViewport) {
                 this.followRenderAreaNavigation();
             }
             this.renderAreaPreviousView = this.currentCameraForExport();
+            this.syncCameraViewIndicator();
             this.observeCollaborationCamera(event?.source || 'camera');
             this.scheduleProjectDirtyStateUpdate();
+        };
+        this.renderer.onInitialCameraFit = () => {
+            if (this.state.exportPreviewCamera) return;
+            this.captureRenderAreaCamera({syncPreview: false});
+            if (!document.body.classList.contains('editor-shell') || document.body.classList.contains('inspector-collapsed')) return;
+            const width = document.getElementById('inspector')?.getBoundingClientRect().width || 0;
+            const r = this.renderer, camera = r.camera;
+            const shift = Math.min(width / 2, r.containerSize().width * 0.22) / Math.max(0.001, r.currentPixelsPerAngstrom());
+            camera.updateMatrixWorld(true);
+            const delta = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion).multiplyScalar(shift);
+            camera.position.add(delta); r.controls.target.add(delta);
+            camera.lookAt(r.controls.target); camera.updateMatrixWorld(true);
+            this.renderAreaPreviousView = this.currentCameraForExport();
+            r.requestRender();
         };
         this.renderer.controls.onGestureStart = () => this.flushVisualHistoryCommit();
         this.renderer.controls.onGestureEnd = () => {
@@ -313,6 +331,7 @@ class VAseApp {
                 showAxes: true,
                 showGrid: true,
                 showOverlays: true,
+                showConstraints: true,
                 showPeriodicBonds: false,
                 cellThickness: 0.04,
                 cellColor: '#d6bd67',
@@ -1141,117 +1160,54 @@ class VAseApp {
     }
 
     setupSelectedAppearanceControls() {
-        const labelInput = document.getElementById('selected-atom-label');
-        const materialInput = document.getElementById('selected-atom-material');
-        const colorInput = document.getElementById('selected-atom-color');
-        const opacityInput = document.getElementById('selected-atom-opacity');
-        const radiusScaleInput = document.getElementById('selected-atom-radius-scale');
-        const radiusScaleNumber = document.getElementById('selected-atom-radius-scale-number');
-        const radiusScaleOutput = document.getElementById('selected-atom-radius-scale-value');
-        const bondToggle = document.getElementById('selected-atom-update-bonds');
-        const applyButton = document.getElementById('btn-apply-selected-label');
-        const markDirty = field => {
-            if (!this.selectedAtomIndices().length) return;
-            this.state.selectedAppearanceDirty.add(field);
-            applyButton?.classList.add('is-dirty');
+        this.selectedAppearanceEditor = new SelectedAppearanceEditor(this);
+        const editor = this.selectedAppearanceEditor;
+        const label = document.getElementById('selected-atom-label');
+        const commitLabel = () => {
+            if (editor.labelPending) return;
+            const pending = editor.commitLabel(label.value);
+            editor.labelPending = pending;
+            pending.catch(error => this.toast(error.message, 'error')).finally(() => {
+                editor.labelPending = null;
+                this.state.selectedAppearanceDirty.delete('label');
+                this.updateSelectedAppearanceControls();
+            });
         };
-        applyButton?.addEventListener('click', () => {
-            this.applySelectedAppearanceEdit().catch(err => {
-                this.toast(`Appearance update failed: ${err.message}`, 'error');
-            });
-        });
-        labelInput?.addEventListener('input', () => markDirty('label'));
-        labelInput?.addEventListener('keydown', event => {
-            if (event.key !== 'Enter') return;
-            event.preventDefault();
-            this.applySelectedAppearanceEdit().catch(err => {
-                this.toast(`Appearance update failed: ${err.message}`, 'error');
-            });
-        });
-        materialInput?.addEventListener('change', () => markDirty('material'));
-        colorInput?.addEventListener('input', () => markDirty('color'));
-        opacityInput?.addEventListener('input', () => markDirty('opacity'));
-        opacityInput?.addEventListener('keydown', event => {
-            if (event.key !== 'Enter') return;
-            event.preventDefault();
-            this.applySelectedAppearanceEdit().catch(err => {
-                this.toast(`Appearance update failed: ${err.message}`, 'error');
-            });
-        });
-        let radiusGestureActive = false;
-        const endRadiusGesture = () => {
-            if (!radiusGestureActive) return;
-            radiusGestureActive = false;
-            this.flushVisualHistoryCommit();
-        };
-        const previewRadius = value => {
-            const numeric = Number(value);
-            const indices = this.selectedAtomIndices();
-            if (!indices.length || !Number.isFinite(numeric) || numeric < 0.25 || numeric > 2.5) return;
-            if (radiusScaleInput) radiusScaleInput.value = String(numeric);
-            if (radiusScaleNumber) radiusScaleNumber.value = String(numeric);
-            if (radiusScaleOutput) radiusScaleOutput.textContent = `${numeric.toFixed(2)}x`;
-            const scales = { ...(this.state.display.atomRadiusScales || {}) };
-            indices.forEach(index => {
-                if (Math.abs(numeric - 1) <= 1e-9) delete scales[index];
-                else scales[index] = numeric;
-            });
-            this.state.display.atomRadiusScales = scales;
-            this.renderer.setDisplayOptions({ atomRadiusScales: scales });
-            this.scheduleVisualHistoryCommit('selected-radius-scale');
-            if (radiusGestureActive && this.visualHistoryTimer !== null) {
-                clearTimeout(this.visualHistoryTimer);
-                this.visualHistoryTimer = null;
+        label?.addEventListener('input', () => this.state.selectedAppearanceDirty.add('label'));
+        label?.addEventListener('change', commitLabel);
+        label?.addEventListener('keydown', event => {
+            if (event.key === 'Enter') { event.preventDefault(); commitLabel(); }
+            if (event.key === 'Escape') {
+                event.preventDefault();
+                event.stopPropagation();
+                this.state.selectedAppearanceDirty.delete('label');
+                // Restore before blurring: blur/change must not commit the
+                // draft that the user explicitly canceled.
+                const labels = [...new Set(this.selectedAtomIndices().map(index => this.state.atoms.symbols[index]))];
+                label.value = labels.length === 1 ? labels[0] : '';
+                label.blur(); this.updateSelectedAppearanceControls();
             }
-        };
-        radiusScaleInput?.addEventListener('pointerdown', () => {
-            this.flushVisualHistoryCommit();
-            radiusGestureActive = true;
         });
-        radiusScaleInput?.addEventListener('pointerup', endRadiusGesture);
-        radiusScaleInput?.addEventListener('pointercancel', endRadiusGesture);
-        radiusScaleInput?.addEventListener('keydown', () => { radiusGestureActive = true; });
-        radiusScaleInput?.addEventListener('keyup', endRadiusGesture);
-        radiusScaleInput?.addEventListener('blur', endRadiusGesture);
-        radiusScaleInput?.addEventListener('input', () => previewRadius(radiusScaleInput.value));
-        radiusScaleInput?.addEventListener('change', endRadiusGesture);
-        radiusScaleNumber?.addEventListener('focus', () => {
-            this.flushVisualHistoryCommit();
-            radiusGestureActive = true;
-        });
-        radiusScaleNumber?.addEventListener('input', () => previewRadius(radiusScaleNumber.value));
-        radiusScaleNumber?.addEventListener('blur', endRadiusGesture);
-        radiusScaleNumber?.addEventListener('change', endRadiusGesture);
-        bondToggle?.addEventListener('change', () => {
-            this.state.display.selectedAppearanceAffectsBonds = bondToggle.checked;
+        const fields = { material: 'selected-atom-material', color: 'selected-atom-color', opacity: 'selected-atom-opacity',
+            radiusScale: 'selected-atom-radius-scale' };
+        for (const [field, id] of Object.entries(fields)) {
+            const input = document.getElementById(id);
+            input?.addEventListener(field === 'material' ? 'change' : 'input', () => editor.change(field, input.value));
+            input?.addEventListener('change', () => editor.finishGesture());
+            input?.addEventListener('blur', () => editor.finishGesture());
+        }
+        const number = document.getElementById('selected-atom-radius-scale-number');
+        number?.addEventListener('input', () => editor.change('radiusScale', number.value));
+        number?.addEventListener('change', () => editor.finishGesture());
+        number?.addEventListener('blur', () => editor.finishGesture());
+        document.getElementById('selected-atom-update-bonds')?.addEventListener('change', event => {
+            this.state.display.selectedAppearanceAffectsBonds = event.target.checked;
             this.scheduleVisualHistoryCommit('selected-appearance-bond-link');
         });
     }
 
     async applySelectedAppearanceEdit() {
-        let indices = this.selectedAtomIndices();
-        if (!indices.length) {
-            this.toast('Select atoms before changing their appearance.', 'warning');
-            return;
-        }
-        const dirty = new Set(this.state.selectedAppearanceDirty || []);
-        const labelInput = document.getElementById('selected-atom-label');
-        const label = this.normalizedTypeLabel(labelInput?.value);
-        const labels = [...new Set(indices.map(index => this.state.atoms?.symbols?.[index]))];
-        if (dirty.has('label') && label && (labels.length !== 1 || labels[0] !== label)) {
-            const applied = await this.applySelectedLabelEdit({ reportErrors: false });
-            if (!applied) return;
-            indices = this.selectedAtomIndices();
-        }
-        const appearanceFields = new Set(
-            [...dirty].filter(field => ['material', 'color', 'opacity', 'radiusScale'].includes(field))
-        );
-        if (appearanceFields.size) {
-            this.applySelectedIndexAppearance(indices, appearanceFields);
-        }
-        this.state.selectedAppearanceDirty.clear();
-        document.getElementById('btn-apply-selected-label')?.classList.remove('is-dirty');
-        this.updateSelectedAppearanceControls();
+        return await this.selectedAppearanceEditor.commitLabel(document.getElementById('selected-atom-label')?.value);
     }
 
     defaultCustomAtomColormap() {
@@ -3120,7 +3076,6 @@ class VAseApp {
 
     updateSelectedAppearanceControls() {
         const labelInput = document.getElementById('selected-atom-label');
-        const applyButton = document.getElementById('btn-apply-selected-label');
         const material = document.getElementById('selected-atom-material');
         const color = document.getElementById('selected-atom-color');
         const opacity = document.getElementById('selected-atom-opacity');
@@ -3130,7 +3085,7 @@ class VAseApp {
         const bondToggle = document.getElementById('selected-atom-update-bonds');
         const count = document.getElementById('selected-appearance-count');
         if (
-            !labelInput || !applyButton || !material || !color || !opacity
+            !labelInput || !material || !color || !opacity
             || !radiusScale || !radiusOutput || !bondToggle || !count
         ) return;
 
@@ -3138,7 +3093,7 @@ class VAseApp {
         document.body.classList.toggle('has-atom-selection', indices.length > 0);
         this.syncAppearanceScope();
         const selectionBadge = document.getElementById('workbench-selection');
-        selectionBadge?.classList.toggle('hidden', indices.length === 0);
+        selectionBadge?.classList.toggle('hidden', indices.length <= 1);
         const selectionLabel = document.getElementById('workbench-selection-label');
         if (selectionLabel && indices.length) {
             const index = indices[0];
@@ -3153,7 +3108,7 @@ class VAseApp {
         if (this.state.selectedAppearanceSelectionKey !== selectionKey) {
             this.state.selectedAppearanceSelectionKey = selectionKey;
             this.state.selectedAppearanceDirty.clear();
-            applyButton.classList.remove('is-dirty');
+            this.selectedAppearanceEditor?.selectionChanged();
         }
         const dirty = this.state.selectedAppearanceDirty;
         const enabled = indices.length > 0 && !this.state.modeSwitchInFlight;
@@ -3161,8 +3116,7 @@ class VAseApp {
             ? `${indices.length} atom${indices.length === 1 ? '' : 's'}`
             : 'None';
         labelInput.disabled = !enabled;
-        applyButton.disabled = !enabled;
-        material.disabled = !enabled;
+        material.disabled = !enabled || this.state.display.atomDisplayMode === '2d';
         color.disabled = !enabled;
         opacity.disabled = !enabled;
         radiusScale.disabled = !enabled;
@@ -3194,8 +3148,8 @@ class VAseApp {
                     : (this.validHexColor(colors.first) ? colors.first : '#808080');
                 color.dataset.mixed = colors.mixed ? 'true' : 'false';
                 color.title = colors.mixed
-                    ? 'Mixed colors; choose a color to override only the selected atom indices'
-                    : 'Color for the selected atom indices';
+                    ? 'Mixed colors; choosing a color separates the selection into new labels'
+                    : 'Color for the selected atoms’ label';
             }
         }
         if (!dirty.has('opacity') && document.activeElement !== opacity) {
@@ -3217,7 +3171,7 @@ class VAseApp {
                 radiusOutput.textContent = '—';
             } else {
                 const scales = this.commonSelectedAppearanceValue(
-                    indices, index => Number(this.atomRadiusScaleOverride(index).toFixed(6))
+                    indices, index => Number((this.selectedAppearanceEditor?.valueForRadius(index) ?? this.atomRadiusScaleOverride(index)).toFixed(6))
                 );
                 radiusScale.value = scales.mixed ? '1' : String(scales.value ?? 1);
                 if (radiusNumber) {
@@ -5791,6 +5745,16 @@ class VAseApp {
         const entries = [
             { id: 'atoms', label: `Atoms · ${this.state.atoms.positions.length}`, route: 'structure-info', focus: '#prop-natoms' }
         ];
+        entries.push({ id: 'constraints', label: 'Constraints', route: 'constraints',
+            checked: () => this.state.display.showConstraints !== false,
+            setVisibility: checked => {
+                this.state.display.showConstraints = checked;
+                this.renderer.setDisplayOptions(this.state.display);
+                this.updateSelectionVisuals(); this.renderSceneNavigatorObjects();
+                this.scheduleVisualHistoryCommit('constraint-visibility');
+            } },
+            {id: 'grid', label: 'Grid', route: 'view', visibility: 'chk-grid'},
+            {id: 'axes', label: 'Axes', route: 'view', visibility: 'chk-axes'});
         const bondCount = this.renderer.bondPairs?.length || 0;
         if (bondCount) entries.push({
             id: 'bonds', label: `Bonds · ${bondCount}`, route: 'bonding',
@@ -5843,9 +5807,13 @@ class VAseApp {
         if (this.state.display.lightingMode !== 'modeling') entries.push({
             id: 'sun', label: 'Sun lighting', route: 'export', focus: '#renderer-sun-position-x'
         });
-        if (this.state.exportPreviewEnabled) entries.push({
-            id: 'render-area', label: 'Render Area', route: 'export', focus: '#btn-preview-image'
-        });
+        entries.push({ id: 'render-area', label: 'Camera / render area', route: 'export', focus: '#btn-preview-image',
+            checked: () => this.state.exportPreviewEnabled,
+            setVisibility: checked => {
+                this.state.exportPreviewEnabled = checked;
+                this.syncImageExportPreview(); this.renderSceneNavigatorObjects();
+                this.scheduleVisualHistoryCommit('render-area-visibility');
+            }, activate: () => this.setRenderAreaSelected(true) });
         if (this.state.display.showDisplacements
             || Number(this.state.atoms.metadata?.frame_count || 1) > 1) entries.push({
             id: 'displacements', label: 'Displacement vectors', route: 'scene-vectors',
@@ -5902,6 +5870,7 @@ class VAseApp {
     }
 
     syncRendererProperties({ force = false } = {}) {
+        this.syncFlatDisplayControls();
         const display = this.state.display;
         const profile = this.currentImageExportProfile();
         const set = (id, value) => {
@@ -6051,9 +6020,7 @@ class VAseApp {
             profile.options.includeAxes = Boolean(document.getElementById('renderer-include-axes')?.checked);
             profile.options.includeCell = Boolean(document.getElementById('renderer-include-cell')?.checked);
             profile.options.backgroundColor = document.getElementById('renderer-background')?.value || '#ffffff';
-            const geometryCell = document.getElementById('export-include-cell');
-            if (geometryCell) geometryCell.checked = profile.options.includeCell;
-            this.state.display.exportIncludeCell = profile.options.includeCell;
+            this.commitExportObjectVisibility(profile.options);
             this.setImageExportProfile(profile);
             this.syncProjectHtmlProfileFromRenderer();
             this.scheduleVisualHistoryCommit('renderer-overlays');
@@ -6240,12 +6207,14 @@ class VAseApp {
         });
         const focusTarget = route === 'cell-transform' && this.state.vizOnly
             ? '#btn-cell-transform-switch-edit' : focus;
-        if (focusTarget) requestAnimationFrame(() => requestAnimationFrame(() => {
+        if (focusTarget) {
             const target = document.querySelector(focusTarget);
-            if (!target || target.disabled || target.offsetParent === null) return;
-            target.scrollIntoView({ block: 'nearest' });
-            target.focus({ preventScroll: true });
-        }));
+            if (target && !target.disabled && target.offsetParent !== null) {
+                target.scrollIntoView({ block: 'nearest' });
+                target.focus({ preventScroll: true });
+                if (target instanceof HTMLInputElement) target.select();
+            }
+        }
         this.renderer?.onResize?.();
         return true;
     }
@@ -10963,6 +10932,12 @@ class VAseApp {
     }
 
     recordStructureHistoryAction(sourcePath = '') {
+        const selectedEdit = this.selectedAppearanceEditor?.transaction;
+        if (selectedEdit && sourcePath.includes('/api/atom-identity/')) {
+            selectedEdit.action = { kind: 'structure', sourcePath, visualBefore: selectedEdit.before };
+            this.recordHistoryAction(selectedEdit.action);
+            return;
+        }
         this.flushVisualHistoryCommit();
         this.recordHistoryAction({
             kind: 'structure',
@@ -11001,7 +10976,8 @@ class VAseApp {
             renderArea: {
                 visible: Boolean(this.state.exportPreviewEnabled),
                 followViewport: Boolean(this.state.exportPreviewFollowViewport),
-                camera: this.clonePlain(this.state.exportPreviewCamera || null)
+                camera: this.clonePlain(this.state.exportPreviewCamera || null),
+                editingView: this.state.exportPreviewFollowViewport ? this.currentCameraForExport() : null
             },
             projectHtmlOutputProfile: this.projectFile?.format === 'html'
                 ? this.clonePlain(this.projectFile.outputProfile) : null
@@ -11026,6 +11002,7 @@ class VAseApp {
     }
 
     scheduleVisualHistoryCommit(source = 'visual-settings') {
+        if (this.selectedAppearanceEditor?.transaction) return;
         if (this.historyReplay || !this.visualHistoryReady) return;
         const before = this.visualHistoryPending?.before || this.visualHistoryBaseline;
         if (!before) {
@@ -11049,6 +11026,7 @@ class VAseApp {
     }
 
     flushVisualHistoryCommit() {
+        if (this.selectedAppearanceEditor?.transaction) return;
         if (this.visualHistoryTimer !== null) {
             clearTimeout(this.visualHistoryTimer);
             this.visualHistoryTimer = null;
@@ -11102,6 +11080,8 @@ class VAseApp {
                 && Object.prototype.hasOwnProperty.call(snapshot, 'projectHtmlOutputProfile')) {
                 this.projectFile.outputProfile = this.clonePlain(snapshot.projectHtmlOutputProfile);
             }
+            if (snapshot.renderArea?.editingView) this.applyCameraSettings(snapshot.renderArea.editingView);
+            this.syncImageExportPreview();
             this.syncRendererProperties({ force: true });
             this.syncRendererFormatProperties();
             this.visualHistoryBaseline = this.visualHistorySnapshot();
@@ -11124,6 +11104,7 @@ class VAseApp {
 
     async performUndo() {
         await this.settleScientificMutations();
+        this.selectedAppearanceEditor?.reset();
         this.flushVisualHistoryCommit();
         const action = this.undoTimeline.pop();
         if (!action) {
@@ -11188,6 +11169,7 @@ class VAseApp {
 
     async performRedo() {
         await this.settleScientificMutations();
+        this.selectedAppearanceEditor?.reset();
         this.flushVisualHistoryCommit();
         const action = this.redoTimeline.pop();
         if (!action) {
@@ -11318,7 +11300,23 @@ class VAseApp {
         });
     }
 
+    syncFlatDisplayControls() {
+        const flat = this.state.display.atomDisplayMode === '2d';
+        const selectors = ['select[id*="material"]', '[data-appearance-field="material"]',
+            '.renderer-lighting-group input', '.renderer-lighting-group select',
+            '#export-render-mode', '#video-render-mode', '#export-sun-intensity', '#video-sun-intensity',
+            '[id^="export-sun-position-"]', '[id^="export-sun-target-"]',
+            '[id^="video-sun-position-"]', '[id^="video-sun-target-"]'];
+        document.querySelectorAll(selectors.join(',')).forEach(input => {
+            if (flat && !input.disabled) { input.dataset.flatDisabled = 'true'; input.disabled = true; }
+            else if (!flat && input.dataset.flatDisabled) { delete input.dataset.flatDisabled; input.disabled = false; }
+            if (flat) input.title = 'Available in 3D; flat view does not use lighting or materials.';
+            else if (input.title.startsWith('Available in 3D;')) input.removeAttribute('title');
+        });
+    }
+
     syncLightingControls(options = this.state.display) {
+        this.syncFlatDisplayControls();
         const mode = options.lightingMode || 'modeling';
         const flatDisplay = options.atomDisplayMode === '2d';
         const setValue = (id, value) => {
@@ -11752,7 +11750,8 @@ class VAseApp {
         readoutValue.innerText = selectedEntries.length === 1 ? detail : summary;
         readout.classList.toggle('single-atom-properties', selectedEntries.length === 1);
         readoutValue.title = selectedEntries.length === 1 ? detail : summary;
-        readout.classList.toggle('hidden', selectedEntries.length === 0);
+        readout.classList.toggle('hidden', selectedEntries.length <= 1);
+        this.updateAtomStatusReadout();
         if (selectedEntries.length === 1) this.ensureSingleSelectionProperties(selectedEntries[0]);
     }
 
@@ -13187,6 +13186,7 @@ class VAseApp {
         this.state.display.showAxes = config.show_axes !== false;
         this.state.display.showGrid = config.show_grid !== false;
         this.state.display.showOverlays = config.show_overlays !== false;
+        this.state.display.showConstraints = config.show_constraints !== false;
         this.state.display.showPeriodicBonds = Boolean(config.show_periodic_bonds);
         const initialCellThickness = Number(
             config.cell_thickness ?? this.state.display.cellThickness
@@ -13795,27 +13795,36 @@ class VAseApp {
         return camera;
     }
 
-    followRenderAreaNavigation() {
-        const before = this.renderAreaPreviousView;
-        const after = this.currentCameraForExport();
-        const saved = this.state.exportPreviewCamera;
-        if (!before || !saved) return this.captureRenderAreaCamera();
+    cameraPoseTransform(before, after, subject, scale = 1) {
         const pose = value => this.renderer.cameraFromSettings(value, value.aspect).camera;
         const rotation = pose(after).quaternion.multiply(pose(before).quaternion.invert());
+        const source = new THREE.Vector3(...before.target), destination = new THREE.Vector3(...after.target);
+        const move = value => new THREE.Vector3(...value).sub(source)
+            .applyQuaternion(rotation).multiplyScalar(scale).add(destination).toArray();
+        return this.normalizedCameraSettings({...subject,
+            position: move(subject.position), target: move(subject.target),
+            up: new THREE.Vector3(0, 1, 0).applyQuaternion(pose(subject).quaternion)
+                .applyQuaternion(rotation).normalize().toArray(),
+            ortho_scale: subject.ortho_scale * scale});
+    }
+
+    followRenderAreaNavigation() {
+        const before = this.renderAreaPreviousView, after = this.currentCameraForExport();
+        const saved = this.state.exportPreviewCamera;
+        if (!saved) return this.captureRenderAreaCamera();
+        if (!before) { this.renderAreaPreviousView = after; return; }
+        // Passive layout/scale synchronization is not camera navigation. Avoid
+        // repeatedly normalizing an unchanged saved pose (and dirtying projects).
+        const sameVector = key => before[key].every((value, i) => Math.abs(value - after[key][i]) < 1e-12);
+        if (['position', 'target', 'up'].every(sameVector)
+            && ['ortho_scale', 'zoom', 'fov'].every(key => Math.abs(before[key] - after[key]) < 1e-12)
+            && before.projection === after.projection) return;
         const span = value => value.projection === 'orthographic' ? value.ortho_scale
             : new THREE.Vector3(...value.position).distanceTo(new THREE.Vector3(...value.target))
                 * Math.tan(THREE.MathUtils.degToRad(value.fov) / 2) / value.zoom;
         const ratio = Math.max(1e-8, span(after) / Math.max(1e-8, span(before)));
         const scale = Math.abs(ratio - 1) < 1e-6 ? 1 : ratio;
-        const source = new THREE.Vector3(...before.target);
-        const destination = new THREE.Vector3(...after.target);
-        const move = value => new THREE.Vector3(...value).sub(source)
-            .applyQuaternion(rotation).multiplyScalar(scale).add(destination).toArray();
-        this.state.exportPreviewCamera = this.normalizedCameraSettings({...saved,
-            position: move(saved.position), target: move(saved.target),
-            up: new THREE.Vector3(0, 1, 0).applyQuaternion(pose(saved).quaternion)
-                .applyQuaternion(rotation).normalize().toArray(),
-            ortho_scale: saved.ortho_scale * scale});
+        this.state.exportPreviewCamera = this.cameraPoseTransform(before, after, saved, scale);
         const profile = this.currentImageExportProfile();
         if (profile.options.scaleMode === 'physical') profile.options.pixelsPerAngstrom /= scale;
         profile.options.camera = this.clonePlain(this.state.exportPreviewCamera);
@@ -13823,22 +13832,37 @@ class VAseApp {
         if (this.state.exportPreviewEnabled) this.syncImageExportPreview();
     }
 
+    isLookingThroughCamera() {
+        const saved = this.state.exportPreviewCamera;
+        if (!saved || !this.state.exportPreviewEnabled) return false;
+        const pose = this.renderer.cameraFromSettings(saved, saved.aspect).camera;
+        return pose.quaternion.angleTo(this.renderer.camera.quaternion) < 1e-5;
+    }
+
+    syncCameraViewIndicator() {
+        const button = document.getElementById('btn-render-area-from-view');
+        if (!button) return;
+        const active = this.isLookingThroughCamera();
+        button.setAttribute('aria-pressed', String(active));
+        button.classList.toggle('active', active);
+        button.title = active ? 'Camera view · render area' : 'Look through camera';
+    }
+
     setRenderCameraNavigation(follow) {
         if (this.transform.mode !== 'IDLE') this.cancelTransform();
         if (!this.state.exportPreviewCamera) this.captureRenderAreaCamera({syncPreview: false});
-        // Changing the navigation target never replaces the saved composition.
         this.state.exportPreviewFollowViewport = Boolean(follow);
+        // Locking to the viewport enters the saved view, without replacing its
+        // pose or physical scale. Switching to World leaves everything in place.
+        if (follow && !this.isLookingThroughCamera()) this.viewOutputCamera();
         this.renderAreaPreviousView = this.currentCameraForExport();
-        this.setRenderAreaSelected(false, {update: false});
         this.syncImageExportPreview();
-        this.scheduleVisualHistoryCommit('camera-navigation');
+        this.scheduleVisualHistoryCommit('camera-lock');
     }
 
     viewOutputCamera() {
+        if (this.state.exportPreviewFollowViewport && this.isLookingThroughCamera()) return;
         if (!this.state.exportPreviewCamera) this.captureRenderAreaCamera({ syncPreview: false });
-        // Camera view is an editor zoom of a fixed output composition. Fitting
-        // must not change output px/Å, optics, position, or saved dimensions.
-        this.state.exportPreviewFollowViewport = false;
         this.state.exportPreviewEnabled = true;
         const profile = this.currentImageExportProfile();
         const composition = this.renderer.exportCompositionSnapshot(profile.width, profile.height,
@@ -13850,9 +13874,8 @@ class VAseApp {
         this.renderer.camera.updateProjectionMatrix();
         this.renderAreaPreviousView = this.currentCameraForExport();
         this.syncAtomicScaleFromCamera({ forceInput: true });
-        this.setRenderAreaSelected(false, { update: false });
         this.syncImageExportPreview();
-        this.scheduleVisualHistoryCommit('view-output-camera');
+        this.scheduleVisualHistoryCommit('camera-view');
     }
 
     setRenderAreaSelected(selected, { update = true } = {}) {
@@ -13897,8 +13920,9 @@ class VAseApp {
         if (savedCamera) savedCamera.disabled = !this.state.exportPreviewCamera;
         const help = document.getElementById('render-area-mode-help');
         if (help) help.textContent = this.state.exportPreviewFollowViewport
-            ? 'Camera navigation: orbit, pan, zoom and axis views adjust the output. Switch to Scene to keep this composition fixed.'
-            : 'Scene navigation: edit and inspect the structure freely. The output camera stays fixed. Select its frame for G / R / S.';
+            ? 'Viewport lock: the render area stays on screen. Orbit, zoom and camera G / R / S adjust the composition.'
+            : 'World lock: the camera stays at its coordinates while you inspect and edit the scene.';
+        this.syncCameraViewIndicator();
         this.renderer.controls.zoomInPlace = () => Boolean(
             !this.state.exportPreviewFollowViewport && this.state.exportPreviewEnabled
             && this.renderer.exportPreviewCamera
@@ -14787,15 +14811,8 @@ class VAseApp {
         const dir = baseDir.clone().multiplyScalar(sign);
         camera.up.copy(canonicalUp);
         camera.position.copy(target).add(dir.clone().multiplyScalar(distance));
-        camera.lookAt(target);
         controls.target.copy(target);
-        controls.endGesture?.();
-        controls.update?.();
-        this.renderer.syncSelectionOutlines();
-        this.transform.updateGuides(camera);
-        this.updateOrientationWidget();
-        this.adoptCameraViewWithoutHistory();
-        this.renderer.requestRender();
+        this.completeCameraViewChange('axis-view');
         return sign;
     }
 
@@ -14903,38 +14920,45 @@ class VAseApp {
         return this.state.atoms?.positions?.[index] || null;
     }
 
-    atomHoverText(reference) {
+    atomHoverText(reference, { selected = false } = {}) {
         const normalized = this.normalizeSelectionReference(reference);
-        if (!normalized || !this.state.atoms?.symbols?.[normalized.index]) {
-            return 'Hover atom: -';
+        if (!normalized || !this.state.atoms?.symbols?.[normalized.index]) return 'Hover atom: —';
+        const index = normalized.index, label = this.state.atoms.symbols[index];
+        const position = this.selectionReferencePosition(normalized)?.toArray();
+        const parts = [`${selected ? 'Selected' : 'Hover'} atom: #${this.selectionReferenceLabel(normalized)} · ${label}`];
+        if (position) parts.push(position.map((value, i) => `${'XYZ'[i]}: ${this.formatNumber(value, 4)}`).join('  '));
+        const snapshot = this.singleSelectionPropertySnapshot(normalized);
+        const excluded = new Set(['mass', 'masses', 'numbers', 'number', 'atomic_number', 'element', 'symbol', 'symbols',
+            'positions', 'position', 'scaled_positions', 'fractional_positions', 'label', 'labels', 'atom_types']);
+        const properties = (snapshot?.properties || []).filter(property => !excluded.has(property.name)
+            && (property.source !== 'ase' || Number(property.value) !== 0));
+        const seen = new Set();
+        for (const property of properties) {
+            if (property.value === null || property.value === undefined || seen.has(property.name)) continue;
+            seen.add(property.name);
+            parts.push(`${property.name} = ${this.formatMeasurePropertyValue(property.value)}${property.unit ? ` ${property.unit}` : ''}`);
         }
-        const index = normalized.index;
-        const symbol = this.state.atoms.symbols[index];
-        const position = this.selectionReferencePosition(normalized);
-        const pos = position ? position.toArray() : null;
-        const force = this.state.atoms.forces?.[index] || null;
-        const charge = this.state.atoms.charges?.[index];
-        const tag = this.state.atoms.tags?.[index];
-        const magmom = this.state.atoms.magmoms?.[index];
-        const parts = [
-            `#${this.selectionReferenceLabel(normalized)} ${symbol}`,
-            `pos=${this.formatVectorTuple(pos)}`,
-            `force=${this.formatVectorTuple(force)}`,
-            `charge=${this.formatNumber(Number(charge), 4)}`,
-            `tag=${tag ?? '-'}`,
-            `magmom=${this.formatNumber(Number(magmom), 4)}`
-        ];
+        const force = this.state.atoms.forces?.[index];
+        if (force && !seen.has('forces') && !seen.has('force')) parts.push(`Force = ${this.formatVectorTuple(force)} eV/Å`);
+        if (selected && !snapshot) parts.push('Loading properties…');
+        if (snapshot?.error) parts.push(`Properties unavailable: ${snapshot.error}`);
         return parts.join('  |  ');
     }
 
+    updateAtomStatusReadout() {
+        const selection = this.selectionEntries();
+        const selected = selection.length === 1;
+        const reference = selected ? selection[0] : this.state.hoveredReference;
+        const readout = document.getElementById('hover-readout');
+        if (readout) { readout.textContent = this.atomHoverText(reference, {selected}); readout.title = readout.textContent; }
+        document.getElementById('coord-readout')?.classList.toggle('hidden', Boolean(reference));
+    }
+
     setHoveredAtom(reference) {
-        const normalized = reference === null || reference === undefined
-            ? null
-            : this.normalizeSelectionReference(reference);
+        const normalized = reference === null || reference === undefined ? null : this.normalizeSelectionReference(reference);
         this.state.hoveredReference = normalized;
         this.state.hoveredIndex = normalized?.index ?? null;
-        const readout = document.getElementById('hover-readout');
-        if (readout) readout.innerText = this.atomHoverText(normalized);
+        this.updateAtomStatusReadout();
     }
 
     queueHoverPick(event) {
@@ -15997,7 +16021,7 @@ class VAseApp {
         }
         const camera = this.normalizedCameraSettings(this.state.exportPreviewCamera);
         if (!camera) return;
-        this.state.exportPreviewFollowViewport = false;
+        this.renderAreaTransformView = this.currentCameraForExport();
         this.state.renderAreaTransformOriginal = this.clonePlain(camera);
         this.renderAreaTransformProfile = this.clonePlain(this.currentImageExportProfile());
         this.state.transformSubject = 'render-area';
@@ -16036,7 +16060,7 @@ class VAseApp {
             scale = this.transformScaleFactor();
             if (!Number.isFinite(scale) || scale <= 0) return;
             if (profile.options.scaleMode === 'physical') profile.options.pixelsPerAngstrom /= scale;
-            this.state.transformReadout = `Output frame ${this.formatScaleReadout(scale)}`;
+            this.state.transformReadout = `Render area ${this.formatScaleReadout(scale)}`;
         }
         this.state.exportPreviewCamera = this.normalizedCameraSettings({
             ...original,
@@ -16047,6 +16071,15 @@ class VAseApp {
         });
         profile.options.camera = this.clonePlain(this.state.exportPreviewCamera);
         this.state.imageExportProfile = profile;
+        if (this.state.exportPreviewFollowViewport && this.renderAreaTransformView) {
+            // Transform the editor along with the camera. Its frame keeps the
+            // same pixel bounds; the world moves behind it, including the cell.
+            const view = this.cameraPoseTransform(original, this.state.exportPreviewCamera,
+                this.renderAreaTransformView, 1);
+            view.ortho_scale = this.renderAreaTransformView.ortho_scale * scale;
+            view.zoom = this.renderAreaTransformView.zoom / scale;
+            this.applyCameraSettings(view, {syncScale: false});
+        }
         this.syncImageExportPreview();
         this.transform.updateGuides(this.renderer.camera);
         this.updateCommandReadout();
@@ -16075,6 +16108,9 @@ class VAseApp {
     }
 
     cancelRenderAreaTransform() {
+        if (this.state.exportPreviewFollowViewport && this.renderAreaTransformView) {
+            this.applyCameraSettings(this.renderAreaTransformView, {syncScale: false});
+        }
         if (this.state.renderAreaTransformOriginal) {
             this.state.imageExportProfile = this.clonePlain(this.renderAreaTransformProfile);
             this.state.exportPreviewCamera = this.clonePlain(
@@ -17455,6 +17491,7 @@ class VAseApp {
             ));
         focusMatch?.focus();
         this.syncAppearanceScope();
+        this.syncFlatDisplayControls();
     }
 
     syncAppearanceScope() {
@@ -17831,98 +17868,8 @@ class VAseApp {
         }
     }
 
-    async applySelectedLabelEdit({ reportErrors = true } = {}) {
-        const indices = this.selectedAtomIndices();
-        if (!indices.length) {
-            this.toast('Select atoms before changing their label.', 'warning');
-            return false;
-        }
-        const input = document.getElementById('selected-atom-label');
-        const label = this.normalizedTypeLabel(input?.value);
-        if (!label) {
-            this.toast('Atom label cannot be empty.', 'warning');
-            return false;
-        }
-        const previousLabels = [...new Set(indices.map(index => this.state.atoms.symbols[index]))];
-        if (previousLabels.length === 1 && previousLabels[0] === label) return true;
-        if (!this.canEditAtoms()) {
-            this.applySelectedLabelForVisualization(indices, label);
-            return true;
-        }
-
-        const selectedSet = new Set(indices);
-        const targetIndices = this.labelIndices(label);
-        const targetExists = targetIndices.length > 0;
-        const targetBases = [...new Set(
-            targetIndices
-                .map(index => this.state.atoms?.chemical_symbols?.[index])
-                .filter(symbol => CHEMICAL_ELEMENT_SET.has(symbol))
-        )];
-        const previousBases = [...new Set(
-            indices
-                .map(index => this.state.atoms?.chemical_symbols?.[index])
-                .filter(symbol => CHEMICAL_ELEMENT_SET.has(symbol))
-        )];
-        const detectedBase = this.detectedElementForLabel(label);
-        const base = targetBases.length === 1 ? targetBases[0] : detectedBase;
-        const preserveAppearance = !base || (previousBases.length === 1 && previousBases[0] === base);
-        const priorMaterials = new Map(indices.map(index => [index, this.atomMaterialPreset(index)]));
-
-        try {
-            const data = await this.withBusy(
-                `Assigning ${indices.length} selected atom${indices.length === 1 ? '' : 's'} to ${label}...`,
-                () => this.api.updateAtomIdentity(
-                    indices,
-                    label,
-                    this.backendPositionsPayload(),
-                    this.state.applyConstraints,
-                    base
-                )
-            );
-
-            let copiedSource = targetExists;
-            previousLabels.filter(source => source !== label).forEach(source => {
-                const sourceStillPresent = this.labelIndices(source).some(index => !selectedSet.has(index));
-                this.transferLabelDisplaySettings(source, label, {
-                    appearance: preserveAppearance,
-                    removeSource: !sourceStillPresent,
-                    copySource: !copiedSource
-                });
-                if (!copiedSource) copiedSource = true;
-            });
-            if (!preserveAppearance && !targetExists && base) {
-                this.setElementBaseDefaults(label, base);
-            }
-
-            const targetMaterial = this.normalizedAtomMaterialPreset(
-                this.state.display.labelMaterials?.[label]
-            );
-            const atomMaterials = { ...(this.state.display.atomMaterials || {}) };
-            indices.forEach(index => {
-                const previous = priorMaterials.get(index) || 'standard';
-                if (previous === targetMaterial) delete atomMaterials[index];
-                else atomMaterials[index] = previous;
-            });
-            this.state.display.atomMaterials = atomMaterials;
-            this.prepareLabelOrderForIdentityChange(indices, label);
-            this.setAtomsData(data, { preserveDisplay: false });
-            indices.forEach(index => this.state.selected.add(index));
-            this.updateSelectionVisuals();
-            this.updateUI();
-            this.toast(
-                targetExists
-                    ? `Merged selected atoms into label ${label}.`
-                    : `Assigned selected atoms to label ${label}.`,
-                'success'
-            );
-            return true;
-        } catch (err) {
-            if (reportErrors) {
-                this.toast(`Selected label update failed: ${err.message}`, 'error');
-                return false;
-            }
-            throw err;
-        }
+    async applySelectedLabelEdit() {
+        return await this.selectedAppearanceEditor.commitLabel(document.getElementById('selected-atom-label')?.value);
     }
 
     async applySelectedTypeEdit() {
@@ -22953,7 +22900,7 @@ class VAseApp {
             labelVisible[label] = labelVisible[label] !== false;
         });
         const labelMaterials = pickLabelMap(nextDisplay.labelMaterials);
-        labels.forEach(label => {
+        Object.keys(labelMaterials).forEach(label => {
             labelMaterials[label] = this.normalizedAtomMaterialPreset(labelMaterials[label]);
         });
         const pickAtomMap = (source, normalize) => {
@@ -23311,6 +23258,9 @@ class VAseApp {
 
     applyDesignSettings(settings, { render = true } = {}) {
         if (!settings) return;
+        const restoring = this.restoringDesignSettings;
+        this.restoringDesignSettings = true;
+        try {
         this.atomRadiusRuntime.fitToken += 1;
         const source = settings.settings || settings;
         if (Object.keys(source.display || source).some(key => key.startsWith('video'))) {
@@ -23420,6 +23370,11 @@ class VAseApp {
             this.updateBondModeUI();
             this.updateUI();
             this.scheduleDisplacementAnalysisRefresh();
+            if (this.state.display.showForceVectors) {
+                this.updateForceVectorsForCurrentFrame().catch(error => {
+                    this.updateForceVectorStatus(error.message);
+                });
+            }
             if (this.state.display.atomColorScaleEnabled) {
                 this.updateAtomColorScale({ refreshCatalog: true }).catch(error => {
                     this.handleAtomColorScaleError(error);
@@ -23433,6 +23388,10 @@ class VAseApp {
         this.syncRendererProperties({ force: true });
         this.syncRendererFormatProperties();
         this.scheduleVisualHistoryCommit('visual-settings');
+        } finally {
+            this.restoringDesignSettings = restoring;
+            this.renderAreaPreviousView = this.currentCameraForExport();
+        }
     }
 
     showConfirmModal({ title, intro, items, confirmText = 'Yes', cancelText = 'No', danger = false }) {
@@ -23492,6 +23451,8 @@ class VAseApp {
     }
 
     async settleScientificMutations() {
+        await this.selectedAppearanceEditor?.labelPending;
+        await this.selectedAppearanceEditor?.settle();
         while (this.pendingScientificRequests.size) {
             await Promise.all([...this.pendingScientificRequests].map(token => token.promise));
         }
@@ -26678,9 +26639,9 @@ class VAseApp {
         return {
             transparentBackground: false,
             backgroundColor: '#ffffff',
-            includeGrid: false,
-            includeAxes: true,
-            includeCell: true,
+            includeGrid: this.state.display.showGrid !== false,
+            includeAxes: this.state.display.showAxes !== false,
+            includeCell: this.state.display.showCell !== false,
             selectionAppearance: 'publication',
             includePlaneBorders: true,
             scaleMode: display.imageFramingMode === 'physical' ? 'physical' : 'viewport',
@@ -26754,8 +26715,25 @@ class VAseApp {
 
     currentImageExportProfile() {
         const profile = this.normalizedImageExportProfile(this.state.imageExportProfile);
+        profile.options.includeGrid = this.state.display.showGrid !== false;
+        profile.options.includeAxes = this.state.display.showAxes !== false;
+        profile.options.includeCell = this.state.display.showCell !== false;
         this.state.imageExportProfile = profile;
         return profile;
+    }
+
+    commitExportObjectVisibility(options) {
+        for (const [field, control, key] of [['showGrid', 'chk-grid', 'includeGrid'],
+            ['showAxes', 'chk-axes', 'includeAxes'], ['showCell', 'chk-cell', 'includeCell']]) {
+            this.state.display[field] = options[key] !== false;
+            const input = document.getElementById(control);
+            if (input) input.checked = this.state.display[field];
+        }
+        this.state.display.exportIncludeCell = this.state.display.showCell;
+        const geometryCell = document.getElementById('export-include-cell');
+        if (geometryCell) geometryCell.checked = this.state.display.showCell;
+        this.renderer.setDisplayOptions(this.state.display);
+        this.renderSceneNavigatorObjects();
     }
 
     setImageExportProfile(profile, { syncInputs = true, syncPreview = true } = {}) {
@@ -26800,7 +26778,7 @@ class VAseApp {
         if (button) {
             button.setAttribute('aria-pressed', enabled ? 'true' : 'false');
             button.title = enabled ? 'Hide Render Area' : 'Show the exact exported Render Area';
-            button.textContent = enabled ? 'Hide output frame' : 'Show output frame';
+            button.textContent = enabled ? 'Hide render area' : 'Show render area';
         }
         if (!enabled) this.setRenderAreaSelected(false, { update: false });
         this.syncRenderAreaControls();
@@ -26842,15 +26820,15 @@ class VAseApp {
                 </label>
                 <label class="check-row" for="export-grid">
                     <span>Include grid</span>
-                    <input type="checkbox" id="export-grid" ${imageOptions.includeGrid ? 'checked' : ''}>
+                    <input type="checkbox" id="export-grid" ${imageOptions.includeGrid ? 'checked' : ''} ${this.state.display.showGrid === false ? 'disabled title="Enable Grid in Objects first"' : ''}>
                 </label>
                 <label class="check-row" for="export-axes">
                     <span>Include axes</span>
-                    <input type="checkbox" id="export-axes" ${imageOptions.includeAxes ? 'checked' : ''}>
+                    <input type="checkbox" id="export-axes" ${imageOptions.includeAxes ? 'checked' : ''} ${this.state.display.showAxes === false ? 'disabled title="Enable Axes in Objects first"' : ''}>
                 </label>
                 <label class="check-row" for="export-cell">
                     <span>Include unit cell</span>
-                    <input type="checkbox" id="export-cell" ${imageOptions.includeCell ? 'checked' : ''}>
+                    <input type="checkbox" id="export-cell" ${imageOptions.includeCell ? 'checked' : ''} ${this.state.display.showCell === false ? 'disabled title="Enable Cell in Objects first"' : ''}>
                 </label>
                 <div class="export-render-section">
                     <div class="export-section-title">Framing</div>
@@ -26932,9 +26910,9 @@ class VAseApp {
                 options: {
                     transparentBackground: Boolean(document.getElementById('export-transparent')?.checked),
                     backgroundColor: '#ffffff',
-                    includeGrid: Boolean(document.getElementById('export-grid')?.checked),
-                    includeAxes: Boolean(document.getElementById('export-axes')?.checked),
-                    includeCell: Boolean(document.getElementById('export-cell')?.checked),
+                    includeGrid: this.state.display.showGrid !== false && Boolean(document.getElementById('export-grid')?.checked),
+                    includeAxes: this.state.display.showAxes !== false && Boolean(document.getElementById('export-axes')?.checked),
+                    includeCell: this.state.display.showCell !== false && Boolean(document.getElementById('export-cell')?.checked),
                     scaleMode: document.getElementById('export-framing-mode')?.value === 'physical'
                         ? 'physical'
                         : 'viewport',
@@ -26958,6 +26936,7 @@ class VAseApp {
         };
 
         const updateExportSummary = () => {
+            this.syncFlatDisplayControls();
             const profile = readImageProfile();
             this.state.exportPreviewProfile = profile;
             if (this.state.exportPreviewEnabled) this.syncImageExportPreview();
@@ -27078,6 +27057,9 @@ class VAseApp {
                 );
                 this.syncImageExportPreview();
                 if (saved) {
+                    // A saved GUI export commits its guide choices to Objects;
+                    // otherwise currentImageExportProfile would restore them.
+                    this.commitExportObjectVisibility(profile.options);
                     this.setImageExportProfile(profile);
                     this.imageExportDraftFormat = profile.format;
                     this.syncRendererFormatProperties();
@@ -27126,7 +27108,7 @@ class VAseApp {
         const selected = (value, current) => value === current ? 'selected' : '';
         this.showModal(`
             <h2>Export Video</h2>
-            <p class="modal-intro">Render the chosen source frames using the output frame and camera.</p>
+            <p class="modal-intro">Render the chosen source frames using the render area and camera.</p>
             <div class="export-image-columns">
                 <div class="export-image-column">
                     <div class="export-grid">
@@ -27161,15 +27143,15 @@ class VAseApp {
                     <p class="export-note">Visible displacement vectors are recalculated and rendered for every output frame.</p>
                     <label class="check-row" for="video-grid">
                         <span>Include grid</span>
-                        <input type="checkbox" id="video-grid" ${this.state.display.showGrid ? 'checked' : ''}>
+                        <input type="checkbox" id="video-grid" ${this.state.display.showGrid ? 'checked' : ''} ${this.state.display.showGrid === false ? 'disabled title="Enable Grid in Objects first"' : ''}>
                     </label>
                     <label class="check-row" for="video-axes">
                         <span>Include axes</span>
-                        <input type="checkbox" id="video-axes" ${this.state.display.showAxes ? 'checked' : ''}>
+                        <input type="checkbox" id="video-axes" ${this.state.display.showAxes ? 'checked' : ''} ${this.state.display.showAxes === false ? 'disabled title="Enable Axes in Objects first"' : ''}>
                     </label>
                     <label class="check-row" for="video-cell">
                         <span>Include unit cell</span>
-                        <input type="checkbox" id="video-cell" ${this.state.display.exportIncludeCell !== false ? 'checked' : ''}>
+                        <input type="checkbox" id="video-cell" ${this.state.display.showCell !== false ? 'checked' : ''} ${this.state.display.showCell === false ? 'disabled title="Enable Cell in Objects first"' : ''}>
                     </label>
                     <div class="export-render-section">
                         <div class="export-section-title">Framing</div>
@@ -27265,9 +27247,9 @@ class VAseApp {
                 loop: document.getElementById('video-loop')?.value !== 'once',
                 transparentBackground: false,
                 backgroundColor: '#ffffff',
-                includeGrid: Boolean(document.getElementById('video-grid')?.checked),
-                includeAxes: Boolean(document.getElementById('video-axes')?.checked),
-                includeCell: Boolean(document.getElementById('video-cell')?.checked),
+                includeGrid: this.state.display.showGrid !== false && Boolean(document.getElementById('video-grid')?.checked),
+                includeAxes: this.state.display.showAxes !== false && Boolean(document.getElementById('video-axes')?.checked),
+                includeCell: this.state.display.showCell !== false && Boolean(document.getElementById('video-cell')?.checked),
                 scaleMode: document.getElementById('video-framing-mode')?.value === 'physical'
                     ? 'physical'
                     : 'viewport',
@@ -27287,6 +27269,7 @@ class VAseApp {
         };
 
         const updateVideoPreview = () => {
+            this.syncFlatDisplayControls();
             const options = readVideoOptions();
             const note = document.getElementById('video-scale-note');
             if (note) {
@@ -27371,6 +27354,7 @@ class VAseApp {
                     : 'video/quicktime';
                 const destination = await this.chooseSaveDestination(filename, outputMime);
                 if (!destination) return;
+                this.commitExportObjectVisibility(options);
                 await this.exportTrajectoryVideo(options, destination);
             } catch (err) {
                 this.toast(`Video export failed: ${err.message}`, 'error');
@@ -28351,7 +28335,7 @@ class VAseApp {
         document.getElementById('btn-preview-image').onclick = () => {
             this.state.exportPreviewProfile = null;
             this.state.exportPreviewEnabled = !this.state.exportPreviewEnabled;
-            if (this.state.exportPreviewEnabled && (this.state.exportPreviewFollowViewport || !this.state.exportPreviewCamera)) {
+            if (this.state.exportPreviewEnabled && !this.state.exportPreviewCamera) {
                 this.captureRenderAreaCamera({ syncPreview: false });
             } else {
                 this.setRenderAreaSelected(false, { update: false });
@@ -28367,7 +28351,6 @@ class VAseApp {
             button.addEventListener('click', () => this.setRenderCameraNavigation(button.dataset.cameraNavigation === 'camera'));
         });
         document.getElementById('btn-render-area-align-view')?.addEventListener('click', () => {
-            this.state.exportPreviewFollowViewport = false;
             this.captureRenderAreaCamera();
             this.syncRenderAreaControls();
             this.scheduleVisualHistoryCommit('output-camera-to-view');
@@ -29482,6 +29465,7 @@ class VAseApp {
 
 installPolyhedra(VAseApp);
 installAIScene(VAseApp);
+installActivityIndicators(VAseApp);
 window.__V_ASE_APP__ = new VAseApp();
 window.__ASE_APP__ = window.__V_ASE_APP__;
 window.v_aseAI = window.__V_ASE_APP__.createAIBridge();

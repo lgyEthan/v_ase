@@ -10,7 +10,7 @@ Start in **Style → Atoms**; View mode is sufficient for label styling.
 | --- | --- |
 | Element defaults | A quick conventional element-color view |
 | LABEL row | Persistent groups such as substrate, surface oxide or fixed layer |
-| Selected atoms | A local exception at known atom indices |
+| Selected atoms | Immediately split and style the selected group |
 | Numeric colorscale | A continuous stored property; see [Scalar colors](scalar-colors.md) |
 | Property radius mapping | A separate multiplicative size factor from an actual numeric field |
 
@@ -64,7 +64,7 @@ Each label row can control:
 - visibility;
 - text label;
 - color;
-- radius scale;
+- radius in Å (before the global size and property multipliers);
 - opacity; and
 - material preset.
 
@@ -107,24 +107,31 @@ mapping. If a stored per-atom property was not recorded for those frames, the
 editor explicitly uses neutral factor 1 instead of borrowing values from the
 loaded source trajectory.
 
-## Per-atom overrides
+(per-atom-overrides)=
+## Live selected appearance
 
-Selected base-atom indices can carry persistent color, relative
-radius, opacity, and material overrides. Apply controls are field-scoped: an
-opacity edit need not replace a custom color or material already assigned to
-the same indices.
-The selected-radius slider and its number field update the drawn sphere size
-immediately and form one Undo step per gesture. A pending label/type edit
-remains a separate draft until **Apply Selected Appearance** is pressed.
+The **Selected atoms** controls apply immediately in View and Edit; there is
+no Apply button. Enter a new label and press Enter or leave the field to split
+that group. Escape cancels an uncommitted label draft. If you edit color,
+material, opacity or radius first, v_ase creates `Element_2`, incrementing the
+suffix until unused. Mixed elements or existing styles receive separate labels.
+The same label rows immediately show color, material, opacity and the resulting
+radius in Å. A radius multiplier is folded into that label radius, avoiding a
+second hidden size override. The global size and property mapping still apply.
 
-Index overrides are appropriate for local defects or highlighted sites. Use a
-new label instead when the identity should remain meaningful after atom
-reordering or across trajectories with changing topology. Compatible frames
-can retain index overrides; incompatible indices are pruned rather than
-silently remapped.
+Undo reverses the first split and its first appearance gesture together. Later
+adjustments each have normal undo/redo. Entering an existing label asks whether
+to merge; **Yes, merge** inherits its color, radius, opacity, material, visibility
+and bond settings. Chemical elements and coordinates stay unchanged. A later
+selected-only change separates that subset again, preserving unselected atoms.
+Edit-mode label changes follow base indices across source frames, skipping absent
+indices; changing mode alone preserves the other frames' elements and labels.
+View-mode label edits on incompatible trajectories remain local to that frame.
 
-**Selected appearance affects bonds** lets connected bond segments inherit
-selected atoms' material/opacity behavior. It is enabled by default.
+**Selected appearance affects bonds** links selected atoms' material/opacity
+to connected bond segments. It is enabled by default. The semantic API also
+continues to accept explicit per-index overrides for automated workflows and
+older projects; these are distinct from the GUI's new label-based workflow.
 
 ## 3D and flat 2D rendering
 
@@ -137,8 +144,12 @@ Standard, Metal and Rubber change appearance, not atomic coordinates.
 **3D** draws spheres, bond geometry, lighting, materials, and depth. **2D flat**
 turns atoms, bonds, vectors, cell edges, and constraint guides into a
 diagram-like view with adaptive outlines. Lighting and 3D material effects are
-disabled in flat mode so the result is determined by colors, opacity, width,
+disabled, including their controls, in flat mode so the result is determined by colors, opacity, width,
 and depth ordering.
+
+Fixed atoms use sharp crossed strokes. In **Objects**, toggle **Constraints**
+to show or hide constraint marks in the viewport and exports; this does not
+change constraint enforcement.
 
 The mode changes rendering only. Coordinates, selection, analysis, and saved
 structure remain the same.
@@ -202,10 +213,12 @@ The property catalog loads in advance. Stored scalar values and optional color
 palettes are fetched only when needed; unchanged catalogs preserve the dropdown's
 options rather than rebuilding them during interaction.
 
-Select one atom to see its coordinates and all stored properties in the bottom
-readout. Custom arrays, including `existence`, and calculator results appear first;
-ASE intrinsic values follow. The readout scrolls for long vectors/tensors and its
-text can be selected and copied.
+Select one atom to see its current label, Cartesian XYZ, and stored properties
+in the bottom status strip. Custom arrays, including `existence`, and stored
+calculator results such as forces appear there; intrinsic element, mass, and
+fractional-coordinate fields are omitted. The strip scrolls for long values and
+its text can be selected and copied. Full ASE attributes remain available through
+the atom-properties API.
 
 Hold Shift when adding atoms to a measurement; picks pass through the bottom
 readout so it cannot intercept a nearby atom. Release Shift to scroll or copy

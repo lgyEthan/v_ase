@@ -666,7 +666,7 @@ def test_html_export_button_downloads_an_offline_document_that_reopens(tmp_path)
             page.click("#btn-export-html")
             page.locator("#html-export-confirm").wait_for(state="visible")
             assert page.locator("#html-embed-project").is_checked() is False
-            assert page.locator("#html-include-grid").is_checked() is False
+            assert page.locator("#html-include-grid").is_checked() is True
             assert page.locator("#html-include-axes").is_checked() is True
             assert page.locator("#html-include-cell").is_checked() is True
             assert page.locator("#html-export-width").count() == 0
@@ -727,7 +727,7 @@ def test_html_export_button_downloads_an_offline_document_that_reopens(tmp_path)
             assert offline.evaluate("window.v_aseStandalone.scene.exportProfile.height") == 900
             assert offline.evaluate(
                 "window.v_aseStandalone.scene.exportProfile.options.includeGrid"
-            ) is False
+            ) is True
             assert offline.evaluate(
                 "window.v_aseStandalone.scene.exportProfile.options.includeAxes"
             ) is True

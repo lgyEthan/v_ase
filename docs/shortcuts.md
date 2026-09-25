@@ -14,12 +14,18 @@ Move/Rotate/Scale, camera Orbit and Add atoms. Transform buttons activate only
 when a suitable object is selected. Click a transform, then drag in the canvas;
 Apply/Enter commits, Cancel/Escape reverts, and switching tools cancels a preview. Grid and lighting remain beside the camera presets. At narrow widths, the workbench stacks below
 the viewport. The header search popover reveals existing controls.
-View applies materials by label. Edit can apply Standard, Metal, or Rubber to
-individual selected atoms and can merge them into an existing label by entering
-that exact label.
+Selected appearance is live in View and Edit, with automatic label separation
+and an undoable first adjustment. Reusing a label asks to merge and inherit its
+visual settings. See [Live selected appearance](appearance.md#live-selected-appearance).
+
+The camera-view icon beside the axis presets is a viewpoint indicator. It
+returns to the saved render camera without changing **Lock camera to → World /
+Viewport**. In Viewport lock, selected-camera G/R/S keeps the render area still
+on screen; in World lock the camera moves independently of the editing view.
 
 In editable fields, Ctrl+A also selects the entire value on macOS; Command+A
-continues to work. In the bond cutoff column, Tab/Shift+Tab moves directly to
+continues to work. The Supercell shortcut selects the first input value; type `2`, Tab, `2` for
+a 2 × 2 repeat. In the bond cutoff column, Tab/Shift+Tab moves directly to
 the next/previous cutoff. Escape first returns Measure/Orbit to Select; it then
 uses the existing modal/panel behavior.
 
@@ -163,8 +169,8 @@ state:
   results, and visual setup. The default compact output is `.vase`; enable the
   interactive rendered view to change the output to a restorable `.html`.
 - **Export HTML View** writes one offline view-only browser document with the
-  exact Preview Area camera crop, scene, and trajectory controls. Grid
-  defaults off; axes and unit cell default on. The default file is a smaller
+  exact Render area camera crop, scene, and trajectory controls. Guide
+  defaults follow Objects visibility. The default file is a smaller
   view-only handoff, with optional complete `.vase` embedding.
 - The **Save Project** dialog clearly reports `.vase` or `.html` before writing;
   HTML project output always includes complete `.vase` recovery.

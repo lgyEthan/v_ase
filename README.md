@@ -14,7 +14,7 @@
 [Changelog](https://v-ase.readthedocs.io/en/latest/whats-new.html) ·
 [Issues](https://github.com/lgyEthan/v_ase/issues)
 
-**v_ase 0.4.5 — restored project views and clearer camera controls** ·
+**v_ase 0.4.6 — live atom styling and stable camera framing** ·
 [Changes](https://v-ase.readthedocs.io/en/latest/whats-new.html)
 
 An ASE-native workspace for building, editing and visualizing atomic structures,
@@ -34,7 +34,7 @@ Renderer scale and atom radius remain independent.
 
 macOS and Windows users can install the self-contained
 [desktop app](https://v-ase.readthedocs.io/en/latest/desktop.html) from
-[GitHub Releases](https://github.com/lgyEthan/v_ase/releases/tag/v0.4.5).
+[GitHub Releases](https://github.com/lgyEthan/v_ase/releases/tag/v0.4.6).
 It runs the same GUI with native Command/Ctrl shortcuts and file dialogs;
 Python installation is not required. Python and Jupyter remain available
 independently. Drag a desktop tab out to detach it into another window.
@@ -46,11 +46,11 @@ window closes independently; Windows Alt+F4 closes the active window, while
 explicit Quit checks all windows. The app icon now features the full atomic-bead
 castle with its small Pinocchio detail and no projecting red foundation board.
 
-| Desktop download (0.4.5) | Install and launch |
+| Desktop download (0.4.6) | Install and launch |
 | --- | --- |
-| [Mac, Apple silicon](https://github.com/lgyEthan/v_ase/releases/download/v0.4.5/v_ase-0.4.5-mac-arm64.dmg) | macOS 15+: open the DMG, drag **v_ase** to **Applications**, eject the disk image, then launch the Applications copy. |
-| [Mac, Intel](https://github.com/lgyEthan/v_ase/releases/download/v0.4.5/v_ase-0.4.5-mac-x64.dmg) | Same steps; choose Intel when **About This Mac** shows an Intel processor. |
-| [Windows, Intel/AMD x64](https://github.com/lgyEthan/v_ase/releases/download/v0.4.5/v_ase-0.4.5-win-x64.exe) | Windows 10/11, 64-bit: run the EXE installer, complete installation, then launch **v_ase** from Start. |
+| [Mac, Apple silicon](https://github.com/lgyEthan/v_ase/releases/download/v0.4.6/v_ase-0.4.6-mac-arm64.dmg) | macOS 15+: open the DMG, drag **v_ase** to **Applications**, eject the disk image, then launch the Applications copy. |
+| [Mac, Intel](https://github.com/lgyEthan/v_ase/releases/download/v0.4.6/v_ase-0.4.6-mac-x64.dmg) | Same steps; choose Intel when **About This Mac** shows an Intel processor. |
+| [Windows, Intel/AMD x64](https://github.com/lgyEthan/v_ase/releases/download/v0.4.6/v_ase-0.4.6-win-x64.exe) | Windows 10/11, 64-bit: run the EXE installer, complete installation, then launch **v_ase** from Start. |
 
 The Mac downloads are **Developer ID signed and Apple-notarized**, with
 stapled tickets for the app and DMG. macOS may show its normal first-open
@@ -115,18 +115,32 @@ Later selection, element changes and shorter trajectory frames never redirect or
 clear these targets. Indices absent from a frame resume their mapping when present
 again. Property menus are preloaded without fetching unused scalar arrays.
 Trajectory coordinates, colors and radii are presented together.
-**Render → Output frame & scale → Show output frame** draws a crop guide over the
-editable canvas. **Navigate → Scene** keeps the output camera fixed while you
-edit or inspect the structure; **Navigate → Camera** makes navigation adjust the
-output. Switching targets preserves the composition. **Look through camera**
-fits the saved frame on screen without changing the export; **Align camera to
-view** deliberately replaces its pose. Select the camera/frame for **G** move,
-**R** rotation about the output center and **S** frame scaling, with Enter to
-apply and Escape to cancel. These framing operations include atoms, cell and
-all other exported geometry. The camera has an oriented wire outline, and the
-work grid has no finite mesh boundary. **Renderer → Quality → Atom rendering**
-also exposes 2D flat / 3D spheres. Video supports inclusive source-frame ranges and animated GIF
-with **Loop forever** or **Play once**, alongside MOV/AVI.
+Selected appearance is live: committing a new label separates the selection;
+changing color, material, opacity or size first creates an unused `Element_2`
+label (`Element_3`, etc.). The label table immediately shows the same settings,
+including the resulting radius in Å. Undo restores the initial split and its
+first adjustment together. Reusing an existing label asks to merge and inherit
+its settings. Surface materials live only in the per-label table.
+**Render → Render area & scale → Show render area** draws a crop guide over the
+editable canvas. **Lock camera to → World** keeps the camera at its coordinates;
+**Viewport** keeps the render area on screen while navigation changes the
+composition. Switching locks preserves output framing. The camera-view icon
+beside the axis presets indicates **Look through camera**; orbiting away in
+World mode turns it off, while pan/zoom keep it on. Clicking it returns to the
+saved camera without changing locks. **Align camera to current view** is a
+separate action that deliberately replaces the output pose.
+Select the outlined **Camera** badge or the oriented wire camera for **G** move,
+**R** rotation about the render center and **S** area scaling. Enter applies and
+Escape cancels. In Viewport lock the area stays still and the scene moves;
+X/Y/Z retain the area immediately. Initial framing accounts for the right panel,
+without recentering when panels open or overriding saved/user framing.
+**Objects** controls visible guides and scientific overlays in both the viewport
+and output. **Constraints** hides constraint marks without disabling ASE
+constraints. Flat 2D uses crisp fixed-atom crosses and disables materials and
+lighting controls. Both Renderer and Viewport offer 2D/3D. Image and video use
+the same saved render area; video supports inclusive frame ranges, MOV/AVI and
+GIF with **Loop forever** or **Play once**. Analysis and property mapping show
+activity while asynchronous work is pending.
 Desktop project and structure files have paper-shaped document icons bearing
 the castle; the application keeps its full castle icon. Only `.vase` is registered
 as the native default type. Structure formats including `.extxyz`, `.xyz`, `.vasp`
@@ -159,8 +173,10 @@ child-tab reloads. Exact delivered Command shortcuts on macOS and Ctrl
 shortcuts on Windows/Linux are listed in
 [Keyboard shortcuts](https://v-ase.readthedocs.io/en/latest/shortcuts.html).
 Plain arrow keys orbit or tilt the structure view; Option+Left/Right on macOS
-or Alt+Left/Right on Windows/Linux steps the selected trajectory. A single atom's bottom readout shows its element, label, coordinates and all stored
-properties, with custom arrays (including existence) and calculator data first.
+or Alt+Left/Right on Windows/Linux steps the selected trajectory. A single selected atom's footer shows its current label, Cartesian X/Y/Z, custom
+properties (including existence) and stored forces. It omits chemical-element,
+mass and fractional-coordinate boilerplate; no floating note covers the canvas.
+The Supercell shortcut selects the first value so `2 Tab 2` enters 2 × 2 directly.
 Navigation shortcuts discard an invalid draft and retain the last valid value;
 invalid edits still cannot be committed with Enter, Tab or Save.
 Analysis plots open in a resizable dock below the canvas, with a full-work-area
@@ -171,6 +187,9 @@ independent physical output scale (px/Å); changing that scale does not zoom the
 live viewport or resize atom glyphs. Image, Video and Interactive HTML each
 have format-specific settings next to their export action; changing an
 export draft and canceling its dialog leaves the project profile unchanged.
+Saved GUI image/video guide choices synchronize with Objects; hidden objects
+cannot be reintroduced by export settings. Enabling stored force vectors through
+a scene preset also loads the current frame before reporting the scene ready.
 Objects lists loaded field objects and opens their actual isosurface and plane
 property controls; Analyze retains field import, processing and combinations.
 Objects also links vector layers and their live style controls, while Build

@@ -52,14 +52,14 @@
             });
         })();
     </script>
-    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.4.5">
-    <link id="editor-style" rel="stylesheet" href="static/editor.css?v=0.4.5">
-    <link id="direct-workspace-style" rel="stylesheet" href="static/direct_workspace.css?v=0.4.5">
+    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.4.6">
+    <link id="editor-style" rel="stylesheet" href="static/editor.css?v=0.4.6">
+    <link id="direct-workspace-style" rel="stylesheet" href="static/direct_workspace.css?v=0.4.6">
     <script>
         window.__V_ASE_MOCK__ = new URLSearchParams(window.location.search).has('v_ase_mock');
         const threeModulePath = window.location.protocol === 'file:'
             ? './vendor/three.module.js'
-            : '/static/vendor/three.module.js?v=0.4.5';
+            : '/static/vendor/three.module.js?v=0.4.6';
         const importMap = document.createElement('script');
         importMap.type = 'importmap';
         importMap.textContent = JSON.stringify({
@@ -107,15 +107,18 @@
                 <button type="button" data-camera-preset="front">Front</button>
                 <button type="button" data-camera-preset="3d">3D</button>
             </div>
+            <button id="btn-render-area-from-view" type="button" class="camera-view-toggle" aria-label="Look through camera" aria-pressed="false" title="Look through camera">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h12v14H4z M16 9l5-3v12l-5-3 M7 8h6v8H7z"/></svg>
+            </button>
             <details id="camera-more" class="camera-more"><summary aria-label="Precise camera directions and rotation">⋯</summary><div id="camera-more-content"></div></details>
         </div>
         <div id="export-preview-frame" class="export-preview-frame hidden" aria-hidden="true">
             <div class="export-preview-caption">
                 <button id="render-area-eye" class="render-area-eye" type="button"
-                        aria-pressed="false" aria-label="Select output camera" title="Select output camera: G move, R rotate, S scale frame">
+                        aria-pressed="false" aria-label="Select camera object" title="Select camera object · G move · R rotate · S scale">
                     <svg viewBox="0 0 24 24" aria-hidden="true">
                         <path d="M3 7h12v10H3z M15 10l6-3v10l-6-3 M6 7l2-3h4l2 3"></path>
-                    </svg>
+                    </svg><span>Camera</span>
                 </button>
                 <span>RENDER AREA</span>
                 <strong id="export-preview-dimensions">1920 x 1080</strong>
@@ -158,7 +161,7 @@
     <header id="top-bar" class="glass-panel">
         <div class="logo">
             <img class="brand-logo-asset" src="static/v_ase-logo.png" alt="v_ase">
-            <span class="version">0.4.5</span>
+            <span class="version">0.4.6</span>
         </div>
         <nav id="editor-menu-bar" class="editor-menu-bar" aria-label="Document commands">
             <details><summary>File</summary><div class="editor-menu-popover">
@@ -1364,32 +1367,9 @@
                 <div id="appearance-table-body"></div>
             </div>
 </section>
-<section class="settings-group">
-            <h3 class="appearance-section-heading">Surface material</h3>
-            <label class="appearance-scope" for="appearance-scope-select"><span>Apply surface to</span>
-                <select id="appearance-scope-select" aria-label="Atom appearance scope">
-                    <option value="all">All atoms</option>
-                    <option value="selected" disabled>Selected atoms</option>
-                </select>
-            </label>
 
-            <div class="appearance-surface-controls">
-                <label for="appearance-material"><span>Material</span>
-                    <select id="appearance-material" aria-label="Material for appearance scope">
-                        <option value="mixed" disabled>Mixed</option>
-                        <option value="standard">Standard</option>
-                        <option value="metal">Metal</option>
-                        <option value="rubber">Rubber</option>
-                    </select>
-                </label>
-                <label for="appearance-opacity"><span>Opacity</span>
-                    <input id="appearance-opacity" type="number" min="0" max="1" step="0.05" value="1" aria-label="Opacity for appearance scope">
-                </label>
-                <p id="appearance-surface-scope-note" class="panel-note">Changes apply to the chosen types.</p>
-            </div>
-</section>
 <section class="settings-group">
-            <h3 class="appearance-section-heading">Selected atom overrides</h3>
+            <h3 class="appearance-section-heading">Selected atoms</h3>
             <div id="selected-appearance" class="selected-appearance">
                 <div class="selected-appearance-head">
                     <strong>Selected atoms</strong>
@@ -1432,7 +1412,7 @@
                     <span>Match bond material &amp; opacity</span>
                     <input id="selected-atom-update-bonds" type="checkbox" checked>
                 </label>
-                <button id="btn-apply-selected-label" class="btn-block" type="button">Apply Selected Appearance</button>
+                <p class="panel-note">Changes apply immediately. A new label separates the selection; Undo restores it.</p>
             </div>
 </section>
 <section class="settings-group">
@@ -2102,7 +2082,7 @@
             <div class="renderer-properties">
                 <div class="section-header static-header">Renderer</div>
                 <div class="export-group rendered-output-group renderer-output-group">
-                    <div class="panel-subhead">Output frame &amp; scale</div>
+                    <div class="panel-subhead">Render area &amp; scale</div>
                     <div class="relax-grid export-dimensions">
                         <label for="image-width">Width</label><input type="number" id="image-width" value="1920" step="128" min="256" max="8192">
                         <label for="image-height">Height</label><input type="number" id="image-height" value="1080" step="128" min="256" max="8192">
@@ -2113,16 +2093,16 @@
                         <span class="unit-input"><input id="renderer-pixels-per-angstrom" type="number" min="0.1" max="5000" step="0.1" aria-label="Output pixels per angstrom"><span>px/Å</span></span></div>
                     <div class="renderer-subsection">
                         <div class="mapping-subhead">Output camera</div>
-                        <button id="btn-preview-image" class="btn-block export-preview-toggle" type="button" aria-pressed="false" data-requires-atoms>Show output frame</button>
+                        <button id="btn-preview-image" class="btn-block export-preview-toggle" type="button" aria-pressed="false" data-requires-atoms>Show render area</button>
                         <div class="render-area-options">
-                            <div class="prop-row"><span>Navigate</span><div class="camera-navigation" role="group" aria-label="Navigation target">
-                                <button type="button" data-camera-navigation="scene" aria-pressed="false">Scene</button>
-                                <button type="button" data-camera-navigation="camera" aria-pressed="true">Camera</button>
+                            <div class="prop-row"><span>Lock camera to</span><div class="camera-navigation" role="group" aria-label="Camera lock reference">
+                                <button type="button" data-camera-navigation="scene" aria-pressed="false">World</button>
+                                <button type="button" data-camera-navigation="camera" aria-pressed="true">Viewport</button>
                             </div></div>
                             <p id="render-area-mode-help" class="panel-note"></p>
                             <div class="render-camera-actions">
-                                <button id="btn-render-area-from-view" type="button" data-requires-atoms title="Inspect the saved output composition without changing it">Look through camera</button>
-                                <button id="btn-render-area-align-view" type="button" data-requires-atoms title="Replace the camera pose with the current editing viewpoint">Align camera to view</button>
+
+                                <button id="btn-render-area-align-view" type="button" data-requires-atoms title="Replace the camera pose with the current editing viewpoint">Align camera to current view</button>
                             </div>
                         </div>
                     </div>
@@ -2461,7 +2441,7 @@
         }
         const modulePath = (window.location.protocol === 'file:' || window.location.pathname.endsWith('/static/index.html'))
             ? './main.js'
-            : './static/main.js?v=0.4.5';
+            : './static/main.js?v=0.4.6';
         import(modulePath).catch(error => {
             console.error('v_ase failed to initialize:', error?.stack || error);
         });

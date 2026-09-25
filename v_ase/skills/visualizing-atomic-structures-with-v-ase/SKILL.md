@@ -23,15 +23,21 @@ frames and element changes by index, resuming when absent indices return. The GU
 also captures label members as indices; `atomColorScaleTargetLabel` is only a UI
 annotation, not a dynamic label selector or a physical constraint. Video exports accept
 MOV/AVI/GIF, inclusive zero-based `startFrame`/`endFrame`, and GIF `loop`.
-The output-frame guide stays on the editable canvas; picking uses the editing
-camera. Navigate → Scene keeps the saved output fixed; Navigate → Camera applies
-subsequent orbit/pan/zoom/axis changes to the output without recapturing it when
-switching targets. Look through camera fits the saved output on screen and
-switches to Scene. Align camera to view deliberately replaces the output pose.
-An off-axis camera is an oriented wire camera and output-plane outline, never
-an opaque eye. Selected camera G/R/S moves, rotates about the output center or
-scales the frame (including all geometry in the composition); Escape restores
-its previous pose and scale. Both Viewport and Renderer expose 2D/3D atom style.
+The render-area guide stays on the editable canvas; picking uses the editing
+camera. **Lock camera to → World** (`followViewport:false`) fixes the output in
+world coordinates; **Viewport** (`true`) applies editing-view deltas without
+recapturing the composition. The **Look through camera** icon beside axis views
+indicates alignment and returns to that viewpoint without changing the lock.
+World-mode orbit deactivates it; pan/zoom do not. **Align camera to current view**
+deliberately replaces the output pose. Selected-camera G/R/S moves, rotates or
+scales the composition; in Viewport lock its screen rectangle stays stationary.
+Escape restores pose/scale. A wire camera wedge and render-plane outline identify
+its orientation without masking atoms. Both Viewport and Renderer expose 2D/3D;
+materials and lighting controls are disabled in flat mode.
+Objects visibility is shared by viewport and rendering. `display.showConstraints`
+controls scientific marks independently of `applyConstraints` enforcement; hidden
+marks stay hidden in images/video. The first view accounts for the right panel,
+but panel toggles never recenter user/saved views.
 `.vase` opens without import/mode prompts, restoring saved Edit/View mode,
 frame, cameras, appearance, selection and panel presentation in a new tab when
 another document is open. Desktop Command/Ctrl+W closes the last tab's window
@@ -118,7 +124,8 @@ the current image profile. `options.selection_appearance="publication"` is the
 default: atom selection outlines are suppressed and plane borders are neutral,
 without clearing live selections. Set `include_plane_borders=false` to omit
 plane borders, or `selection_appearance="interactive"` when selected appearance
-is intentionally part of the image. Scientific constraint markings remain.
+is intentionally part of the image. Scientific constraint markings remain when `display.showConstraints` and
+`showOverlays` are enabled; this is independent of physical enforcement.
 
 `vase_select_volumetric_planes(plane_ids=[])` explicitly deselects planes.
 Clearing atom selection alone does not clear plane selection. A scene patch with
@@ -139,8 +146,14 @@ through the raw selection contract, provide 2–4 explicit ordered indices or
 periodic references with `selection.intent="measure"`. For the native adapter,
 pass the intent inside its `selection` argument, for example
 `vase_set_selection(selection={indices:[0,1],intent:"measure"}, expected_document_id=..., expected_revision=...)`.
-A single selected atom leads with its chemical element and user label in the
-Measure readout, then exposes stored properties without a property-count summary.
+A single selected atom uses the footer beside Hover: current label, Cartesian
+X/Y/Z, stored properties and forces; no floating note, element, mass or fractional
+coordinate boilerplate. GUI selected appearance edits immediately create a label
+(`Element_2`, then an unused suffix), unless a new label was explicitly committed.
+The first split and gesture are one Undo action; an existing label requires a
+merge confirmation and then inherits its settings. Per-label rows mirror the
+resulting actual radius, color, opacity and material. Native explicit per-index
+overrides remain supported; they do not implicitly use this GUI auto-label rule.
 For human refinement, the editor has a wide viewport and a single right
 Style / Build / Analyze / Render workbench. Each workbench has a unique icon
 bookmark for every section, with hover/focus names and the active section heading

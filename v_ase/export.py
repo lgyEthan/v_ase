@@ -3483,7 +3483,9 @@ if "polyhedra_atoms" not in DATA and len(FRAMES) > 1 and all(frame_topology_matc
         bpy.app.handlers.frame_change_post.append(update_group_radius_attributes)
         update_group_radius_attributes(bpy.context.scene)
 
-constraints = DATA.get("constraints", {{}})
+constraints = DATA.get("constraints", {{}}) if (
+    DISPLAY.get("showOverlays", True) and DISPLAY.get("showConstraints", True)
+) else {{}}
 for idx_text, direction in constraints.get("fixed_line", {{}}).items():
     idx = int(idx_text)
     start = Vector(positions[idx]) - Vector(direction).normalized() * 2.2

@@ -126,8 +126,15 @@ async function runSmoke({ app, win, handshake, vault, sendCommand }) {
     assert.equal(await js(`${appRef}.currentImageExportProfile().options.pixelsPerAngstrom`), outputScaleBefore);
     await key('A', true);
     await wait(`${active}.document.body.dataset.currentEditorRoute === 'export'`);
+    const cameraLockBefore = await js(`${appRef}.state.exportPreviewFollowViewport`);
     await js(`${active}.document.querySelector('#btn-render-area-from-view').click()`);
-    assert.equal(await js(`${appRef}.state.exportPreviewFollowViewport`), false);
+    assert.equal(await js(`${appRef}.state.exportPreviewFollowViewport`), cameraLockBefore);
+    assert.equal(await js(`${active}.document.querySelector('#btn-render-area-from-view').getAttribute('aria-pressed')`), 'true');
+    await js(`${appRef}.renderer.domElement.focus()`);
+    await win.webContents.sendInputEvent({type:'keyDown',keyCode:'X'});
+    await win.webContents.sendInputEvent({type:'keyUp',keyCode:'X'});
+    await wait(`!${active}.document.querySelector('#export-preview-frame').classList.contains('hidden')`);
+    assert.equal(await js(`${active}.document.querySelector('#btn-render-area-from-view').getAttribute('aria-pressed')`), 'true');
     await js(`${active}.document.querySelector('#btn-preview-image').click()`);
     await js(`new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))`);
     await js(`${active}.addEventListener('keydown',e=>{${active}.__smokeKey={code:e.code,key:e.key,meta:e.metaKey,ctrl:e.ctrlKey,prevented:e.defaultPrevented,target:e.target.id}}); ${appRef}.renderer.domElement.focus()`);

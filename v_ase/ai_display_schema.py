@@ -88,6 +88,7 @@ DISPLAY_PROPERTIES = {'atomBondStyles': {'additionalProperties': {'type': 'numbe
  'showForceVectors': {'type': 'boolean'},
  'showGrid': {'type': 'boolean'},
  'showOverlays': {'type': 'boolean'},
+ 'showConstraints': {'type': 'boolean'},
  'showPeriodicBonds': {'type': 'boolean'},
  'showVolumetric': {'type': 'boolean'},
  'sunGizmo': {'type': 'boolean'},

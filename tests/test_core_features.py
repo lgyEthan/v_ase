@@ -1773,3 +1773,50 @@ def test_trajectory_file_input(tmp_path):
 
     assert len(frames) == 2
     assert np.allclose(frames[1].positions, second.positions)
+
+
+def test_batch_appearance_labels_are_one_undo_across_variable_frames():
+    first = Atoms('H', positions=[[0, 0, 0]])
+    second = Atoms('COH', positions=[[0, 0, 0], [1, 0, 0], [2, 0, 0]])
+    session = EditorSession('batch-labels', first.copy(), first.copy(),
+        original_frames=[first.copy(), second.copy()],
+        trajectory_frames=[first.copy(), second.copy()], config={'viz_only': False})
+    sessions[session.session_id] = session
+    result = asyncio.run(update_atom_identity(session.session_id, {
+        'frame_index': 1, 'label_assignments': {'0': 'C_2', '2': 'H_2'},
+        'positions': second.positions.tolist()}))
+    assert result['symbols'] == ['C_2', 'O', 'H_2']
+    assert result['chemical_symbols'] == ['C', 'O', 'H']
+    assert atom_labels(session.trajectory_frames[0]) == ['C_2']
+    assert session.trajectory_frames[0].get_chemical_symbols() == ['H']
+    assert atom_labels(session.original_frames[1]) == ['C_2', 'O', 'H_2']
+    asyncio.run(undo(session.session_id))
+    assert atom_labels(session.trajectory_frames[0]) == ['H']
+    assert atom_labels(session.trajectory_frames[1]) == ['C', 'O', 'H']
+    assert atom_labels(session.original_frames[1]) == ['C', 'O', 'H']
+
+
+def test_batch_appearance_labels_reject_invalid_indices_without_partial_edit():
+    session = make_session(Atoms('CO', positions=[[0, 0, 0], [1, 0, 0]]))
+    for assignments in [{'0': 'C_2', '5': 'O_2'}, {'0': ''}, ['C_2']]:
+        with pytest.raises(HTTPException) as error:
+            asyncio.run(update_atom_identity(session.session_id, {'label_assignments': assignments}))
+        assert error.value.status_code == 400
+        assert atom_labels(session.working_atoms) == ['C', 'O']
+
+
+def test_mode_snapshot_preserves_different_elements_and_labels_in_other_frames():
+    first = Atoms('HC', positions=[[0, 0, 0], [1, 0, 0]])
+    second = Atoms('CO', positions=[[0, 0, 0], [1, 0, 0]])
+    session = EditorSession('mode-mixed-elements', first.copy(), first.copy(),
+        original_frames=[first.copy(), second.copy()], trajectory_frames=[first.copy(), second.copy()],
+        config={'viz_only': True})
+    sessions[session.session_id] = session
+    asyncio.run(update_session_mode(session.session_id, {'viz_only': False,
+        'labels': ['H', 'C'], 'chemical_symbols': ['H', 'C']}))
+    assert session.trajectory_frames[1].get_chemical_symbols() == ['C', 'O']
+    assert atom_labels(session.trajectory_frames[1]) == ['C', 'O']
+    asyncio.run(update_session_mode(session.session_id, {'viz_only': True,
+        'labels': ['H_site', 'C'], 'chemical_symbols': ['H', 'C']}))
+    assert atom_labels(session.trajectory_frames[1]) == ['H_site', 'O']
+    assert session.trajectory_frames[1].get_chemical_symbols() == ['C', 'O']

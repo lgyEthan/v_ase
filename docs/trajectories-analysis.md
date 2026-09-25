@@ -194,10 +194,11 @@ trajectory.
 ### Scope
 
 - **All atoms** maps every visible atom with a finite value.
-- **Selected atoms only** maps the current GUI selection. Semantic callers can
-  pass explicit `indices` with `scope:"selected"` to freeze a stable subset
-  independently of later human selection changes; omit `indices` only when the
-  colorscale should intentionally follow the live selection.
+- **Selected atoms** captures the selected base indices; **Use current
+  selection** explicitly replaces that saved target. Later selection changes do
+  not change the mapping. Choosing a label captures its current indices too.
+  Semantic callers can pass explicit `indices` with `scope:"selected"` to freeze
+  a subset; omitting `indices` captures the current selection once as well.
 
 A partially colored all-atom frame is not a successful application. Missing
 or nonfinite values must remain explicitly unavailable.

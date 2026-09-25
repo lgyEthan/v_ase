@@ -236,30 +236,27 @@ def test_style_scope_reuses_real_global_label_and_selected_radius_controls():
             page = browser.new_page()
             page.goto(editor.url)
             page.wait_for_function('window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 2')
-            assert page.locator('#appearance-scope-select option[value="selected"]').get_attribute('disabled') is not None
-            page.locator('#appearance-scope-select').select_option('H')
-            assert page.locator('#appearance-scope-select').input_value() == 'H'
-            page.select_option('#appearance-material', 'metal')
-            page.fill('#appearance-opacity', '0.7')
-            page.locator('#appearance-opacity').press('Tab')
+            assert page.locator('#appearance-scope-select').count() == 0
+            page.select_option('[data-appearance-field="material"][data-atom-label="H"]', 'metal')
+            page.fill('[data-appearance-field="opacity"][data-atom-label="H"]', '0.7')
+            page.locator('[data-appearance-field="opacity"][data-atom-label="H"]').press('Tab')
             assert page.evaluate('window.__ASE_APP__.atomMaterialPreset(0)') == 'metal'
             assert page.evaluate('window.__ASE_APP__.atomMaterialPreset(1)') == 'standard'
             assert page.evaluate('window.__ASE_APP__.atomManualOpacity(0)') == pytest.approx(0.7)
             assert page.evaluate('window.__ASE_APP__.atomManualOpacity(1)') == pytest.approx(1)
             page.evaluate("window.__ASE_APP__.applySelectionAction({references:[0],origin:'semantic'})")
-            page.locator('#appearance-scope-select').select_option('selected')
-            assert page.evaluate('document.activeElement?.id') == 'selected-atom-radius-scale-number'
-            assert page.locator('#workbench-selection-label').inner_text().startswith('H · H')
+            base_radius = page.evaluate('window.__ASE_APP__.state.display.labelRadii.H')
             page.locator('#selected-atom-radius-scale-number').fill('1.2')
             page.locator('#selected-atom-radius-scale-number').press('Tab')
-            assert page.evaluate('window.__ASE_APP__.state.display.atomRadiusScales[0]') == pytest.approx(1.2)
+            page.evaluate('window.__ASE_APP__.settleScientificMutations()')
+            assert page.evaluate('window.__ASE_APP__.state.display.labelRadii.H_2') == pytest.approx(base_radius * 1.2)
             assert page.locator('#atom-radius-scale-number').input_value() == '0.6'
             browser.close()
     finally:
         editor.close()
 
 
-def test_selected_radius_is_live_without_committing_pending_label_edit():
+def test_selected_label_commits_on_blur_and_radius_is_live():
     editor = view(Atoms("H2", positions=[[0, 0, 0], [2, 0, 0]]),
                   notebook=True, block=False, port=find_free_port(),
                   viz_only=False, close_on_disconnect=False)
@@ -275,15 +272,16 @@ def test_selected_radius_is_live_without_committing_pending_label_edit():
             page.fill('#selected-atom-label', 'O')
             page.locator('#selected-atom-radius-scale-number').fill('1.5')
             page.locator('#selected-atom-radius-scale-number').press('Tab')
+            page.evaluate('window.__ASE_APP__.settleScientificMutations()')
             after = page.evaluate("""() => {
                 const app=window.__ASE_APP__;
                 return {radius:app.renderer.atomVisualRadius(0),
                     symbol:app.state.atoms.symbols[0],
                     labelDraft:document.getElementById('selected-atom-label').value,
-                    scale:app.state.display.atomRadiusScales[0]};
+                    scale:app.selectedAppearanceEditor.valueForRadius(0)};
             }""")
             assert after['radius'] == pytest.approx(before * 1.5)
-            assert after['symbol'] == 'H'
+            assert after['symbol'] == 'O'
             assert after['labelDraft'] == 'O'
             assert after['scale'] == pytest.approx(1.5)
             browser.close()
@@ -405,7 +403,8 @@ def test_selected_radius_slow_drag_is_one_undo_action():
                 slider.value='1.5';slider.dispatchEvent(new Event('input',{bubbles:true}));
                 slider.dispatchEvent(new PointerEvent('pointerup',{bubbles:true}));
                 slider.dispatchEvent(new Event('change',{bubbles:true}));
-                return {actions:app.undoTimeline.filter(item=>item.source==='selected-radius-scale').length,
+                await app.settleScientificMutations();
+                return {actions:app.undoTimeline.filter(item=>item.source==='selected-label-appearance' || item.sourcePath?.includes('/api/atom-identity/')).length,
                     radius:app.renderer.atomVisualRadius(0)};
             }""")
             assert result['actions'] == 1

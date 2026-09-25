@@ -8,7 +8,7 @@ A cloud agent still needs the documented MCP/tunnel setup; its own localhost
 cannot reach a person's desktop app.
 
 For desktop installation, use the [step-by-step user guide](https://v-ase.readthedocs.io/en/latest/desktop.html).
-The 0.4.5 downloads are Mac DMGs (Apple silicon or Intel, macOS 15+) and a
+The 0.4.6 downloads are Mac DMGs (Apple silicon or Intel, macOS 15+) and a
 Windows x64 EXE installer (Windows 10/11). Mac users copy the app to Applications;
 Windows users complete the installer and launch from Start. ZIPs require full
 extraction; the Windows ZIP does not install file associations. Check the
@@ -42,13 +42,13 @@ separately for VASP. Setting a default app does not convert file contents.
 Install the tested release into the active Python environment:
 
 ```bash
-python -m pip install "v_ase-gui==0.4.5"
+python -m pip install "v_ase-gui==0.4.6"
 ```
 
 Optional Rhino export:
 
 ```bash
-python -m pip install "v_ase-gui[rhino]==0.4.5"
+python -m pip install "v_ase-gui[rhino]==0.4.6"
 ```
 
 Runtime dependencies are ASE, matscipy, FastAPI, Uvicorn, NumPy, SciPy,
@@ -65,7 +65,7 @@ the complete environment with the same interpreter instead of replacing NumPy
 alone:
 
 ```bash
-python -m pip install --upgrade --force-reinstall "v_ase-gui==0.4.5"
+python -m pip install --upgrade --force-reinstall "v_ase-gui==0.4.6"
 ```
 
 v_ase uses the `AGPL-3.0-or-later` license. Preserve the license and source
@@ -424,7 +424,7 @@ to an untrusted network.
 Install the tested release:
 
 ```bash
-python -m pip install "v_ase-gui==0.4.5"
+python -m pip install "v_ase-gui==0.4.6"
 ```
 
 Start the terminal-oriented API session yourself:

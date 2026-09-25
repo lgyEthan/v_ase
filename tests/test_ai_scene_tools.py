@@ -86,7 +86,7 @@ def test_scene_patch_rejects_unknown_settings_and_scientific_mutations_before_ht
 
 
 @contextmanager
-def live_scene(tmp_path, *, volume=False):
+def live_scene(tmp_path, *, volume=False, stored_forces=False):
     from ase import Atoms
     import numpy as np
     from playwright.sync_api import sync_playwright
@@ -95,6 +95,15 @@ def live_scene(tmp_path, *, volume=False):
     from v_ase.volumetric import VolumetricData
 
     atoms = Atoms('CuO', positions=[[2,3,4],[4,3,4]], cell=[8,8,8], pbc=True)
+    if stored_forces:
+        from ase.calculators.singlepoint import SinglePointCalculator
+        frames = []
+        for frame in range(3):
+            current = atoms.copy()
+            current.positions[:, 1] += frame * .1
+            current.calc = SinglePointCalculator(current, forces=np.array([[frame + 1., 0, 0], [0, .5, 0]]))
+            frames.append(current)
+        atoms = frames
     fields = []
     if volume:
         grid = np.indices((12,12,12), dtype=float)
@@ -162,6 +171,24 @@ def test_guarded_scene_radius_mapping_settles_effective_geometry(tmp_path):
         assert state['ready'] is True
         assert state['factors'] == pytest.approx([0.5, 1])
         assert state['radii'][0] > 0
+
+
+def test_scene_force_visibility_loads_and_settles_current_frame(tmp_path):
+    with live_scene(tmp_path, stored_forces=True) as (client, page, apply):
+        result = apply('vase_apply_scene', patch={'frame': 1,
+            'display': {'show_force_vectors': True}}, timeout_ms=4000)
+        assert result['transaction']['status'] == 'applied'
+        state = page.evaluate('''() => {
+            const a=window.__V_ASE_APP__;
+            return {ready:a.aiSceneReadiness().ready, frame:a.forceVectorRuntime.renderedFrame,
+                forces:a.state.atoms.forces, arrows:a.renderer.forceVectorGroup.children.length};
+        }''')
+        assert state['ready'] is True
+        assert state['frame'] == 1
+        assert state['forces'] == [[2., 0, 0], [0, .5, 0]]
+        assert state['arrows'] > 0
+        apply('vase_apply_scene', patch={'display': {'show_force_vectors': False}})
+        assert client.call('vase_scene_readiness', {})['ready'] is True
 
 
 def test_scene_map_merge_and_mid_application_rollback(tmp_path):

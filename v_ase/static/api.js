@@ -787,6 +787,13 @@ export class ASEApi {
         }
         if (path.includes('/api/atom-identity/') || path.includes('/api/atom-types/')) {
             const payload = JSON.parse(options.body || '{}');
+            if (payload.label_assignments) {
+                this.mockPushHistory();
+                for (const [index, label] of Object.entries(payload.label_assignments)) {
+                    this.mockState.atoms.symbols[Number(index)] = label;
+                }
+                return await this.mockResponse(this.mockState.atoms);
+            }
             const indices = (payload.indices || []).map(Number);
             const label = String(payload.label || '').trim();
             const baseSymbol = payload.base_symbol || null;
@@ -1108,6 +1115,12 @@ export class ASEApi {
         if (baseSymbol) payload.base_symbol = baseSymbol;
         if (positions) payload.positions = positions;
         return await this.jsonPost(`/api/atom-identity/{session_id}`, this.framePayload(payload));
+    }
+
+    async assignAtomLabels(labelAssignments, positions = null, applyConstraint = true) {
+        return await this.jsonPost('/api/atom-identity/{session_id}', this.framePayload({
+            label_assignments: labelAssignments, positions, apply_constraint: applyConstraint
+        }));
     }
 
     async updateAtomTypes(...args) {

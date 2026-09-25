@@ -73,8 +73,9 @@ def test_label_target_and_bottom_atom_properties(page):
     assert page.evaluate('''() => {const d=window.__ASE_APP__.state.display;
       return [d.atomColorScaleRangeMode,d.atomColorScaleMin,d.atomColorScaleMax];}''') == ['manual', 0, 1]
     page.evaluate('''() => {const a=window.__ASE_APP__;a.state.selected=new Set([0]);a.updateSelectionVisuals();a.updateUI();}''')
-    page.wait_for_function("document.getElementById('selection-measure-value').textContent.includes('existence = 0.2')")
-    assert page.locator('#selection-measure-readout').is_visible()
+    page.wait_for_function("document.getElementById('hover-readout').textContent.includes('existence = 0.2')")
+    assert page.locator('#hover-readout').is_visible()
+    assert not page.locator('#selection-measure-readout').is_visible()
     page.click('#btn-atom-colorscale-use-selection')
     assert page.input_value('#atom-colorscale-scope') == 'selected'
     assert page.evaluate('window.__ASE_APP__.state.display.atomColorScaleIndices') == [0]
@@ -100,7 +101,7 @@ def test_fixed_camera_zoom_and_axis_views_do_not_change_output(page, projection)
       a.state.exportPreviewEnabled=true;a.captureRenderAreaCamera();
       const p=a.currentImageExportProfile();p.width=1920;p.height=1080;
       p.options.scaleMode='physical';p.options.pixelsPerAngstrom=10;a.setImageExportProfile(p);
-      a.viewOutputCamera();r.renderNow();
+      a.setRenderCameraNavigation(false);a.viewOutputCamera();r.renderNow();
       const composition=()=>r.exportCompositionSnapshot(p.width,p.height,a.currentImageExportProfile().options);
       const before=composition(), rect={...r.lastExportPreview.frameRect};
       const image=r.exportPNG(256,144,a.currentImageExportProfile().options);
@@ -150,7 +151,7 @@ def test_default_gif_uses_saved_camera_after_editor_zoom(page):
     result = page.evaluate('''async () => {
       const a=window.__ASE_APP__,r=a.renderer;
       a.state.exportPreviewEnabled=true;a.captureRenderAreaCamera();
-      a.viewOutputCamera();r.controls.doZoom(-150);r.controls.rotate(.2,.1);
+      a.setRenderCameraNavigation(false);a.viewOutputCamera();r.controls.doZoom(-150);r.controls.rotate(.2,.1);
       const viewport=a.currentCameraForExport();
       const gif=await a.aiExport({format:'video',container:'gif',width:256,height:144,fps:5,loop:false});
       await a.loadFrame(2);

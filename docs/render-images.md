@@ -46,26 +46,27 @@ The sphere button opens a separate panel; it remains clickable below the toolbar
 ## Render Area
 
 Image, video and HTML share the stored **Render Area** camera and dimensions.
-**Show output frame** draws a boundary and outside mask on the same editable
+**Show render area** draws a boundary and outside mask on the same editable
 canvas. It does not draw another scene or introduce another picking camera.
 Select, move and measure atoms normally inside or outside the guide; opening
 or resizing the inspector does not shift its composition.
 
 The frame toggle, dimensions, px/Å and camera controls live together under
-**Output frame & scale**. Lighting, Quality and Overlays are separate sections.
+**Render area & scale**. Lighting, Quality and Overlays are separate sections.
 
-- **Navigate → Scene** lets you orbit, pan, zoom, use X/Y/Z and edit atoms while
+- **Lock camera to → World** lets you orbit, pan, zoom, use X/Y/Z and edit atoms while
   preserving the output camera and px/Å.
-- **Navigate → Camera** applies subsequent navigation to the output composition.
-  Switching between Scene and Camera does not recapture the current editor zoom
-  or resize the output frame.
-- **Look through camera** fits the saved frame on screen and switches to Scene.
-  Wheel zoom then changes only the editor zoom, including in perspective.
-- **Align camera to view** deliberately replaces the output pose with the editing
+- **Lock camera to → Viewport** keeps the render area fixed on screen while
+  navigation and selected-camera G/R/S change the composition. X/Y/Z updates
+  the frame immediately. Switching locks preserves the stored composition.
+- The **Look through camera** icon beside the axis views returns to the saved
+  camera without changing its lock. Its active state indicates camera alignment;
+  World-mode orbit deactivates it, while pan/zoom do not.
+- **Align camera to current view** deliberately replaces the output pose with the editing
   viewpoint. This is an action, not another navigation mode.
-- Off-axis, a wire camera body and oriented output-plane outline show position,
+- Off-axis, a wire camera body, angle arc and oriented output-plane outline show position,
   facing direction and framing without a filled surface that covers atoms.
-  Click its outline or the camera button on the crop guide to select it.
+  Click its outline or the bordered **Camera** badge on the render area to select it.
 - **G** translates camera and target together; **R** rotates around the output
   center (X/Y/Z constrain the world axis); **S** uniformly scales the frame,
   inversely changing physical px/Å when enabled. Enter applies, Escape restores

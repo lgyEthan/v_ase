@@ -300,7 +300,7 @@ def test_rdf_drawer_controls_and_selected_active_bond_pairs():
                 open_editor_route(page, 'appearance')
                 label_font, apply_font = page.evaluate("""() => [
                     getComputedStyle(document.getElementById('selected-atom-label')).fontSize,
-                    getComputedStyle(document.getElementById('btn-apply-selected-label')).fontSize
+                    getComputedStyle(document.getElementById('selected-atom-material')).fontSize
                 ]""")
                 assert apply_font == label_font
                 open_editor_route(page, 'scientific-tools')
@@ -3596,17 +3596,13 @@ def test_view_mode_visual_label_and_appearance_follow_stable_trajectory_indices(
                 app.updateUI();
             }""")
             page.fill("#selected-atom-label", "H_probe")
+            page.locator("#selected-atom-label").press("Tab")
             page.select_option("#selected-atom-material", "metal")
-            pending = page.evaluate("""() => ({
-                label: window.__ASE_APP__.state.atoms.symbols[1],
-                material: window.__ASE_APP__.state.display.atomMaterials[1] || null,
-            })""")
-            assert pending == {"label": "H_host", "material": None}
-            page.click("#btn-apply-selected-label")
+            page.evaluate('window.__ASE_APP__.settleScientificMutations()')
             page.wait_for_function("""() => {
                 const app = window.__ASE_APP__;
                 return app.state.atoms.symbols[1] === 'H_probe'
-                    && app.state.display.atomMaterials[1] === 'metal';
+                    && app.atomMaterialPreset(1) === 'metal';
             }""")
             page.locator('.label-color-input[data-atom-label="H_probe"]').fill("#2a78c4")
             page.locator('.label-radius-input[data-atom-label="H_probe"]').fill("1.25")
@@ -3630,7 +3626,7 @@ def test_view_mode_visual_label_and_appearance_follow_stable_trajectory_indices(
                 elements: window.__ASE_APP__.state.atoms.chemical_symbols,
                 radius: window.__ASE_APP__.state.display.labelRadii.H_probe,
                 color: window.__ASE_APP__.state.display.labelColors.H_probe,
-                material: window.__ASE_APP__.state.display.atomMaterials[1],
+                material: window.__ASE_APP__.atomMaterialPreset(1),
             })""")
             assert state == {
                 "labels": ["H_host", "H_probe", "H_host"],
@@ -3644,7 +3640,7 @@ def test_view_mode_visual_label_and_appearance_follow_stable_trajectory_indices(
         editor.close()
 
 
-def test_selected_index_appearance_overrides_are_field_scoped_and_follow_trajectory():
+def test_selected_label_appearance_is_field_scoped_and_follows_trajectory():
     first = Atoms(
         "C3",
         positions=[[0.0, 0.0, 0.0], [1.3, 0.0, 0.0], [2.6, 0.0, 0.0]],
@@ -3691,13 +3687,14 @@ def test_selected_index_appearance_overrides_are_field_scoped_and_follow_traject
                 element.dispatchEvent(new Event('input', {bubbles: true}));
             }""")
             assert page.locator("#selected-atom-update-bonds").is_checked()
-            page.click("#btn-apply-selected-label")
+            page.locator('#selected-atom-label').press('Tab')
+            page.evaluate('window.__ASE_APP__.settleScientificMutations()')
             page.wait_for_function("""() => {
                 const app = window.__ASE_APP__;
-                return app.state.display.atomMaterials['1'] === 'metal'
-                    && app.state.display.atomColors['1'] === '#33aa77'
-                    && app.state.display.atomOpacities['1'] === 0.3
-                    && app.state.display.atomRadiusScales['1'] === 1.5
+                return app.state.display.labelMaterials.C_2 === 'metal'
+                    && app.state.display.labelColors.C_2 === '#33aa77'
+                    && app.state.display.labelOpacities.C_2 === 0.3
+                    && app.renderer.atomVisualRadius(1) / app.renderer.atomVisualRadius(0) === 1.5
                     && app.state.display.atomBondStyles['1'].material === 'metal'
                     && app.state.display.atomBondStyles['1'].opacity === 0.3;
             }""")
@@ -3730,9 +3727,9 @@ def test_selected_index_appearance_overrides_are_field_scoped_and_follow_traject
             assert state["labelColors"].get("C_site") != "#33aa77"
             assert state["labelMaterials"].get("C_site", "standard") == "standard"
             assert state["atomKeys"] == {
-                "colors": ["1"],
-                "opacities": ["1"],
-                "radii": ["1"],
+                "colors": [],
+                "opacities": [],
+                "radii": [],
             }
             assert state["radiusRatio"] == pytest.approx(1.5)
             assert state["color"] == "33aa77"
@@ -3748,22 +3745,24 @@ def test_selected_index_appearance_overrides_are_field_scoped_and_follow_traject
             ]
 
             page.fill("#selected-atom-opacity", "0.60")
-            page.click("#btn-apply-selected-label")
+            page.locator('#selected-atom-label').press('Tab')
+            page.evaluate('window.__ASE_APP__.settleScientificMutations()')
             page.wait_for_function("""() => {
                 const display = window.__ASE_APP__.state.display;
-                return display.atomOpacities['1'] === 0.6
-                    && display.atomMaterials['1'] === 'metal'
-                    && display.atomColors['1'] === '#33aa77'
-                    && display.atomRadiusScales['1'] === 1.5
+                return display.labelOpacities.C_2 === 0.6
+                    && display.labelMaterials.C_2 === 'metal'
+                    && display.labelColors.C_2 === '#33aa77'
+                    && display.labelRadii.C_2 / display.labelRadii.C_site === 1.5
                     && display.atomBondStyles['1'].material === 'metal'
                     && display.atomBondStyles['1'].opacity === 0.6;
             }""")
             page.uncheck("#selected-atom-update-bonds")
             page.select_option("#selected-atom-material", "rubber")
-            page.click("#btn-apply-selected-label")
+            page.locator('#selected-atom-label').press('Tab')
+            page.evaluate('window.__ASE_APP__.settleScientificMutations()')
             page.wait_for_function("""() => {
                 const display = window.__ASE_APP__.state.display;
-                return display.atomMaterials['1'] === 'rubber'
+                return display.labelMaterials.C_2 === 'rubber'
                     && display.atomBondStyles['1'].material === 'metal';
             }""")
 
@@ -3774,11 +3773,11 @@ def test_selected_index_appearance_overrides_are_field_scoped_and_follow_traject
                 const app = window.__ASE_APP__;
                 const snapshot = app.designSettingsSnapshot().display;
                 return {
-                    material: app.state.display.atomMaterials['1'],
+                    material: app.state.display.labelMaterials.C_2,
                     opacity: app.renderer.atomVisualOpacity(1),
-                    radiusScale: app.state.display.atomRadiusScales['1'],
+                    radiusScale: app.state.display.labelRadii.C_2 / app.state.display.labelRadii.C_site,
                     color: app.renderer.atomVisualColor(1),
-                    snapshotColor: snapshot.atomColors['1'],
+                    snapshotColor: snapshot.labelColors.C_2,
                     snapshotBondMaterial: snapshot.atomBondStyles['1'].material,
                 };
             }""")
@@ -4014,8 +4013,9 @@ def test_view_supercell_instances_style_hide_warn_and_delete_base_once():
             })""") == {"base": [], "replicas": ["replica:0:1,0,0"]}
             page.fill('#selected-atom-label', 'C')
             page.select_option('#selected-atom-material', 'metal')
-            page.click('#btn-apply-selected-label')
-            page.wait_for_function("window.__ASE_APP__.state.display.atomMaterials['0'] === 'metal'")
+            page.locator('#selected-atom-label').press('Tab')
+            page.evaluate('window.__ASE_APP__.settleScientificMutations()')
+            page.wait_for_function("window.__ASE_APP__.atomMaterialPreset(0) === 'metal'")
             page.wait_for_function("""() => {
                 const app = window.__ASE_APP__;
                 const replicasMatch = app.renderer.supercellGroup.children
@@ -4160,10 +4160,9 @@ def test_view_mode_incompatible_trajectory_relabels_current_frame_and_opens_moda
                 app.updateUI();
             }""")
             page.fill("#selected-atom-label", "H_anchor")
-            page.click("#btn-apply-selected-label")
-            page.wait_for_selector("#modal-container:not(.hidden)")
-            assert "this frame only" in page.locator("#modal-content").inner_text().lower()
-            page.click("#modal-close")
+            page.locator('#selected-atom-label').press('Tab')
+            page.evaluate('window.__ASE_APP__.settleScientificMutations()')
+            assert page.evaluate('window.__ASE_APP__.viewIdentityOverridesSnapshot().scope') == 'frames'
 
             page.evaluate("document.activeElement?.blur()")
             page.keyboard.press("Alt+ArrowRight")
@@ -6322,7 +6321,8 @@ def test_image_export_modal_is_the_authoritative_retina_preview(tmp_path):
             assert live["profile"]["options"]["includeGrid"] is False
             assert live["profile"]["options"]["includeAxes"] is False
             assert live["profile"]["options"]["includeCell"] is False
-            assert live["cellVisibility"] == [True, False, True]
+            # Renderer visibility controls and Objects share one display flag.
+            assert live["cellVisibility"] == [False, False, False]
             assert live["profile"]["options"]["sphereQuality"] == "medium"
             assert live["profile"]["options"]["sphereQualityScale"] == pytest.approx(1.3)
             assert live["profile"]["options"]["renderModeSelection"] == "studio-shadow"
@@ -8592,7 +8592,9 @@ def test_bond_style_thickness_and_color_modes_render_and_persist():
             }
             page.mouse.move(repeated_hover["clientX"], repeated_hover["clientY"])
             page.wait_for_function("window.__ASE_APP__.state.hoveredIndex === 0")
-            assert "#0@[1,0,0] H" in page.locator('#hover-readout').inner_text()
+            # A single selected atom owns the property footer while hover
+            # picking still identifies the replica independently above.
+            assert "Selected atom: #0 · H" in page.locator('#hover-readout').inner_text()
 
             page.fill('#super-x', '3')
             page.fill('#super-y', '3')
@@ -8893,7 +8895,7 @@ def test_viz_only_replica_selection_measurements_and_atomic_label_commit():
             page.mouse.move(points['yReplica']['x'], points['yReplica']['y'])
             page.wait_for_function("window.__ASE_APP__.state.hoveredReference?.key === 'replica:0:0,1,0'")
             hover_text = page.locator('#hover-readout').inner_text()
-            assert '#0@[0,1,0] Cu' in hover_text
+            assert '#0@[0,1,0] · Cu' in hover_text
             assert 'measure=' not in hover_text
             assert page.locator('#selection-measure-value').inner_text() == selected['measureSummary']
 
@@ -8919,7 +8921,7 @@ def test_viz_only_replica_selection_measurements_and_atomic_label_commit():
         editor.close()
 
 
-def test_runtime_mode_switch_merges_labels_and_splits_only_material_variants():
+def test_runtime_mode_switch_preserves_explicit_label_merge_and_inherited_material():
     atoms = Atoms(
         "C3",
         positions=[[0.0, 0.0, 0.0], [1.6, 0.0, 0.0], [3.2, 0.0, 0.0]],
@@ -8995,25 +8997,15 @@ def test_runtime_mode_switch_merges_labels_and_splits_only_material_variants():
                 app.updateUI();
             }""")
             page.fill("#selected-atom-label", "C_b")
-            page.select_option("#selected-atom-material", "rubber")
-            assert page.evaluate("""() => ({
-                label: window.__ASE_APP__.state.atoms.symbols[0],
-                material: window.__ASE_APP__.state.display.atomMaterials['0'] || null,
-            })""") == {"label": "C_a", "material": None}
-            page.click("#btn-apply-selected-label")
+            page.locator('#selected-atom-label').press('Enter')
+            page.click('#modal-confirm-action')
+            page.evaluate('window.__ASE_APP__.settleScientificMutations()')
             page.wait_for_function("""() => {
                 const app = window.__ASE_APP__;
                 return app.state.atoms.symbols.every(label => label === 'C_b')
-                    && app.state.display.atomMaterials['0'] === 'rubber';
+                    && app.atomMaterialPreset(0) === 'metal';
             }""")
-            assert page.locator("#toast-container").inner_text().count(
-                "Merged selected atoms into label C_b"
-            ) == 1
-            page.wait_for_function("""() => {
-                const material = window.__ASE_APP__.renderer.atomMeshByIndex.get(0).material;
-                return Math.abs(material.roughness - 0.88) < 1e-6
-                    && Math.abs(material.metalness) < 1e-6;
-            }""")
+            page.wait_for_function("Math.abs(window.__ASE_APP__.renderer.atomMeshByIndex.get(0).material.metalness - .9) < 1e-6")
 
             page.evaluate("""() => {
                 const app = window.__ASE_APP__;
@@ -9024,10 +9016,9 @@ def test_runtime_mode_switch_merges_labels_and_splits_only_material_variants():
             page.wait_for_function("""() => {
                 const app = window.__ASE_APP__;
                 return app.state.vizOnly === true
-                    && app.state.atoms.symbols.join(',') === 'C_b_2,C_b,C_b'
+                    && app.state.atoms.symbols.join(',') === 'C_b,C_b,C_b'
                     && Object.keys(app.state.display.atomMaterials).length === 0
-                    && app.state.display.labelMaterials.C_b === 'metal'
-                    && app.state.display.labelMaterials.C_b_2 === 'rubber';
+                    && app.state.display.labelMaterials.C_b === 'metal';
             }""")
             switched = page.evaluate("""() => {
                 const app = window.__ASE_APP__;
@@ -9044,14 +9035,14 @@ def test_runtime_mode_switch_merges_labels_and_splits_only_material_variants():
             expected_positions[2, 1] = 0.35
             assert np.allclose(switched["positions"], expected_positions)
             assert switched["selected"] == [0]
-            assert switched["materials"][0]["roughness"] == pytest.approx(0.88)
+            assert switched["materials"][0]["metalness"] == pytest.approx(0.90)
             assert switched["materials"][1]["metalness"] == pytest.approx(0.90)
             assert switched["materials"][2]["metalness"] == pytest.approx(0.90)
 
             page.click('[data-runtime-mode="edit"]')
             page.wait_for_function("""() =>
                 window.__ASE_APP__.state.vizOnly === false
-                && window.__ASE_APP__.state.atoms.symbols.join(',') === 'C_b_2,C_b,C_b'
+                && window.__ASE_APP__.state.atoms.symbols.join(',') === 'C_b,C_b,C_b'
             """)
             assert not [message for message in console_errors if "favicon" not in message]
             browser.close()

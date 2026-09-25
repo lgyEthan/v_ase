@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.4.6
+
+- Make Selected atoms appearance live: separate labels on commit or create the
+  next unused element suffix on color/material/opacity/size edits. Synchronize
+  actual radius and every appearance field with the per-label table; remove the
+  redundant Surface material section and Apply action. Undo the initial split
+  and first gesture together. Confirm existing-label merges and inherit their
+  complete style without changing unselected members or chemical elements.
+- Clarify **Lock camera to: World / Viewport** and keep the camera-view indicator
+  with axis views, separate from **Align camera to current view**. Looking through
+  a camera preserves its lock. Viewport-locked camera G/R/S keeps the render area
+  stationary; X/Y/Z updates it immediately. Preserve saved camera values through
+  passive resizing and project restoration. Start new scenes centered in the
+  usable space beside the inspector without moving saved or user-adjusted views.
+- Use **Render area** consistently. Add an oriented angle arc to the wire camera
+  and an explicit selectable Camera badge that remains reachable when the area
+  extends outside the viewport. PNG and video/GIF share its stored composition.
+- Share Objects visibility with rendering; add Constraints visibility independently
+  of ASE enforcement. Draw crisp 2D fixed-atom crosses and disable irrelevant
+  material/lighting controls in flat mode, including export dialogs.
+- Move single-atom label, XYZ, stored properties and forces into the footer;
+  remove the floating note and element/mass/fractional-coordinate boilerplate.
+  Select the first Supercell value when its shortcut opens the controls.
+- Show nonblocking activity for scalar catalogs, color/radius mapping, analysis
+  and volumetric rendering. Load stored force vectors when enabling them through
+  a scene preset and wait for their current-frame rendering before reporting
+  scene readiness. Preserve committed export guide choices in Objects.
+  Preserve per-frame chemistry and unedited labels
+  when switching View/Edit on trajectories with changing elements. Keep Undo
+  clean when default label materials need no explicit override.
+
 ## 0.4.5
 
 - Reopen `.vase` immediately in its saved Edit/View mode, source frame,

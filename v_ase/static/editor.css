@@ -448,3 +448,22 @@ body.editor-shell #inspector :is(.render-camera-actions button, #btn-atom-colors
 body.editor-shell #selection-measure-readout.single-atom-properties.selection-through {
     pointer-events: none;
 }
+
+/* A viewpoint indicator belongs with viewpoints; camera alignment is an action. */
+.camera-view-toggle { display: grid; place-items: center; width: 34px; min-width: 34px; height: 34px; }
+.camera-view-toggle svg { width: 21px; height: 21px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linejoin: round; }
+.camera-view-toggle[aria-pressed="true"] { color: var(--teal); background: var(--teal-soft); border-color: var(--teal-border-strong); }
+.render-camera-actions { grid-template-columns: minmax(0, 1fr); }
+.render-area-eye { width: auto; min-width: 76px; display: inline-flex; align-items: center; justify-content: center; gap: 5px; padding: 0 7px; border: 1px solid var(--teal-border-strong); background: var(--panel); }
+.render-area-eye:focus-visible { outline: 2px solid var(--teal); outline-offset: 2px; }
+.export-preview-frame { border-width: 2px; }
+/* Scientific values stay in the status bar, with a single horizontal overflow. */
+body.editor-shell #hover-readout { min-width: 0; max-width: none; overflow-x: auto; white-space: nowrap; flex: 1 1 auto; text-overflow: clip; scrollbar-width: thin; }
+body.editor-shell #scene-status-readout { flex: none; }
+.section-activity { display: flex; align-items: center; gap: 7px; margin-top: 8px; color: var(--teal); font: 500 12px/1.5 var(--font-ui); }
+.section-activity[hidden] { display: none; }
+.section-activity::before { content: ''; width: 11px; height: 11px; border: 2px solid var(--line-strong); border-top-color: var(--teal); border-radius: 50%; animation: activity-spin .8s linear infinite; }
+@keyframes activity-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .section-activity::before { animation: none; } }
+.export-preview-caption { min-height: 27px; height: auto; flex-wrap: wrap; row-gap: 4px; padding-block: 3px; }
+.export-preview-caption > span { overflow: hidden; text-overflow: ellipsis; }

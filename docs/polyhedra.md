@@ -35,7 +35,7 @@ Faces at opacity zero can retain visible edges for a wireframe view.
 
 Rules are additive. Use disjoint groups when different sites should have different
 styles. For a local color exception, inherit center colors and use the existing
-[per-atom appearance controls](appearance.md#per-atom-overrides). Atom, ligand and
+[selected-atom appearance controls](appearance.md#live-selected-appearance). Atom, ligand and
 polyhedron visibility remain separate: hiding oxygen spheres does not remove the
 oxygen vertices of a coordination polyhedron.
 

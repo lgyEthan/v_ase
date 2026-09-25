@@ -139,7 +139,7 @@ Run all scenarios, not only static document checks:
      outlines, flat bonds/vectors/cell/regions, and an X on FixAtoms while
      preserving atom color and radius; switch back and require the prior 3D
      materials and lighting to return without reloading structure data;
-   - capture a persistent Render Area, select Navigate: Scene, orbit the work
+   - capture a persistent Render Area, select Lock camera to: World, orbit the work
      camera, and require the stored export camera to remain unchanged; select
      in the editing canvas and require picking to keep its viewport projection;
      the screen guide must give way to the oriented wire camera and output plane
@@ -149,12 +149,16 @@ Run all scenarios, not only static document checks:
    - play a trajectory while moving the Sun and Render Area and changing atom
      appearance; require uninterrupted playback and immediate visual updates.
 3. **Selection and measurement**
+   - enable stored force vectors through a scene patch, both alone and with a
+     trajectory-frame change; require ready state and the requested frame's
+     vectors before the transaction returns, without calculator evaluation;
    - select one through four ordered atoms;
-   - with one atom, verify the compact Measure readout leads with the chemical
-     element and user label and contains no property count;
-   - verify one-atom displayed Cartesian/fractional position, standard ASE
-     attributes, arbitrary scalar/vector/string arrays, and stored calculator
-     results, then verify direct/MIC distance, angle, and torsion;
+   - with one atom, verify the bottom status strip shows its current label,
+     displayed Cartesian XYZ, custom scalar/vector/string arrays, and stored
+     calculator results such as forces; require no floating one-atom note or
+     intrinsic element/mass/fractional-coordinate boilerplate;
+   - verify the atom-properties API still returns complete ASE attributes and
+     stored arrays/results, then verify direct/MIC distance, angle, and torsion;
    - change trajectory frame while keeping one atom selected and verify every
      property comes from the displayed frame without duplicate requests or a
      calculator evaluation;
@@ -819,3 +823,22 @@ on a nonzero source frame, switch away and back, then export an animation and a
 project. Decode the project's ASE trajectory and assert that the edit remains on
 that frame. Repeat with a pre-edit cache request completing after the edit. The
 GUI and saved trajectory must agree; a successful immediate move is insufficient.
+
+## Live appearance and camera-lock regression (0.4.6)
+
+- GUI change color/material/opacity/radius with no Apply action. Verify automatic
+  unused element-suffix labels, simultaneous table/canvas state, first-gesture
+  Undo/Redo, mixed-element separation and cancel/confirm of existing-label merges.
+- Switch View/Edit on variable-topology/element trajectories without transmuting
+  untouched frames. Save/reopen and compare labels, radii and render pixels.
+- Use the real Supercell shortcut then `2 Tab 2`; both inputs must read 2.
+- Look through camera must preserve its lock; World orbit turns the indicator
+  off, pan/zoom retain it, and Viewport X/Y/Z retain the guide in the same frame.
+  Selected-camera G/R/S keeps its rectangle fixed in Viewport lock; Escape and
+  Undo restore both cameras. Panel changes must not move a saved camera.
+- Hide Constraints through Objects: no marks in canvas/PNG/GIF, same ASE
+  constraints. Toggle 2D/3D, inspect sharp fixed-atom crosses and disabled material
+  and lighting fields. Compare GIF frames to PNG at the same render area.
+- Check footer label/XYZ/existence/forces for one selected atom, with no floating
+  note. Slow catalog and analysis requests show nonblocking activity and clear
+  it after both success and failure, including nested requests.

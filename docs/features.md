@@ -139,9 +139,9 @@ Positive supercell images are selectable and measurable using a base index and
 cell offset. Two-point measurements report the displayed direct distance, the
 periodic MIC distance, and, when a replica is involved, the distance after both
 atoms are mapped into the original unit cell. Angles and torsions use displayed
-coordinates only. A one-atom Measure shows the displayed Cartesian and
-fractional position plus standard ASE attributes, every stored per-atom array,
-and every already available per-atom calculator result. This detail is loaded
+coordinates only. Selecting one atom shows its current label, displayed
+Cartesian XYZ, custom stored per-atom properties, and already available
+calculator results in the bottom status strip. This detail is loaded
 for only the selected base index and current frame; inspecting an atom never
 evaluates its calculator.
 
@@ -747,8 +747,8 @@ the View/Edit visual translation saved in display settings.
   expected arrays; no executable pickle payload.
 - Standalone HTML View: a single offline, view-only document containing
   inlined Three.js/runtime assets plus browser-ready scene and trajectory
-  data. It shares the image/video Preview Area crop, defaults to grid off with
-  axes and unit cell on, and embeds an optimized high-resolution Finder/Quick
+  data. It shares the image/video Render area crop and current Objects visibility,
+  and embeds an optimized high-resolution Finder/Quick
   Look poster containing only that frame. The poster and adaptive live WebGL
   canvas use one integer-sized viewport and cross-fade automatically after the
   first live frame is ready, before camera input begins, so no header, logo,

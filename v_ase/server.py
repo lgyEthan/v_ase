@@ -390,6 +390,7 @@ def trajectory_layout_compatible(session: EditorSession) -> bool:
         return compatible
     natoms = len(session.working_atoms)
     base_labels = atom_labels(session.working_atoms)
+    base_numbers = session.working_atoms.numbers
     base_cell = np.asarray(session.working_atoms.cell.array)
     base_pbc = np.asarray(session.working_atoms.pbc, dtype=bool)
     base_origin = np.asarray(session.working_atoms.get_celldisp()).reshape(3)
@@ -398,6 +399,9 @@ def trajectory_layout_compatible(session: EditorSession) -> bool:
             session._trajectory_layout_compatible = False
             return False
         if atom_labels(frame) != base_labels:
+            session._trajectory_layout_compatible = False
+            return False
+        if not np.array_equal(frame.numbers, base_numbers):
             session._trajectory_layout_compatible = False
             return False
         if not np.array_equal(np.asarray(frame.pbc, dtype=bool), base_pbc):
@@ -1897,15 +1901,25 @@ def materialize_virtual_trajectory(session: EditorSession) -> None:
 
 
 def apply_identity_snapshot_to_session(session: EditorSession, labels, base_symbols=None) -> List[str]:
-    """Merge a browser identity snapshot into every frame by stable atom index."""
+    """Merge changed browser identities by index, preserving other frame types."""
     warnings = []
+    current_labels = atom_labels(session.working_atoms)
+    current_symbols = session.working_atoms.get_chemical_symbols()
+    requested_labels, requested_symbols, _ = normalized_identity_snapshot_for_atoms(
+        session.working_atoms, labels, base_symbols,
+    )
+    changed_labels = {i for i, value in enumerate(requested_labels) if value != current_labels[i]}
+    changed_symbols = {i for i, value in enumerate(requested_symbols) if value != current_symbols[i]}
 
     def transform(atoms):
-        updated, frame_warnings = merge_identity_snapshot_on_atoms(
-            atoms,
-            labels,
-            base_symbols,
-        )
+        merged_labels, merged_symbols, frame_warnings = normalized_identity_snapshot_for_atoms(atoms, labels, base_symbols)
+        frame_labels = atom_labels(atoms)
+        frame_symbols = atoms.get_chemical_symbols()
+        # A snapshot includes the whole active frame. Merely changing mode (or
+        # only styling an atom) must not transmute other trajectory frames.
+        merged_labels = [value if i in changed_labels else frame_labels[i] for i, value in enumerate(merged_labels)]
+        merged_symbols = [value if i in changed_symbols else frame_symbols[i] for i, value in enumerate(merged_symbols)]
+        updated = set_atom_identity_arrays_on_atoms(atoms, merged_labels, merged_symbols)
         warnings.extend(frame_warnings)
         return updated
 
@@ -4395,6 +4409,40 @@ async def duplicate_atoms(session_id: str, payload: Dict[str, Any]):
 async def update_atom_identity(session_id: str, payload: Dict[str, Any]):
     session = get_session(session_id)
     require_editable(session, "Atom identity editing")
+    # Appearance edits split several element/appearance groups atomically.
+    # Unlike chemical identity editing, label assignments never transmute atoms.
+    if "label_assignments" in payload:
+        try:
+            assignments = {
+                int(index): normalize_atom_type_label(label)
+                for index, label in payload["label_assignments"].items()
+            }
+        except (AttributeError, TypeError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail="Invalid atom label assignments.") from exc
+        # The browser can be editing a longer frame than the backend's last
+        # loaded frame. Validate indices against the requested frame.
+        sync_session_frame_from_payload(session, payload)
+        if any(index < 0 or index >= len(session.working_atoms) or not label
+               for index, label in assignments.items()):
+            raise HTTPException(status_code=400, detail="Label assignments need valid indices and non-empty labels.")
+        if not assignments:
+            return session_update_to_json(session)
+
+        def assign_labels(atoms):
+            labels = atom_labels(atoms)
+            for index, label in assignments.items():
+                if index < len(labels):
+                    labels[index] = label
+            return set_atom_identity_arrays_on_atoms(atoms, labels)
+
+        session.push_history(include_trajectory=True, include_original=True)
+        set_current_payload_positions(session, payload)
+        apply_all_frames(session, assign_labels)
+        session.original_frames = [assign_labels(frame) for frame in session.original_frames]
+        session.original_atoms = assign_labels(session.original_atoms)
+        session.invalidate_trajectory_layout()
+        session.refresh_trajectory_identity()
+        return session_update_to_json(session)
     try:
         indices = sorted({int(index) for index in payload.get("indices", [])})
     except (TypeError, ValueError) as exc:

@@ -490,10 +490,10 @@ camera navigation and trajectory playback. `embed_project` defaults to
 **Save Project** dialog, enabling **Include interactive rendered view** changes
 the output to HTML and always embeds the complete project.
 
-HTML, image, and video share the same Preview Area camera crop and aspect
-ratio. HTML dimensions are inherited from Preview Area and are not exposed as
-a second independent resolution control. HTML defaults to grid off, axes on,
-and unit cell on. An optimized high-resolution copy of the exact rendered
+HTML, image, and video share the same Render area camera crop and aspect
+ratio. HTML dimensions are inherited from Render area and are not exposed as
+a second independent resolution control. Guide defaults follow Objects
+visibility. An optimized high-resolution copy of the exact rendered
 frame is embedded so macOS Finder/Quick Look can display only the structure
 frame without executing JavaScript. In a browser, the full-frame poster and
 the adaptive device-pixel-ratio WebGL canvas occupy the same integer-sized
@@ -560,7 +560,7 @@ Returned vectors retain physical values. The renderer anchors them at current
 visible atom positions, repeats them over display supercells, and applies visual
 translation equally to both endpoints.
 
-One-atom Measure detail is available lazily through:
+Complete one-atom property detail is available lazily through:
 
 ```text
 GET /api/analysis/atom-properties/{session_id}/{atom_index}?frame_index=N
@@ -570,7 +570,9 @@ The response contains standard ASE atom attributes, every stored per-atom
 `Atoms.arrays` entry, and every already stored per-atom calculator result for
 the requested frame. It does not evaluate the attached calculator. A selected
 display-supercell replica uses this base-index payload while the browser keeps
-the replica's displayed Cartesian and fractional position.
+the replica's displayed Cartesian and fractional position. The GUI status strip
+shows the label, Cartesian XYZ, custom properties, and stored calculator results;
+it omits intrinsic element/mass/fractional fields without restricting this API.
 
 Volumetric data is loaded through the ordinary file/path open or append
 pipeline. VASP scalar grids, Cube, and XSF are detected before ASE structure

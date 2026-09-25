@@ -184,13 +184,14 @@ await ai.apply({
 });
 ```
 
-Set `followViewport:true` for Camera navigation (subsequent view deltas change the output; switching does not replace its pose), or provide an explicit
+Set `followViewport:true` for Viewport lock (subsequent view deltas change the output; switching does not replace its pose), or provide an explicit
 `renderArea.camera` with `position`, `target`, `up`, `projection`, and the
 matching projection fields. `describe().renderArea` reports `enabled`,
 `followViewport`, camera, width, and height. The GUI draws an on-screen crop guide when the cameras align, and a world-space wire camera/output-plane outline otherwise.
 With `followViewport:false`, editor orbit/zoom/axis changes preserve the output
-pose and px/Å. GUI Align camera to view is `renderArea:{fromCurrentView:true}`;
-GUI Look through camera is editor-only alignment/fit and switches followViewport off.
+pose and px/Å. GUI Align camera to current view is `renderArea:{fromCurrentView:true}`;
+GUI Look through camera is editor-only alignment/fit and preserves followViewport;
+when already aligned in Viewport lock, it makes no change.
 Picking always uses the editing viewport. Use Look through camera to align and fit the editing view without changing output
 scale; never infer the crop from an unrelated page screenshot.
 
@@ -1605,7 +1606,7 @@ v_ase api "$COMMAND_URL" export --save shared-view.html --params '{
 The returned data URL is one offline document with no CDN dependency. It
 allows camera navigation and trajectory playback but exposes no editing or
 settings controls. HTML uses the same export-camera composition as image and
-video. Grid defaults off; axes and unit cell default on. `embedProject`
+video. Guide defaults follow current Objects visibility. `embedProject`
 defaults to `false` for a smaller view-only file. Set it to `true` only when
 lossless `.vase` recovery is required. In the human **Save Project** dialog,
 the default compact output is `.vase`; enabling **Include interactive rendered
@@ -1734,3 +1735,23 @@ Returned metadata includes the range, `sourceFrameCount`, `frameCount` and loop.
 Continuous colorscale and radius scalars interpolate before mapping; categorical
 scalars use nearest endpoints. GIF timing rounds to centiseconds. MOV/AVI retain
 constant requested FPS. Output pixels are independent of display DPI and resize.
+
+### Shared object visibility and GUI feedback
+
+`display.showConstraints:false` hides FixAtoms/FixedLine/FixedPlane/Hookean
+visuals in the viewport and output without altering stored ASE constraints or
+`applyConstraints`. Grid/axes/cell defaults for rendering follow current Objects
+visibility. A visible object can still be explicitly omitted by an export option.
+Saved GUI image/video guide choices synchronize with Objects. Native export
+options remain scoped to that export. Enabling force vectors through a scene
+patch loads the requested frame's stored forces and settles readiness before
+returning; it does not run a calculator.
+The GUI marks pending scalar/catalog, radius, analysis and field work with
+nonblocking section activity. Continue to use semantic readiness for exact
+renders; a GUI activity indicator is not a revision barrier.
+
+GUI selected appearance immediately creates or merges labels and folds selected
+radius scaling into the label's Å radius. Existing `atomColors`, `atomMaterials`,
+`atomOpacities` and `atomRadiusScales` API maps remain valid and separate. Changing
+View/Edit mode propagates only actual identity edits and preserves unedited
+per-frame elements, including trajectories with changing chemistry.

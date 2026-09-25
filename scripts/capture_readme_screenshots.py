@@ -589,6 +589,9 @@ def capture_logo(browser):
             }"""
         )
         set_readme_lighting(page, [0, 0, 0], intensity=2.65, position_offset=(-26, -30, 46))
+        # The new-document composition is intentionally offset beside the
+        # inspector. The logo instead owns an explicit +Z publication camera.
+        page.evaluate("window.__V_ASE_APP__.captureRenderAreaCamera({syncPreview:false})")
         save_docs_interactive_scene(
             page,
             "logo",
@@ -2732,7 +2735,7 @@ def capture_cu5o4_view_appearance_media(browser) -> None:
         )""")
         page.fill("#selected-atom-label", "Cu_substrate")
         append_hold(frames, page, 4)
-        page.click("#btn-apply-selected-label")
+        page.locator("#selected-atom-label").press("Enter")
         page.wait_for_function(
             "indices => indices.every(index => window.__V_ASE_APP__.state.atoms.symbols[index] === 'Cu_substrate')",
             arg=substrate,
@@ -3324,7 +3327,7 @@ def capture_ai_collaboration_figure(browser) -> None:
             write_ai_collaboration_recording_html(
                 figure_html,
                 stage_records,
-                ROOT / "docs/design/ai_collaboration_recording.html",
+                Path(os.environ.get("V_ASE_README_RECORDING_PATH", ROOT / "docs/design/ai_collaboration_recording.html")),
             )
             # set_content avoids Chromium retaining a previous file:// document
             # between targeted README capture runs.

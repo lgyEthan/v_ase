@@ -789,6 +789,7 @@ export class ASERenderer {
             atomDisplayMode: '3d',
             viewRotationStepDeg: 15,
             showOverlays: true,
+            showConstraints: true,
             supercell: [1, 1, 1],
             translation: [0, 0, 0],
             translationMode: 'cartesian',
@@ -1203,7 +1204,7 @@ export class ASERenderer {
         group.visible = false;
         const geometry = new THREE.BufferGeometry();
         const material = new THREE.LineBasicMaterial({color: 0x278c7b,
-            transparent: true, opacity: 0.72, depthTest: true, depthWrite: false});
+            transparent: true, opacity: 0.92, depthTest: true, depthWrite: false});
         const outline = new THREE.LineSegments(geometry, material);
         outline.name = 'v_ase_output_camera_outline';
         group.add(outline);
@@ -1243,6 +1244,16 @@ export class ASERenderer {
             const body = [[-1,-1],[1,-1],[1,1],[-1,1]].map(([x,y]) => lens.clone()
                 .addScaledVector(right,x * bodySize).addScaledVector(up,y * bodySize * 0.7));
             body.forEach((corner,i) => { line(corner,body[(i+1)%4]); line(corner,camera.position); });
+            // A view-angle arc makes the wedge readable as a camera from the
+            // side/top, without a billboard eye or an opaque face over atoms.
+            const halfAngle = Math.atan(1 / 1.6);
+            const arc = Array.from({length: 13}, (_, i) => {
+                const angle = -halfAngle + 2 * halfAngle * i / 12;
+                return camera.position.clone()
+                    .addScaledVector(forward, Math.cos(angle) * bodySize)
+                    .addScaledVector(right, Math.sin(angle) * bodySize);
+            });
+            for (let i = 1; i < arc.length; i++) line(arc[i - 1], arc[i]);
             const top = target.clone().addScaledVector(up, height / 2);
             const tip = top.clone().addScaledVector(up, height * 0.09);
             line(top.clone().addScaledVector(right,-height * 0.06),tip);
@@ -1757,7 +1768,7 @@ export class ASERenderer {
     }
 
     fixedAtomDisplayEnabled() {
-        return this.displayOptions.showOverlays !== false;
+        return this.displayOptions.showOverlays !== false && this.displayOptions.showConstraints !== false;
     }
 
     normalizedAtomMaterialPreset(value) {
@@ -1956,14 +1967,15 @@ export class ASERenderer {
         material.userData.fixedEtchedFlatApplied = Boolean(isFixed);
         const etchedCode = isFixed
             ? `
-                vec2 fixedMark = vFlatViewNormal.xy;
-                float fixedDiagonal = abs(abs(fixedMark.x) - abs(fixedMark.y));
-                float fixedStrokeAA = max(fwidth(fixedDiagonal) * 1.55, 0.020);
-                float fixedStroke = 1.0 - smoothstep(0.080 - fixedStrokeAA, 0.135 + fixedStrokeAA, fixedDiagonal);
-                float fixedRadius = length(fixedMark);
-                float fixedReach = smoothstep(0.12, 0.22, fixedRadius)
-                    * (1.0 - smoothstep(0.74, 0.88, fixedRadius));
-                diffuseColor.rgb = mix(diffuseColor.rgb, ${outlineColor}, fixedStroke * fixedReach);
+                // Signed-distance X with square ends and one-pixel edge AA.
+                // No radial fade: both ends and the center remain crisp.
+                vec2 fixedMark = normalize(vFlatViewNormal).xy;
+                vec2 fixedDiagonal = vec2(fixedMark.x + fixedMark.y, fixedMark.x - fixedMark.y) * 0.70710678;
+                float fixedDistance = min(max(abs(fixedDiagonal.x) - 0.66, abs(fixedDiagonal.y) - 0.052),
+                    max(abs(fixedDiagonal.y) - 0.66, abs(fixedDiagonal.x) - 0.052));
+                float fixedAA = max(fwidth(fixedDistance) * 0.5, 0.0005);
+                float fixedStroke = 1.0 - smoothstep(-fixedAA, fixedAA, fixedDistance);
+                diffuseColor.rgb = mix(diffuseColor.rgb, ${outlineColor}, fixedStroke);
             `
             : '';
         const outlineCode = outline
@@ -2017,7 +2029,7 @@ export class ASERenderer {
             );
         };
         material.customProgramCacheKey = () => [
-            'v-ase-flat-atom-v3-hard-outline',
+            'v-ase-flat-atom-v4-crisp-fixed',
             isFixed ? 'fixed' : 'normal',
             this.viewportBackgroundMode === 'white' ? 'dark-outline' : 'light-outline'
         ].join(':');
@@ -2312,6 +2324,7 @@ export class ASERenderer {
             if (this.needsInitialCameraFit) {
                 this.fitCameraToStructure();
                 this.needsInitialCameraFit = false;
+                this.onInitialCameraFit?.();
             }
             this.applyShadowFlags();
             this.refreshStudioSunForStructure({ invalidate: false });
@@ -2371,6 +2384,7 @@ export class ASERenderer {
         if (this.needsInitialCameraFit) {
             this.fitCameraToStructure();
             this.needsInitialCameraFit = false;
+            this.onInitialCameraFit?.();
         }
         this.applyShadowFlags();
         this.refreshStudioSunForStructure({ invalidate: false });
@@ -3133,6 +3147,15 @@ export class ASERenderer {
         this.exportPreviewFrame.style.width = `${rect.width}px`;
         this.exportPreviewFrame.style.height = `${rect.height}px`;
         this.exportPreviewFrame.dataset.frameAspect = `${rect.width / Math.max(1, rect.height)}`;
+        // Keep the selectable camera badge reachable even when a physical
+        // render area extends beyond the editing viewport. The area itself
+        // never moves or changes scale to accommodate editor chrome.
+        const caption = this.exportPreviewFrame.querySelector('.export-preview-caption');
+        if (caption) {
+            caption.style.left = `${Math.max(58, 58 - rect.left)}px`;
+            caption.style.bottom = `${Math.max(8, rect.top + rect.height - rect.canvasHeight + 12)}px`;
+            caption.style.maxWidth = `${Math.max(150, Math.min(rect.width - 80, rect.canvasWidth - 130))}px`;
+        }
     }
 
     interactionProjectionContext(clientX, clientY) {
@@ -3232,7 +3255,7 @@ export class ASERenderer {
             this.axesHelper.visible = options.includeAxes !== false && this.displayOptions.showAxes;
         }
         if (this.renderAreaGizmoGroup) this.renderAreaGizmoGroup.visible = false;
-        const includeCell = options.includeCell !== false;
+        const includeCell = options.includeCell !== false && this.displayOptions.showCell !== false;
         if (this.cellGroup) this.cellGroup.visible = includeCell;
         supercellCellPreviews.forEach(({ child }) => { child.visible = includeCell; });
         if (publication) selectionGroups.forEach(({group}) => { group.visible = false; });
@@ -4184,7 +4207,8 @@ export class ASERenderer {
         ) || !scalarRecordEqual(previous.atomOpacities, this.displayOptions.atomOpacities);
         const materialChanged = !scalarRecordEqual(previous.labelMaterials, this.displayOptions.labelMaterials) ||
             !scalarRecordEqual(previous.atomMaterials, this.displayOptions.atomMaterials);
-        const overlayChanged = previous.showOverlays !== this.displayOptions.showOverlays;
+        const overlayChanged = previous.showOverlays !== this.displayOptions.showOverlays
+            || previous.showConstraints !== this.displayOptions.showConstraints;
         const visibilityChanged = !scalarRecordEqual(previous.labelVisible, this.displayOptions.labelVisible);
         const hiddenReferencesChanged = !stringArrayEqual(
             previous.hiddenAtomReferences,
@@ -4347,10 +4371,10 @@ export class ASERenderer {
         if (this.replicaSelectionOutlines) {
             this.replicaSelectionOutlines.visible = baseSelectionVisible;
         }
-        if (this.constraintGuideGroup) this.constraintGuideGroup.visible = visible;
-        if (this.constraintMotionGuideGroup) this.constraintMotionGuideGroup.visible = visible;
-        if (this.constraintMarkGroup) this.constraintMarkGroup.visible = visible;
-        if (this.hookeanGroup) this.hookeanGroup.visible = visible;
+        if (this.constraintGuideGroup) this.constraintGuideGroup.visible = visible && this.displayOptions.showConstraints !== false;
+        if (this.constraintMotionGuideGroup) this.constraintMotionGuideGroup.visible = visible && this.displayOptions.showConstraints !== false;
+        if (this.constraintMarkGroup) this.constraintMarkGroup.visible = visible && this.displayOptions.showConstraints !== false;
+        if (this.hookeanGroup) this.hookeanGroup.visible = visible && this.displayOptions.showConstraints !== false;
         if (this.displacementGroup) {
             this.displacementGroup.visible = visible && this.displayOptions.showDisplacements === true;
         }
@@ -8187,7 +8211,7 @@ export class ASERenderer {
     }
 
     rebuildConstraintGuides(selectedIndices = new Set()) {
-        if (!this.atomsData?.constraints || this.displayOptions.showOverlays === false) {
+        if (!this.atomsData?.constraints || !this.fixedAtomDisplayEnabled()) {
             this.clearGroup(this.constraintGuideGroup);
             this.constraintGuideSignature = '';
             return;
@@ -8364,7 +8388,7 @@ export class ASERenderer {
         if (
             mode !== 'MOVE'
             || !applyConstraints
-            || this.displayOptions.showOverlays === false
+            || !this.fixedAtomDisplayEnabled()
             || !this.atomsData?.constraints
         ) {
             this.requestRender();
