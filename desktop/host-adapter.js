@@ -2,9 +2,9 @@
 (async () => {
     if (window.__vaseDesktopHost || !window.vaseDesktop) return;
     const native = window.vaseDesktop;
-    const { EDITOR_COMMANDS, commandIdForEvent } = await import('/static/editor_commands.js?v=0.4.6');
+    const { EDITOR_COMMANDS, commandIdForEvent } = await import('/static/editor_commands.js?v=0.4.7');
     const installed = new WeakSet();
-    const { detachWorkspaceDocument, restoreWindowDocument } = await import('/static/workspace_windows.js?v=0.4.6');
+    const { detachWorkspaceDocument, restoreWindowDocument } = await import('/static/workspace_windows.js?v=0.4.7');
     let transfer = null;
     const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     const workspace = () => window.__V_ASE_WORKSPACE__;

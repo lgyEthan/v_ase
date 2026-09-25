@@ -68,3 +68,49 @@ def test_real_axis_keys_keep_render_area_and_supercell_selects_input(page):
     page.keyboard.press('Tab')
     assert page.input_value('#super-x') == '2'
     assert page.input_value('#super-y') == '2'
+
+
+@pytest.mark.parametrize('follow', [True, False])
+def test_transferred_camera_preserves_magnification_in_smaller_window(page, follow):
+    before = page.evaluate('''async follow=>{
+      const a=window.__ASE_APP__;
+      a.captureRenderAreaCamera();a.setRenderCameraNavigation(follow);
+      a.renderer.controls.doZoom(-100);a.syncAtomicScaleFromCamera({forceInput:true});
+      const {captureWindowDocument}=await import('/static/workspace_windows.js?v=0.4.7');
+      window.transferSnapshot=await captureWindowDocument(a);
+      return {ppa:a.renderer.currentPixelsPerAngstrom(),camera:a.cameraSettingsSnapshot(),
+        area:structuredClone(a.state.exportPreviewCamera),undo:structuredClone(a.undoTimeline)};
+    }''', follow)
+    page.set_viewport_size({'width':1000,'height':650})
+    result=page.evaluate('''async()=>{
+      await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+      const {restoreWindowDocument}=await import('/static/workspace_windows.js?v=0.4.7');
+      const a=window.__ASE_APP__;restoreWindowDocument(a,window.transferSnapshot);
+      return {ppa:a.renderer.currentPixelsPerAngstrom(),camera:a.cameraSettingsSnapshot(),
+        area:a.state.exportPreviewCamera,undo:a.undoTimeline};
+    }''')
+    assert result['ppa']==pytest.approx(before['ppa'],abs=.001)
+    for key in ['position','target','up','projection']:
+        assert result['camera'][key]==before['camera'][key]
+    assert result['area']==before['area']
+    assert result['undo']==before['undo']
+
+
+def test_camera_scale_undo_redo_after_viewport_resize_keeps_physical_magnification(page):
+    before=page.evaluate('''()=>{const a=window.__ASE_APP__;
+      a.state.exportPreviewEnabled=true;a.captureRenderAreaCamera();a.setRenderCameraNavigation(true);
+      a.resetHistoryTimeline();a.setRenderAreaSelected(true);
+      const ppa=a.renderer.currentPixelsPerAngstrom();
+      a.enterRenderAreaTransformMode('SCALE');a.transform.buffer='1.5';
+      a.applyTransformPreview();a.commitRenderAreaTransform();a.flushVisualHistoryCommit();
+      return {ppa,after:a.renderer.currentPixelsPerAngstrom(),area:structuredClone(a.state.exportPreviewCamera)};
+    }''')
+    page.set_viewport_size({'width':1000,'height':650})
+    result=page.evaluate('''async()=>{const a=window.__ASE_APP__;
+      await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+      await a.performUndo();const ppa=a.renderer.currentPixelsPerAngstrom();
+      await a.performRedo();return {ppa,after:a.renderer.currentPixelsPerAngstrom(),area:a.state.exportPreviewCamera};
+    }''')
+    assert result['ppa']==pytest.approx(before['ppa'],abs=.001)
+    assert result['after']==pytest.approx(before['after'],abs=.001)
+    assert result['area']==before['area']

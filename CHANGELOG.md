@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.4.7
+
+- Preserve physical atom magnification when a detached document opens in a
+  differently sized window, including Windows work-area clamping. Restore the
+  document camera once instead of overwriting its adjusted span with an Undo
+  snapshot. Keep the saved render camera and complete history unchanged.
+- Keep camera Undo/Redo atomic and preserve physical scale across viewport
+  resizing. History restores cannot trigger Viewport-lock navigation and move
+  the saved render area. Native scene transactions use the same size-aware
+  physical-scale restoration while retaining exact rollback in an unchanged viewport.
+- Includes the live selected-atom appearance, clarified camera controls, shared
+  Objects rendering, crisp flat constraints, footer properties, Supercell focus
+  and loading feedback improvements described in 0.4.6 below. Desktop 0.4.6 was
+  withheld after the Windows regression; 0.4.7 is the corrected desktop release.
+
 ## 0.4.6
 
 - Make Selected atoms appearance live: separate labels on commit or create the

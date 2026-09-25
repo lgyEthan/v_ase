@@ -1,36 +1,36 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.4.6';
-import { ASERenderer } from './renderer.js?v=0.4.6';
-import { ASESelection } from './selection.js?v=0.4.6';
-import { ASETransform } from './transform.js?v=0.4.6';
-import { SelectedAppearanceEditor } from './selected_appearance.js?v=0.4.6';
-import { installActivityIndicators } from './ui_activity.js?v=0.4.6';
+import { ASEApi } from './api.js?v=0.4.7';
+import { ASERenderer } from './renderer.js?v=0.4.7';
+import { ASESelection } from './selection.js?v=0.4.7';
+import { ASETransform } from './transform.js?v=0.4.7';
+import { SelectedAppearanceEditor } from './selected_appearance.js?v=0.4.7';
+import { installActivityIndicators } from './ui_activity.js?v=0.4.7';
 
-import { installPolyhedra } from './polyhedra.js?v=0.4.6';
-import { installAIScene } from './ai_scene.js?v=0.4.6';
-import { AtomScalarStore } from './atom_properties.js?v=0.4.6';
-import { DirectWorkspace } from './direct_workspace.js?v=0.4.6';
-import { projectProvenanceFromLoad } from './project_provenance.js?v=0.4.6';
-import { installShortcutCapture } from './shortcut_capture.js?v=0.4.6';
-import { openFileInWindow } from './workspace_windows.js?v=0.4.6';
-import { installEditorInteractions } from './editor_interactions.js?v=0.4.6';
-import { WORKBENCH_ROUTES, mountWorkbenchTools, syncWorkbenchRoute } from './editor_ui.js?v=0.4.6';
+import { installPolyhedra } from './polyhedra.js?v=0.4.7';
+import { installAIScene } from './ai_scene.js?v=0.4.7';
+import { AtomScalarStore } from './atom_properties.js?v=0.4.7';
+import { DirectWorkspace } from './direct_workspace.js?v=0.4.7';
+import { projectProvenanceFromLoad } from './project_provenance.js?v=0.4.7';
+import { installShortcutCapture } from './shortcut_capture.js?v=0.4.7';
+import { openFileInWindow } from './workspace_windows.js?v=0.4.7';
+import { installEditorInteractions } from './editor_interactions.js?v=0.4.7';
+import { WORKBENCH_ROUTES, mountWorkbenchTools, syncWorkbenchRoute } from './editor_ui.js?v=0.4.7';
 import {
     EDITOR_COMMANDS, commandIdForEvent, resolveShortcutPlatform,
     editorShortcutLabel, editorAriaShortcut, editorShortcutSearchTerms,
     viewportNavigationForEvent
-} from './editor_commands.js?v=0.4.6';
+} from './editor_commands.js?v=0.4.7';
 import {
     DEFAULT_ATOM_RADIUS_MAPPING,
     atomRadiusFactors,
     normalizeAtomRadiusMapping,
     radiusMappingPreset
-} from './radius_mapping.js?v=0.4.6';
+} from './radius_mapping.js?v=0.4.7';
 import {
     interpolateTrajectoryFrames,
     interpolatedFrameCount,
     normalizeInterpolationMultiplier
-} from './trajectory.js?v=0.4.6';
+} from './trajectory.js?v=0.4.7';
 
 const EDITOR_ROUTES = Object.freeze({
     'structure-info': { group: 'inspect', category: 'scene', title: 'Scene overview' },
@@ -10977,7 +10977,9 @@ class VAseApp {
                 visible: Boolean(this.state.exportPreviewEnabled),
                 followViewport: Boolean(this.state.exportPreviewFollowViewport),
                 camera: this.clonePlain(this.state.exportPreviewCamera || null),
-                editingView: this.state.exportPreviewFollowViewport ? this.currentCameraForExport() : null
+                editingView: this.state.exportPreviewFollowViewport ? this.currentCameraForExport() : null,
+                editingPixelsPerAngstrom: this.state.exportPreviewFollowViewport
+                    ? this.renderer.currentPixelsPerAngstrom() : null
             },
             projectHtmlOutputProfile: this.projectFile?.format === 'html'
                 ? this.clonePlain(this.projectFile.outputProfile) : null
@@ -11065,7 +11067,9 @@ class VAseApp {
     applyVisualHistorySnapshot(snapshot) {
         if (!snapshot) return;
         const previousReplay = this.historyReplay;
+        const previousRestoring = this.restoringDesignSettings;
         this.historyReplay = true;
+        this.restoringDesignSettings = true;
         try {
             this.applyDesignSettings(this.clonePlain(snapshot));
             // applyDesignSettings merges defaults. Recovery must retain the
@@ -11080,7 +11084,15 @@ class VAseApp {
                 && Object.prototype.hasOwnProperty.call(snapshot, 'projectHtmlOutputProfile')) {
                 this.projectFile.outputProfile = this.clonePlain(snapshot.projectHtmlOutputProfile);
             }
-            if (snapshot.renderArea?.editingView) this.applyCameraSettings(snapshot.renderArea.editingView);
+            // A transferred document has an authoritative top-level camera and
+            // display scale, already restored by applyDesignSettings. Replaying
+            // the history-only view here would replace its resize-adjusted span.
+            if (!snapshot.camera && snapshot.renderArea?.editingView) {
+                this.applyCameraSettings(snapshot.renderArea.editingView, {syncScale: false});
+                const scale = Number(snapshot.renderArea.editingPixelsPerAngstrom);
+                if (Number.isFinite(scale) && scale > 0) this.renderer.setPixelsPerAngstrom(scale);
+                this.syncAtomicScaleFromCamera({forceInput: true});
+            }
             this.syncImageExportPreview();
             this.syncRendererProperties({ force: true });
             this.syncRendererFormatProperties();
@@ -11088,6 +11100,7 @@ class VAseApp {
             this.visualHistoryPending = null;
         } finally {
             this.historyReplay = previousReplay;
+            this.restoringDesignSettings = previousRestoring;
         }
     }
 

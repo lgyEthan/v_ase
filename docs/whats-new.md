@@ -1,6 +1,9 @@
 # What is new
 
-## 0.4.6
+## 0.4.7
+
+- Preserve atom magnification, render composition and Undo history when detaching
+  into a smaller window. Camera scale Undo/Redo also survives viewport resizing.
 
 - Make Selected atoms appearance live: separate labels on commit or create the
   next unused element suffix on color/material/opacity/size edits. Synchronize

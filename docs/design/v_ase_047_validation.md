@@ -1,4 +1,4 @@
-# v_ase 0.4.6 validation and release record
+# v_ase 0.4.7 validation and release record
 
 Date: 2026-09-25. This release implements the live appearance, footer,
 Supercell-entry, camera-lock, render-area, object-visibility, flat-rendering and
@@ -69,21 +69,38 @@ from the release.
   evaluator's `file://` HTML inspection; offline HTML coverage comes separately
   from the repository browser regressions. No claim of exhaustive manual QA.
 
-## Desktop release superseded
+- Final independent 0.4.7 follow-up: World and Viewport native camera edits,
+  exact same-size rollback, smaller-viewport Undo/Redo, actual GUI S=1.5,
+  `.vase` reopen and sixteen nonblank 512×384 renders passed. Saved render
+  cameras and corresponding output pixels were identical. Measured scale
+  agreed within 0.001 px/Å. Canonical parity: 28 passed. Final scenarios:
+  92 native calls / 341,320 response bytes / 6.732 summed seconds; provider
+  tokens unavailable. This was Chrome resize/project replay; native Windows
+  detach remains a separate desktop CI gate.
+- The final local wheel passed an isolated GUI/CLI workflow with real stored
+  forces, constraints, scalar color/radius, exact PNG and animated GIF, native
+  project reopening, stale guards and served Skill.
 
-The core 0.4.6 wheel/sdist and GitHub tag were published and verified. The Windows
-desktop workflow then found a real physical-scale regression when the OS clamped
-a detached window to its work area. **No desktop 0.4.6 assets were promoted.**
-See [0.4.7 validation](v_ase_047_validation.md) for the correction, added resize
-regressions and final desktop delivery. The unchecked desktop gates below remain
-historical evidence, not instructions to publish the failed candidate.
+## Patch release rationale
+
+The initial Windows desktop CI for 0.4.6 detected a real magnification change
+when the operating system constrained the detached window height. The extra
+history camera restore overwrote the physical scale already restored from the
+document. No desktop 0.4.6 installer was promoted. The Python distributions are
+immutable, so the correction is delivered as 0.4.7, with new regressions for both
+camera locks and scale Undo/Redo after resizing. The history restore now guards
+camera-follow callbacks for its entire transaction. A supplementary native-tool
+audit also found the same resize assumption in the independent AI scene runtime
+restore. It now stores viewport dimensions and measured scale, preserves exact
+same-size rollback, and adapts the working camera at a different size without
+altering the saved render camera. A native Undo/Redo regression covers this path.
 
 ## Release gates
 
-- [x] Final full regression suite after all fixes and asset synchronization: **1,090 passed**, 312 dependency deprecation warnings, 603.78 s.
-- [x] Tracked-source wheel/sdist build and `twine check` passed. All 103 wheel package files match the tested checkout; the sdist includes the required docs, assets and Skill, without research directories.
-- [x] Same tested version published to PyPI and GitHub main/tag.
-- [x] Clean published-wheel GUI/CLI workflow and served canonical Skill.
+- [x] Final full regression suite: 1,094 passed (1,075 behavioral tests in 615.36 s plus 19 synchronized asset/version tests).
+- [x] Patched-source wheel/sdist build, `twine check`, and package-content equality (103 package files).
+- [ ] Same tested version published to PyPI and GitHub main/tag.
+- [ ] Clean published-wheel GUI/CLI workflow and served canonical Skill.
 - [ ] All three native/packaged desktop CI targets.
 - [ ] Both Mac architectures Developer ID signed, notarized and stapled;
       packaged smoke, all native-component verification and Gatekeeper checks.
@@ -92,4 +109,4 @@ historical evidence, not instructions to publish the failed candidate.
 - [ ] Published Read the Docs version/latest and final strict linkcheck.
 
 Final public artifact evidence belongs to the
-[0.4.6 release](https://github.com/lgyEthan/v_ase/releases/tag/v0.4.6).
+[0.4.7 release](https://github.com/lgyEthan/v_ase/releases/tag/v0.4.7).

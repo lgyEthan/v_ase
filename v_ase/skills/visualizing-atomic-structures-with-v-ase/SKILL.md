@@ -31,7 +31,9 @@ indicates alignment and returns to that viewpoint without changing the lock.
 World-mode orbit deactivates it; pan/zoom do not. **Align camera to current view**
 deliberately replaces the output pose. Selected-camera G/R/S moves, rotates or
 scales the composition; in Viewport lock its screen rectangle stays stationary.
-Escape restores pose/scale. A wire camera wedge and render-plane outline identify
+Escape restores pose/scale. Camera Undo/Redo preserves physical magnification
+across viewport sizes; transferring a document retains the render camera and
+complete history. A wire camera wedge and render-plane outline identify
 its orientation without masking atoms. Both Viewport and Renderer expose 2D/3D;
 materials and lighting controls are disabled in flat mode.
 Objects visibility is shared by viewport and rendering. `display.showConstraints`

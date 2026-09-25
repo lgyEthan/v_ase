@@ -266,3 +266,26 @@ def test_publication_plane_render_preserves_selection_and_interactive_mode_diffe
         assert Path(a['artifact']['path']).read_bytes() == Path(b['artifact']['path']).read_bytes()
         assert Path(a['artifact']['path']).read_bytes() != Path(interactive['artifact']['path']).read_bytes()
         assert client.call('vase_inspect_image', {'uri':b['artifact']['uri']})['delivery'] == 'image'
+
+
+def test_native_scene_undo_redo_keeps_physical_scale_and_output_after_resize(tmp_path):
+    with live_scene(tmp_path) as (client, frame, apply):
+        apply('vase_apply_scene', patch={'camera':{'axis':'+Z','fit':'structure'},
+            'render_area':{'enabled':True,'from_current_view':True}})
+        apply('vase_apply_scene', patch={'render_area':{'follow_viewport':True}})
+        state = '''() => {const a=window.__ASE_APP__;return {
+          ppa:a.renderer.currentPixelsPerAngstrom(),reported:a.state.display.atomicScalePixelsPerAngstrom,
+          camera:a.cameraSettingsSnapshot(),area:structuredClone(a.state.exportPreviewCamera)};}'''
+        before=frame.evaluate(state)
+        apply('vase_apply_scene', patch={'camera':{'ortho_scale':before['camera']['ortho_scale']*1.25}})
+        after=frame.evaluate(state)
+        frame.page.set_viewport_size({'width':1000,'height':650})
+        frame.evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))')
+        apply('vase_undo')
+        undone=frame.evaluate(state)
+        apply('vase_redo')
+        redone=frame.evaluate(state)
+        for restored, original in [(undone,before),(redone,after)]:
+            assert restored['ppa']==pytest.approx(original['ppa'],abs=.001)
+            assert restored['reported']==pytest.approx(restored['ppa'],abs=.001)
+            assert restored['area']==original['area']

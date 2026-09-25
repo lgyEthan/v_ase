@@ -184,6 +184,10 @@ await ai.apply({
 });
 ```
 
+`fromCurrentView:true` captures and freezes the pose in World lock, taking
+precedence over `followViewport` in the same patch. To capture and then follow,
+issue the capture first and a separate `followViewport:true` patch afterward.
+
 Set `followViewport:true` for Viewport lock (subsequent view deltas change the output; switching does not replace its pose), or provide an explicit
 `renderArea.camera` with `position`, `target`, `up`, `projection`, and the
 matching projection fields. `describe().renderArea` reports `enabled`,

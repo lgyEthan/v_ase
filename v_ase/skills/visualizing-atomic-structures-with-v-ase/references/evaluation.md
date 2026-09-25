@@ -824,7 +824,7 @@ project. Decode the project's ASE trajectory and assert that the edit remains on
 that frame. Repeat with a pre-edit cache request completing after the edit. The
 GUI and saved trajectory must agree; a successful immediate move is insufficient.
 
-## Live appearance and camera-lock regression (0.4.6)
+## Live appearance and camera-lock regression (0.4.7)
 
 - GUI change color/material/opacity/radius with no Apply action. Verify automatic
   unused element-suffix labels, simultaneous table/canvas state, first-gesture
@@ -836,6 +836,12 @@ GUI and saved trajectory must agree; a successful immediate move is insufficient
   off, pan/zoom retain it, and Viewport X/Y/Z retain the guide in the same frame.
   Selected-camera G/R/S keeps its rectangle fixed in Viewport lock; Escape and
   Undo restore both cameras. Panel changes must not move a saved camera.
+  Repeat camera scale Undo/Redo after resizing the viewport. Detach into a
+  smaller window and require identical physical pixels per angstrom, camera
+  pose, saved render camera and every Undo entry; raw orthographic span may
+  adapt to the destination height. Repeat through native `vase_apply_scene`
+  followed by Undo/Redo; reported atomic scale must match actual viewport pixels
+  per angstrom, and exact render output must retain its camera.
 - Hide Constraints through Objects: no marks in canvas/PNG/GIF, same ASE
   constraints. Toggle 2D/3D, inspect sharp fixed-atom crosses and disabled material
   and lighting fields. Compare GIF frames to PNG at the same render area.

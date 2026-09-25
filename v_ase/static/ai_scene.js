@@ -541,6 +541,7 @@ export function installAIScene(App) {
             camera: copy(this.cameraSettingsSnapshot()), interaction: this.aiInteractionSnapshot(),
             cameraRuntime: {position: camera.position.toArray(), quaternion: camera.quaternion.toArray(),
                 up: camera.up.toArray(), target: this.renderer.controls.target.toArray(),
+                viewport: this.renderer.containerSize(), pixelsPerAngstrom: this.renderer.currentPixelsPerAngstrom(),
                 values: Object.fromEntries(['zoom', 'near', 'far', 'aspect', 'fov', 'left', 'right', 'top', 'bottom']
                     .filter(key => Number.isFinite(camera[key])).map(key => [key, camera[key]]))},
             renderArea: {enabled: Boolean(this.state.exportPreviewEnabled), followViewport: Boolean(this.state.exportPreviewFollowViewport),
@@ -557,12 +558,19 @@ export function installAIScene(App) {
         this.renderer.controls.target.fromArray(saved.target);
         camera.updateProjectionMatrix();
         camera.updateMatrixWorld(true);
+        const viewport = this.renderer.containerSize();
+        if (saved.viewport && (saved.viewport.width !== viewport.width || saved.viewport.height !== viewport.height)) {
+            this.renderer.updateCameraProjection(viewport.width / viewport.height);
+            this.renderer.setPixelsPerAngstrom(saved.pixelsPerAngstrom, {requestRender: false, notify: false});
+        }
         this.renderer.requestRender();
     };
 
     proto.aiRestoreSceneState = async function (snapshot) {
         const previous = this.historyReplay;
+        const previousRestoring = this.restoringDesignSettings;
         this.historyReplay = true;
+        this.restoringDesignSettings = true;
         try {
             this.aiSceneFailures?.clear();
             this.state.volumetricRequestToken += 1;
@@ -575,6 +583,8 @@ export function installAIScene(App) {
             this.applyVisualHistorySnapshot(snapshot.visual);
             this.applyCameraSettings(snapshot.camera, {syncScale: false});
             this.aiRestoreCameraRuntime(snapshot.cameraRuntime);
+            this.syncAtomicScaleFromCamera({forceInput: true});
+            this.renderAreaPreviousView = this.currentCameraForExport();
             this.state.exportPreviewEnabled = snapshot.renderArea.enabled;
             this.state.exportPreviewFollowViewport = snapshot.renderArea.followViewport;
             this.state.exportPreviewCamera = copy(snapshot.renderArea.camera);
@@ -591,7 +601,10 @@ export function installAIScene(App) {
             const readiness = await this.aiWaitForScene();
             if (!readiness.ready) throw fail('Scene restoration did not settle. Inspect readiness before editing.', 'rollback_failed', 'unknown');
             this.resetVisualHistoryBaseline();
-        } finally { this.historyReplay = previous; }
+        } finally {
+            this.historyReplay = previous;
+            this.restoringDesignSettings = previousRestoring;
+        }
     };
 
     proto.aiSelectVolumetricPlanes = function ({planeIds, clearAtoms = false, clearGizmos = false}) {
