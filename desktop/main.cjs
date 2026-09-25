@@ -325,14 +325,20 @@ async function createEditorWindow(url, { snapshot = null, sourceOwner = null, po
     let readyResolve, readyReject;
     const ready = new Promise((resolve, reject) => { readyResolve = resolve; readyReject = reject; });
     ready.catch(() => {}); // loadURL and ready share the same cleanup below.
-    const readyTimeout = setTimeout(() => readyReject(new Error('The destination window did not become ready.')), 60000);
+    let readyPhase = 'loading the workspace';
+    // Give cold SwiftShader windows on Intel CI additional initialization
+    // headroom. Keep the normal desktop deadline unchanged.
+    const readyBudget = smoke && process.env.V_ASE_SOFTWARE_GL === '1' ? 120000 : 60000;
+    const readyTimeout = setTimeout(() => readyReject(new Error(`The destination window did not become ready while ${readyPhase}.`)), readyBudget);
     win.webContents.on('did-finish-load', async () => {
         if (!localFrame(win.webContents.getURL())) return;
         try {
+            readyPhase = 'initializing its document';
             await win.webContents.executeJavaScript(await fsp.readFile(path.join(__dirname, 'host-adapter.js'), 'utf8'));
             commands = await win.webContents.executeJavaScript('window.__vaseDesktopHost.commands');
             createMenu(commands);
             if (snapshot) {
+                readyPhase = 'restoring the transferred document';
                 if (snapshot.provenance?.desktopToken) {
                     const grant = vault.fork(sourceOwner, snapshot.provenance.desktopToken, win.webContents.id);
                     snapshot.provenance.desktopToken = grant.token;

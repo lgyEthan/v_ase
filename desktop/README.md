@@ -105,6 +105,10 @@ IPC, so sending both without a delivery barrier tests their race instead of edit
 The native About dialog must report `app.getVersion()`, not a hard-coded release.
 Software-rendered CI allows up to 60 seconds for each readiness condition;
 the same assertions apply, and normal GPU smoke retains its 10-second limit.
+The cold native-window initialization guard is 120 seconds only in explicit
+software-rendered smoke, matching the harness's transfer/open wait. The normal
+desktop window deadline stays 60 seconds. A timeout names its loading, document
+initialization or state-restoration phase; it never counts as a successful transfer.
 The desktop smoke also checks all 23 workbench routes at 1440, 1024 and 390
 pixel widths for clipped controls and unit overlap, and counts oxygen-colored
 pixels in the export to reject a blank WebGL image. Windows starts isolated

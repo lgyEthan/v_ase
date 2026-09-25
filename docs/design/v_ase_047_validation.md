@@ -103,6 +103,17 @@ replacement/Tab assertions are unchanged. The local native smoke passed after
 this correction; the CI run is repeated across all three targets. This changes
 only the desktop test harness, not the published Python package.
 
+The subsequent native Windows and Mac arm64 jobs passed. Intel development
+smoke also passed, but the packaged SwiftShader run exceeded the native-window
+60-second readiness guard during detach. There was no backend exception; the
+old log did not identify the exact readiness phase. Deliberately hidden-window
+replays on the signing Mac passed, so occlusion was not established as the
+cause and its normal policy was retained. Explicit software smoke now allows
+120 seconds for native-window initialization/open/transfer, records detach
+duration, and identifies the readiness phase on failure. Ordinary desktop
+timeouts and all state/scale/history assertions are unchanged. All targets
+are rerun at the final desktop commit.
+
 ## Release gates
 
 - [x] Final full regression suite: 1,094 passed (1,075 behavioral tests in 615.36 s plus 19 synchronized asset/version tests).

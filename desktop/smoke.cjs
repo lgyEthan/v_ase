@@ -297,8 +297,11 @@ async function runSmoke({ app, win, handshake, vault, sendCommand }) {
     await js('new Promise(resolve => requestAnimationFrame(resolve))');
     win.webContents.sendInputEvent({ type: 'mouseMove', x:tabPoint.x+70, y:tabPoint.y+140, modifiers:['leftbuttondown'] });
     await js('new Promise(resolve => requestAnimationFrame(resolve))');
+    const detachStartedAt = Date.now();
     win.webContents.sendInputEvent({ type: 'mouseUp', x:tabPoint.x+70, y:tabPoint.y+140, button:'left', clickCount:1 });
-    await wait(`!window.__V_ASE_WORKSPACE__.tabs.has('${movedId}')`, 60000);
+    const windowReadyBudget = process.env.V_ASE_SOFTWARE_GL === '1' ? 120000 : 60000;
+    await wait(`!window.__V_ASE_WORKSPACE__.tabs.has('${movedId}')`, windowReadyBudget);
+    const detachedReadyMs = Date.now() - detachStartedAt;
     const detached = BrowserWindow.getAllWindows().find(candidate => candidate !== win);
     assert.ok(detached, 'Dragging a tab creates a second native window');
     const detachedJS = code => detached.webContents.executeJavaScript(code);
@@ -355,7 +358,7 @@ async function runSmoke({ app, win, handshake, vault, sendCommand }) {
     finally { nativeDialog.showOpenDialog=previousOpen; }
     await js(`${active}.document.querySelector('[name="open-file-mode"][value="new-window"]').checked=true; ${active}.document.querySelector('#open-file-confirm').click()`);
     let openedWindow, openedState;
-    const openDeadline = Date.now() + 60000;
+    const openDeadline = Date.now() + windowReadyBudget;
     while (Date.now() < openDeadline) {
         openedWindow=BrowserWindow.getAllWindows().find(candidate=>candidate!==win);
         openedState=openedWindow && await openedWindow.webContents.executeJavaScript(`(()=>{const w=window.__V_ASE_WORKSPACE__,a=w?.tabs.get(w.activeSessionId)?.pane?.contentWindow?.__ASE_APP__;return a?.collaborationReady && a.projectFile.handle?.desktopToken ? {format:a.projectFile.format,width:a.projectFile.outputProfile?.width,count:a.state.atoms.positions.length} : null;})()`).catch(()=>null);
@@ -368,6 +371,7 @@ async function runSmoke({ app, win, handshake, vault, sendCommand }) {
     assert.equal(win.isDestroyed(),false);
     const result = { version: app.getVersion(), platform: process.platform, architecture: process.arch,
         commands: 10, nativeControlA: true, verticalCutoffTab: true, droppedFileGrant: true, detachedWindow: true, detachedSave: true, transferRollback: true, openNewWindow: true, independentWindowClose: true, nativeKeyInput: true, nativeSave: true, scientificProject: true,
+        detachedReadyMs,
         htmlProfile: [720,480], openNewTab: true, quitCancellation: true, render: [800, 600],
         oxygenPixels, geometryRoutes, nodeIsolation: true };
     // The remaining source window contains only disposable blank tabs after detach.
