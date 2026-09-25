@@ -136,12 +136,11 @@ Alternatively, use **Settings → Apps → Default apps** and select the default
 for `.vase`; Windows 10 exposes **Choose default apps by file type**. See
 [Microsoft's default-app instructions](https://support.microsoft.com/en-us/windows/apps/change-default-apps-in-windows).
 
-Double-clicking a file hands it to the existing v_ase window, or starts the app
-if needed. It opens the usual **Open File** dialog: choose **View** or **Edit**,
-then **Open** in an empty workspace. In a populated document choose **Replace**, or **Open in new tab → Open New Tab** when another document
-is present. It is not a silent replacement of unsaved work. **Replace** and
-**Open in new tab** restore a project's appearance; **Add to trajectory**
-imports its structures only.
+Double-clicking a `.vase` project hands it to the existing v_ase window, or
+starts the app if needed. It opens directly in its saved Edit/View mode and
+presentation, without an import or mode-choice dialog. When documents are
+already open, it creates a new tab and preserves their unsaved work. Other
+supported structure files use the **Open File** workflow described below.
 
 ## Open .vasp and other structure files
 
@@ -160,7 +159,7 @@ that is your intended default. File → Open still imports supported structures
 and v_ase HTML projects without claiming the generic file extension.
 
 Saved `.vase` files open without an import or mode-choice dialog. They restore
-the saved Edit/View mode, current frame, camera, appearance, output-frame
+the saved Edit/View mode, current frame, camera, appearance, render-area
 visibility, selection and properties-panel location. An existing document is
 preserved in its tab and the project opens in a new tab; an empty startup tab
 is reused. Older projects restore every field they contain; archives without
