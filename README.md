@@ -93,115 +93,14 @@ Use `v_ase gui` for an empty workspace or `--interactive` to edit a file.
 
 ## Save And Share
 
-One HTML file for offline viewing and project recovery.
-[Project HTML](https://v-ase.readthedocs.io/en/latest/save-projects.html#project-html) · [Export HTML View](https://v-ase.readthedocs.io/en/latest/save-projects.html#html-view)
+| Format | Use it to |
+| --- | --- |
+| **`.vase` project** | Resume editing with your structures, trajectory, camera and appearance preserved. |
+| **Project HTML** | Share an offline interactive view that can also reopen as an editable v_ase project. |
+| **HTML View** | Share a lightweight offline viewing copy, without editable project data by default. |
 
-The editor keeps the atomic viewport wide, with no permanent left navigator.
-The optional **Objects** drawer overlays the scene, while the right workbench
-has **Style / Build / Analyze / Render** tabs. An icon bookmark strip sits above
-the selected section title; hover or keyboard-focus an icon to see its name.
-Each section has its own symbol, including selection Transform, Cell matrix and
-energy-minimization Relax. Search in the header finds existing controls.
-The left icon toolbar separates selection/measurement, transforms of selected
-objects, camera orbit and object creation. Move/Rotate/Scale require an editable
-selection; click one and drag in the viewport, or enter an axis and value.
-Apply/Enter confirms, Cancel/Escape restores the original, and switching tools
-cancels a provisional transform. Keyboard G/R/S retains its modal workflow.
-Saved per-atom colorscales are applied before a reopened project is ready to render.
-Atom appearance uses compact per-label rows with horizontal scrolling, distinct
-scope headings, and explicit property/range/target controls. Scrollable tables
-keep their headers flush with the top border, including Relaxation cutoffs. **Apply to → Selected atoms** captures colorscale targets until you choose
-**Use current selection**; label choices capture the indices belonging to that label.
-Later selection, element changes and shorter trajectory frames never redirect or
-clear these targets. Indices absent from a frame resume their mapping when present
-again. Property menus are preloaded without fetching unused scalar arrays.
-Trajectory coordinates, colors and radii are presented together.
-Selected appearance is live: committing a new label separates the selection;
-changing color, material, opacity or size first creates an unused `Element_2`
-label (`Element_3`, etc.). The label table immediately shows the same settings,
-including the resulting radius in Å. Undo restores the initial split and its
-first adjustment together. Reusing an existing label asks to merge and inherit
-its settings. Surface materials live only in the per-label table.
-**Render → Render area & scale → Show render area** draws a crop guide over the
-editable canvas. **Lock camera to → World** keeps the camera at its coordinates;
-**Viewport** keeps the render area on screen while navigation changes the
-composition. Switching locks preserves output framing. The camera-view icon
-beside the axis presets indicates **Look through camera**; orbiting away in
-World mode turns it off, while pan/zoom keep it on. Clicking it returns to the
-saved camera without changing locks. **Align camera to current view** is a
-separate action that deliberately replaces the output pose.
-Select the outlined **Camera** badge or the oriented wire camera for **G** move,
-**R** rotation about the render center and **S** area scaling. Enter applies and
-Escape cancels. In Viewport lock the area stays still and the scene moves;
-X/Y/Z retain the area immediately. Initial framing accounts for the right panel,
-without recentering when panels open or overriding saved/user framing.
-**Objects** controls visible guides and scientific overlays in both the viewport
-and output. **Constraints** hides constraint marks without disabling ASE
-constraints. Flat 2D uses crisp fixed-atom crosses and disables materials and
-lighting controls. Both Renderer and Viewport offer 2D/3D. Image and video use
-the same saved render area; video supports inclusive frame ranges, MOV/AVI and
-GIF with **Loop forever** or **Play once**. Analysis and property mapping show
-activity while asynchronous work is pending.
-Desktop project and structure files have paper-shaped document icons bearing
-the castle; the application keeps its full castle icon. Only `.vase` is registered
-as the native default type. Structure formats including `.extxyz`, `.xyz`, `.vasp`
-and `.cif` remain optional handlers: select v_ase explicitly in Open With / Get
-Info. macOS never automatically chooses it for these secondary types. Generic
-`.json`, `.xml`, `.html`, `.md` and `.log` associations are not registered;
-project HTML and specialized files are still importable through File → Open.
-An empty workspace opens its first file without replacement/append choices.
-The right panel overlays the scene without shifting the camera and expands up
-to 900 px when the window permits. Bonds opens editable pair specifications by
-default; **Reset to suggested cutoffs** restores radius-derived suggestions.
-Ctrl+A selects the entire number in an input on Mac as well as Windows; Tab and
-Shift+Tab move through successive bond cutoffs. The visible Reset menu offers
-coordinates-only and full reset. Open uses Command+O on Mac / Ctrl+O on Windows. **Fit view** or F frames the structure when the viewport has focus.
-Save
-reuses an approved writable project target; Save As chooses a new one. When
-the browser only supports downloads, v_ase labels the result a copy rather
-than implying it can overwrite the original. Closing a changed document
-offers Save, Discard and Cancel. On desktop, Command/Ctrl+W closes the active
-tab, or its window when it is the last tab; closing the last window quits.
-An empty desktop window also closes. Native shutdown issues a single quit
-request after its save/cancel checks. Browser/notebook editors retain a blank
-internal tab and never intentionally close the host browser tab. Direct and notebook editors adopt tabs in place without
-reloading the original document. Pending physical edits settle before Save,
-Close or Replace can discard anything; invalid scientific inputs block Save
-before a file destination is chosen. Uploaded project tabs retain their
-format and writable target after an internal-tab reload, including after
-Save As. Clean saved appearance and the latest unsaved visual edits survive
-child-tab reloads. Exact delivered Command shortcuts on macOS and Ctrl
-shortcuts on Windows/Linux are listed in
-[Keyboard shortcuts](https://v-ase.readthedocs.io/en/latest/shortcuts.html).
-Plain arrow keys orbit or tilt the structure view; Option+Left/Right on macOS
-or Alt+Left/Right on Windows/Linux steps the selected trajectory. A single selected atom's footer shows its current label, Cartesian X/Y/Z, custom
-properties (including existence) and stored forces. It omits chemical-element,
-mass and fractional-coordinate boilerplate; no floating note covers the canvas.
-The Supercell shortcut selects the first value so `2 Tab 2` enters 2 × 2 directly.
-Navigation shortcuts discard an invalid draft and retain the last valid value;
-invalid edits still cannot be committed with Enter, Tab or Save.
-Analysis plots open in a resizable dock below the canvas, with a full-work-area
-Back view on short windows.
-
-Render → Renderer exposes lighting, quality, output dimensions and an
-independent physical output scale (px/Å); changing that scale does not zoom the
-live viewport or resize atom glyphs. Image, Video and Interactive HTML each
-have format-specific settings next to their export action; changing an
-export draft and canceling its dialog leaves the project profile unchanged.
-Saved GUI image/video guide choices synchronize with Objects; hidden objects
-cannot be reintroduced by export settings. Enabling stored force vectors through
-a scene preset also loads the current frame before reporting the scene ready.
-Objects lists loaded field objects and opens their actual isosurface and plane
-property controls; Analyze retains field import, processing and combinations.
-Objects also links vector layers and their live style controls, while Build
-separates selection transforms from periodic-cell
-matching and rigid translation from Analyze's translation map. Command search
-can reveal a matching control directly. Replacing a dirty tab asks Save,
-Discard or Cancel; uploaded HTML projects keep their HTML save profile when
-opened in a new tab. Fullscreen editing requests Keyboard Lock where the browser
-permits it; the status distinguishes active, denied and unsupported capture.
-File-menu controls remain available when reserved keys cannot be captured.
-
+For Project HTML, enable **Include interactive rendered view** in **File → Project save settings**.
+[Saving and sharing guide](https://v-ase.readthedocs.io/en/latest/save-projects.html).
 
 ## Work With An AI Agent
 
