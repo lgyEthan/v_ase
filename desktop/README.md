@@ -27,6 +27,12 @@ npm run dist
 python scripts/test_packaged.py
 ```
 
+The runtime builder obtains the exact desktop-version wheel from PyPI's release
+metadata and verifies its SHA-256 before installing it alongside the pinned
+requirements. This avoids a release-day simple-index propagation race; it never
+substitutes a local scientific package or changes the published wheel.
+
+
 The helper verifies a pinned official python-build-standalone archive against
 its SHA-256, installs published `v_ase-gui[mcp,rhino]==0.4.8` and locked binary
 dependencies, runs `pip check`, and checks scientific imports. The full

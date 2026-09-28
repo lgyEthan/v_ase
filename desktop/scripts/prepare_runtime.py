@@ -10,6 +10,7 @@ import shutil
 import subprocess
 import sys
 import tarfile
+from urllib.parse import urlsplit
 from urllib.request import urlopen
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -20,6 +21,40 @@ RUNTIMES = {
     ("Darwin", "x86_64"): ("x86_64-apple-darwin", "167cc15cf4eeb72944a67bbd2f7120c45fded17d5043d5db64b3144d7adc30ae"),
     ("Windows", "AMD64"): ("x86_64-pc-windows-msvc", "6be524fa6752af802146a4adc7d098565425b0b1c166e19a5a7a4c8cccb86bf6"),
 }
+
+
+
+def published_wheel(root: Path) -> Path:
+    """Use the released wheel even while PyPI's simple index is propagating."""
+    version = json.loads((root / "package.json").read_text())["version"]
+    filename = f"v_ase_gui-{version}-py3-none-any.whl"
+    with urlopen(f"https://pypi.org/pypi/v-ase-gui/{version}/json", timeout=60) as response:
+        metadata = json.load(response)
+    if metadata.get("info", {}).get("version") != version:
+        raise SystemExit("Published Python version does not match the desktop version")
+    matches = [item for item in metadata.get("urls", [])
+               if item.get("filename") == filename and item.get("packagetype") == "bdist_wheel"
+               and not item.get("yanked")]
+    if len(matches) != 1:
+        raise SystemExit("PyPI must expose exactly one non-yanked universal release wheel")
+    item = matches[0]
+    url = urlsplit(item["url"])
+    if url.scheme != "https" or url.netloc != "files.pythonhosted.org":
+        raise SystemExit("Unexpected PyPI wheel download host")
+    expected = item["digests"]["sha256"]
+    destination = root / ".cache" / filename
+    destination.parent.mkdir(exist_ok=True)
+    if destination.exists() and hashlib.sha256(destination.read_bytes()).hexdigest() == expected:
+        return destination
+    with urlopen(item["url"], timeout=120) as response:
+        data = response.read()
+    if hashlib.sha256(data).hexdigest() != expected:
+        raise SystemExit("Published wheel digest mismatch")
+    temporary = destination.with_suffix(".download")
+    temporary.write_bytes(data)
+    temporary.replace(destination)
+    print(f"Verified published wheel: {filename} ({expected})", flush=True)
+    return destination
 
 
 def main():
@@ -56,7 +91,8 @@ def main():
         environment.update(OPENSSL_STATIC="1", OPENSSL_DIR=openssl)
         options += ["--no-binary=cryptography"]
     subprocess.run([str(interpreter), "-I", "-m", "pip", "install", *options,
-                    "--disable-pip-version-check", "-r", str(ROOT / "requirements-runtime.txt")],
+                    "--disable-pip-version-check", str(published_wheel(ROOT)),
+                    "-r", str(ROOT / "requirements-runtime.txt")],
                    check=True, env=environment)
     subprocess.run([str(interpreter), "-I", "-m", "pip", "check"], check=True)
     subprocess.run([str(interpreter), "-I", "-c",
