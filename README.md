@@ -35,7 +35,9 @@ Renderer scale and atom radius remain independent.
 **Style → Water** draws detected H₂O as a continuous translucent surface while
 keeping ions and solids atomistic. Color, opacity, smoothing and lighting are
 adjustable; trajectories, images, movies/GIF and offline HTML share the same
-surface. This is a coordinate-derived visualization, not a new MD solver.
+surface. Stored molecule IDs distinguish water from surface hydroxyls. A cached,
+indexed boundary mesh replaces water sphere/bond draw instances, including
+visible periodic copies. This is coordinate-derived visualization, not a new MD solver.
 See [Water surface](docs/water-surface.md) and run
 `python examples/water_surface.py` for a synthetic animated example.
 This experiment is not included in the published 0.4.7 app.

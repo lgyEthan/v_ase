@@ -14,7 +14,8 @@ from v_ase.export import export_html_response
 
 def water_frames():
     a=Atoms('OH2OH2Na',positions=[[0,0,0],[.957,0,0],[-.24,.93,0],
-                                [2.8,0,0],[3.757,0,0],[2.56,.93,0],[1.4,2,1]],cell=[10,10,10])
+                                [.5,.5,0],[1.457,.5,0],[.26,1.43,0],[1.4,2,1]],cell=[10,10,10])
+    a.new_array('mol',np.array([1,1,1,2,2,2,0]))
     b=a.copy();b.positions[3:6,1]+=.9
     return [a,b]
 
@@ -107,3 +108,100 @@ def test_water_ui_movie_capture_settings_and_offline_html(tmp_path):
             browser.close()
     finally:
         sessions.pop(editor.session_id,None)
+
+
+def test_water_removes_gpu_instances_and_tracks_signed_replicas():
+    positions=[]
+    for x in range(5):
+        for y in range(5):
+            for z in range(4):
+                p=np.array([x*2.8,y*2.8,z*2.8]);positions.extend([p,p+[.957,0,0],p+[-.24,.93,0]])
+    atoms=Atoms('OH2'*100+'Na',positions=[*positions,[7,7,13]],cell=[15,15,15],pbc=True)
+    atoms.new_array('mol',np.array([i for i in range(1,101) for _ in range(3)]+[0]))
+    editor=view(atoms,notebook=True,block=False,port=find_free_port(),viz_only=True,close_on_disconnect=False)
+    try:
+        with sync_playwright() as p:
+            browser=p.chromium.launch(headless=True);page=browser.new_page()
+            page.goto(editor.url);page.wait_for_function('window.__ASE_APP__?.renderer?.atomInstanceRefs?.size===301')
+            result=page.evaluate('''() => {
+                const a=window.__ASE_APP__,r=a.renderer;
+                const draw=()=>r.renderScientificScene(r.camera);
+                const counts=()=>({atoms:[...r.atomInstanceMeshes].reduce((s,m)=>s+m.count,0),
+                    replicas:r.supercellGroup.children.filter(m=>m.userData.supercellInstanced).reduce((s,m)=>s+m.count,0),
+                    bonds:r.bondGroup.children.filter(m=>m.isInstancedMesh).reduce((s,m)=>s+m.count,0)});
+                const cfg={enabled:true};r.setDisplayOptions({waterSurface:cfg});draw();
+                const first=counts(),builds=r.waterLayer.builds,initial=r.waterLayer.mesh.geometry.attributes.position.array.slice();
+                r.camera.position.x+=1;draw();draw();
+                const cameraBuilds=r.waterLayer.builds;
+                r.setDisplayOptions({waterSurface:{...cfg,color:'#aaffcc'}});draw();
+                const colorBuilds=r.waterLayer.builds;
+                r.setDisplayOptions({waterSurface:{...cfg,smoothing:.5,spacing:1.5}});draw();
+                const failed={...r.waterLayer.report},restoredAfterError=counts();
+                r.setDisplayOptions({waterSurface:cfg});draw();
+                const recovered={...r.waterLayer.report};
+                r.setDisplayOptions({supercell:[3,1,1]});draw();
+                const repeated=counts(),report={...r.waterLayer.report};
+                const x=Array.from(r.waterLayer.mesh.geometry.attributes.position.array).filter((_,i)=>i%3===0);
+                const mesh=r.supercellGroup.children.find(m=>m.userData.supercellInstanced&&m.count);
+                const picked=r.supercellAtomReference(mesh,0);
+                const moved=r.currentPositions();for(const p of moved)p[2]+=.2;r.updatePositions(moved);draw();
+                const afterMove=counts();
+                const flat=moved.flat().map((v,i)=>i%3===2?v+.2:v);
+                r.updatePositionsFlat(flat);draw();const afterFlat=counts();
+                // Hide only the base O: two visible periodic instances must survive.
+                r.setDisplayOptions({hiddenAtomReferences:['atom:0']});draw();
+                const hiddenBase={...r.waterLayer.report};
+                r.setDisplayOptions({waterSurface:{enabled:false},hiddenAtomReferences:[]});draw();
+                return {first,builds,cameraBuilds,colorBuilds,failed,restoredAfterError,recovered,repeated,report,min:Math.min(...x),max:Math.max(...x),picked,afterMove,afterFlat,hiddenBase,restored:counts()};
+            }''')
+            assert result['first']=={'atoms':1,'replicas':0,'bonds':0}
+            assert result['cameraBuilds']==result['builds']==result['colorBuilds']
+            assert 'too large' in result['failed']['error']
+            assert result['restoredAfterError']['atoms']==301
+            assert result['recovered']['molecules']==100 and result['recovered']['triangles']>0
+            assert result['repeated']['atoms']==1 and result['repeated']['replicas']==2
+            assert result['report']['displayedMolecules']==300
+            assert result['min'] < -15 and result['max'] > 26
+            assert result['picked']['index']==300
+            assert result['afterMove']==result['afterFlat']==result['repeated']
+            assert result['hiddenBase']['displayedMolecules']==299
+            assert result['restored']['atoms']==301 and result['restored']['replicas']==602
+            browser.close()
+    finally:
+        editor.close()
+
+
+def test_streaming_molecule_topology_is_current_when_enabling_mid_trajectory():
+    frames=water_frames()
+    # Same element/label/position layout, different authoritative topology.
+    frames[1].arrays['mol'][:6]=1
+    class Source:
+        natoms=7
+        frame_count=2
+        cells=np.array([a.cell.array for a in frames])
+        pbc=np.array([a.pbc for a in frames])
+        def read_atoms(self, index): return frames[index].copy()
+        def read_positions(self, index): return frames[index].positions.copy()
+    editor=view(frames[0],trajectory_source=Source(),notebook=True,block=False,
+                port=find_free_port(),viz_only=True,close_on_disconnect=False)
+    try:
+        with sync_playwright() as p:
+            browser=p.chromium.launch(headless=True);page=browser.new_page()
+            page.goto(editor.url);page.wait_for_function('window.__ASE_APP__?.state?.atoms?.positions?.length===7')
+            result=page.evaluate('''async() => {
+                const a=window.__ASE_APP__,r=a.renderer;
+                await a.loadFrame(1); // Water is off while scrubbing.
+                const ids=[...a.state.atoms.molecule_ids];
+                r.setDisplayOptions({waterSurface:{enabled:true}});r.renderScientificScene(r.camera);
+                const nonwater={...r.waterLayer.report};
+                await a.loadFrame(0);r.renderScientificScene(r.camera);
+                const water={...r.waterLayer.report};
+                return {ids,nonwater,water,binary:a.state.atoms.metadata.trajectory_positions_binary};
+            }''')
+            assert result['ids']==[1,1,1,1,1,1,0]
+            assert result['nonwater']['molecules']==0
+            assert result['water']['molecules']==2
+            assert result['binary'] is False
+            browser.close()
+    finally:
+        editor.close()

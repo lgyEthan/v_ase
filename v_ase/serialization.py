@@ -103,6 +103,20 @@ def _element_visual_defaults():
     return colors, radii
 
 
+def molecule_id_payload(atoms):
+    """JSON-safe positive molecule grouping; zero is an unassigned site."""
+    for key in ("mol", "molecule_id", "molecule_ids", "molid", "mol-id"):
+        values = atoms.arrays.get(key)
+        if values is None:
+            continue
+        values = np.asarray(values)
+        if (values.shape == (len(atoms),) and values.dtype.kind in "iu"
+                and np.all(values >= 0) and np.all(values <= 2**53 - 1)):
+            return {"molecule_ids": values.tolist(), "molecule_id_source": key}
+
+    return {}
+
+
 def atoms_to_json(atoms):
     """
     Rich serialization of ASE Atoms for professional visualization.
@@ -160,6 +174,8 @@ def atoms_to_json(atoms):
             "calculator": atoms.calc.__class__.__name__ if atoms.calc else None,
         }
     }
+
+    data.update(molecule_id_payload(atoms))
 
     # Extract constraints
     for c in atoms.constraints:

@@ -2,6 +2,10 @@
 
 ## Unreleased — water-surface experiment
 
+- Optimize experimental water surfaces for large structures: use stored molecule
+  IDs, shared boundary vertices, signed periodic repetitions and removal of
+  replaced atom/bond GPU instances. Camera and material changes reuse geometry.
+
 - Add an optional H₂O density envelope with captured oxygen scopes, color,
   opacity, lighting, smoothing and bounded preview quality.
 - Use the same coordinate-derived surface in trajectories, images, movies/GIF

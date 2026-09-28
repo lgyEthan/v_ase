@@ -39,21 +39,65 @@ export function detectWater(atoms, options={}) {
     const cfg=normalizeWater(options), pos=atoms?.positions||[];
     const elements=atoms?.chemical_symbols || atoms?.symbols || [];
     const basis=periodicBasis(atoms?.cell,atoms?.pbc);
+    const assigned=new Set(),explicit=[],ids=atoms?.molecule_ids;
+    const close=(a,b)=>{
+        const delta=sub(a,b);
+        if(!basis)return dot(delta,delta)<cfg.ohCutoff**2;
+        const f=basis.reciprocal.map(v=>dot(delta,v));
+        // Reciprocal-vector norms bound every lattice image inside the cutoff,
+        // including skew cells; do not assume +/- one image is sufficient.
+        const nearest=f.map((v,d)=>basis.pbc[d]?Math.round(v):0);
+        const candidate=delta.map((v,k)=>v-nearest.reduce((sum,n,d)=>sum+n*basis.cell[d][k],0));
+        if(dot(candidate,candidate)<cfg.ohCutoff**2)return true;
+        const ranges=f.map((v,d)=>{
+            if(!basis.pbc[d])return [0,0];
+            const margin=cfg.ohCutoff*Math.hypot(...basis.reciprocal[d])+1e-9;
+            return [Math.ceil(v-margin),Math.floor(v+margin)];
+        });
+        if(ranges.reduce((n,[lo,hi])=>n*Math.max(0,hi-lo+1),1)>4096)throw new Error('Periodic cell is too skew or too small for bounded water neighbour validation. Reduce the cell basis first.');
+        for(let a=ranges[0][0];a<=ranges[0][1];a++)for(let b=ranges[1][0];b<=ranges[1][1];b++)for(let c=ranges[2][0];c<=ranges[2][1];c++){
+            const q=delta.map((v,k)=>v-a*basis.cell[0][k]-b*basis.cell[1][k]-c*basis.cell[2][k]);
+            if(dot(q,q)<cfg.ohCutoff**2)return true;
+        }
+        return false;
+    };
+    if(Array.isArray(ids)&&ids.length===elements.length){
+        const groups=new Map();
+        for(let i=0;i<ids.length;i++)if(Number.isSafeInteger(ids[i])&&ids[i]>0){
+            if(!groups.has(ids[i]))groups.set(ids[i],[]);groups.get(ids[i]).push(i);
+        }
+        for(const group of groups.values()){
+            // A declared molecule is authoritative. Never borrow a neighbouring
+            // molecule's H or mistake surface hydroxyls for water.
+            group.forEach(i=>assigned.add(i));
+            if(group.length!==3)continue;
+            const os=group.filter(i=>elements[i]==='O'),hs=group.filter(i=>elements[i]==='H');
+            if(os.length===1&&hs.length===2&&group.every(i=>pos[i]?.length===3&&pos[i].every(Number.isFinite))
+                &&hs.every(h=>close(pos[os[0]],pos[h])))explicit.push({oxygen:os[0],hydrogens:hs,position:[...pos[os[0]]]});
+        }
+    }
     const oxygens=[], hydrogens=[];
     for(let i=0;i<elements.length;i++){
-        if(pos[i]?.length!==3||!pos[i].every(Number.isFinite))continue;
+        if(assigned.has(i)||pos[i]?.length!==3||!pos[i].every(Number.isFinite))continue;
         if(elements[i]==='O')oxygens.push(i);
         if(elements[i]==='H')hydrogens.push(i);
     }
-    const step=cfg.ohCutoff, bins=new Map(), wrapped=new Map();
+    const step=cfg.ohCutoff, bins=new Map();
     const key=p=>p.map(x=>Math.floor(x/step)).join(',');
+    // Wrapped fractional differences lie in (-1, 1). Reciprocal norms bound
+    // all image shifts that could be within the cutoff, even for unreduced cells.
+    const reach=[0,1,2].map(d=>basis?.pbc[d]?Math.max(1,Math.ceil(step*Math.hypot(...basis.reciprocal[d]))):0);
+    const imageCount=reach.reduce((n,r)=>n*(2*r+1),1);
+    if(oxygens.length && (imageCount>4096 || imageCount*oxygens.length>2000000)) {
+        throw new Error('Periodic water neighbour search exceeds its image budget. Reduce the cell basis or provide molecule IDs.');
+    }
     const shifts=[[]];
-    for(let d=0;d<3;d++) {
+    if(oxygens.length)for(let d=0;d<3;d++) {
         const prior=shifts.splice(0);
-        for(const s of prior)for(const n of basis?.pbc[d]?[-1,0,1]:[0])shifts.push([...s,n]);
+        for(const s of prior)for(let n=-reach[d];n<=reach[d];n++)shifts.push([...s,n]);
     }
     for(const i of oxygens){
-        const p=wrap(pos[i],basis);wrapped.set(i,p);
+        const p=wrap(pos[i],basis);
         for(const shift of shifts){
             const q=p.map((v,k)=>v+(basis?shift.reduce((s,x,d)=>s+x*basis.cell[d][k],0):0));
             const k=key(q);if(!bins.has(k))bins.set(k,[]);bins.get(k).push([i,q]);
@@ -71,95 +115,104 @@ export function detectWater(atoms, options={}) {
         }
         if(best>=0)attached.get(best).push(h);
     }
-    const scope=new Set(cfg.indices), molecules=[];
+    const scope=new Set(cfg.indices), molecules=explicit.filter(m=>cfg.source==='auto'||scope.has(m.oxygen));
     for(const o of oxygens){
         const hs=attached.get(o);
         if(hs.length===2&&(cfg.source==='auto'||scope.has(o)))molecules.push({oxygen:o,hydrogens:hs,position:[...pos[o]]});
     }
     return {molecules, indices:molecules.flatMap(m=>[m.oxygen,...m.hydrogens]),
-        oxygenCount:oxygens.length, excludedOxygens:oxygens.length-molecules.length};
+        oxygenCount:elements.filter(s=>s==='O').length, excludedOxygens:elements.filter(s=>s==='O').length-molecules.length, topologyMolecules:explicit.length, method:assigned.size?'molecule IDs + unassigned geometry':'geometry'};
 }
 
-// Reuse bounded scratch storage across synchronous builds; returned buffers are owned copies.
-let geometryScratch=null;
-const TETS=[[0,5,1,6],[0,1,2,6],[0,2,3,6],[0,3,7,6],[0,7,4,6],[0,4,5,6]];
+// Surface nets: one shared vertex per boundary voxel, two indexed triangles
+// per crossing grid edge. Interior voxels never create geometry.
 const CORNERS=[[0,0,0],[1,0,0],[1,1,0],[0,1,0],[0,0,1],[1,0,1],[1,1,1],[0,1,1]];
+const scratch={};
+function buffer(name,Type,length){
+    if(!scratch[name]||scratch[name].length<length)scratch[name]=new Type(length);
+    return scratch[name].subarray(0,length);
+}
+const EDGES=[[0,1],[1,2],[2,3],[3,0],[4,5],[5,6],[6,7],[7,4],[0,4],[1,5],[2,6],[3,7]];
 export function buildWaterGeometry(centers, options={}) {
-    const cfg=normalizeWater(options);
-    if(!centers.length)return {positions:new Float32Array(),normals:new Float32Array(),gridPoints:0,spacing:cfg.spacing};
-    if(centers.length>20000)throw new Error('Water preview supports up to 20,000 displayed molecules. Reduce the scope or repetitions.');
-    const pad=3*cfg.smoothing;
-    const lo=[Infinity,Infinity,Infinity], hi=[-Infinity,-Infinity,-Infinity];
-    for(const p of centers)for(let d=0;d<3;d++){if(!Number.isFinite(p[d]))throw new Error('Invalid water position.');lo[d]=Math.min(lo[d],p[d]-pad);hi[d]=Math.max(hi[d],p[d]+pad);}
-    let step=cfg.spacing, dims, origin;
-    // Keep the lattice world-anchored; moving the cloud must not move every voxel.
-    for(let retry=0;retry<40;retry++){
-        origin=lo.map(x=>Math.floor(x/step)*step);
-        dims=hi.map((x,d)=>Math.ceil((x-origin[d])/step)+2);
-        if(dims.every(n=>n<=128)&&dims.reduce((a,b)=>a*b,1)<=300000
-            && centers.length*(2*Math.ceil(pad/step)+1)**3<=20000000)break;
+    const cfg=normalizeWater(options), empty=()=>({positions:new Float32Array(),normals:new Float32Array(),indices:new Uint32Array(),gridPoints:0,spacing:cfg.spacing});
+    if(!centers.length)return empty();
+    if(centers.length>500000)throw new Error('Water surface exceeds 500,000 displayed molecules. Reduce repetitions or source scope.');
+    const pad=3*cfg.smoothing,lo=[Infinity,Infinity,Infinity],hi=[-Infinity,-Infinity,-Infinity];
+    for(const p of centers)for(let d=0;d<3;d++){
+        if(!Number.isFinite(p[d]))throw new Error('Invalid water position.');
+        lo[d]=Math.min(lo[d],p[d]-pad);hi[d]=Math.max(hi[d],p[d]+pad);
+    }
+    let step=cfg.spacing,dims,origin;
+    // The world-anchored lattice and deterministic budget keep repeated samples stable.
+    for(let retry=0;retry<60;retry++){
+        // Keep a zero-valued guard band around truncated kernels, including
+        // low thresholds/high local density; no boundary face can be clipped.
+        origin=lo.map(x=>(Math.floor(x/step)-3)*step);
+        dims=hi.map((x,d)=>Math.ceil((x-origin[d])/step)+4);
+        if(dims.every(n=>n<=512)&&dims.reduce((a,b)=>a*b,1)<=1200000
+            &&centers.length*(2*Math.ceil(pad/step)+1)**3<=120000000)break;
         step*=1.15;
     }
-    if(step>cfg.smoothing*1.25)throw new Error('Water extent/density is too large for a resolved preview. Reduce source scope or repetitions.');
-    const [nx,ny,nz]=dims, size=nx*ny*nz;
-    if(!Number.isFinite(size)||size>300000)throw new Error('Water surface grid exceeds the preview budget.');
-    const field=new Float32Array(size), idx=(x,y,z)=>x+nx*(y+ny*z), r=Math.ceil(pad/step);
-    const inv=1/(2*cfg.smoothing*cfg.smoothing);
+    if(step>cfg.smoothing*2)throw new Error('Water extent is too large for a resolved surface. Reduce repetitions or source scope.');
+    const [nx,ny,nz]=dims,plane=nx*ny,size=plane*nz;
+    if(!Number.isFinite(size)||size>1200000)throw new Error('Water surface grid exceeds the memory budget.');
+    const field=buffer('field',Float32Array,size);field.fill(0);
+    const r=Math.ceil(pad/step),inv=1/(2*cfg.smoothing**2);
+    const ex=new Float32Array(nx),ey=new Float32Array(ny),ez=new Float32Array(nz);
     for(const p of centers){
-        const q=p.map((v,d)=>(v-origin[d])/step), c=q.map(Math.round);
-        const start=c.map(v=>Math.max(0,v-r)), end=c.map((v,d)=>Math.min(dims[d]-1,v+r));
-        const ex=[],ey=[],ez=[];
-        for(let x=start[0];x<=end[0];x++)ex[x]=Math.exp(-(((x-q[0])*step)**2)*inv);
-        for(let y=start[1];y<=end[1];y++)ey[y]=Math.exp(-(((y-q[1])*step)**2)*inv);
-        for(let z=start[2];z<=end[2];z++)ez[z]=Math.exp(-(((z-q[2])*step)**2)*inv);
-        for(let z=start[2];z<=end[2];z++)for(let y=start[1];y<=end[1];y++){
-            const yz=ey[y]*ez[z], offset=idx(0,y,z);
-            for(let x=start[0];x<=end[0];x++)field[offset+x]+=ex[x]*yz;
+        const qx=(p[0]-origin[0])/step,qy=(p[1]-origin[1])/step,qz=(p[2]-origin[2])/step;
+        const x0=Math.max(0,Math.round(qx)-r),x1=Math.min(nx-1,Math.round(qx)+r);
+        const y0=Math.max(0,Math.round(qy)-r),y1=Math.min(ny-1,Math.round(qy)+r);
+        const z0=Math.max(0,Math.round(qz)-r),z1=Math.min(nz-1,Math.round(qz)+r);
+        for(let x=x0;x<=x1;x++)ex[x]=Math.exp(-(((x-qx)*step)**2)*inv);
+        for(let y=y0;y<=y1;y++)ey[y]=Math.exp(-(((y-qy)*step)**2)*inv);
+        for(let z=z0;z<=z1;z++)ez[z]=Math.exp(-(((z-qz)*step)**2)*inv);
+        for(let z=z0;z<=z1;z++)for(let y=y0;y<=y1;y++){
+            const yz=ey[y]*ez[z],offset=nx*y+plane*z;
+            for(let x=x0;x<=x1;x++)field[offset+x]+=ex[x]*yz;
         }
     }
-    const scratch=geometryScratch ||= {positions:new Float32Array(1800000),normals:new Float32Array(1800000)};
-    const {positions,normals}=scratch, iso=cfg.level, gradient=new Map();
-    let used=0;
-    const grad=(id,x,y,z)=>{
-        if(gradient.has(id))return gradient.get(id);
-        const at=(a,b,c)=>field[idx(Math.max(0,Math.min(nx-1,a)),Math.max(0,Math.min(ny-1,b)),Math.max(0,Math.min(nz-1,c)))];
-        const g=[at(x-1,y,z)-at(x+1,y,z),at(x,y-1,z)-at(x,y+1,z),at(x,y,z-1)-at(x,y,z+1)];
-        gradient.set(id,g);return g;
-    };
-    const triangle=(a,b,c)=>{
-        if(dot(cross(sub(b.p,a.p),sub(c.p,a.p)),a.n)<0)[b,c]=[c,b];
-        if(used+9>positions.length)throw new Error('Water surface exceeds 200,000 triangles. Increase grid spacing.');
-        for(const v of [a,b,c])for(let d=0;d<3;d++){positions[used]=v.p[d];normals[used++]=v.n[d];}
-    };
-    for(let z=0;z<nz-1;z++)for(let y=0;y<ny-1;y++)for(let x=0;x<nx-1;x++){
-        const base=idx(x,y,z), plane=nx*ny;
-        const v0=field[base],v1=field[base+1],v2=field[base+nx+1],v3=field[base+nx],
-            v4=field[base+plane],v5=field[base+plane+1],v6=field[base+plane+nx+1],v7=field[base+plane+nx];
-        const mask=(v0>=iso?1:0)|(v1>=iso?2:0)|(v2>=iso?4:0)|(v3>=iso?8:0)|(v4>=iso?16:0)|(v5>=iso?32:0)|(v6>=iso?64:0)|(v7>=iso?128:0);
+    const cells=buffer('cells',Int32Array,size);cells.fill(-1);
+    // Bounds derive from grid allocation, not molecule count. No per-vertex JS objects.
+    const positions=buffer('positions',Float32Array,size*3),normals=buffer('normals',Float32Array,size*3);
+    const offsets=[0,1,nx+1,nx,plane,plane+1,plane+nx+1,plane+nx],values=new Float32Array(8);
+    const iso=cfg.level;let vertices=0;
+    for(let z=1;z<nz-2;z++)for(let y=1;y<ny-2;y++)for(let x=1;x<nx-2;x++){
+        const base=x+nx*y+plane*z;let mask=0;
+        for(let i=0;i<8;i++){values[i]=field[base+offsets[i]];if(values[i]>=iso)mask|=1<<i;}
         if(mask===0||mask===255)continue;
-        const ids=[base,base+1,base+nx+1,base+nx,base+plane,base+plane+1,base+plane+nx+1,base+plane+nx];
-        const values=[v0,v1,v2,v3,v4,v5,v6,v7];
-        const edges=new Map();
-        const vertex=(a,b)=>{
-            const key=a<b?a*8+b:b*8+a;if(edges.has(key))return edges.get(key);
-            const t=(iso-values[a])/(values[b]-values[a]);
-            const ca=CORNERS[a], cb=CORNERS[b];
-            const ga=grad(ids[a],x+ca[0],y+ca[1],z+ca[2]), gb=grad(ids[b],x+cb[0],y+cb[1],z+cb[2]);
-            const n=ga.map((v,d)=>v+(gb[d]-v)*t), length=Math.hypot(...n)||1;
-            const v={p:ca.map((v,d)=>origin[d]+([x,y,z][d]+v+(cb[d]-v)*t)*step),n:n.map(v=>v/length)};
-            edges.set(key,v);return v;
-        };
-        for(const tet of TETS){
-            const inside=tet.filter(i=>values[i]>=iso), outside=tet.filter(i=>values[i]<iso);
-            if(inside.length===1||inside.length===3){
-                const one=inside.length===1?inside:outside, many=inside.length===1?outside:inside;
-                triangle(...many.map(i=>vertex(one[0],i)));
-            } else if(inside.length===2){
-                const [a,b]=inside,[c,d]=outside;
-                const ac=vertex(a,c),ad=vertex(a,d),bd=vertex(b,d),bc=vertex(b,c);
-                triangle(ac,ad,bd);triangle(ac,bd,bc);
-            }
+        let px=0,py=0,pz=0,gx=0,gy=0,gz=0,crossings=0;
+        for(const [a,b] of EDGES){
+            if((values[a]>=iso)===(values[b]>=iso))continue;
+            const t=(iso-values[a])/(values[b]-values[a]),ca=CORNERS[a],cb=CORNERS[b];
+            px+=ca[0]+(cb[0]-ca[0])*t;py+=ca[1]+(cb[1]-ca[1])*t;pz+=ca[2]+(cb[2]-ca[2])*t;
+            const ia=base+offsets[a],ib=base+offsets[b];
+            gx+=(field[ia-1]-field[ia+1])*(1-t)+(field[ib-1]-field[ib+1])*t;
+            gy+=(field[ia-nx]-field[ia+nx])*(1-t)+(field[ib-nx]-field[ib+nx])*t;
+            gz+=(field[ia-plane]-field[ia+plane])*(1-t)+(field[ib-plane]-field[ib+plane])*t;
+            crossings++;
         }
+        const id=vertices++,o=id*3,length=Math.hypot(gx,gy,gz)||1;cells[base]=id;
+        positions[o]=origin[0]+(x+px/crossings)*step;
+        positions[o+1]=origin[1]+(y+py/crossings)*step;
+        positions[o+2]=origin[2]+(z+pz/crossings)*step;
+        normals[o]=gx/length;normals[o+1]=gy/length;normals[o+2]=gz/length;
     }
-    return {positions:positions.slice(0,used),normals:normals.slice(0,used),gridPoints:size,spacing:step};
+    const indices=buffer('indices',Uint32Array,vertices*18);let used=0;
+    const quad=(a,b,c,d)=>{
+        if(a<0||b<0||c<0||d<0)return;
+        const ao=a*3,bo=b*3,co=c*3;
+        const ux=positions[bo]-positions[ao],uy=positions[bo+1]-positions[ao+1],uz=positions[bo+2]-positions[ao+2];
+        const vx=positions[co]-positions[ao],vy=positions[co+1]-positions[ao+1],vz=positions[co+2]-positions[ao+2];
+        if((uy*vz-uz*vy)*normals[ao]+(uz*vx-ux*vz)*normals[ao+1]+(ux*vy-uy*vx)*normals[ao+2]<0)[b,d]=[d,b];
+        indices[used++]=a;indices[used++]=b;indices[used++]=c;
+        indices[used++]=a;indices[used++]=c;indices[used++]=d;
+    };
+    for(let z=1;z<nz-2;z++)for(let y=1;y<ny-2;y++)for(let x=1;x<nx-2;x++){
+        const i=x+nx*y+plane*z,inside=field[i]>=iso;
+        if(inside!==(field[i+1]>=iso))quad(cells[i],cells[i-nx],cells[i-nx-plane],cells[i-plane]);
+        if(inside!==(field[i+nx]>=iso))quad(cells[i],cells[i-plane],cells[i-plane-1],cells[i-1]);
+        if(inside!==(field[i+plane]>=iso))quad(cells[i],cells[i-1],cells[i-1-nx],cells[i-nx]);
+    }
+    return {positions:positions.slice(0,vertices*3),normals:normals.slice(0,vertices*3),indices:indices.slice(0,used),gridPoints:size,spacing:step};
 }

@@ -30,7 +30,7 @@ from .session import (
     sessions,
     workspaces,
 )
-from .serialization import atoms_to_json
+from .serialization import atoms_to_json, molecule_id_payload
 from .project_files import (
     bind_project_source,
     current_project_binding,
@@ -38,6 +38,7 @@ from .project_files import (
 )
 from .websocket_manager import ws_manager
 from .io import (
+    FastLammpsDumpTrajectory,
     atom_labels,
     base_symbol_for_atom_type,
     infer_input_format,
@@ -391,11 +392,15 @@ def trajectory_layout_compatible(session: EditorSession) -> bool:
     natoms = len(session.working_atoms)
     base_labels = atom_labels(session.working_atoms)
     base_numbers = session.working_atoms.numbers
+    base_molecules = molecule_id_payload(session.working_atoms).get("molecule_ids")
     base_cell = np.asarray(session.working_atoms.cell.array)
     base_pbc = np.asarray(session.working_atoms.pbc, dtype=bool)
     base_origin = np.asarray(session.working_atoms.get_celldisp()).reshape(3)
     for frame in session.trajectory_frames:
         if len(frame) != natoms:
+            session._trajectory_layout_compatible = False
+            return False
+        if molecule_id_payload(frame).get("molecule_ids") != base_molecules:
             session._trajectory_layout_compatible = False
             return False
         if atom_labels(frame) != base_labels:
@@ -549,12 +554,24 @@ def session_atoms_to_json(session: EditorSession, include_inline_trajectory: boo
         if include_inline_trajectory
         else None
     )
+    source = session.trajectory_source
+    molecular_source = bool(source is not None and (
+        getattr(source, "mol_column", None) is not None
+        or type(source).__name__ == "IndexedAseTrajectory"
+        or molecule_id_payload(session.working_atoms)))
+    if isinstance(source, FastLammpsDumpTrajectory):
+        # This reader enforces a fixed type/element sequence. If H2O cannot
+        # occur, preserve its existing binary cache regardless of mol columns.
+        numbers = session.working_atoms.numbers
+        molecular_source = molecular_source and bool(np.any(numbers == 8) and np.count_nonzero(numbers == 1) >= 2)
+    data["metadata"]["water_molecule_topology_dynamic"] = molecular_source
     data["metadata"]["trajectory_positions_cached"] = trajectory_positions is not None
     data["metadata"]["trajectory_identity_compatible"] = trajectory_identity_compatible(session)
     if trajectory_positions is not None:
         data["trajectory_positions"] = trajectory_positions
     data["metadata"]["trajectory_positions_binary"] = (
         not data["metadata"]["trajectory_streaming"]
+        and not data["metadata"]["water_molecule_topology_dynamic"]
         and trajectory_positions is None
         and session.frame_count > 1
         and session.frame_count * len(session.working_atoms) * 3 <= MAX_BINARY_TRAJECTORY_CACHE_VALUES
@@ -4547,6 +4564,7 @@ async def set_frame(session_id: str, payload: Dict[str, Any]):
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if session.trajectory_source is not None:
         return {
+            **molecule_id_payload(session.working_atoms),
             "positions": session.working_atoms.get_positions().astype(float).tolist(),
             "cell": np.asarray(session.working_atoms.cell.array, dtype=float).tolist(),
             "cell_origin": np.asarray(session.working_atoms.get_celldisp()).reshape(3).tolist(),

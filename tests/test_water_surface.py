@@ -48,7 +48,9 @@ assert.throws(()=>normalizeWater({spacing:0}));assert.throws(()=>normalizeWater(
 def test_water_isosurface_has_physical_extent_finite_outward_normals():
     node_check("""
 const origin=[3,4,5], result=buildWaterGeometry([origin],{spacing:.3});
-assert.ok(result.positions.length>500);assert.equal(result.positions.length%9,0);
+assert.ok(result.positions.length>500);assert.equal(result.indices.length%3,0);
+assert.ok(result.positions.length<result.indices.length*3);
+assert.ok(Array.from(result.indices).every(i=>i<result.positions.length/3));
 const expected=1.45*Math.sqrt(-2*Math.log(.65));
 for(let i=0;i<result.positions.length;i+=3){
  const p=[0,1,2].map(d=>result.positions[i+d]-origin[d]),n=Array.from(result.normals.slice(i,i+3));
@@ -58,7 +60,7 @@ for(let i=0;i<result.positions.length;i+=3){
 }
 assert.equal(buildWaterGeometry([]).positions.length,0);
 assert.throws(()=>buildWaterGeometry([[NaN,0,0]]));
-assert.throws(()=>buildWaterGeometry(Array(20001).fill([0,0,0])));
+assert.throws(()=>buildWaterGeometry(Array(500001).fill([0,0,0])));
 """)
 
 
@@ -80,3 +82,58 @@ def test_geometry_exports_do_not_silently_omit_water():
     for export in (export_3dm_response, export_obj_response, export_blender_response):
         with pytest.raises(ValueError, match='water surface is not supported'):
             export(None, {'display': {'waterSurface': {'enabled': True}}})
+
+
+def test_explicit_molecules_prevent_neighbour_hydrogen_theft_and_serialize():
+    from v_ase.serialization import atoms_to_json
+    atoms=Atoms('OH2OH2', positions=[[0,0,0],[1,0,0],[0,1,0], [.5,.5,0],[1.5,.5,0],[.5,1.5,0]])
+    atoms.new_array('mol',np.array([1,1,1,2,2,2]))
+    data=atoms_to_json(atoms)
+    assert data['molecule_ids']==[1,1,1,2,2,2]
+    assert data['molecule_id_source']=='mol'
+    node_check('const a='+json.dumps(data)+"; const d=detectWater(a);assert.equal(d.molecules.length,2);assert.equal(d.topologyMolecules,2);")
+
+
+def test_large_indexed_boundary_is_closed_and_repeatable():
+    node_check("""
+const centers=[];for(let x=0;x<24;x++)for(let y=0;y<24;y++)for(let z=0;z<24;z++)centers.push([x*2.8,y*2.8,z*2.8]);
+const g=buildWaterGeometry(centers),h=buildWaterGeometry(centers);
+assert.equal(g.positions.length,h.positions.length);assert.deepEqual(g.indices,h.indices);
+assert.ok(g.indices.length>0);assert.ok(g.gridPoints<=1200000);
+assert.ok(g.positions.length/3<centers.length*6);
+// A closed density boundary has exactly two incident faces on every mesh edge.
+const edges=new Map();for(let i=0;i<g.indices.length;i+=3)for(let k=0;k<3;k++){
+ const a=g.indices[i+k],b=g.indices[i+(k+1)%3],key=Math.min(a,b)+','+Math.max(a,b);
+ edges.set(key,(edges.get(key)||0)+1);
+}
+assert.ok([...edges.values()].every(n=>n===2));
+""")
+
+
+def test_changed_molecule_ids_disable_coordinate_only_trajectory_cache():
+    from v_ase.server import trajectory_layout_compatible
+    a=Atoms('OH2OH2', positions=np.zeros((6,3)));a.new_array('mol',np.array([1,1,1,2,2,2]))
+    b=a.copy();b.arrays['mol'][:]=1
+    session=EditorSession('water-changing-topology',a.copy(),a.copy(),trajectory_frames=[a,b])
+    assert trajectory_layout_compatible(session) is False
+
+
+def test_dense_low_threshold_envelope_has_no_clipped_boundary():
+    node_check("""
+const g=buildWaterGeometry(Array.from({length:100},()=>[0,0,0]),{level:.1});
+const edges=new Map();for(let i=0;i<g.indices.length;i+=3)for(let k=0;k<3;k++){
+ const a=g.indices[i+k],b=g.indices[i+(k+1)%3],key=Math.min(a,b)+','+Math.max(a,b);
+ edges.set(key,(edges.get(key)||0)+1);
+}
+assert.ok(edges.size>0);assert.ok([...edges.values()].every(n=>n===2));
+""")
+
+
+def test_unreduced_periodic_basis_finds_water_beyond_adjacent_images():
+    node_check("""
+const a={symbols:['O','H','H'],positions:[[0,0,0],[.957,0,0],[-.24,.93,0]],
+ cell:[[10,0,0],[31,2,0],[0,0,10]],pbc:[true,true,true]};
+// Wrapped second H requires the O image at +2*a, not just +/- one cell.
+assert.equal(detectWater(a).molecules.length,1);
+assert.equal(detectWater({...a,molecule_ids:[1,1,1]}).molecules.length,1);
+""")

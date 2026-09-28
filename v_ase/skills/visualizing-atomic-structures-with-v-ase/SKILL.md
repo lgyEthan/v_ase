@@ -272,5 +272,6 @@ procedures are separate from a user's visualization task.
 
 Use `display.waterSurface` through the typed display control to visualize detected
 H₂O as a smooth liquid envelope. Read [water surface](references/water-surface.md)
-for source selection, bounds, live/export parity and limitations. This is a
+for stored molecule IDs, captured source selection, cached surface rendering,
+trajectory topology, bounds, live/export parity and limitations. This is a
 visualization and never generates dynamics or changes atom coordinates.

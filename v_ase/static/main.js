@@ -27482,6 +27482,7 @@ class VAseApp {
                 : null,
             pbc: Array.isArray(this.state.atoms?.pbc) ? [...this.state.atoms.pbc] : [false, false, false],
             chemicalSymbols: [...(this.state.atoms?.chemical_symbols || [])],
+            moleculeIds: [...(this.state.atoms?.molecule_ids || [])],
             cell_origin: [...(this.state.atoms?.cell_origin || [0, 0, 0])],
             labels: [...(this.state.atoms?.symbols || [])]
         };
@@ -27579,6 +27580,9 @@ class VAseApp {
         const sameValues = (a, b) => (
             a.length === b.length && a.every((value, index) => value === b[index])
         );
+        if (this.state.display.waterSurface?.enabled && !sameValues(first.moleculeIds||[], second.moleculeIds||[])) {
+            throw new Error('Water molecule IDs change between frames. Export source frames without interpolation.');
+        }
         if (
             !sameValues(first.chemicalSymbols, second.chemicalSymbols)
             || !sameValues(first.labels, second.labels)
@@ -27928,7 +27932,9 @@ class VAseApp {
             this.invalidateRegistryResult('Trajectory frame changed. Calculate the map for the new frame.');
         }
 
-        if (meta.virtual_trajectory) {
+        // Sources with changing molecular IDs must commit topology and positions
+        // together, even while water is off (it may be enabled on this frame).
+        if (meta.virtual_trajectory && !meta.water_molecule_topology_dynamic) {
             const count = meta.frame_count || 1;
             const normalized = Math.max(0, Math.min(count - 1, parseInt(index, 10) || 0));
             const binaryCache = this.state.trajectoryBinaryCache;
@@ -27998,7 +28004,8 @@ class VAseApp {
             return;
         }
 
-        const binaryCache = this.state.trajectoryBinaryCache || await this.loadTrajectoryCache({ background: false });
+        const binaryCache = meta.water_molecule_topology_dynamic ? null
+            : this.state.trajectoryBinaryCache || await this.loadTrajectoryCache({ background: false });
         if (binaryCache) {
             const count = this.state.atoms.metadata.frame_count || 1;
             const normalized = Math.max(0, Math.min(count - 1, parseInt(index, 10) || 0));
@@ -28024,6 +28031,13 @@ class VAseApp {
 
         const data = await this.api.setFrame(index);
         if (data?.metadata?.positions_only && Array.isArray(data.positions)) {
+            for (const target of new Set([this.state.atoms, this.renderer.atomsData])) {
+                if (!target) continue;
+                for (const key of ['molecule_ids', 'molecule_id_source']) {
+                    if (data[key] === undefined) delete target[key];
+                    else target[key] = data[key];
+                }
+            }
             this.state.atoms.metadata.current_frame = data.metadata.current_frame;
             this.state.atoms.metadata.frame_count = data.metadata.frame_count || this.state.atoms.metadata.frame_count;
             this.state.atoms.positions = data.positions;

@@ -11,12 +11,16 @@ This experiment belongs to `codex/water-surface`; it is not in the published
 
 ## What the surface means
 
-Water is detected from chemical elements, independently of visual labels and bond
-settings: each hydrogen belongs to the nearest oxygen inside the O–H cutoff
-(default 1.25 Å), and oxygen with exactly two assigned hydrogens qualifies.
-Periodic neighbours are considered. This is a geometric heuristic, not a reactive
-chemical species classifier. Hydronium, hydroxide, coarse-grained water and
-heavily dissociated structures need a different model and are not classified as H₂O.
+Water uses the source's positive integer molecule IDs (`mol`, `molecule_id`,
+`molecule_ids`, `molid` or `mol-id`) when present. A declared group must contain exactly one
+O and two H, with both O–H distances inside the chemical cutoff (default 1.25 Å),
+including periodic images. It never borrows H from a neighbouring declared
+molecule. Groups that are not H₂O stay atomistic. IDs are independent of mutable
+visual labels; zero/unassigned IDs fall back to geometric neighbour detection.
+
+Without IDs, each H belongs to its nearest O inside the cutoff; an O with exactly
+two assigned H qualifies. This fallback is a geometric heuristic. Hydronium,
+hydroxide, coarse-grained water and heavily dissociated structures are not H₂O.
 
 The displayed surface is an isosurface of a sum of Gaussian oxygen-centred
 kernels. **Smoothing** is the kernel width in Å; **Density threshold** is a
@@ -36,7 +40,10 @@ reactive simulations.
 
 The surface is regenerated from the coordinates actually drawn, including
 interpolated trajectory/movie samples. A coalesced build at the draw boundary
-keeps the atoms and their water envelope in one render. Changing only camera pose
+keeps the atoms and their water envelope in one render. Stored molecule IDs are
+committed with each frame; sources with changing IDs bypass coordinate-only
+caches, including while the layer is off. Video interpolation rejects changed IDs
+and asks for original source-frame export instead. Changing only camera pose
 reuses geometry. Color/opacity/lighting changes do not rebuild the density grid.
 
 Image and movie/GIF captures use the same surface and Render Area as the viewer.
@@ -51,19 +58,38 @@ omit the water. Disable the surface deliberately to export molecular geometry.
 
 ## Performance and bounds
 
-The experimental implementation uses CPU density reconstruction with GPU surface
-rendering. It does not promise 60 fps for arbitrary datasets. Preview grid spacing
-can adapt to stay within 300,000 samples, 128 samples per axis and a bounded kernel
-work budget; the status line reports the effective spacing. At most 20,000
-molecules including displayed repetitions and 200,000 triangles are accepted.
-Requests that cannot preserve a resolved envelope fail visibly and restore the
-molecular representation. These are allocation guards, not recommended workloads.
+The implementation reconstructs a Gaussian density on the CPU, then creates an
+**indexed boundary mesh**: interior grid cells create no geometry, and adjacent
+surface faces share vertices. Source molecules inside the liquid contribute to
+the density, but their individual sphere and bond instances are removed from the
+GPU draw count when **Replace molecular spheres** is on. Bounded scratch arrays
+are reused across builds to reduce allocation and garbage collection; each mesh
+owns its output buffers, so another frame/document cannot overwrite it. Scientific atom data,
+selection identities and coordinates remain available and return when it is off.
+This also applies to repeated cells and individually hidden instances.
 
-For dense or long trajectories, increase grid spacing or restrict the source.
-The world-anchored lattice avoids moving the whole sampling grid with each molecule.
-Periodic molecular detection and displayed supercells are supported; the outer
-surface is the envelope of the displayed molecules, not a cell-clipped periodic
-continuum. Strongly skew/unreduced cells require further neighbour-image testing.
+Orbit, pan, zoom and color/opacity/light changes reuse the completed mesh. New
+coordinates, molecular topology, source scope, source visibility, shape settings
+or displayed repetitions invalidate it. Trajectory samples must recalculate the
+surface; a static view does not. It does not promise a universal frame rate.
+
+The lattice is world-anchored. Grid spacing adapts to bounded allocation/work:
+1,200,000 samples, 512 per axis, 120,000,000 estimated kernel samples and up to
+500,000 displayed molecules. These are safety limits, not recommended workloads.
+Effective spacing and build time are shown explicitly; an unresolved or excessive
+request fails visibly and restores molecular spheres. There is no old 200,000
+triangle cutoff: index/vertex allocation is bounded by the grid itself.
+
+Repetitions use exactly the renderer's signed cell offsets (for example three
+copies are −1, 0, +1). The surface is reconstructed over the combined visible
+molecules, including cross-cell neighbours, so internal cell seams are not capped
+by duplicating a finished single-cell shell. A hidden base atom does not discard
+its visible replicas. The envelope extends around displayed molecules rather
+than clipping to the simulation cell faces. Source detection with IDs bounds
+periodic images using reciprocal vectors, including the geometric fallback for
+unreduced cells. Geometric detection bounds the image search to 4,096 shifts and
+2,000,000 oxygen image entries; excessive requests fail with a cell-basis or
+molecule-ID remedy rather than silently missing neighbours.
 
 ## Reproducible example
 
@@ -85,28 +111,46 @@ does not implement physically accurate refraction through the fluid.
 
 ## Validation and next integration gate
 
-Evidence collected on 28 September 2026 in this isolated worktree:
+Verification on 2026-09-28: **1,114 full-suite tests passed**, plus a final
+**13-test water-focused run** including the additional unreduced-cell regression.
+The strict Sphinx HTML build, wheel/sdist build and `twine check` passed. The built
+wheel was smoke-checked in a temporary environment sharing installed dependencies;
+this is not a clean published-release installation test. No release was performed.
 
-- Full regression run: 1,103 passed / 5 failed out of 1,108. The failures exposed
-  a missing guide registration, an oversized discovery schema, missing water
-  imports in the documentation runtime, and the old bookmark count. The MCP
-  subprocess check also saw different schema revisions while that run was in
-  progress. All five now pass; the complete affected skill/MCP/docs/editor test
-  modules passed together (**61 passed**). The entire suite was not rerun after
-  those focused fixes.
-- Water-specific unit/browser tests: **6 passed**, including reversible visual
-  history, captured selection scope, exact project-coordinate preservation,
-  changing rendered positions, exact capture dimensions and standalone offline
-  HTML. Offline assertions use the DOM without relaxing its content security policy.
-- Earlier combined HTML, video, project-consistency, typed-AI and water checks:
-  **64 passed**. These overlap the full run and are not additional unique tests.
-- Strict Sphinx HTML build, wheel/sdist build and `twine check` passed. These are
-  local experimental artifacts, not a published version or a desktop installer.
-- The in-app browser visibly rendered the example and played its trajectory.
-  A local Chromium sample of 12 frames reported roughly 22 ms average surface
-  refresh (one sample reused cached geometry); this is not a general frame-rate
-  guarantee. The exported GIF above was inspected visually.
+The large-system revision checks stored molecule topology, closed indexed meshes
+(including dense low-threshold boundaries), real GPU instance counts, cached
+camera/material changes, signed repetitions, replica picking, per-instance
+visibility, streamed topology changes and recovery after a rejected surface.
 
+On a supplied **52,272-atom snapshot containing 13,560 water molecules**, all
+13,560 declared H₂O groups were recognized. The previous nearest-neighbour-only
+prototype missed 48 groups. With replacement enabled, 40,680 individual water
+atom instances were excluded: only 11,592 non-water atom instances remained.
+The entire scene's submitted triangles fell from approximately **13.92 million
+to 4.25 million** (69%). This is actual draw-count reduction, not zero-radius
+spheres still submitted to the GPU. The surface itself used about 303,000
+triangles and 151,000 shared vertices; observed browser builds took roughly
+110–125 ms.
+
+A **2 × 1 × 1** displayed supercell produced an envelope from all 27,120 visible
+water molecules. Both base and replicated water sphere instances were omitted;
+non-water atoms and replicas remained. Grid spacing adapted to the larger extent
+and was reported to the user. Camera/material-only changes caused no rebuild.
+Source coordinates were unchanged, with no browser page errors.
+
+At 960 × 640, completed rendering **plus full pixel readback** took median
+1.84 s with the surface and 4.37 s with molecular spheres over three samples
+(first sample included warm-up). This test used **Chromium's SwiftShader software
+renderer**, not the Mac's native GPU: the roughly 2.4× comparison demonstrates
+reduced rendering work, not native FPS or a universal performance guarantee.
+CPU draw-submission timing alone is not used as frame-rate evidence.
+
+The supplied file contains one snapshot. Moving-water coverage therefore uses
+the synthetic 24-frame example and changing-topology browser regressions, not a
+claim that this user's full MD trajectory was tested. The application-exported
+960 × 640 GIF was regenerated and its first/middle frames inspected. Exact-size
+PNG, offline HTML, project round-trip, selection, undo/redo and error recovery are
+also covered. Large real trajectories remain a prerequisite for main integration.
 
 Run `tests/test_water_surface.py`, `tests/test_browser_water_surface.py`, existing
 HTML/video export tests, project consistency and typed AI schema tests. Check real

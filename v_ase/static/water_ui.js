@@ -9,7 +9,7 @@ export function installWaterUI(App){
             if(field(key)&&document.activeElement!==field(key))field(key).value=c[key];
         }
         if(field('selected'))field('selected').hidden=c.source!=='selected';
-        if(field('scope'))field('scope').textContent=c.source==='selected'?`${c.indices.length} captured oxygen indices. Selection changes do not retarget the surface.`:'Detect O with exactly two nearest H inside the chemical cutoff.';
+        if(field('scope'))field('scope').textContent=c.source==='selected'?`${c.indices.length} captured oxygen indices. Selection changes do not retarget the surface.`:'Use stored molecule IDs when available; otherwise detect O with two nearest H. The O–H cutoff validates both.';
         if(field('roughness'))field('roughness').disabled=!c.lighting||this.renderer.atomDisplayMode()==='2d';
     };
     p.ensureWaterUI=function(){
@@ -17,7 +17,8 @@ export function installWaterUI(App){
         this.renderer.onWaterSurfaceChange=report=>{
             const status=field('status');if(!status)return;
             status.textContent=report.error||(!this.state.display.waterSurface?.enabled?'Water surface is off.':
-                `${report.molecules||0} H₂O molecules · ${Math.round(report.triangles||0).toLocaleString()} triangles · ${Number(report.buildMs||0).toFixed(0)} ms. `+
+                `${report.molecules||0} H₂O molecules · ${Math.round(report.triangles||0).toLocaleString()} triangles · ${Number(report.buildMs||0).toFixed(0)} ms build. `+
+                (report.topologyMolecules?'Using stored molecule IDs. ':'')+
                 (!report.molecules?'No H₂O found. Check the source and O–H cutoff. ':!report.triangles?'No envelope at this threshold. Lower it or increase smoothing. ':'')+
                 (report.spacing>Number(this.state.display.waterSurface?.spacing||.65)*1.01?`Grid adapted to ${report.spacing.toFixed(2)} Å to stay within the preview budget.`:''));
             status.dataset.error=String(Boolean(report.error));
