@@ -2,6 +2,10 @@
 
 ## 0.4.9
 
+- Clear stale insertion-region guides after finishing placement and exclude them
+  from image/movie exports. Keep semantic isosurface visibility synchronized and
+  remove the previous refined water mesh immediately when its source is empty.
+
 - Keep live atom selection visible independently of scientific-overlay visibility.
   Let Objects → Constraints control fixed, line and plane marks consistently in
   2D/3D, including image/video output.

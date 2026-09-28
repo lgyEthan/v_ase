@@ -42,9 +42,13 @@ def test_water_ui_movie_capture_settings_and_offline_html(tmp_path):
             assert not page.locator('#water-enabled').is_checked()
             page.evaluate('window.__ASE_APP__.performRedo()')
             page.wait_for_function('window.__ASE_APP__.renderer.waterLayer.report.molecules===2')
+            # A refined surface must be discarded when the scope becomes empty.
+            page.evaluate("async()=>{const a=window.__ASE_APP__;a.applyDesignSettings({display:{...a.state.display,waterInterpolation:1}});await a.renderer.prepareSurfaceCapture();}")
             # Capture oxygen indices; future selection must not change the scope.
             page.locator('#water-source').select_option('selected')
             page.wait_for_function('window.__ASE_APP__.renderer.waterLayer.report.molecules===0')
+            assert page.evaluate('window.__ASE_APP__.renderer.waterLayer.mesh.geometry.index.count') == 0
+            assert page.evaluate('window.__ASE_APP__.renderer.waterLayer.report.renderedTriangles') == 0
             page.evaluate('window.__ASE_APP__.applySelectionAction({references:[0],origin:"semantic"})')
             page.locator('#water-selected').click()
             page.wait_for_function('window.__ASE_APP__.renderer.waterLayer.report.molecules===1')

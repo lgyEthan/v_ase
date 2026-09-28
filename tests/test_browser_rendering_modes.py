@@ -998,6 +998,9 @@ def test_volumetric_isosurface_rdf_drawer_csv_and_supercell_roundtrip(
 
                 analyzed = page.evaluate(
                     """async ({datasetId, level}) => {
+                        // Showing an isosurface must restore the renderer flag
+                        // even when it was hidden before the semantic command.
+                        await window.v_aseAI.apply({display:{showVolumetric:false}});
                         await window.v_aseAI.apply({
                             display: {
                                 supercell: [2, 1, 1],
@@ -1032,6 +1035,8 @@ def test_volumetric_isosurface_rdf_drawer_csv_and_supercell_roundtrip(
                         "level": float(np.max(np.abs(values)) * 0.35),
                     },
                 )
+                assert page.evaluate('window.__ASE_APP__.renderer.volumetricGroup.visible')
+                assert page.evaluate('window.__ASE_APP__.aiSceneReadiness().ready')
                 assert analyzed["analysis"]["rdf"]["bins"] == 64
                 assert analyzed["analysis"]["volumetricDatasets"][0] == source_descriptor
                 surface_summary = analyzed["analysis"]["volumetricSurface"]

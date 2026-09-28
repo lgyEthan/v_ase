@@ -886,3 +886,11 @@ GUI and saved trajectory must agree; a successful immediate move is insufficient
 - Enable water and export Blender. Execute in real Blender, inspect its render,
   and scrub across changed topology/no-water frames. Compare its base/refined
   physical mesh to JavaScript, including periodic and hidden source scope.
+
+- After placement relaxation, clear to initial, edit and scale its region, finish,
+  and load a new project. No insertion guides may survive; exporting while guides
+  are active must omit them and restore the interactive preview afterward.
+- Hide a loaded volumetric surface, then enable it through the semantic command.
+  Require visible geometry, ready capture, and an exact-size nonblank PNG.
+- Refine water, then switch to an empty source. Require zero rendered triangles,
+  no stale replacement mesh, and restored atom visibility.

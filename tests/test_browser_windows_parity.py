@@ -108,5 +108,25 @@ def test_inline_placement_relaxation_restores_start_without_removing_added_atoms
         active:window.__ASE_APP__.addAtomsUI.active,kind:document.body.dataset.currentEditorRoute})''')
     np.testing.assert_allclose(result['positions'],result['start'],atol=1e-12)
     assert len(result['positions'])==5 and result['active'] and result['kind']=='add-atoms'
-    page.locator('#btn-add-atoms-cancel').click()
-    page.wait_for_function('window.__ASE_APP__.state.atoms.positions.length===3')
+    if clear_source == 'semantic':
+        # This exact clear→edit-region→finish sequence used to leave translucent
+        # periodic region faces in the viewport and every subsequent PNG/movie.
+        result = page.evaluate("""async()=>{const a=window.__ASE_APP__,r=a.renderer;
+            await a.aiApply({operation:{name:'update-add-atoms-region',regionId:'test-allow',bounds:[0,2,0,2,0,2]}});
+            await a.aiApply({operation:{name:'scale-add-atoms-regions',regionIds:['test-allow'],factor:1.1,axis:'X'}});
+            const guideVisible=r.addAtomsRegionGroup.visible;
+            const withGuide=r.exportPNG(320,240,{antiAliasing:'off'});
+            const restored=r.addAtomsRegionGroup.visible;
+            r.addAtomsRegionGroup.visible=false;
+            const withoutGuide=r.exportPNG(320,240,{antiAliasing:'off'});
+            r.addAtomsRegionGroup.visible=restored;
+            await a.aiApply({operation:{name:'finish-add-atoms'}});
+            await new Promise(resolve=>setTimeout(resolve,200));
+            return {guideVisible,restored,sameExport:withGuide===withoutGuide,
+                remaining:r.addAtomsRegionGroup.children.length,visible:r.addAtomsRegionGroup.visible};}""")
+        assert result == {'guideVisible': True, 'restored': True, 'sameExport': True,
+                          'remaining': 0, 'visible': False}
+        assert page.evaluate('window.__ASE_APP__.state.atoms.positions.length') == 5
+    else:
+        page.locator('#btn-add-atoms-cancel').click()
+        page.wait_for_function('window.__ASE_APP__.state.atoms.positions.length===3')

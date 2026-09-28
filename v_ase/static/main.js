@@ -4375,7 +4375,12 @@ class VAseApp {
     }
 
     updateAddAtomsRegionPreview() {
-        if (!this.addAtomsUI || this.addAtomsUI.pane !== 'batch') return;
+        if (!this.addAtomsUI || this.addAtomsUI.pane !== 'batch'
+            || (!this.addAtomsSessionActive() && (this.editorRoute !== 'add-atoms'
+                || document.getElementById('create-atom-widget')?.classList.contains('collapsed')))) {
+            this.renderer.clearAddAtomsRegion();
+            return;
+        }
         try {
             this.renderer.setAddAtomsRegions({
                 regions: this.addAtomsRegions(),
@@ -4450,6 +4455,7 @@ class VAseApp {
         if (!this.addAtomsUI) return;
         if (!this.addAtomsUI.pendingRegionCommit) this.addAtomsUI.lastRegionCommitSignature = null;
         const summary = data?.metadata?.atom_addition || null;
+        const hadActiveSession = Boolean(this.addAtomsUI.active?.active);
         const sameSession = Boolean(
             summary?.active
             && this.addAtomsUI.active?.id
@@ -4531,6 +4537,10 @@ class VAseApp {
                 ? `Relaxing staged content · ${summary.step || 0}/${summary.max_steps || 0}`
                 : `${entity} ready`;
             this.setAddAtomsStatus(summary.is_relaxing ? 'running' : 'active', detail);
+        } else if (hadActiveSession) {
+            // Finishing, cancelling or replacing a document invalidates placement guides.
+            this.setAddAtomsPane('single');
+            this.setCreateAtomWidgetExpanded(false);
         }
         this.syncAddAtomsActionState();
         this.updateEditingAvailability();
@@ -6354,6 +6364,7 @@ class VAseApp {
         const title = document.getElementById('inspector-context');
         if (title) title.textContent = description.title;
         if (route === 'add-atoms') document.getElementById('create-atom-widget')?.classList.remove('collapsed');
+        this.updateAddAtomsRegionPreview();
         if (['export', 'render-image', 'render-video', 'render-html'].includes(route)) {
             this.syncRendererProperties();
             this.syncRendererFormatProperties();
@@ -8120,6 +8131,11 @@ class VAseApp {
 
     async updateVolumetricSurface({ recordHistory = true } = {}) {
         this.readVolumetricControls();
+        // Semantic show/hide may update app state without a general display edit.
+        // Keep the renderer flag in sync before it rebuilds the requested mesh.
+        if (this.renderer.displayOptions.showVolumetric !== this.state.display.showVolumetric) {
+            this.renderer.setDisplayOptions({showVolumetric: this.state.display.showVolumetric}, {rebuild: false});
+        }
         const token = ++this.state.volumetricRequestToken;
         const dataset = this.selectedVolumetricDataset();
         if (!dataset || !this.state.display.showVolumetric) {

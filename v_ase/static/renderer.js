@@ -3230,6 +3230,7 @@ export class ASERenderer {
         const oldAxesVisible = this.axesHelper?.visible;
         const oldCellVisible = this.cellGroup?.visible;
         const oldRenderAreaGizmoVisible = this.renderAreaGizmoGroup?.visible;
+        const oldInsertionGuidesVisible = this.addAtomsRegionGroup?.visible;
         const supercellCellPreviews = (this.supercellGroup?.children || [])
             .filter(child => child.userData?.supercellCellPreview)
             .map(child => ({ child, visible: child.visible }));
@@ -3268,6 +3269,7 @@ export class ASERenderer {
             this.axesHelper.visible = options.includeAxes !== false && this.displayOptions.showAxes;
         }
         if (this.renderAreaGizmoGroup) this.renderAreaGizmoGroup.visible = false;
+        if (this.addAtomsRegionGroup) this.addAtomsRegionGroup.visible = false;
         const includeCell = options.includeCell !== false && this.displayOptions.showCell !== false;
         if (this.cellGroup) this.cellGroup.visible = includeCell;
         supercellCellPreviews.forEach(({ child }) => { child.visible = includeCell; });
@@ -3293,6 +3295,7 @@ export class ASERenderer {
                 if (this.renderAreaGizmoGroup) {
                     this.renderAreaGizmoGroup.visible = oldRenderAreaGizmoVisible;
                 }
+                if (this.addAtomsRegionGroup) this.addAtomsRegionGroup.visible = oldInsertionGuidesVisible;
                 supercellCellPreviews.forEach(({ child, visible }) => { child.visible = visible; });
                 selectionGroups.forEach(({group, visible}) => { group.visible = visible; });
                 planeBorders.forEach(({record, color, opacity, visible}) => {

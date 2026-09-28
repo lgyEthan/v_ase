@@ -88,3 +88,7 @@ Animation export supports MOV, AVI and GIF. Choose inclusive zero-based
 A source interval of N frames at multiplier k produces (N-1)k+1 frames. The
 editable-canvas output guide shows crop geometry, not a second rendered inset;
 output lighting is applied at capture. Display DPI never resizes the encoder.
+
+Insertion-region editing guides are excluded from image and movie captures,
+even while placement is active; their interactive visibility is restored after
+capture. Scientific constraint visuals instead follow Objects → Constraints.

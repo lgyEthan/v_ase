@@ -1862,7 +1862,7 @@ def _rhino_view_info(rhino3dm, camera, name="v_ase View"):
 
 def export_3dm_response(session, payload: Dict[str, Any]):
     if (payload.get("display") or {}).get("waterSurface", {}).get("enabled"):
-        raise ValueError("Water surface mesh export is not supported in 3DM. "
+        raise ValueError("The water surface is not supported in 3DM. "
                          "Use Blender, PNG, movie/GIF or interactive HTML, or turn off Water surface to export atoms.")
     try:
         import rhino3dm
@@ -2302,7 +2302,7 @@ def _obj_sphere_resolution(scene, display):
 
 def export_obj_response(session, payload: Dict[str, Any]):
     if (payload.get("display") or {}).get("waterSurface", {}).get("enabled"):
-        raise ValueError("Water surface mesh export is not supported in OBJ. "
+        raise ValueError("The water surface is not supported in OBJ. "
                          "Use Blender, PNG, movie/GIF or interactive HTML, or turn off Water surface to export atoms.")
     scene = _cad_scene_data(session, payload)
     display = payload.get("display") or {}

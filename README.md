@@ -41,6 +41,8 @@ Add Molecules at enlarged Windows display scales.
 same panel. Place first, relax if needed, then Finish or Cancel. **Clear Relaxation
 Trajectory → Restore Starting Structure** returns to the start of that run while
 keeping placed atoms; Cancel placement still removes the complete addition.
+Placement-region guides disappear when placement finishes and stay out of image
+and movie exports.
 
 Blender export now includes the water surface as an editable mesh, with color,
 opacity, lighting, mesh finishing, periodic copies and trajectory frames. See

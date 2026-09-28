@@ -121,7 +121,7 @@ export function installRenderQuality(Renderer) {
             ||this.surfaceQualityRecords().map(({target})=>target._surfaceQuality?.error).find(Boolean)||null;
         this.surfaceQualityFailed=Boolean(this.surfaceQualityError);
         this.domElement.dataset.surfaceQualityBusy=String(jobs.length>0);
-        if(this.waterLayer?.mesh){const triangles=this.waterLayer.mesh.geometry.index?.count/3||0;this.domElement.dataset.waterRenderedTriangles=String(triangles);this.waterLayer.report.renderedTriangles=triangles;}
+        if(this.waterLayer){const triangles=this.waterLayer.group.visible?(this.waterLayer.mesh?.geometry.index?.count/3||0):0;this.domElement.dataset.waterRenderedTriangles=String(triangles);this.waterLayer.report.renderedTriangles=triangles;}
         const records=this.surfaceQualityRecords();
         const available={water:records.some(r=>r.kind==='water'),isosurface:records.some(r=>r.kind==='isosurface')};
         const status={busy:jobs.length>0,progress:jobs.length?Math.min(...jobs.map(j=>j.progress||0)):1,error:this.surfaceQualityError||null,available};
@@ -144,7 +144,7 @@ export function installRenderQuality(Renderer) {
     };
     p.replaceWaterQualitySource=function(mesh,geometry){
         const previous=mesh._surfaceQuality;
-        if(previous&&previous.applied!==previous.base&&(this.displayOptions.waterInterpolation>0||this.displayOptions.waterMeshSmoothing>0)){
+        if(geometry.index?.count>0&&previous&&previous.applied!==previous.base&&(this.displayOptions.waterInterpolation>0||this.displayOptions.waterMeshSmoothing>0)){
             this.surfaceQualityJobs?.get(mesh)?.controller.abort();this.surfaceQualityJobs?.delete(mesh);
             mesh._surfacePendingBase?.dispose();mesh._surfacePendingBase=geometry;
         } else {this.releaseSurfaceQuality(mesh);mesh.geometry.dispose();mesh.geometry=geometry;}

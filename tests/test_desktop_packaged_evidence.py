@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import pytest
 
 
-@pytest.mark.parametrize("evidence", ["", "{", "{}", "wrong-version", "complete"])
+@pytest.mark.parametrize("evidence", ["", "{", "{}", "wrong-version", "missing-pixels", "clipped-action", "complete"])
 def test_packaged_runner_requires_complete_evidence(tmp_path, monkeypatch, evidence):
     root = Path(__file__).resolve().parents[1] / "desktop"
     executable = tmp_path / "v_ase.exe"
@@ -23,9 +23,20 @@ def test_packaged_runner_requires_complete_evidence(tmp_path, monkeypatch, evide
                         "quitCancellation", "nodeIsolation", "lastDocumentClosesWindow",
                         "emptyLastWindowRequestsQuit"), True),
     }
+    report["visualParity"] = {
+        "pixelChecks": [{"mode": mode, "outlinePixels": 250, "constraintPixels": 300}
+                        for mode in ("2d", "3d")],
+        "layoutChecks": [{"zoom": zoom, "scroll": ["inspector-content"],
+                          "reachable": True, "relaxHost": True}
+                         for zoom in (1, 1.25, 1.5)],
+    }
+    if evidence == "missing-pixels":
+        report["visualParity"]["pixelChecks"][1]["constraintPixels"] = 0
+    if evidence == "clipped-action":
+        report["visualParity"]["layoutChecks"][2]["reachable"] = False
     if evidence == "wrong-version":
         report["version"] = "0.0.0"
-    contents = json.dumps(report) if evidence in {"wrong-version", "complete"} else evidence
+    contents = json.dumps(report) if evidence in {"wrong-version", "missing-pixels", "clipped-action", "complete"} else evidence
 
     def process_exit_zero(*_args, **_kwargs):
         # Model the exact observed failure: exit zero, but an empty result file.
@@ -39,5 +50,5 @@ def test_packaged_runner_requires_complete_evidence(tmp_path, monkeypatch, evide
     if evidence == "complete":
         runpy.run_path(str(root / "scripts/test_packaged.py"), run_name="__main__")
     else:
-        with pytest.raises(SystemExit, match="evidence|required regression check"):
+        with pytest.raises(SystemExit, match="evidence|required regression check|native selection/constraint"):
             runpy.run_path(str(root / "scripts/test_packaged.py"), run_name="__main__")
