@@ -65,6 +65,8 @@
     <script id="v-ase-three-source" type="application/vnd.v-ase.module+base64" data-encoding="base64">{{THREE_SOURCE_BASE64}}</script>
     <script id="v-ase-renderer-source" type="application/vnd.v-ase.module+base64" data-encoding="base64">{{RENDERER_SOURCE_BASE64}}</script>
     <script id="v-ase-water-geometry" type="application/vnd.v-ase.module+base64">{{WATER_GEOMETRY_SOURCE_BASE64}}</script>
+    <script id="v-ase-surface-refinement" type="application/vnd.v-ase.module+base64">{{SURFACE_REFINEMENT_SOURCE_BASE64}}</script>
+    <script id="v-ase-render-quality" type="application/vnd.v-ase.module+base64">{{RENDER_QUALITY_SOURCE_BASE64}}</script>
     <script id="v-ase-water-layer" type="application/vnd.v-ase.module+base64">{{WATER_LAYER_SOURCE_BASE64}}</script>
     <script id="v-ase-bsp-source" type="application/vnd.v-ase.module+base64">{{BSP_SOURCE_BASE64}}</script>
     <script id="v-ase-grid-source" type="application/vnd.v-ase.module+base64">{{GRID_SOURCE_BASE64}}</script>
@@ -84,11 +86,13 @@
             const gridUrl = moduleUrl(decodeText(encoded('v-ase-grid-source')).replace(/from\s+['"]three['"]/, `from '${threeUrl}'`));
             const waterGeometryUrl = moduleUrl(decodeText(encoded('v-ase-water-geometry')));
             const waterLayerUrl = moduleUrl(decodeText(encoded('v-ase-water-layer')).replace(/from\s+['"]three['"]/, `from '${threeUrl}'`).replace(/from\s+['"]\.\/water_geometry\.js['"]/, `from '${waterGeometryUrl}'`));
+            const refinementUrl = moduleUrl(decodeText(encoded('v-ase-surface-refinement')));
+            const qualityUrl = moduleUrl(decodeText(encoded('v-ase-render-quality')).replace(/from\s+['"]three['"]/, `from '${threeUrl}'`).replace(/from\s+['"]\.\/surface_refinement\.js['"]/, `from '${refinementUrl}'`));
             const rendererSource = decodeText(encoded('v-ase-renderer-source')).replace(
                 /from\s+['"]three['"]/,
                 `from '${threeUrl}'`
             ).replace(/from\s+['"]\.\/polyhedra_bsp\.js['"]/, `from '${bspUrl}'`)
-                .replace(/from\s+['"]\.\/viewport_grid\.js['"]/, `from '${gridUrl}'`).replace(/from\s+['"]\.\/water_layer\.js['"]/, `from '${waterLayerUrl}'`);
+                .replace(/from\s+['"]\.\/viewport_grid\.js['"]/, `from '${gridUrl}'`).replace(/from\s+['"]\.\/water_layer\.js['"]/, `from '${waterLayerUrl}'`).replace(/from\s+['"]\.\/render_quality\.js['"]/, `from '${qualityUrl}'`);
             const rendererUrl = moduleUrl(rendererSource);
             const viewerSource = decodeText(encoded('v-ase-viewer-source'))
                 .replace(/from\s+['"]three['"]/, `from '${threeUrl}'`)

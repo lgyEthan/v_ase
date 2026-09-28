@@ -7476,3 +7476,14 @@ body.editor-shell #app-viewport .orientation-widget { top: 53px; right: 17px; }
     .viewport-tools button { padding: 4px; font-size: 10px; }
     .viewport-camera-tools { right: 5px; }
 }
+
+/* Quality recovery stays available while cooperative mesh work yields. */
+.quality-actions {display:flex; flex-wrap:wrap; gap:6px; margin-top:8px;}
+.quality-actions button {flex:1 1 auto; min-width:0;}
+#renderer-quality-status[data-busy="true"] {border-left:3px solid var(--teal); padding-left:8px;}
+
+#quality-progress {position:fixed; left:64px; bottom:48px; z-index:2100; display:flex; align-items:center; gap:12px; max-width:calc(100vw - 90px); padding:10px 12px; background:var(--panel); color:var(--text); border:1px solid var(--line-strong); border-radius:5px; box-shadow:var(--shadow-sm); font-size:12px;}
+#quality-progress[hidden] {display:none;}
+#quality-progress button {white-space:nowrap;}
+
+.quality-subhead {border-top:1px solid var(--line-strong); padding:12px 0 4px; margin-top:12px; font-size:12px; font-weight:600;}

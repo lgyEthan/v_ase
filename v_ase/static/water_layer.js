@@ -72,7 +72,7 @@ export function installWaterRenderer(Renderer) {
             const cfg=normalizeWater(this.displayOptions.waterSurface);
             if(!cfg.enabled||!this.atomsData){
                 w.group.visible=false;w.hidden=new Set();w.hiddenReferences=new Set();w.key=null;
-                w.mesh?.geometry.dispose();w.mesh?.material.dispose();w.group.clear();w.mesh=null;w.materialKey=null;
+                this.releaseSurfaceQuality?.(w.mesh);w.mesh?.geometry.dispose();w.mesh?.material.dispose();w.group.clear();w.mesh=null;w.materialKey=null;
                 w.report={molecules:0,triangles:0,builds:w.builds};
             } else {
                 const start=performance.now(),d=this.displayOptions;
@@ -98,7 +98,7 @@ export function installWaterRenderer(Renderer) {
                     geometry.setAttribute('normal',new THREE.BufferAttribute(result.normals,3));
                     geometry.setIndex(new THREE.BufferAttribute(result.indices,1));geometry.computeBoundingSphere();
                     if(!w.mesh){w.mesh=new THREE.Mesh();w.mesh.name='Water density envelope';w.mesh.renderOrder=4;w.group.add(w.mesh);}
-                    w.mesh.geometry.dispose();w.mesh.geometry=geometry;w.key=key;w.builds++;
+                    this.replaceWaterQualitySource(w.mesh,geometry);w.key=key;w.builds++;
                     w.base=base;w.references=references;
                     w.report={molecules:seen.size,displayedMolecules:centers.length,triangles:result.indices.length/3,
                         vertices:result.positions.length/3,gridPoints:result.gridPoints,spacing:result.spacing,buildMs:performance.now()-start,

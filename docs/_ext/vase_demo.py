@@ -23,7 +23,7 @@ RUNTIME_FILES = (
     "viewport_grid.js",
     "polyhedra_bsp.js",
     "water_geometry.js",
-    "water_layer.js",
+    "water_layer.js", "render_quality.js", "surface_refinement.js",
     "standalone.js",
     "standalone.css",
 )

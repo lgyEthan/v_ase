@@ -40,6 +40,12 @@ indexed boundary mesh replaces water sphere/bond draw instances, including
 visible periodic copies. This is coordinate-derived visualization, not a new MD solver.
 See [Water surface](docs/water-surface.md) and run
 `python examples/water_surface.py` for a synthetic animated example.
+**Render → Renderer → Quality** now uses numeric atom/bond segments (8–128),
+with separate isosurface and water interpolation (0–2). Close-ups receive the
+requested geometry; screen-space detail and off-screen culling keep large scenes
+manageable. Surface work shows progress and supports **Cancel / Esc**;
+**Revert quality** and **Lightweight** make recovery immediate. See
+[quality and performance](docs/water-surface.md#renderer-quality-and-recovery).
 This experiment is not included in the published 0.4.7 app.
 
 ## Installation And Launch

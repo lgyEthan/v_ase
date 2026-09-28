@@ -414,6 +414,9 @@ class VAseApp {
                 atomicScalePixelsPerAngstrom: null,
                 imageSphereQuality: 'viewport',
                 imageSmoothnessScale: 1,
+                atomSmoothness: 0,
+                isosurfaceInterpolation: 0,
+                waterInterpolation: 0,
                 videoFormat: 'mov',
                 videoFps: 12,
                 videoInterpolationMultiplier: 1,
@@ -5935,7 +5938,9 @@ class VAseApp {
             set(`renderer-sun-position-${axis}`, Number(display.sunPosition?.[index] ?? [8, -10, 14][index]));
             set(`renderer-sun-target-${axis}`, Number(display.sunTarget?.[index] ?? 0));
         });
-        set('renderer-sphere-quality', display.imageSphereQuality || this.state.sphereQuality || 'high');
+        set('renderer-sphere-quality', this.renderer.sphereQualitySegments(this.state.atoms?.symbols?.length || 0));
+        set('renderer-isosurface-interpolation', display.isosurfaceInterpolation || 0);
+        set('renderer-water-interpolation', display.waterInterpolation || 0);
         set('renderer-atom-display-mode', display.atomDisplayMode || '3d');
         const aa = document.getElementById('renderer-antialias');
         if (aa) aa.checked = document.getElementById('chk-antialias')?.checked !== false;
@@ -6038,14 +6043,92 @@ class VAseApp {
             this.syncRendererProperties();
         };
         lightingIds.forEach(id => document.getElementById(id)?.addEventListener('change', commitLighting));
-        document.getElementById('renderer-sphere-quality')?.addEventListener('change', event => {
-            this.state.display.imageSphereQuality = event.target.value;
+        const qualityStatus = document.getElementById('renderer-quality-status');
+        const qualityCancel = document.getElementById('renderer-quality-cancel');
+        const qualityRevert = document.getElementById('renderer-quality-revert');
+        const qualityKeys = ['atomSmoothness', 'isosurfaceInterpolation', 'waterInterpolation'];
+        const qualitySnapshot = () => ({
+            ...Object.fromEntries(qualityKeys.map(key => [key, this.state.display[key] || 0])),
+            imageSphereQuality: this.state.display.imageSphereQuality,
+            imageSmoothnessScale: this.state.display.imageSmoothnessScale,
+            exportQuality: {sphereQuality: this.currentImageExportProfile().options.sphereQuality,
+                sphereQualityScale: this.currentImageExportProfile().options.sphereQualityScale}
+        });
+        const applyQuality = values => {
+            this.renderer.cancelSurfaceQuality();
+            this.renderer.surfaceQualityFailed = false;
+            this.renderer.surfaceQualityError = null;
+            const {exportQuality, ...patch} = values;
+            if ('atomSmoothness' in patch && !exportQuality) {
+                Object.assign(this.state.display, {imageSphereQuality: 'viewport', imageSmoothnessScale: 1});
+            }
+            Object.assign(this.state.display, patch);
+            this.renderer.setDisplayOptions(this.state.display);
             const profile = this.currentImageExportProfile();
-            profile.options.sphereQuality = event.target.value;
+            if (exportQuality) Object.assign(profile.options, exportQuality);
+            else if ('atomSmoothness' in patch) Object.assign(profile.options, {sphereQuality: 'viewport', sphereQualityScale: 1});
             this.setImageExportProfile(profile);
             this.syncProjectHtmlProfileFromRenderer();
+            this.syncRendererProperties({force: true});
             this.scheduleVisualHistoryCommit('renderer-quality');
+        };
+        const revert = () => {
+            if (!this.qualityBeforeChange) return;
+            const previous = this.qualityBeforeChange; this.qualityBeforeChange = null;
+            applyQuality(previous);
+            qualityRevert.disabled = true;
+        };
+        [['renderer-sphere-quality', 'atomSmoothness'], ['renderer-isosurface-interpolation', 'isosurfaceInterpolation'], ['renderer-water-interpolation', 'waterInterpolation']].forEach(([id,key]) => {
+            document.getElementById(id)?.addEventListener('change', event => {
+                if (!event.target.checkValidity()) {event.target.reportValidity(); return;}
+                if (Number(this.state.display[key] || 0) === Number(event.target.value)) return;
+                this.qualityBeforeChange = qualitySnapshot();
+                qualityRevert.disabled = false;
+                applyQuality({[key]: Number(event.target.value)});
+            });
         });
+        document.getElementById('renderer-quality-revert')?.addEventListener('click', revert);
+        document.getElementById('renderer-quality-safe')?.addEventListener('click', () => {
+            this.qualityBeforeChange = qualitySnapshot();
+            qualityRevert.disabled = false;
+            applyQuality({atomSmoothness: 12, isosurfaceInterpolation: 0, waterInterpolation: 0});
+        });
+        document.getElementById('renderer-quality-cancel')?.addEventListener('click', revert);
+        const cancelQualityOnEscape = event => {
+            if (event.key === 'Escape' && this.renderer.surfaceQualityJobs?.size) {
+                event.preventDefault();event.stopImmediatePropagation();
+                if (this.qualityBeforeChange) revert(); else applyQuality({isosurfaceInterpolation: 0, waterInterpolation: 0});
+            }
+        };
+        document.addEventListener('keydown', cancelQualityOnEscape, true);
+        this.renderer.onQualityLimit = message => {
+            this.state.display.atomSmoothness = 12;
+            this.syncRendererProperties({force: true});
+            this.toast(message, 'warning');
+            qualityStatus.textContent = message;
+        };
+        const progressOverlay = document.createElement('div');
+        progressOverlay.id = 'quality-progress';progressOverlay.hidden = true;
+        this.cleanupCallbacks.push(() => {
+            document.removeEventListener('keydown', cancelQualityOnEscape, true);
+            this.renderer.onSurfaceQualityChange = null;this.renderer.onQualityLimit = null;
+            progressOverlay.remove();
+        });
+        progressOverlay.innerHTML = '<span role="status"></span><button class="btn" type="button">Cancel · Esc</button>';
+        document.body.appendChild(progressOverlay);
+        progressOverlay.querySelector('button').addEventListener('click', () => {
+            if (this.qualityBeforeChange) revert();
+            else applyQuality({isosurfaceInterpolation: 0, waterInterpolation: 0});
+        });
+        this.renderer.onSurfaceQualityChange = ({busy,progress,error}) => {
+            const status = qualityStatus;
+            status.textContent = error || this.renderer.qualityLimitMessage || (busy ? `Interpolating surfaces… ${Math.round(progress*100)}% · Esc to cancel` : 'Canvas and output share these settings.');
+            qualityCancel.hidden = !busy || !this.qualityBeforeChange;
+            status.dataset.busy = String(busy);
+            progressOverlay.hidden = !busy;
+            progressOverlay.querySelector('span').textContent = `Interpolating surfaces… ${Math.round(progress*100)}%`;
+
+        };
         document.getElementById('renderer-antialias')?.addEventListener('change', event => {
             const main = document.getElementById('chk-antialias');
             if (main) main.checked = event.target.checked;
@@ -11367,7 +11450,7 @@ class VAseApp {
 
     syncFlatDisplayControls() {
         const flat = this.state.display.atomDisplayMode === '2d';
-        const selectors = ['select[id*="material"]', '[data-appearance-field="material"]',
+        const selectors = ['#renderer-sphere-quality', 'select[id*="material"]', '[data-appearance-field="material"]',
             '.renderer-lighting-group input', '.renderer-lighting-group select',
             '#export-render-mode', '#video-render-mode', '#export-sun-intensity', '#video-sun-intensity',
             '[id^="export-sun-position-"]', '[id^="export-sun-target-"]',
@@ -20172,6 +20255,10 @@ class VAseApp {
             protocol: 'v_ase.ai.v1',
             profile: compact ? 'summary' : 'full',
             schemaUrl,
+            rendererQuality: {control: 'display.atomSmoothness', segments: [8,128], legacyValue: 0,
+                linkedBonds: true, screenSpaceErrorPixels: 0.2,
+                surfaces: ['display.isosurfaceInterpolation','display.waterInterpolation'], interpolationLevels: [0,1,2],
+                cancel: 'Escape or Cancel restores the previous quality; Lightweight uses 12 segments and original meshes.'},
             waterSurface: {
                 experimental: true, control: 'display.waterSurface',
                 sources: ['auto', 'selected'], selectedTargets: 'captured oxygen base indices',
@@ -21968,6 +22055,7 @@ class VAseApp {
                 display: {
                     ...this.clonePlain(this.state.display),
                     antiAliasing: Boolean(antiAliasing),
+                    ...(command.quality.sphereQuality ? {atomSmoothness: 0} : {}),
                     sphereQuality
                 },
                 antiAliasing: Boolean(antiAliasing),
@@ -23227,6 +23315,9 @@ class VAseApp {
             imageSphereQuality: ['viewport', 'auto', 'low', 'medium', 'high', 'ultra'].includes(
                 nextDisplay.imageSphereQuality
             ) ? nextDisplay.imageSphereQuality : 'viewport',
+            atomSmoothness: nextDisplay.atomSmoothness ? Math.round(integerClamped(nextDisplay.atomSmoothness, 32, 8, 128) / 2) * 2 : 0,
+            isosurfaceInterpolation: integerClamped(nextDisplay.isosurfaceInterpolation, 0, 0, 2),
+            waterInterpolation: integerClamped(nextDisplay.waterInterpolation, 0, 0, 2),
             imageSmoothnessScale: finiteClamped(
                 nextDisplay.imageSmoothnessScale, 1, 0.5, 2
             ),
@@ -26948,7 +27039,7 @@ class VAseApp {
                     <div class="export-grid">
                         <label for="export-sphere-quality">Atom smoothness</label>
                         <select id="export-sphere-quality">
-                            <option value="viewport" ${selected('viewport', sphereQuality)}>Viewport setting</option>
+                            <option value="viewport" ${selected('viewport', sphereQuality)}>Renderer setting</option>
                             <option value="auto" ${selected('auto', sphereQuality)}>Auto</option>
                             <option value="low" ${selected('low', sphereQuality)}>Low</option>
                             <option value="medium" ${selected('medium', sphereQuality)}>Medium</option>
@@ -26967,7 +27058,7 @@ class VAseApp {
                 <div class="export-grid">
                     <label for="export-render-mode">Renderer</label>
                     <select id="export-render-mode">
-                        <option value="current" ${selected('current', imageOptions.renderModeSelection)}>Viewport setting</option>
+                        <option value="current" ${selected('current', imageOptions.renderModeSelection)}>Renderer setting</option>
                         <option value="modeling" ${selected('modeling', imageOptions.renderModeSelection)}>Modeling</option>
                         <option value="studio" ${selected('studio', imageOptions.renderModeSelection)}>Studio Sun</option>
                         <option value="studio-shadow" ${selected('studio-shadow', imageOptions.renderModeSelection)}>Sun + Soft Shadow</option>
@@ -27069,7 +27160,9 @@ class VAseApp {
                 : (qualityInput?.value || 'auto');
             const multiplier = Math.max(0.5, Math.min(2,
                 Number(document.getElementById('export-smoothness-scale')?.value) || smoothnessScale));
-            const segments = this.renderer.sphereQualitySegmentsFor(
+            const segments = qualityInput?.value === 'viewport' && this.state.display.atomSmoothness > 0
+                ? Math.min(128, Math.max(8, Math.round(this.state.display.atomSmoothness * multiplier / 2) * 2))
+                : this.renderer.sphereQualitySegmentsFor(
                 quality,
                 this.state.atoms?.positions?.length || 0,
                 multiplier
@@ -27271,7 +27364,7 @@ class VAseApp {
                         <div class="export-grid">
                             <label for="video-sphere-quality">Atom smoothness</label>
                             <select id="video-sphere-quality">
-                                <option value="viewport" ${selected('viewport', sphereQuality)}>Viewport setting</option>
+                                <option value="viewport" ${selected('viewport', sphereQuality)}>Renderer setting</option>
                                 <option value="auto" ${selected('auto', sphereQuality)}>Auto</option>
                                 <option value="low" ${selected('low', sphereQuality)}>Low</option>
                                 <option value="medium" ${selected('medium', sphereQuality)}>Medium</option>
@@ -27289,7 +27382,7 @@ class VAseApp {
                         <div class="export-grid">
                             <label for="video-render-mode">Renderer</label>
                             <select id="video-render-mode">
-                                <option value="current">Viewport setting</option>
+                                <option value="current">Renderer setting</option>
                                 <option value="modeling">Modeling</option>
                                 <option value="studio">Studio Sun</option>
                                 <option value="studio-shadow">Sun + Soft Shadow</option>
@@ -27639,6 +27732,7 @@ class VAseApp {
         // Interpolated samples update positions without a loadFrame completion.
         // Await their own hulls before copying the framebuffer into the video.
         await this.renderer.preparePolyhedraCapture?.();
+        await this.renderer.prepareSurfaceCapture();
         this.renderer.renderExportCaptureFrame(capture);
         const png = await new Promise((resolve, reject) => {
             this.renderer.domElement.toBlob(blob => blob ? resolve(blob) : reject(new Error('Could not capture a PNG video frame.')), 'image/png');
@@ -28660,7 +28754,10 @@ class VAseApp {
         };
         atomicScale.addEventListener('blur', () => this.flushVisualHistoryCommit());
         document.getElementById('chk-antialias').onchange = () => this.safeApplyDisplayOptions();
-        document.getElementById('sphere-quality').onchange = () => this.safeApplyDisplayOptions();
+        document.getElementById('sphere-quality').onchange = () => {
+            this.state.display.atomSmoothness = 0;
+            this.safeApplyDisplayOptions();
+        };
         const radiusSlider = document.getElementById('atom-radius-scale');
         const radiusNumber = document.getElementById('atom-radius-scale-number');
         let radiusGestureActive = false;

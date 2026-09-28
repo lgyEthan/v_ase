@@ -2,6 +2,14 @@
 
 ## Unreleased — water-surface experiment
 
+- Replace the Renderer-only export smoothness preset with shared numeric
+  atom/bond segments. Optimize visible geometry using projected size and
+  off-screen culling, without changing scientific bond lengths or atom radii.
+- Add bounded isosurface/water curved-edge interpolation, cooperative progress,
+  Cancel/Esc, previous-quality recovery and a lightweight reset. Preserve the
+  completed water mesh while a replacement is prepared; await final geometry
+  for image and movie captures. Persist settings in projects/offline HTML.
+
 - Optimize experimental water surfaces for large structures: use stored molecule
   IDs, shared boundary vertices, signed periodic repetitions and removal of
   replaced atom/bond GPU instances. Camera and material changes reuse geometry.

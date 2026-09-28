@@ -213,3 +213,8 @@ DISPLAY_PROPERTIES['waterSurface'] = {
         'ohCutoff': {'type': 'number', 'minimum': .8, 'maximum': 1.6},
     },
 }
+
+# Numeric, shared viewport/export geometry quality. Zero preserves legacy presets.
+DISPLAY_PROPERTIES['atomSmoothness'] = {'anyOf': [{'const': 0}, {'type': 'integer', 'minimum': 8, 'maximum': 128, 'multipleOf': 2}]}
+for key in ('isosurfaceInterpolation', 'waterInterpolation'):
+    DISPLAY_PROPERTIES[key] = {'type': 'integer', 'minimum': 0, 'maximum': 2}

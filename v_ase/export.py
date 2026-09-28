@@ -991,6 +991,8 @@ def export_html_response(session, payload: Dict[str, Any]):
         ),
         "{{BSP_SOURCE_BASE64}}": _base64_text((static_dir / "polyhedra_bsp.js").read_bytes()),
         "{{WATER_GEOMETRY_SOURCE_BASE64}}": _base64_text((static_dir / "water_geometry.js").read_bytes()),
+        "{{SURFACE_REFINEMENT_SOURCE_BASE64}}": _base64_text((static_dir / "surface_refinement.js").read_bytes()),
+        "{{RENDER_QUALITY_SOURCE_BASE64}}": _base64_text((static_dir / "render_quality.js").read_bytes()),
         "{{WATER_LAYER_SOURCE_BASE64}}": _base64_text((static_dir / "water_layer.js").read_bytes()),
         "{{GRID_SOURCE_BASE64}}": _base64_text((static_dir / "viewport_grid.js").read_bytes()),
         "{{RENDERER_SOURCE_BASE64}}": _base64_text(

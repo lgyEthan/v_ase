@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { PolyhedraBSP } from './polyhedra_bsp.js';
 import { createViewportGrid } from './viewport_grid.js';
 import { installWaterRenderer } from './water_layer.js';
+import { installRenderQuality, normalizeSegments } from './render_quality.js';
 
 function numberArrayEqual(first = [], second = []) {
     if (first === second) return true;
@@ -2606,7 +2607,8 @@ export class ASERenderer {
     }
 
     sphereQualitySegments(atomCount = 0) {
-        return this.sphereQualitySegmentsFor(this.displayOptions.sphereQuality || 'auto', atomCount, 1);
+        return this.displayOptions.atomSmoothness > 0 ? normalizeSegments(this.displayOptions.atomSmoothness)
+            : this.sphereQualitySegmentsFor(this.displayOptions.sphereQuality || 'auto', atomCount, 1);
     }
 
     fixedAtomSegments(segmentCount) {
@@ -2623,7 +2625,9 @@ export class ASERenderer {
             ? (this.displayOptions.sphereQuality || 'auto')
             : quality;
         const atomCount = this.atomsData?.symbols?.length || 0;
-        const normalSegments = this.sphereQualitySegmentsFor(resolvedQuality, atomCount, safeScale);
+        const normalSegments = quality === 'viewport' && this.displayOptions.atomSmoothness > 0
+            ? normalizeSegments(this.displayOptions.atomSmoothness * safeScale)
+            : this.sphereQualitySegmentsFor(resolvedQuality, atomCount, safeScale);
         const assignments = [];
         const geometryFor = fixed => {
             const segments = fixed ? this.fixedAtomSegments(normalSegments) : normalSegments;
@@ -2648,6 +2652,14 @@ export class ASERenderer {
         this.polyhedraGroup?.children?.forEach(mesh=>{
             if(mesh.userData?.polyhedraAtomReferences)replace(mesh);
         });
+        for (const group of [this.bondGroup, this.supercellGroup, this.polyhedraGroup]) {
+            for (const mesh of group?.children || []) {
+                if (mesh.geometry === this.bondCylinderGeometry) {
+                    assignments.push([mesh, mesh.geometry]);
+                    mesh.geometry = this.qualityGeometry('bond', normalSegments);
+                }
+            }
+        }
         return () => {
             assignments.forEach(([mesh, geometry]) => {
                 mesh.geometry = geometry;
@@ -4269,9 +4281,9 @@ export class ASERenderer {
             return;
         }
         if (antiAliasingChanged) this.updateRenderQuality();
+        if (sphereQualityChanged) this.applyLiveGeometryQuality();
         if (
-            sphereQualityChanged
-            || overlayChanged
+            overlayChanged
             || atomDisplayModeChanged
             || flatOutlineChanged
             || materialChanged
@@ -9248,8 +9260,10 @@ export class ASERenderer {
             : Math.max(0.001, Math.min(near, depth - radius * 2));
         camera.far = Math.max(far, depth + radius * 2 + 100);
         camera.updateProjectionMatrix();
-        try { this.renderer.render(this.scene, camera); }
+        const restoreQuality = this.prepareQualityDraw(camera);
+        try { if(!restoreQuality.skip) this.renderer.render(this.scene, camera); }
         finally {
+            restoreQuality();
             camera.near = near; camera.far = far;
             camera.updateProjectionMatrix();
         }
@@ -9534,9 +9548,9 @@ ASERenderer.prototype.drawPolyhedraAtomsAndBonds = function (offsets) {
     }
     for(const group of bondGroups.values()) {
         const flat=group.appearance.style==='flat';
-        const mesh=new THREE.InstancedMesh(flat?new THREE.PlaneGeometry(1,1):new THREE.CylinderGeometry(.5,.5,1,12),
+        const mesh=new THREE.InstancedMesh(flat?new THREE.PlaneGeometry(1,1):this.bondCylinderGeometry,
             this.bondMaterial(group.appearance.style,group.color,group.appearance.material,group.appearance.opacity),group.segments.length);
-        mesh.userData.sharedMaterial=true;mesh.userData.polyhedraBondSegments=group.segments;
+        mesh.userData.sharedMaterial=true;mesh.userData.sharedGeometry=!flat;mesh.userData.polyhedraBondSegments=group.segments;
         mesh.userData.opacity=group.appearance.opacity;
         mesh.userData.polyhedraBondAppearance=group.appearance;mesh.name='coordination-center-ligand-bonds';
         this.polyhedraGroup.add(mesh);
@@ -9745,4 +9759,5 @@ ASERenderer.prototype.syncPolyhedraSelection = function () {
     };
 }
 
+installRenderQuality(ASERenderer);
 installWaterRenderer(ASERenderer);

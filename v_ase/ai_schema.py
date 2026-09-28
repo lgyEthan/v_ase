@@ -2418,7 +2418,9 @@ def _ai_apply_method_schema() -> Dict[str, Any]:
         'description': 'Read the set-atom-radius-mapping operation schema for exact property mapping fields.'}
     properties['display']['properties']['waterSurface'] = {
         'type': 'object',
-        'description': 'Experimental H2O envelope. Read the water guide and full control_schema.display schema for typed fields.'}
+        'description': 'H2O envelope. Read the water guide and full display schema.'}
+    for key in ('atomSmoothness', 'isosurfaceInterpolation', 'waterInterpolation'):
+        properties['display']['properties'][key] = {'type': 'integer'}
     operation_names = sorted(AI_OPERATION_PARAMETERS)
     properties["operation"] = {
         "description": (

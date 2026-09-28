@@ -4729,6 +4729,14 @@ def capture_volumetric_media(browser) -> None:
             intensity=3.0,
             position_offset=(-7.0, -9.0, 12.0),
         )
+        # Lighting updates can refresh a field asynchronously. Wait for the
+        # final scientific status, not a fixed delay that races loaded machines.
+        page.wait_for_function("""() => {
+            const status = document.getElementById('volume-status');
+            return status?.dataset.state === 'ready'
+                && status.textContent.includes('σ 0.45 voxel')
+                && status.textContent.includes('7 smoothing passes');
+        }""", timeout=30_000)
         opacity_state = page.evaluate(
             """() => {
                 const app = window.__V_ASE_APP__;

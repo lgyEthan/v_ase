@@ -2160,8 +2160,15 @@
                     <div class="panel-subhead">Quality</div>
                     <div class="prop-row"><label for="renderer-atom-display-mode">Atom rendering</label>
                         <select id="renderer-atom-display-mode"><option value="3d">3D spheres</option><option value="2d">2D flat</option></select></div>
-                    <div class="prop-row"><label for="renderer-sphere-quality">Atom smoothness</label>
-                        <select id="renderer-sphere-quality"><option value="viewport">Viewport quality</option><option value="auto">Automatic</option><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="ultra">Ultra</option></select></div>
+                    <div class="prop-row"><label for="renderer-sphere-quality">Atom &amp; bond segments</label>
+                        <input id="renderer-sphere-quality" type="number" min="8" max="128" step="2" inputmode="numeric"></div>
+                    <p class="panel-note">8–128 segments. Shared by canvas and output. Close-ups gain detail up to this limit; distant atoms stay lightweight.</p>
+                    <div class="quality-subhead">Surface interpolation</div>
+                    <div class="prop-row"><label for="renderer-isosurface-interpolation">Isosurfaces</label><input id="renderer-isosurface-interpolation" type="number" min="0" max="2" step="1" value="0"></div>
+                    <div class="prop-row"><label for="renderer-water-interpolation">Water surface</label><input id="renderer-water-interpolation" type="number" min="0" max="2" step="1" value="0"></div>
+                    <p class="panel-note">0 = original · 1 = smooth · 2 = finer. Each step uses 4× more triangles. Source data stays unchanged.</p>
+                    <div class="quality-actions"><button id="renderer-quality-revert" class="btn" type="button" disabled>Revert quality</button><button id="renderer-quality-safe" class="btn" type="button">Lightweight</button><button id="renderer-quality-cancel" class="btn" type="button" hidden>Cancel</button></div>
+                    <p id="renderer-quality-status" class="panel-note" role="status" aria-live="polite"></p>
                     <label class="check-row" for="renderer-antialias"><span>Anti-aliasing</span><input id="renderer-antialias" type="checkbox"></label>
                 </div>
                 <div class="export-group renderer-extras-group">

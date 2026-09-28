@@ -49,6 +49,7 @@ if __name__ == '__main__':
     editor=view(make_water_frames(), notebook=True, block=False, port=port,
                 viz_only=True, close_on_disconnect=False, document_name="Water surface — synthetic demo",
                 initial_design_settings={'display':{'waterSurface':{'enabled':True},
+                    'atomSmoothness':64,'waterInterpolation':1,
                     'showGrid':False,'showAxes':False,'showCell':False}})
     print(f'WATER_DEMO_URL=http://127.0.0.1:{port}/?session_id={editor.session_id}',flush=True)
     threading.Event().wait()

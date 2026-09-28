@@ -43,3 +43,30 @@ export source frames with `interpolationMultiplier:1`; never interpolate molecul
 identity. In-memory fixed-topology trajectories keep their coordinate cache; lazy
 sources that may change IDs use one synchronized frame response. Capacity errors
 restore atom glyphs, and returning to valid settings rebuilds the envelope.
+
+## Shared renderer quality
+
+Discover `capabilities().rendererQuality`. In the existing typed `display` patch,
+set `atomSmoothness` to an even integer 8–128 to control atom and cylindrical bond
+tessellation together. `0` preserves old quality presets. Numeric quality applies
+to the viewport and default image/movie output; explicit legacy export overrides
+remain available. Scientific bond lengths and radii do not change. Projected-size
+LOD targets 0.2 drawing-buffer-pixel silhouette error up to that ceiling, and
+culls off-screen instances while retaining shadow casters. The interactive
+20-million-triangle preflight can select 12 segments; reread display state after
+an extreme request rather than claiming the requested setting was accepted.
+
+`waterInterpolation` and `isosurfaceInterpolation` are integers 0–2: original,
+4× triangles, 16× triangles. They interpolate the rendered mesh, preserving source
+vertices and open boundary planes, without modifying scalar data. Do not confuse
+these with Gaussian water width, volumetric smearing or mesh fairing. More than
+2,000,000 output triangles per surface or 4,000,000 combined is rejected. Inspect the GUI error before
+claiming success. Image/movie capture waits for current refined geometry;
+fast live trajectories retain the last completed surface while refinement runs.
+
+GUI controls live under Renderer → Quality. Cancel/Esc stops cooperative work,
+Revert quality restores the preceding setting, Lightweight resets segments to 12
+and both interpolation levels to zero. These display fields persist in .vase and
+self-contained HTML. Use this recovery in capacity tests; never claim arbitrary
+real-time performance. Test scientific coordinates and instance identities before
+and after a quality change, and inspect a magnified render, not only HTTP success.
