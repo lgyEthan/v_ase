@@ -2,6 +2,14 @@
 
 ## Unreleased — water-surface experiment
 
+- Expose Isosurfaces and stored Forces in Style. Keep field import/combinations
+  in Analyze and scientific surface definitions separate from renderer finish.
+- Raise display subdivision to 0–8 and add independent 0–100 Taubin smoothing
+  passes. Smooth original meshes before subdivision to avoid repeated work on
+  expanded geometry. Preserve source fields/coordinates and pin mesh boundaries.
+- Disable surface-finish controls without a visible matching surface; retain
+  cancellable progress, previous-quality recovery and explicit capacity errors.
+
 - Replace the Renderer-only export smoothness preset with shared numeric
   atom/bond segments. Optimize visible geometry using projected size and
   off-screen culling, without changing scientific bond lengths or atom radii.

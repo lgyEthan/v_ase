@@ -217,4 +217,6 @@ DISPLAY_PROPERTIES['waterSurface'] = {
 # Numeric, shared viewport/export geometry quality. Zero preserves legacy presets.
 DISPLAY_PROPERTIES['atomSmoothness'] = {'anyOf': [{'const': 0}, {'type': 'integer', 'minimum': 8, 'maximum': 128, 'multipleOf': 2}]}
 for key in ('isosurfaceInterpolation', 'waterInterpolation'):
-    DISPLAY_PROPERTIES[key] = {'type': 'integer', 'minimum': 0, 'maximum': 2}
+    DISPLAY_PROPERTIES[key] = {'type': 'integer', 'minimum': 0, 'maximum': 8}
+for key in ('isosurfaceMeshSmoothing', 'waterMeshSmoothing'):
+    DISPLAY_PROPERTIES[key] = {'type': 'integer', 'minimum': 0, 'maximum': 100}

@@ -3,7 +3,7 @@
 Show how atoms moved relative to a reference frame, or draw forces already
 stored in the input. **Objects → Vectors** opens the shared visibility and style
 controls for both layers. **Analyze → Displacements** owns reference selection,
-MIC and statistics; **Analyze → Stored forces** reports frame-specific stored
+MIC and statistics; **Style → Forces** reports frame-specific stored
 data availability. The same controls move between routes without duplicate state.
 Reading stored forces does not run a calculator.
 
@@ -38,7 +38,7 @@ analysis. Semantic structure/full descriptions read the displayed frame's
 exact stored properties even when force arrows are hidden; compact descriptions
 return property counts, and `includeProperties:true` requests the arrays.
 
-Open **Analysis > Forces** and enable **Show vectors**. Choose 3D/2D style,
+Open **Style → Forces** and enable **Show vectors**. Choose 3D/2D style,
 length scale, thickness, and color.
 
 Force arrows use only values already stored on the active frame in an ASE

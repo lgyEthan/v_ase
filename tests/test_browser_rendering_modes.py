@@ -291,7 +291,7 @@ def test_rdf_drawer_controls_and_selected_active_bond_pairs():
                 open_editor_route(page, 'rdf')
                 assert page.locator('#workbench-tools [data-tool-group]:not([hidden]) button').evaluate_all('(buttons) => buttons.map(button => button.getAttribute("aria-label"))') == [
                     'Measure', 'Distributions', 'Displacements',
-                    'Forces', 'Fields', 'Registry'
+                    'Fields', 'Registry'
                 ]
                 open_editor_route(page, 'export')
                 assert page.locator('#workbench-tools [data-tool-group]:not([hidden]) button').evaluate_all('(buttons) => buttons.map(button => button.getAttribute("aria-label"))') == [
@@ -928,6 +928,11 @@ def test_volumetric_isosurface_rdf_drawer_csv_and_supercell_roundtrip(
                 assert sum(datasets[0]["histogram"]["counts"]) == values.size
                 assert len(datasets[0]["absolute_histogram"]["counts"]) == 256
                 assert sum(datasets[0]["absolute_histogram"]["counts"]) == values.size
+                # The Style entry mounts the existing dataset controls, not a copy.
+                open_editor_route(page, 'isosurfaces')
+                assert page.locator('#volume-level').is_visible()
+                assert page.locator('#workbench-tabs [data-workbench="style"]').get_attribute('aria-selected') == 'true'
+                assert page.locator('#volume-level').count() == 1
                 source_descriptor = datasets[0]
                 dataset_id = datasets[0]["id"]
                 collaboration_events = page.evaluate(

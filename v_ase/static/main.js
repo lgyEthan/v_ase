@@ -53,7 +53,8 @@ const EDITOR_ROUTES = Object.freeze({
     'build-rigid': { group: 'analysis', category: 'build', title: 'Rigid translation', panel: 'registry-map', target: '#registry-translation-space' },
     rdf: { group: 'analysis', category: 'analyze', title: 'Distributions' },
     displacement: { group: 'analysis', category: 'analyze', title: 'Displacements' },
-    forces: { group: 'analysis', category: 'analyze', title: 'Stored forces' },
+    forces: { group: 'analysis', category: 'style', title: 'Stored forces' },
+    isosurfaces: { group: 'analysis', category: 'style', title: 'Isosurfaces', panel: 'volumetric' },
     volumetric: { group: 'analysis', category: 'analyze', title: 'Fields' },
     'registry-map': { group: 'analysis', category: 'analyze', title: 'Rigid translation map', target: '#registry-metric' },
     export: { group: 'export', category: 'render', title: 'Renderer' },
@@ -75,6 +76,7 @@ const EDITOR_SEARCH = Object.freeze({
     'build-match': [['commensurate guest strain periodic matching', '#chk-commensurate-guide']],
     'build-rigid': [['rigid translation component optimize plane', '#registry-translation-space']],
     'registry-map': [['translation map metric grid', '#registry-metric']],
+    isosurfaces: [['isosurface isovalue threshold surface color opacity', '#volume-level'], ['plane section', '#volume-tool-tab-planes']],
     volumetric: [['field import precision fp32 fp64', '#volume-import-precision'],
         ['isosurface histogram level', '#volume-level'], ['plane hkl', '#volume-plane-h']],
     displacement: [['motion vectors reference minimum image', '#displacement-reference-mode']],
@@ -417,6 +419,8 @@ class VAseApp {
                 atomSmoothness: 0,
                 isosurfaceInterpolation: 0,
                 waterInterpolation: 0,
+                waterMeshSmoothing: 0,
+                isosurfaceMeshSmoothing: 0,
                 videoFormat: 'mov',
                 videoFps: 12,
                 videoInterpolationMultiplier: 1,
@@ -5941,6 +5945,9 @@ class VAseApp {
         set('renderer-sphere-quality', this.renderer.sphereQualitySegments(this.state.atoms?.symbols?.length || 0));
         set('renderer-isosurface-interpolation', display.isosurfaceInterpolation || 0);
         set('renderer-water-interpolation', display.waterInterpolation || 0);
+        set('renderer-water-smoothing', display.waterMeshSmoothing || 0);
+        set('renderer-isosurface-smoothing', display.isosurfaceMeshSmoothing || 0);
+        this.syncSurfaceQualityAvailability?.();
         set('renderer-atom-display-mode', display.atomDisplayMode || '3d');
         const aa = document.getElementById('renderer-antialias');
         if (aa) aa.checked = document.getElementById('chk-antialias')?.checked !== false;
@@ -6046,7 +6053,22 @@ class VAseApp {
         const qualityStatus = document.getElementById('renderer-quality-status');
         const qualityCancel = document.getElementById('renderer-quality-cancel');
         const qualityRevert = document.getElementById('renderer-quality-revert');
-        const qualityKeys = ['atomSmoothness', 'isosurfaceInterpolation', 'waterInterpolation'];
+        const qualityKeys = ['atomSmoothness', 'isosurfaceInterpolation', 'waterInterpolation', 'waterMeshSmoothing', 'isosurfaceMeshSmoothing'];
+        // Keep references while workbench panels are detached from the DOM.
+        const surfaceControls = ['water', 'isosurface'].map(kind => ({
+            kind, inputs: ['interpolation', 'smoothing'].map(field => document.getElementById(`renderer-${kind}-${field}`)),
+            note: document.getElementById(`renderer-${kind}-availability`)
+        }));
+        this.syncSurfaceQualityAvailability = available => {
+            const records = this.renderer.surfaceQualityRecords();
+            for (const {kind, inputs, note} of surfaceControls) {
+                const active = available?.[kind] ?? records.some(record => record.kind === kind);
+                inputs.forEach(input => {input.disabled = !active;});
+                note.textContent = active ? '' : `No visible ${kind === 'water' ? 'water surface' : 'isosurface'}. Enable one in Style.`;
+                note.hidden = active;
+            }
+        };
+        this.syncSurfaceQualityAvailability();
         const qualitySnapshot = () => ({
             ...Object.fromEntries(qualityKeys.map(key => [key, this.state.display[key] || 0])),
             imageSphereQuality: this.state.display.imageSphereQuality,
@@ -6078,7 +6100,7 @@ class VAseApp {
             applyQuality(previous);
             qualityRevert.disabled = true;
         };
-        [['renderer-sphere-quality', 'atomSmoothness'], ['renderer-isosurface-interpolation', 'isosurfaceInterpolation'], ['renderer-water-interpolation', 'waterInterpolation']].forEach(([id,key]) => {
+        [['renderer-sphere-quality', 'atomSmoothness'], ['renderer-isosurface-interpolation', 'isosurfaceInterpolation'], ['renderer-water-interpolation', 'waterInterpolation'], ['renderer-water-smoothing', 'waterMeshSmoothing'], ['renderer-isosurface-smoothing', 'isosurfaceMeshSmoothing']].forEach(([id,key]) => {
             document.getElementById(id)?.addEventListener('change', event => {
                 if (!event.target.checkValidity()) {event.target.reportValidity(); return;}
                 if (Number(this.state.display[key] || 0) === Number(event.target.value)) return;
@@ -6091,13 +6113,13 @@ class VAseApp {
         document.getElementById('renderer-quality-safe')?.addEventListener('click', () => {
             this.qualityBeforeChange = qualitySnapshot();
             qualityRevert.disabled = false;
-            applyQuality({atomSmoothness: 12, isosurfaceInterpolation: 0, waterInterpolation: 0});
+            applyQuality({atomSmoothness: 12, isosurfaceInterpolation: 0, waterInterpolation: 0, waterMeshSmoothing: 0, isosurfaceMeshSmoothing: 0});
         });
         document.getElementById('renderer-quality-cancel')?.addEventListener('click', revert);
         const cancelQualityOnEscape = event => {
             if (event.key === 'Escape' && this.renderer.surfaceQualityJobs?.size) {
                 event.preventDefault();event.stopImmediatePropagation();
-                if (this.qualityBeforeChange) revert(); else applyQuality({isosurfaceInterpolation: 0, waterInterpolation: 0});
+                if (this.qualityBeforeChange) revert(); else applyQuality({isosurfaceInterpolation: 0, waterInterpolation: 0, waterMeshSmoothing: 0, isosurfaceMeshSmoothing: 0});
             }
         };
         document.addEventListener('keydown', cancelQualityOnEscape, true);
@@ -6118,15 +6140,16 @@ class VAseApp {
         document.body.appendChild(progressOverlay);
         progressOverlay.querySelector('button').addEventListener('click', () => {
             if (this.qualityBeforeChange) revert();
-            else applyQuality({isosurfaceInterpolation: 0, waterInterpolation: 0});
+            else applyQuality({isosurfaceInterpolation: 0, waterInterpolation: 0, waterMeshSmoothing: 0, isosurfaceMeshSmoothing: 0});
         });
-        this.renderer.onSurfaceQualityChange = ({busy,progress,error}) => {
+        this.renderer.onSurfaceQualityChange = ({busy,progress,error,available}) => {
+            this.syncSurfaceQualityAvailability(available);
             const status = qualityStatus;
-            status.textContent = error || this.renderer.qualityLimitMessage || (busy ? `Interpolating surfaces… ${Math.round(progress*100)}% · Esc to cancel` : 'Canvas and output share these settings.');
+            status.textContent = error || this.renderer.qualityLimitMessage || (busy ? `Finishing surfaces… ${Math.round(progress*100)}% · Esc to cancel` : 'Canvas and output share these settings.');
             qualityCancel.hidden = !busy || !this.qualityBeforeChange;
             status.dataset.busy = String(busy);
             progressOverlay.hidden = !busy;
-            progressOverlay.querySelector('span').textContent = `Interpolating surfaces… ${Math.round(progress*100)}%`;
+            progressOverlay.querySelector('span').textContent = `Finishing surfaces… ${Math.round(progress*100)}%`;
 
         };
         document.getElementById('renderer-antialias')?.addEventListener('change', event => {
@@ -6331,6 +6354,7 @@ class VAseApp {
             this.syncRendererProperties();
             this.syncRendererFormatProperties();
         }
+        if (route === 'isosurfaces') this.setVolumetricToolView('surface');
         if (route === 'scene-fields') this.renderSceneContextObjects();
         if (route === 'scene-vectors') this.syncSceneVectorControls();
         const picker = document.getElementById('structure-section-select');
@@ -20257,7 +20281,8 @@ class VAseApp {
             schemaUrl,
             rendererQuality: {control: 'display.atomSmoothness', segments: [8,128], legacyValue: 0,
                 linkedBonds: true, screenSpaceErrorPixels: 0.2,
-                surfaces: ['display.isosurfaceInterpolation','display.waterInterpolation'], interpolationLevels: [0,1,2],
+                surfaces: ['display.isosurfaceInterpolation','display.waterInterpolation'], subdivisionRange: [0,8], smoothing: ['display.isosurfaceMeshSmoothing','display.waterMeshSmoothing'], smoothingPasses: [0,100],
+                isovalueRoute: 'Style → Isosurfaces', inactiveSurfaceControls: 'disabled',
                 cancel: 'Escape or Cancel restores the previous quality; Lightweight uses 12 segments and original meshes.'},
             waterSurface: {
                 experimental: true, control: 'display.waterSurface',
@@ -23316,8 +23341,10 @@ class VAseApp {
                 nextDisplay.imageSphereQuality
             ) ? nextDisplay.imageSphereQuality : 'viewport',
             atomSmoothness: nextDisplay.atomSmoothness ? Math.round(integerClamped(nextDisplay.atomSmoothness, 32, 8, 128) / 2) * 2 : 0,
-            isosurfaceInterpolation: integerClamped(nextDisplay.isosurfaceInterpolation, 0, 0, 2),
-            waterInterpolation: integerClamped(nextDisplay.waterInterpolation, 0, 0, 2),
+            isosurfaceInterpolation: integerClamped(nextDisplay.isosurfaceInterpolation, 0, 0, 8),
+            waterInterpolation: integerClamped(nextDisplay.waterInterpolation, 0, 0, 8),
+            waterMeshSmoothing: integerClamped(nextDisplay.waterMeshSmoothing, 0, 0, 100),
+            isosurfaceMeshSmoothing: integerClamped(nextDisplay.isosurfaceMeshSmoothing, 0, 0, 100),
             imageSmoothnessScale: finiteClamped(
                 nextDisplay.imageSmoothnessScale, 1, 0.5, 2
             ),

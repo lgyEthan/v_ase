@@ -2412,20 +2412,19 @@ def _ai_apply_method_schema() -> Dict[str, Any]:
     # parameters through the focused configure-polyhedra tool/schema.
     properties['display']['properties']['polyhedraRules'] = {
         'type': 'array', 'maxItems': 32, 'items': {'type': 'object'},
-        'description': 'Complete replacement list. Read the configure-polyhedra operation schema for exact rule fields.'}
+        'description': 'Replacement list; fields: configure-polyhedra schema.'}
     properties['display']['properties']['atomRadiusMapping'] = {
         'type': 'object',
-        'description': 'Read the set-atom-radius-mapping operation schema for exact property mapping fields.'}
+        'description': 'Fields: set-atom-radius-mapping schema.'}
     properties['display']['properties']['waterSurface'] = {
         'type': 'object',
         'description': 'H2O envelope. Read the water guide and full display schema.'}
-    for key in ('atomSmoothness', 'isosurfaceInterpolation', 'waterInterpolation'):
+    for key in ('atomSmoothness', 'isosurfaceInterpolation', 'waterInterpolation', 'isosurfaceMeshSmoothing', 'waterMeshSmoothing'):
         properties['display']['properties'][key] = {'type': 'integer'}
     operation_names = sorted(AI_OPERATION_PARAMETERS)
     properties["operation"] = {
         "description": (
-            "One semantic operation. Request its focused operation schema for "
-            "operation-specific fields."
+            "One operation; request its focused schema for fields."
         ),
         "oneOf": [
             {"type": "string", "enum": operation_names},

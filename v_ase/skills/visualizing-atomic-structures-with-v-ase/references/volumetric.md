@@ -10,11 +10,14 @@ not automatically a signed wavefunction. Preserve units and provenance.
 
 ## Isosurfaces and sections
 
+GUI: Style → Isosurfaces owns the surface definition. Analyze → Fields owns
+import and combinations; Objects → Fields is a contextual view of the same state.
+
 Use discovered show-volumetric tools with explicit level, signed/single mode,
 step size, smearing, smoothing, colors and opacity. Smearing is in voxel units;
 level must cross the displayed field range. A frame can lack one signed crossing.
 Inspect readiness/errors rather than pretending both surfaces were generated.
-An isosurface is limited to 2,000,000 triangles. If it exceeds the limit, use a
+A backend-extracted isosurface is limited to 2,000,000 triangles. If it exceeds the limit, use a
 coarser step size or a justified isovalue; do not silently change scientific data.
 Coarse meshes retain domain endpoints but may miss unsampled features. Mesh
 smoothing fixes finite outer boundaries and changes display geometry only.
@@ -46,3 +49,13 @@ correct after combination or trajectory changes. Removing a dataset changes the
 document; it is not necessary for a visual-only change.
 Origins must agree within an absolute 1e-6 Å tolerance, independent of a common
 translation; source precision and this alignment check are separate concerns.
+
+## Display-only surface finish
+
+Renderer → Quality accepts `display.isosurfaceInterpolation` (integer 0–8) and
+`display.isosurfaceMeshSmoothing` (integer 0–100). These change a display copy of
+the extracted mesh, not the isovalue or scalar dataset. Fairing runs before
+subdivision; the renderer allows at most 8,000,000 resulting triangles per surface
+and 12,000,000 combined. GUI controls are disabled without a visible isosurface.
+Use Style → Isosurfaces to create/show one. See [water-surface.md](water-surface.md)
+for progress, cancellation, recovery and scientific limitations.

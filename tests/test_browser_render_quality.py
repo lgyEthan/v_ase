@@ -21,6 +21,26 @@ def test_numeric_quality_surface_cancel_capture_and_restore(tmp_path):
             errors=[];page.on('pageerror',lambda e:errors.append(str(e)))
             page.goto(f'http://127.0.0.1:{port}/?session_id={editor.session_id}')
             page.wait_for_function('window.__ASE_APP__?.state?.atoms?.positions?.length===324')
+            quality=page.evaluate('async()=> (await window.v_aseAI.capabilities()).rendererQuality')
+            assert quality['subdivisionRange']==[0,8] and quality['smoothingPasses']==[0,100]
+            assert quality['isovalueRoute']=='Style → Isosurfaces'
+            assert quality['inactiveSurfaceControls']=='disabled'
+            page.evaluate("window.__ASE_APP__.openEditorRoute('export')")
+            expect(page.locator('#renderer-isosurface-interpolation')).to_be_disabled()
+            expect(page.locator('#renderer-isosurface-smoothing')).to_be_disabled()
+            expect(page.locator('#renderer-water-smoothing')).to_be_disabled()
+            page.get_by_role('button',name='Style → Isosurfaces',exact=True).click()
+            expect(page.locator('#btn-volume-add')).to_be_visible()
+            expect(page.locator('#volume-empty')).to_be_visible()
+            assert page.locator('#volume-level').count()==1
+            expect(page.locator('#workbench-tabs [data-workbench="style"]')).to_have_attribute('aria-selected','true')
+            # Stored data visualization is under Style; physical calculations stay in Build.
+            expect(page.locator('#workbench-tools [data-editor-route="forces"]')).to_be_visible()
+            page.locator('#workbench-tools [data-editor-route="forces"]').click()
+            expect(page.locator('#chk-force-vectors')).to_be_visible()
+            expect(page.locator('#force-vector-scale')).to_be_visible()
+            page.locator('#workbench-tabs [data-workbench="analyze"]').click()
+            expect(page.locator('#workbench-tools [data-editor-route="forces"]')).to_be_hidden()
             page.evaluate("window.__ASE_APP__.openEditorRoute('export')")
             page.evaluate("()=>{const a=window.__ASE_APP__,p=a.currentImageExportProfile();p.options.sphereQuality='ultra';p.options.sphereQualityScale=1.5;a.setImageExportProfile(p);}")
             field=page.locator('#renderer-sphere-quality');field.fill('64');field.dispatch_event('change')
@@ -46,8 +66,13 @@ def test_numeric_quality_surface_cancel_capture_and_restore(tmp_path):
             page.evaluate('window.__ASE_APP__.state.display.waterSurface={enabled:true};window.__ASE_APP__.renderer.setDisplayOptions({waterSurface:{enabled:true}})')
             page.evaluate('window.__ASE_APP__.renderer.prepareSurfaceCapture()')
             assert page.evaluate('window.__ASE_APP__.renderer.waterLayer.mesh.geometry.index.count')==base*4
-            cancelled=page.evaluate('''()=>{const field=document.getElementById('renderer-water-interpolation');field.value='2';field.dispatchEvent(new Event('change',{bubbles:true}));const jobs=[...window.__ASE_APP__.renderer.surfaceQualityJobs.values()];document.getElementById('renderer-quality-cancel').click();return {jobs:jobs.length,aborted:jobs.every(j=>j.controller.signal.aborted)};}''')
-            assert cancelled['jobs'] and cancelled['aborted']
+            expect(page.locator('#renderer-water-smoothing')).to_be_enabled()
+            field=page.locator('#renderer-water-smoothing');field.fill('20');field.dispatch_event('change')
+            page.evaluate('window.__ASE_APP__.renderer.prepareSurfaceCapture()')
+            mesh=page.evaluate("()=>{const q=window.__ASE_APP__.renderer.waterLayer.mesh._surfaceQuality;return {key:q.key,moved:q.base.attributes.position.array.some((v,i)=>Math.abs(v-q.applied.attributes.position.array[i])>1e-5)};}")
+            assert mesh=={'key':'1:20','moved':True}
+            cancelled=page.evaluate('''()=>{const field=document.getElementById('renderer-water-interpolation');field.value='3';field.dispatchEvent(new Event('change',{bubbles:true}));const jobs=[...window.__ASE_APP__.renderer.surfaceQualityJobs.values()];document.getElementById('renderer-quality-cancel').click();return {jobs:jobs.length,requested:jobs.map(j=>j.level),aborted:jobs.every(j=>j.controller.signal.aborted)};}''')
+            assert cancelled['jobs'] and cancelled['aborted'] and 3 in cancelled['requested']
             page.evaluate('window.__ASE_APP__.renderer.prepareSurfaceCapture()')
             assert page.evaluate('window.__ASE_APP__.state.display.waterInterpolation')==1
             assert page.evaluate('window.__ASE_APP__.renderer.waterLayer.mesh.geometry.index.count')==base*4
@@ -60,22 +85,27 @@ def test_numeric_quality_surface_cancel_capture_and_restore(tmp_path):
             assert frames=={'keptFirst':True,'keptLatest':True,'updated':True,'ratio':4}
             # Identical quality is awaited by asynchronous PNG/video entry points.
             page.evaluate('''async()=>{const r=window.__ASE_APP__.renderer;await r.exportPNGBlob(400,300,{antiAliasing:'off'});}''')
-            page.evaluate('''()=>{const a=window.__ASE_APP__;a.renderer.setVolumetricSurfaces([{vertices:[0,0,0,1,0,0,0,1,0,0,0,1],faces:[0,2,1,0,1,3,0,3,2,1,2,3]}]);}''')
+            page.evaluate('''()=>{const a=window.__ASE_APP__;a.state.display.showVolumetric=true;a.renderer.setDisplayOptions({showVolumetric:true});a.renderer.setVolumetricSurfaces([{vertices:[0,0,0,1,0,0,0,1,0,0,0,1],faces:[0,2,1,0,1,3,0,3,2,1,2,3]}]);}''')
             field=page.locator('#renderer-isosurface-interpolation');field.fill('2');field.dispatch_event('change')
             page.evaluate('window.__ASE_APP__.renderer.prepareSurfaceCapture()')
             assert page.evaluate('window.__ASE_APP__.renderer.volumetricSurfaces[0].geometry.index.count')==12*16
+            expect(page.locator('#renderer-isosurface-smoothing')).to_be_enabled()
+            page.evaluate("window.__ASE_APP__.renderer.setDisplayOptions({showVolumetric:false})")
+            expect(page.locator('#renderer-isosurface-smoothing')).to_be_disabled()
+            page.evaluate("window.__ASE_APP__.renderer.setDisplayOptions({showVolumetric:true})")
+            expect(page.locator('#renderer-isosurface-smoothing')).to_be_enabled()
             # An over-budget mesh rejects capture, but removing it clears only its own failure.
             rejected=page.evaluate('''async()=>{const r=window.__ASE_APP__.renderer;
-                r.setVolumetricSurfaces([{vertices:[0,0,0,1,0,0,0,1,0],faces:Array.from({length:125001},()=>[0,1,2]).flat()}]);
+                r.setVolumetricSurfaces([{vertices:[0,0,0,1,0,0,0,1,0],faces:Array.from({length:500001},()=>[0,1,2]).flat()}]);
                 let message='';try{await r.prepareSurfaceCapture();}catch(e){message=e.message;}
                 r.clearVolumetricSurfaces();await r.prepareSurfaceCapture();
                 return {message,failed:r.surfaceQualityFailed};}''')
-            assert '2,000,000' in rejected['message'] and not rejected['failed']
+            assert '8,000,000' in rejected['message'] and not rejected['failed']
             page.evaluate('''window.__ASE_APP__.renderer.setVolumetricSurfaces([{vertices:[0,0,0,1,0,0,0,1,0,0,0,1],faces:[0,2,1,0,1,3,0,3,2,1,2,3]}])''')
             page.locator('#renderer-quality-safe').click()
             assert page.evaluate('window.__ASE_APP__.renderer.volumetricSurfaces[0].geometry.index.count')==12
             assert page.evaluate('window.__ASE_APP__.renderer.bondCylinderGeometry.parameters.radialSegments')==12
-            page.evaluate('window.__ASE_APP__.state.display.atomSmoothness=64;window.__ASE_APP__.state.display.waterInterpolation=1;window.__ASE_APP__.renderer.setDisplayOptions(window.__ASE_APP__.state.display)')
+            page.evaluate('window.v_aseAI.apply({display:{atomSmoothness:64,waterInterpolation:1,waterMeshSmoothing:20}})')
             settings=page.evaluate('window.__ASE_APP__.designSettingsSnapshot()')
             html=export_html_response(sessions[editor.session_id],{'settings':settings,'width':400,'height':300}).body
             path=tmp_path/'quality.html';path.write_bytes(html)

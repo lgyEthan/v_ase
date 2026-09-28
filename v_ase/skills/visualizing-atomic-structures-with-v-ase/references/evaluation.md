@@ -850,3 +850,21 @@ GUI and saved trajectory must agree; a successful immediate move is insufficient
 - Check footer label/XYZ/existence/forces for one selected atom, with no floating
   note. Slow catalog and analysis requests show nonblocking activity and clear
   it after both success and failure, including nested requests.
+
+
+### Experimental surface finish and Style classification
+
+1. Open Style → Isosurfaces with a real scalar dataset; require the original
+   dataset/isovalue controls, not duplicate state. Style → Forces must show the
+   stored-data vectors without invoking a calculator. Analyze retains field
+   combinations and displacement comparisons.
+2. Compare `capabilities().rendererQuality` against the full display schema:
+   subdivisions 0–8, smoothing passes 0–100, visible-surface enablement. With no
+   volume or only a section plane, Renderer isosurface finish must be disabled.
+3. Refine a closed water mesh, cancel during 100-pass fairing, revert, and remove
+   a failing over-budget mesh. Require responsive input, an unchanged source
+   mesh/coordinates/isovalue, pinned cut boundaries and no stale replacement.
+4. Export exact PNG, GIF and offline HTML; require matching finish settings and
+   final geometry. Round-trip all four surface fields through `.vase`. Inspect
+   close-ups and both themes at narrow/wide panels. More subdivision must actually
+   add triangles; smoothing must reduce ripples without increasing triangle count.

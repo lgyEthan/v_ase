@@ -19,6 +19,7 @@ const paths = {
     'render-image': '<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8" cy="8" r="1"/><path d="m3 17 5-5 4 4 4-6 5 7"/>',
     'render-video': '<rect x="2" y="5" width="14" height="14" rx="2"/><path d="m16 10 6-4v12l-6-4z"/>',
     'render-html': '<path d="m8 6-6 6 6 6m8-12 6 6-6 6M14 3l-4 18"/>',
+    isosurfaces: '<path d="M5 6c3-4 5 1 8-2s8 3 6 7 2 7-3 9-7-3-10-2-5-8-1-12Z"/><path d="M5 11c4-3 7 4 14 0M10 5c-3 5 5 8 3 14"/>',
     volumetric: '<path d="m2 8 10-5 10 5-10 5zm0 5 10 5 10-5M2 18l10 5 10-5"/>',
     rdf: '<path d="M3 3v18h18M6 17l3-8 4 5 4-9 4 4"/>',
     forces: '<path d="M4 20 20 4m-8 0h8v8M4 13v7h7"/>',

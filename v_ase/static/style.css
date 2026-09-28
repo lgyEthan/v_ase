@@ -7487,3 +7487,7 @@ body.editor-shell #app-viewport .orientation-widget { top: 53px; right: 17px; }
 #quality-progress button {white-space:nowrap;}
 
 .quality-subhead {border-top:1px solid var(--line-strong); padding:12px 0 4px; margin-top:12px; font-size:12px; font-weight:600;}
+
+.quality-surface-heading {font-size:12px; font-weight:600; margin:16px 0 8px;}
+.renderer-quality-group .text-action {padding:0; border:0; background:none; color:var(--teal); text-decoration:underline; cursor:pointer; font:inherit;}
+.renderer-quality-group input:disabled {opacity:.5; cursor:not-allowed;}

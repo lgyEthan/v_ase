@@ -119,20 +119,37 @@ submission, switches to 12 segments with an explicit message, or retains the las
 completed view if even that exceeds the budget. Hide objects or reduce repetitions
 to recover. Exact exports are not silently limited by this interactive budget.
 
-**Surface interpolation** independently controls isosurfaces and water:
+**Surface finish** has separate Isosurfaces and Water controls:
 
-| Level | Result |
-| --- | --- |
-| 0 | Original indexed mesh |
-| 1 | Curved-edge subdivision, four triangles per source triangle |
-| 2 | Two passes, sixteen triangles per source triangle |
+| Control | Range | Effect |
+| --- | --- | --- |
+| Subdivision | integer 0–8 | Each step multiplies triangles by four: 0 = original, 1 = 4×, 2 = 16×, 3 = 64×. |
+| Smoothing passes | integer 0–100 | Taubin fairing reduces mesh ripples without adding triangles. 0 disables fairing. |
 
-Interpolation follows vertex normals, preserves all original mesh vertices and
-keeps open boundaries straight. It is a display approximation, not additional
-scalar-field information. Water density width/grid spacing and the volumetric
-field smearing/mesh-fairing controls remain separate. Coordination polyhedra keep
-their scientific planar faces. A request exceeding **2,000,000 resulting triangles
-per surface** or 4,000,000 across refined surfaces is rejected with a remedy; it never allocates an unbounded mesh.
+Start with **20 smoothing passes and subdivision 1**. Increasing subdivision
+alone preserves existing source vertices and cannot remove their ripples.
+Fairing runs on the original mesh before subdivision, so its cost does not grow
+with the expanded triangle count. It preserves open/nonmanifold boundaries;
+subdivision keeps open cut edges straight. Both operate on display copies.
+Source coordinates, scalar samples, isovalue and scientific metadata stay intact.
+Smoothing changes the displayed approximation and can suppress small features;
+it is not additional data or an exact volume-preservation guarantee. Compare
+against zero passes when interpreting fine structure. The method follows
+[Taubin's surface fairing](https://doi.org/10.1145/218380.218473).
+
+Use **Style → Isosurfaces** for the actual isovalue, extraction step, field
+smearing, signed levels, colors and opacity. **Analyze → Fields** remains the
+entry for importing/combining fields. Renderer controls only finish the existing
+mesh and are disabled when no corresponding surface is visible. Showing only a
+section plane does not enable isosurface finish. Coordination polyhedra retain
+their planar scientific faces.
+
+Requests above **8,000,000 resulting triangles per surface** or **12,000,000
+across finished surfaces** are rejected before allocating expanded meshes.
+Level 8 is available for small meshes, not a guarantee that every large dataset
+can use it. If a request is too large, lower subdivision and increase smoothing
+instead; the previous completed surface remains visible. Water density width /
+grid spacing and volumetric generation smearing / mesh fairing remain separate.
 
 Refinement yields to input roughly every 6 ms of CPU work. A non-modal progress
 strip remains visible even if the panel is scrolled away; **Cancel** or **Esc**
@@ -146,7 +163,7 @@ Camera and material changes reuse the refined geometry. A changing water frame
 retains the last completed refined surface while its replacement is prepared;
 newer frame requests cancel stale work. Live playback can lag the newest source
 frame if refinement takes longer than the frame interval. Image and movie/GIF
-capture explicitly await the current frame's final geometry. Lower interpolation
+capture explicitly await the current frame's final geometry. Lower subdivision or smoothing passes
 for faster live playback. Offline HTML carries the same renderer and refinement
 code with no network dependency.
 
@@ -169,18 +186,18 @@ requires no proprietary reference image or video assets.
 ![Synthetic water envelope around a perforated membrane](assets/water-surface-experiment.gif)
 
 The GIF above was exported by the application: 24 frames, 960 × 640 pixels,
-15 px/Å, infinite loop, 64 atom/bond segments and water interpolation level 1. It uses the same rendered water layer as live playback.
+15 px/Å, infinite loop, 64 atom/bond segments, water subdivision 1 and 20 smoothing passes. It uses the same rendered water layer as live playback.
 The light effects use surface shading and environment reflections; this prototype
 does not implement physically accurate refraction through the fluid.
 
 ## Validation and next integration gate
 
-Verification on 2026-09-28: **1,119 full-suite tests passed**, followed by a final
-**16-test quality/polyhedra run** covering the added schema, curved mesh,
-project persistence, cancellation, stale surface errors and draw-buffer checks.
-The strict Sphinx HTML build, wheel/sdist build and `twine check` passed. The built
-wheel was smoke-checked in a temporary environment sharing installed dependencies;
-this is not a clean published-release installation test. No release was performed.
+Before integration, run the complete test suite, the focused surface-finish and
+navigation regressions, strict Sphinx build, wheel/sdist build and `twine check`.
+Focused checks cover the live AI schema, project persistence, offline HTML,
+curved subdivision above level 2, actual ripple reduction, pinned boundaries,
+cancellation and stale-surface recovery. This remains an experimental branch;
+no public release is performed as part of this work.
 
 The large-system revision checks stored molecule topology, closed indexed meshes
 (including dense low-threshold boundaries), real GPU instance counts, cached
@@ -221,6 +238,15 @@ instances were omitted from the draw. Source coordinates were identical and no
 page errors occurred. These are draw-count and responsiveness measurements,
 not a native-GPU FPS promise. The timing harness includes completed software
 rendering and pixel readback, so it is not used to claim pure mesh-build latency.
+
+The surface-finish revision was checked on that same source: 302,872 base water
+triangles became 1,211,488 at subdivision 1, and 4,845,952 at subdivision 2.
+Fifty smoothing passes changed the displayed mesh while the original mesh buffers
+and atomic coordinates stayed identical. During smoothing plus subdivision, a
+10 ms browser heartbeat fired 99 times. An oversized level-3 request retained the
+previous surface and reported the budget; cancelling 100-pass work restored the
+previous 20-pass setting. These checks had no browser page errors. They demonstrate
+cooperative input handling and recovery, not a native-GPU frame-rate guarantee.
 
 The supplied file contains one snapshot. Moving-water coverage therefore uses
 the synthetic 24-frame example and changing-topology browser regressions, not a

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import {refineSurface, refineSurfaceAsync} from './surface_refinement.js';
+import {refineSurface, refineSurfaceAsync, normalizeSubdivision, normalizeSmoothing} from './surface_refinement.js';
 
 export const normalizeSegments = value => Math.max(8,Math.min(128,Math.round((Number(value)||32)/2)*2));
 const levels=[8,12,16,24,32,48,64,96,128];
@@ -110,8 +110,9 @@ export function installRenderQuality(Renderer) {
 
     p.surfaceQualityRecords=function(){
         const records=[];
-        if(this.waterLayer?.mesh&&this.waterLayer.group.visible)records.push({target:this.waterLayer.mesh,kind:'water'});
-        for(const target of this.volumetricSurfaces||[])records.push({target,kind:'isosurface'});
+        if(this.waterLayer?.mesh?.geometry.index?.count>0&&this.waterLayer.group.visible)records.push({target:this.waterLayer.mesh,kind:'water'});
+        if(this.volumetricGroup?.visible)for(const target of this.volumetricSurfaces||[])
+            if(target.geometry.index?.count>0)records.push({target,kind:'isosurface'});
         return records;
     };
     p.notifySurfaceQuality=function(){
@@ -121,8 +122,10 @@ export function installRenderQuality(Renderer) {
         this.surfaceQualityFailed=Boolean(this.surfaceQualityError);
         this.domElement.dataset.surfaceQualityBusy=String(jobs.length>0);
         if(this.waterLayer?.mesh){const triangles=this.waterLayer.mesh.geometry.index?.count/3||0;this.domElement.dataset.waterRenderedTriangles=String(triangles);this.waterLayer.report.renderedTriangles=triangles;}
-        const status={busy:jobs.length>0,progress:jobs.length?Math.min(...jobs.map(j=>j.progress||0)):1,error:this.surfaceQualityError||null};
-        const signature=JSON.stringify([status.busy,Math.round(status.progress*100),status.error,this.qualityLimitMessage]);
+        const records=this.surfaceQualityRecords();
+        const available={water:records.some(r=>r.kind==='water'),isosurface:records.some(r=>r.kind==='isosurface')};
+        const status={busy:jobs.length>0,progress:jobs.length?Math.min(...jobs.map(j=>j.progress||0)):1,error:this.surfaceQualityError||null,available};
+        const signature=JSON.stringify([status.busy,Math.round(status.progress*100),status.error,this.qualityLimitMessage,available.water,available.isosurface]);
         if(signature!==this.surfaceQualityStatusSignature||this.surfaceQualityListener!==this.onSurfaceQualityChange){
             this.surfaceQualityStatusSignature=signature;this.surfaceQualityListener=this.onSurfaceQualityChange;
             this.onSurfaceQualityChange?.(status);
@@ -141,7 +144,7 @@ export function installRenderQuality(Renderer) {
     };
     p.replaceWaterQualitySource=function(mesh,geometry){
         const previous=mesh._surfaceQuality;
-        if(previous&&previous.applied!==previous.base&&this.displayOptions.waterInterpolation>0){
+        if(previous&&previous.applied!==previous.base&&(this.displayOptions.waterInterpolation>0||this.displayOptions.waterMeshSmoothing>0)){
             this.surfaceQualityJobs?.get(mesh)?.controller.abort();this.surfaceQualityJobs?.delete(mesh);
             mesh._surfacePendingBase?.dispose();mesh._surfacePendingBase=geometry;
         } else {this.releaseSurfaceQuality(mesh);mesh.geometry.dispose();mesh.geometry=geometry;}
@@ -150,12 +153,13 @@ export function installRenderQuality(Renderer) {
         this.surfaceQualityJobs??=new Map();
         const records=this.surfaceQualityRecords(),active=new Set(records.map(r=>r.target));
         const refinedTriangles=records.reduce((sum,{target,kind})=>{
-            const level=Math.max(0,Math.min(2,Math.round(Number(this.displayOptions[`${kind}Interpolation`])||0)));
+            const level=normalizeSubdivision(this.displayOptions[`${kind}Interpolation`]);
             const base=target._surfacePendingBase||target._surfaceQuality?.base||target.geometry;
-            return sum+(level ? (base.index?.count||0)/3*4**level : 0);
+            const smoothing=normalizeSmoothing(this.displayOptions[`${kind}MeshSmoothing`]);
+            return sum+(level||smoothing ? (base.index?.count||0)/3*4**level : 0);
         },0);
-        if(refinedTriangles>4000000){
-            this.surfaceQualityCapacityError='Combined surface interpolation exceeds 4,000,000 triangles. Lower interpolation or remove unused surfaces.';
+        if(refinedTriangles>12000000){
+            this.surfaceQualityCapacityError='Combined surface interpolation exceeds 12,000,000 triangles. Lower subdivision or remove unused surfaces.';
             this.cancelSurfaceQuality();
             if(synchronous)throw new Error(this.surfaceQualityError);
             return;
@@ -163,43 +167,45 @@ export function installRenderQuality(Renderer) {
         this.surfaceQualityCapacityError=null;
         for(const [target,job] of this.surfaceQualityJobs)if(!active.has(target)){job.controller.abort();this.surfaceQualityJobs.delete(target);}
         for(const {target,kind} of records) {
-            const level=Math.max(0,Math.min(2,Math.round(Number(this.displayOptions[`${kind}Interpolation`])||0)));
+            const level=normalizeSubdivision(this.displayOptions[`${kind}Interpolation`]);
+            const smoothing=normalizeSmoothing(this.displayOptions[`${kind}MeshSmoothing`]);
+            const key=`${level}:${smoothing}`;
             let record=target._surfaceQuality;
             if(target._surfacePendingBase){
                 if(record&&record.base!==record.applied)record.base.dispose();
-                record={base:target._surfacePendingBase,applied:target.geometry,level:-1};
+                record={base:target._surfacePendingBase,applied:target.geometry,level:-1,key:''};
                 delete target._surfacePendingBase;target._surfaceQuality=record;
             }
             if(!record||target.geometry!==record.applied){
                 this.surfaceQualityJobs.get(target)?.controller.abort();this.surfaceQualityJobs.delete(target);
                 if(record&&record.base!==record.applied)record.base.dispose();
-                record={base:target.geometry,applied:target.geometry,level:0};target._surfaceQuality=record;
+                record={base:target.geometry,applied:target.geometry,level:0,key:'0:0'};target._surfaceQuality=record;
             }
             const oldJob=this.surfaceQualityJobs.get(target);
-            if(oldJob?.level!==level){oldJob?.controller.abort();this.surfaceQualityJobs.delete(target);}
-            if(record.level===level)continue;
+            if(oldJob?.key!==key){oldJob?.controller.abort();this.surfaceQualityJobs.delete(target);}
+            if(record.key===key)continue;
             record.error=null;
-            if(oldJob?.level===level&&!synchronous)continue;
+            if(oldJob?.key===key&&!synchronous)continue;
             oldJob?.controller.abort();this.surfaceQualityJobs.delete(target);
             const setGeometry=geometry=>{
-                const old=record.applied;record.applied=geometry;record.level=level;target.geometry=geometry;
+                const old=record.applied;record.applied=geometry;record.level=level;record.key=key;target.geometry=geometry;
                 if(old!==record.base)old.dispose();
                 if(kind==='isosurface')this.rebuildVolumetricSurfaces();
                 this.requestRender();
             };
-            if(!level){setGeometry(record.base);continue;}
+            if(!level&&!smoothing){setGeometry(record.base);continue;}
             const base=record.base;
             const source={positions:base.attributes.position.array,normals:base.attributes.normal.array,indices:base.index.array};
             const accept=result=>{
                 const geometry=new THREE.BufferGeometry();geometry.setAttribute('position',new THREE.BufferAttribute(result.positions,3));
                 geometry.setAttribute('normal',new THREE.BufferAttribute(result.normals,3));geometry.setIndex(new THREE.BufferAttribute(result.indices,1));geometry.computeBoundingSphere();setGeometry(geometry);
             };
-            if(synchronous){const iterator=refineSurface(source,level);let step;do{step=iterator.next();}while(!step.done);accept(step.value);continue;}
-            const controller=new AbortController(),job={controller,level,progress:0};
+            if(synchronous){const iterator=refineSurface(source,level,{smoothing});let step;do{step=iterator.next();}while(!step.done);accept(step.value);continue;}
+            const controller=new AbortController(),job={controller,level,key,progress:0};
             this.surfaceQualityJobs.set(target,job);this.surfaceQualityError=null;
-            job.promise=refineSurfaceAsync(source,level,controller.signal,value=>{job.progress=value;this.notifySurfaceQuality();})
+            job.promise=refineSurfaceAsync(source,level,controller.signal,value=>{job.progress=value;this.notifySurfaceQuality();},{smoothing})
                 .then(result=>{if(!controller.signal.aborted&&target.geometry===record.applied)accept(result);})
-                .catch(error=>{if(!controller.signal.aborted&&this.surfaceQualityJobs.get(target)===job&&error.name!=='AbortError'){record.error=error.message;record.level=level;}})
+                .catch(error=>{if(!controller.signal.aborted&&this.surfaceQualityJobs.get(target)===job&&error.name!=='AbortError'){record.error=error.message;record.level=level;record.key=key;}})
                 .finally(()=>{if(this.surfaceQualityJobs.get(target)===job)this.surfaceQualityJobs.delete(target);this.notifySurfaceQuality();});
         }
         this.notifySurfaceQuality();
@@ -217,7 +223,7 @@ export function installRenderQuality(Renderer) {
     const options=p.setDisplayOptions;
     p.setDisplayOptions=function(value,...args){
         const before=this.displayOptions.atomSmoothness;
-        const changed=['waterInterpolation','isosurfaceInterpolation'].some(k=>this.displayOptions[k]!==value[k]&&k in value);
+        const changed=['waterInterpolation','isosurfaceInterpolation','waterMeshSmoothing','isosurfaceMeshSmoothing'].some(k=>this.displayOptions[k]!==value[k]&&k in value);
         const result=options.call(this,value,...args);
         if(before!==this.displayOptions.atomSmoothness){this.qualityLimitMessage=null;delete this.domElement.dataset.qualityWarning;this.applyLiveGeometryQuality();}
         if(changed){this.surfaceQualityFailed=false;this.surfaceQualityError=null;this.refreshSurfaceQuality();}
@@ -244,5 +250,5 @@ export function installRenderQuality(Renderer) {
         return clearVolumes.apply(this,args);
     };
     const dispose=p.dispose;
-    p.dispose=function(...args){this.cancelSurfaceQuality();for(const {target} of this.surfaceQualityRecords())this.releaseSurfaceQuality(target);return dispose.apply(this,args);};
+    p.dispose=function(...args){this.cancelSurfaceQuality();for(const target of [this.waterLayer?.mesh,...(this.volumetricSurfaces||[])])this.releaseSurfaceQuality(target);return dispose.apply(this,args);};
 }

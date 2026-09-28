@@ -120,7 +120,7 @@ def test_bookmarks_have_unique_icons_labels_and_precede_section_title(editor_pag
     nav=p.locator('#workbench-tools')
     assert nav.bounding_box()['y'] < p.locator('.inspector-head').bounding_box()['y']
     icons=p.locator('#workbench-tools [data-editor-route] svg').evaluate_all('(els)=>els.map(el=>el.innerHTML)')
-    assert len(icons)==24 and len(set(icons))==24
+    assert len(icons)==25 and len(set(icons))==25
     for button in p.locator('#workbench-tools [data-editor-route]').all():
         assert button.get_attribute('aria-label')
         assert button.inner_text()==''

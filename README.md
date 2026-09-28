@@ -41,7 +41,12 @@ visible periodic copies. This is coordinate-derived visualization, not a new MD 
 See [Water surface](docs/water-surface.md) and run
 `python examples/water_surface.py` for a synthetic animated example.
 **Render → Renderer → Quality** now uses numeric atom/bond segments (8–128),
-with separate isosurface and water interpolation (0–2). Close-ups receive the
+with independent isosurface/water subdivision (0–8) and smoothing passes (0–100).
+Smoothing softens mesh ripples without multiplying triangles; high subdivision
+is checked against a mesh budget. **Style → Isosurfaces** owns the isovalue and
+surface definition; **Style → Forces** styles stored force vectors. Renderer
+surface controls are disabled when the corresponding surface is absent or hidden.
+Close-ups receive the
 requested geometry; screen-space detail and off-screen culling keep large scenes
 manageable. Surface work shows progress and supports **Cancel / Esc**;
 **Revert quality** and **Lightweight** make recovery immediate. See

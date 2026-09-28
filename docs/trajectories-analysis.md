@@ -142,7 +142,7 @@ analysis. Semantic structure/full descriptions read the displayed frame's
 exact stored properties even when force arrows are hidden; compact descriptions
 return property counts, and `includeProperties:true` requests the arrays.
 
-Open **Analysis > Forces** and enable **Show vectors**. Choose 3D/2D style,
+Open **Style → Forces** and enable **Show vectors**. Choose 3D/2D style,
 length scale, thickness, and color.
 
 Force arrows use only values already stored on the active frame in an ASE

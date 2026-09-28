@@ -2,7 +2,9 @@
 
 Display a scalar field as a surface at a chosen level. Signed levels show
 positive and negative lobes separately. Open a volumetric file, then use
-**Objects → Fields**, select the dataset, then edit its Isosurface properties.
+**Style → Isosurfaces**, select the dataset, then edit its surface definition.
+**Objects → Fields** opens the same live properties; **Analyze → Fields**
+continues to provide field import, statistics and combinations.
 
 ## Example: signed lobes around graphene
 
@@ -28,7 +30,7 @@ The threshold changes across a fixed analytic graphene field.
 
 ## Create an isosurface
 
-Open **Objects → Fields → Isosurface**:
+Open **Style → Isosurfaces**:
 
 1. Select a **Dataset**.
 2. Enable **Show isosurface**.
@@ -85,6 +87,16 @@ against `0`, and do not describe a heavily smeared topology as raw data.
 **Mesh smoothing passes** accepts integer `0` through `30`. It fairs the
 extracted mesh after marching cubes while fixing cell-boundary vertices. It
 does not smooth the source field. Use `0` to disable it.
+
+### Renderer surface finish
+
+**Render → Renderer → Quality → Surface finish → Isosurfaces** separately
+controls subdivision (0–8) and display smoothing (0–100 passes). These finish an
+existing extracted mesh without changing its isovalue or regenerating the field.
+Both are disabled when no isosurface is visible; section planes alone do not
+qualify. Start with subdivision 1 and 20 smoothing passes. Excessive subdivision
+is rejected with a triangle-budget message; Cancel/Esc and Revert quality restore
+the prior quality. See [quality and recovery](water-surface.md#renderer-quality-and-recovery).
 
 ### Colors and opacity
 

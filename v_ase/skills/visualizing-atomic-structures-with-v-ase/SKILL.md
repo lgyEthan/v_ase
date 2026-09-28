@@ -192,10 +192,12 @@ editable HTML project's separate output profile. A child-tab reload retains
 its project provenance, including a new target adopted by Save As. The
 Image, Video and Interactive HTML GUI routes have format-specific draft controls;
 Cancel in their export dialogs leaves the saved project profile unchanged. The
-Objects → Fields route selects live dataset/plane properties, while Analyze →
-Fields owns import and combinations; both use the same underlying field state.
-Objects → Vectors opens visibility/style for displacement and stored-force layers;
-Analyze retains trajectory reference, MIC, statistics and stored-data status.
+Style → Isosurfaces route edits the scalar-field surface definition; Objects →
+Fields selects the same live dataset/plane properties. Analyze → Fields owns
+import and combinations. Style → Forces owns stored-force visibility, style and
+availability; Objects → Vectors provides contextual access to vector layers.
+Analyze → Displacements retains trajectory reference, MIC and statistics.
+Renderer → Quality finishes existing surface meshes, not their isovalue or data.
 The top-level workspace exposes Fullscreen editing / Keyboard Lock when supported;
 normal browser tabs may reserve ⌘W/⌘N on macOS or Ctrl+W/Ctrl+N on Windows/Linux, so visible File-menu actions
 remain the reliable fallback. The editor exposes an optional `display.atomRadiusMapping`

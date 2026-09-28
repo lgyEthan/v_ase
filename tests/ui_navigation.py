@@ -1,10 +1,10 @@
 """Navigate the real editor workbench in browser tests."""
 
 ROUTE_GROUPS = {
-    'style': ('appearance', 'bonding', 'cell-replication', 'polyhedra', 'view'),
+    'style': ('appearance', 'bonding', 'cell-replication', 'polyhedra', 'water', 'isosurfaces', 'forces', 'view'),
     'build': ('add-atoms', 'transform', 'cell-transform', 'constraints',
               'build-match', 'scientific-tools', 'build-rigid'),
-    'analyze': ('selection', 'rdf', 'displacement', 'forces', 'volumetric', 'registry-map'),
+    'analyze': ('selection', 'rdf', 'displacement', 'volumetric', 'registry-map'),
     'render': ('export', 'render-image', 'render-video', 'render-html', 'render-geometry'),
 }
 

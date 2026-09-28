@@ -56,17 +56,28 @@ culls off-screen instances while retaining shadow casters. The interactive
 20-million-triangle preflight can select 12 segments; reread display state after
 an extreme request rather than claiming the requested setting was accepted.
 
-`waterInterpolation` and `isosurfaceInterpolation` are integers 0–2: original,
-4× triangles, 16× triangles. They interpolate the rendered mesh, preserving source
-vertices and open boundary planes, without modifying scalar data. Do not confuse
-these with Gaussian water width, volumetric smearing or mesh fairing. More than
-2,000,000 output triangles per surface or 4,000,000 combined is rejected. Inspect the GUI error before
-claiming success. Image/movie capture waits for current refined geometry;
-fast live trajectories retain the last completed surface while refinement runs.
+`waterInterpolation` and `isosurfaceInterpolation` are integers 0–8; each level
+multiplies base triangles by four. `waterMeshSmoothing` and
+`isosurfaceMeshSmoothing` are independent integers 0–100. They perform Taubin
+fairing on a display copy of the base mesh before subdivision, pinning open and
+nonmanifold boundary vertices. Source fields, isovalues and atom coordinates do
+not change; displayed interior vertices can move. Try 20 smoothing passes with
+subdivision 1 to soften ripples without excessive triangle growth. Subdivision
+alone preserves original vertices and cannot remove their noise. Do not claim
+smoothing preserves exact volume or adds scientific data.
+
+More than 8,000,000 output triangles per surface or 12,000,000 combined is rejected
+before expansion; reduce subdivision before retrying. Image/movie capture waits
+for current finished geometry; fast live trajectories keep the last completed
+surface while refinement runs. Renderer controls are disabled without a visible
+matching surface; enable an actual isosurface in Style → Isosurfaces first.
+Isovalue and field generation belong there, not in Renderer → Quality. A section
+plane alone is insufficient. `capabilities().rendererQuality` reports the
+subdivisionRange, smoothing fields/range, isovalueRoute and availability rule.
 
 GUI controls live under Renderer → Quality. Cancel/Esc stops cooperative work,
 Revert quality restores the preceding setting, Lightweight resets segments to 12
-and both interpolation levels to zero. These display fields persist in .vase and
+and both subdivision and smoothing settings to zero. These display fields persist in .vase and
 self-contained HTML. Use this recovery in capacity tests; never claim arbitrary
 real-time performance. Test scientific coordinates and instance identities before
 and after a quality change, and inspect a magnified render, not only HTTP success.

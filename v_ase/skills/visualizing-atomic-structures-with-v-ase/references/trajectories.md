@@ -87,3 +87,8 @@ retain those edits in the original source frame; read structure positions after
 a roundtrip when validating a scientific workflow. A selected scalar field is
 retained if one frame omits it: missing values use the base appearance, while the
 field and locked range remain available for subsequent frames.
+
+Stored-force visualization lives in **Style → Forces** (visibility, arrow style,
+scale, thickness, color and frame-specific availability). It only reads stored
+values; it never runs a calculator. **Analyze → Displacements** retains reference
+comparison, MIC and statistics because those derive data from frame pairs.

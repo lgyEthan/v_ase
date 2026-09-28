@@ -986,7 +986,7 @@
                 </div>
                 <section id="volume-tool-surface" class="volume-tool-view" data-volume-tool-view="surface" role="tabpanel" aria-labelledby="volume-tool-tab-surface">
                     <div class="volume-tool-heading">
-                        <strong>Isosurface</strong>
+                        <strong>Isosurface definition</strong>
                         <span>Thresholded 3D field</span>
                     </div>
                 <div class="prop-row">
@@ -2163,10 +2163,17 @@
                     <div class="prop-row"><label for="renderer-sphere-quality">Atom &amp; bond segments</label>
                         <input id="renderer-sphere-quality" type="number" min="8" max="128" step="2" inputmode="numeric"></div>
                     <p class="panel-note">8–128 segments. Shared by canvas and output. Close-ups gain detail up to this limit; distant atoms stay lightweight.</p>
-                    <div class="quality-subhead">Surface interpolation</div>
-                    <div class="prop-row"><label for="renderer-isosurface-interpolation">Isosurfaces</label><input id="renderer-isosurface-interpolation" type="number" min="0" max="2" step="1" value="0"></div>
-                    <div class="prop-row"><label for="renderer-water-interpolation">Water surface</label><input id="renderer-water-interpolation" type="number" min="0" max="2" step="1" value="0"></div>
-                    <p class="panel-note">0 = original · 1 = smooth · 2 = finer. Each step uses 4× more triangles. Source data stays unchanged.</p>
+                    <div class="quality-subhead">Surface finish</div>
+                    <p class="panel-note">Display meshes only. Isovalue and field generation belong to <button class="text-action" type="button" data-editor-route="isosurfaces">Style → Isosurfaces</button>.</p>
+                    <div class="quality-surface-heading">Isosurface</div>
+                    <div class="prop-row"><label for="renderer-isosurface-interpolation">Subdivision</label><input id="renderer-isosurface-interpolation" type="number" min="0" max="8" step="1" value="0" aria-label="Isosurface subdivision"></div>
+                    <div class="prop-row"><label for="renderer-isosurface-smoothing">Smoothing passes</label><input id="renderer-isosurface-smoothing" type="number" min="0" max="100" step="1" value="0" aria-label="Isosurface smoothing passes"></div>
+                    <p id="renderer-isosurface-availability" class="panel-note"></p>
+                    <div class="quality-surface-heading">Water surface</div>
+                    <div class="prop-row"><label for="renderer-water-interpolation">Subdivision</label><input id="renderer-water-interpolation" type="number" min="0" max="8" step="1" value="0" aria-label="Water surface subdivision"></div>
+                    <div class="prop-row"><label for="renderer-water-smoothing">Smoothing passes</label><input id="renderer-water-smoothing" type="number" min="0" max="100" step="1" value="0" aria-label="Water surface smoothing passes"></div>
+                    <p id="renderer-water-availability" class="panel-note"></p>
+                    <p class="panel-note">Subdivision 0–8 rounds edges; each step uses 4× more triangles. Smoothing 0–100 reduces mesh ripples without adding triangles. Try 20 passes with subdivision 1. Both are reversible; 0 leaves that stage unchanged.</p>
                     <div class="quality-actions"><button id="renderer-quality-revert" class="btn" type="button" disabled>Revert quality</button><button id="renderer-quality-safe" class="btn" type="button">Lightweight</button><button id="renderer-quality-cancel" class="btn" type="button" hidden>Cancel</button></div>
                     <p id="renderer-quality-status" class="panel-note" role="status" aria-live="polite"></p>
                     <label class="check-row" for="renderer-antialias"><span>Anti-aliasing</span><input id="renderer-antialias" type="checkbox"></label>

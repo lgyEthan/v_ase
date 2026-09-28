@@ -363,14 +363,14 @@ def open_editor_route(page, route: str):
     handle = page.locator('#btn-inspector-collapse')
     if handle.is_visible() and handle.get_attribute('aria-expanded') == 'false':
         handle.click()
-    if route in {'appearance', 'bonding', 'cell-replication', 'polyhedra', 'view'}:
+    if route in {'appearance', 'bonding', 'cell-replication', 'polyhedra', 'water', 'isosurfaces', 'forces', 'view'}:
         page.locator('#workbench-tabs [data-workbench="style"]').click()
         page.locator(f'#workbench-tools [data-editor-route="{route}"]').click()
     elif route in {'add-atoms', 'transform', 'cell-transform', 'constraints',
                    'build-match', 'scientific-tools', 'build-rigid'}:
         page.locator('#workbench-tabs [data-workbench="build"]').click()
         page.locator(f'#workbench-tools [data-editor-route="{route}"]').click()
-    elif route in {'selection', 'rdf', 'displacement', 'forces', 'volumetric', 'registry-map'}:
+    elif route in {'selection', 'rdf', 'displacement', 'volumetric', 'registry-map'}:
         page.locator('#workbench-tabs [data-workbench="analyze"]').click()
         page.locator(f'#workbench-tools [data-editor-route="{route}"]').click()
     elif route in {'export', 'render-image', 'render-video', 'render-html', 'render-geometry'}:
@@ -4686,7 +4686,7 @@ def capture_volumetric_media(browser) -> None:
                 "C_pi_B": "standard",
             },
         })
-        configure_inspector(page, "analysis", ["volumetric"], width=470)
+        configure_inspector(page, "analysis", ["isosurfaces", "volumetric"], width=470)
         loaded = run_external_ai_apply(command_url, {
             "operation": {
                 "name": "load-volumetric",
