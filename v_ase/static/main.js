@@ -1,37 +1,37 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.4.8';
-import { ASERenderer } from './renderer.js?v=0.4.8';
-import { ASESelection } from './selection.js?v=0.4.8';
-import { ASETransform } from './transform.js?v=0.4.8';
-import { SelectedAppearanceEditor } from './selected_appearance.js?v=0.4.8';
-import { installActivityIndicators } from './ui_activity.js?v=0.4.8';
+import { ASEApi } from './api.js?v=0.4.9';
+import { ASERenderer } from './renderer.js?v=0.4.9';
+import { ASESelection } from './selection.js?v=0.4.9';
+import { ASETransform } from './transform.js?v=0.4.9';
+import { SelectedAppearanceEditor } from './selected_appearance.js?v=0.4.9';
+import { installActivityIndicators } from './ui_activity.js?v=0.4.9';
 
-import { installPolyhedra } from './polyhedra.js?v=0.4.8';
+import { installPolyhedra } from './polyhedra.js?v=0.4.9';
 import { installWaterUI } from './water_ui.js';
-import { installAIScene } from './ai_scene.js?v=0.4.8';
-import { AtomScalarStore } from './atom_properties.js?v=0.4.8';
-import { DirectWorkspace } from './direct_workspace.js?v=0.4.8';
-import { projectProvenanceFromLoad } from './project_provenance.js?v=0.4.8';
-import { installShortcutCapture } from './shortcut_capture.js?v=0.4.8';
-import { openFileInWindow } from './workspace_windows.js?v=0.4.8';
-import { installEditorInteractions } from './editor_interactions.js?v=0.4.8';
-import { WORKBENCH_ROUTES, mountWorkbenchTools, syncWorkbenchRoute } from './editor_ui.js?v=0.4.8';
+import { installAIScene } from './ai_scene.js?v=0.4.9';
+import { AtomScalarStore } from './atom_properties.js?v=0.4.9';
+import { DirectWorkspace } from './direct_workspace.js?v=0.4.9';
+import { projectProvenanceFromLoad } from './project_provenance.js?v=0.4.9';
+import { installShortcutCapture } from './shortcut_capture.js?v=0.4.9';
+import { openFileInWindow } from './workspace_windows.js?v=0.4.9';
+import { installEditorInteractions } from './editor_interactions.js?v=0.4.9';
+import { WORKBENCH_ROUTES, mountWorkbenchTools, syncWorkbenchRoute } from './editor_ui.js?v=0.4.9';
 import {
     EDITOR_COMMANDS, commandIdForEvent, resolveShortcutPlatform,
     editorShortcutLabel, editorAriaShortcut, editorShortcutSearchTerms,
     viewportNavigationForEvent
-} from './editor_commands.js?v=0.4.8';
+} from './editor_commands.js?v=0.4.9';
 import {
     DEFAULT_ATOM_RADIUS_MAPPING,
     atomRadiusFactors,
     normalizeAtomRadiusMapping,
     radiusMappingPreset
-} from './radius_mapping.js?v=0.4.8';
+} from './radius_mapping.js?v=0.4.9';
 import {
     interpolateTrajectoryFrames,
     interpolatedFrameCount,
     normalizeInterpolationMultiplier
-} from './trajectory.js?v=0.4.8';
+} from './trajectory.js?v=0.4.9';
 
 const EDITOR_ROUTES = Object.freeze({
     'structure-info': { group: 'inspect', category: 'scene', title: 'Scene overview' },
@@ -3666,9 +3666,6 @@ class VAseApp {
         document.getElementById('btn-add-atoms-scatter')?.addEventListener('click', () => {
             void this.scatterAtomsFromWidget();
         });
-        document.getElementById('btn-add-atoms-open-relaxation')?.addEventListener('click', () => {
-            this.openInspectorSection('structure', 'scientific-tools');
-        });
         document.getElementById('btn-add-atoms-cancel')?.addEventListener('click', () => {
             void this.cancelAddedAtomsSession();
         });
@@ -6328,6 +6325,13 @@ class VAseApp {
         this.syncWorkbenchEditingAvailability();
         this.rehomeSceneFieldProperties(route === 'scene-fields');
         this.rehomeSceneVectorProperties(route === 'scene-vectors');
+        const relaxation = document.getElementById('relaxation-workflow');
+        const relaxationHost = document.getElementById(route === 'add-atoms' ? 'add-atoms-relax-host' : 'relaxation-home');
+        if (relaxation && relaxationHost) {
+            relaxationHost.appendChild(relaxation);
+            relaxation.querySelector('.relax-calculator-details').open = route !== 'add-atoms';
+        }
+        this.syncRelaxationModeUI();
         if (route !== 'selection') this.lastPropertiesRoute = route;
         document.body.dataset.currentEditorRoute = route;
         document.getElementById('inspector-selection-tab')?.setAttribute(
@@ -11782,16 +11786,16 @@ class VAseApp {
         const relaxationRunning = Boolean(this.state.isRelaxing || addition?.is_relaxing);
         const relaxBtn = document.getElementById('btn-relax');
         if (relaxBtn) {
-            relaxBtn.disabled = (!addition?.active && !meta.has_calculator) || relaxationRunning;
+            relaxBtn.disabled = (!addition?.active && (!meta.has_calculator || this.editorRoute === 'add-atoms')) || relaxationRunning;
             relaxBtn.textContent = addition?.active
-                ? 'Start Placement Relaxation'
+                ? 'Relax placed atoms'
                 : 'Start Relaxation';
         }
         const stopRelaxBtn = document.getElementById('btn-stop-relax');
         if (stopRelaxBtn) {
             stopRelaxBtn.disabled = !relaxationRunning;
             stopRelaxBtn.textContent = addition?.active
-                ? 'Stop Placement Relaxation'
+                ? 'Stop relaxation'
                 : 'Stop Relaxation';
         }
         this.syncRegistryRelaxationControls({ updateStatus: false });
@@ -13114,6 +13118,9 @@ class VAseApp {
         );
         const activeMode = generalMode || additionMode;
         const running = Boolean(this.state.isRelaxing || addition?.is_relaxing);
+        const start = document.getElementById('btn-relax');
+        if (start) start.disabled = running || (!addition?.active && (this.editorRoute === 'add-atoms' || !this.state.atoms?.metadata?.has_calculator));
+        document.getElementById('btn-stop-relax')?.classList.toggle('hidden', !running);
         const badge = document.getElementById('relax-mode-badge');
         const detail = document.getElementById('relax-mode-detail');
         badge?.classList.toggle('hidden', !activeMode);
@@ -13151,9 +13158,11 @@ class VAseApp {
             <ul class="confirm-list">
                 <li><strong>Use final frame</strong> keeps the last optimized geometry.</li>
                 <li><strong>Keep displayed frame</strong> keeps frame ${current} currently shown in the viewport.</li>
+                <li><strong>Restore starting structure</strong> restores frame 1, before this optimization started. Inserted atoms and molecules remain placed.</li>
             </ul>
         `, `
             <button id="relax-clear-cancel" class="btn">Cancel</button>
+            <button id="relax-clear-initial" class="btn">Restore Starting Structure</button>
             <button id="relax-clear-displayed" class="btn">Keep Displayed Frame</button>
             <button id="relax-clear-final" class="btn primary">Use Final Frame</button>
         `);
@@ -13166,24 +13175,28 @@ class VAseApp {
                 resolve(value);
             };
             document.getElementById('relax-clear-cancel')?.addEventListener('click', () => done(null), { once: true });
-            document.getElementById('relax-clear-displayed')?.addEventListener('click', () => done(false), { once: true });
-            document.getElementById('relax-clear-final')?.addEventListener('click', () => done(true), { once: true });
+            document.getElementById('relax-clear-initial')?.addEventListener('click', () => done('initial'), { once: true });
+            document.getElementById('relax-clear-displayed')?.addEventListener('click', () => done('displayed'), { once: true });
+            document.getElementById('relax-clear-final')?.addEventListener('click', () => done('final'), { once: true });
         });
     }
 
-    async clearRelaxationTrajectoryUsing(useLatest) {
+    async clearRelaxationTrajectoryUsing(retain = 'final') {
+        // Keep compatibility with callers predating the explicit initial choice.
+        retain = retain === true ? 'final' : retain === false ? 'displayed' : retain;
+        if (!['initial', 'final', 'displayed'].includes(retain)) throw new Error('Invalid relaxation frame choice.');
         const trajectory = this.state.relaxTrajectory || {};
         const frames = trajectory.frames || [];
         if (!frames.length) {
             throw new Error('No relaxation trajectory is available to clear.');
         }
-        const chosen = useLatest
+        const chosen = retain === 'initial' ? frames[0] : retain === 'final'
             ? frames[frames.length - 1]
             : frames[Math.max(0, Math.min(frames.length - 1, Number(trajectory.frame) || 0))];
         const data = await this.api.clearRelaxTrajectory(
             trajectory.kind || 'relaxation',
             chosen,
-            useLatest
+            retain
         );
         this.state.isRelaxing = false;
         this.setAtomsData(data, { clearSelection: false });
@@ -13200,7 +13213,7 @@ class VAseApp {
                 () => this.clearRelaxationTrajectoryUsing(useLatest)
             );
             this.toast(
-                useLatest ? 'Trajectory cleared; final frame retained.' : 'Trajectory cleared; displayed frame retained.',
+                useLatest === 'initial' ? 'Trajectory cleared; starting structure restored.' : useLatest === 'final' ? 'Trajectory cleared; final frame retained.' : 'Trajectory cleared; displayed frame retained.',
                 'success'
             );
         } catch (error) {
@@ -20287,8 +20300,8 @@ class VAseApp {
             waterSurface: {
                 experimental: false, control: 'display.waterSurface',
                 sources: ['auto', 'selected'], selectedTargets: 'captured oxygen base indices',
-                exports: ['image', 'video', 'html', 'project'],
-                unavailableExportsWhileEnabled: ['blender', '3dm', 'obj'],
+                exports: ['image', 'video', 'html', 'project', 'blender'],
+                unavailableExportsWhileEnabled: ['3dm', 'obj'],
                 note: 'Coordinate-derived H2O density envelope; no dynamics or scientific structure changes.'
             },
             state: [
@@ -21671,10 +21684,10 @@ class VAseApp {
         }
         if (name === 'clear-relaxation-trajectory') {
             const retain = String(operation.retain || 'final').trim().toLowerCase();
-            if (!['displayed', 'final'].includes(retain)) {
-                throw new Error("clear-relaxation-trajectory retain must be 'displayed' or 'final'.");
+            if (!['displayed', 'final', 'initial'].includes(retain)) {
+                throw new Error("clear-relaxation-trajectory retain must be 'displayed', 'final', or 'initial'.");
             }
-            await this.clearRelaxationTrajectoryUsing(retain === 'final');
+            await this.clearRelaxationTrajectoryUsing(retain);
             return;
         }
         if (name === 'exit-relaxation-mode') {

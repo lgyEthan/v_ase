@@ -316,7 +316,7 @@ Pass `operation` as a name string or object:
 | `reset-coordinates` | none | Restore loaded coordinates and original cell |
 | `start-relaxation` | `fmax`, `steps`, optional `calculator` | Start ordinary optimization, or route the same shared settings to placement relaxation when an Add session is active |
 | `stop-relaxation` | none | Request the active ordinary or Add placement optimizer to stop |
-| `clear-relaxation-trajectory` | optional `retain:"final"|"displayed"` | Remove the optimization movie, retain the chosen geometry, and leave its mode active |
+| `clear-relaxation-trajectory` | optional `retain:"final"|"displayed"|"initial"` | Remove the optimization movie, retain final/displayed geometry or restore its first frame, and leave its mode active (initial keeps inserted atoms) |
 | `exit-relaxation-mode` | optional `keep` | Stop if needed, then close the optimization timeline; `keep:true` retains current coordinates and `keep:false` restores the exact pre-relaxation baseline |
 | `refresh-displacements` | optional `display` | Recompute displacement vectors |
 | `load-volumetric` | `path`, optional `format`, `precision` | Load one VASP, Cube, or XSF grid as FP32 or FP64 |

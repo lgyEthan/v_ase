@@ -715,11 +715,11 @@ def test_frontend_has_radius_controls_loading_overlay_and_modern_panel_styles():
     assert "autoBondBaseCutoffFromValues" in renderer_js
     assert "firstClass === AUTO_BOND_CLASS_METAL && secondClass === AUTO_BOND_CLASS_METAL" in renderer_js
     assert "fixedAtomDisplayEnabled()" in renderer_js
-    assert "return this.displayOptions.showOverlays !== false" in renderer_js
+    assert "return this.displayOptions.showConstraints !== false" in renderer_js
     assert "fixedAtomSegments(segmentCount)" in renderer_js
     fixed_segments = renderer_js.index("\n    fixedAtomSegments(segmentCount) {")
     assert "return segmentCount;" in renderer_js[fixed_segments:fixed_segments + 500]
-    assert "const baseSelectionVisible = visible && !this.commensurateSupercellPreview" in renderer_js
+    assert "const baseSelectionVisible = !this.commensurateSupercellPreview" in renderer_js
     assert "canvas.width = 760" in renderer_js
     assert "let fontSize = 42" in renderer_js
     assert "flatShading: isFixed" in renderer_js

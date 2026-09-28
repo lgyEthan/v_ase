@@ -1,9 +1,18 @@
 # v_ase Desktop
 
-Native macOS and Windows windows around the published v_ase 0.4.8 GUI. Scientific
+Native macOS and Windows windows around the published v_ase 0.4.9 GUI. Scientific
 editing, rendering, serialization and Python/Jupyter APIs stay in the Python
 distribution. The host adds OS file dialogs, guarded native file handles,
 document shortcuts, single-instance file opening and safe Quit.
+
+## Pre-publication Windows check
+
+`Verify desktop source before publication` runs the current candidate source in
+Windows Electron before the version exists on PyPI. It checks native selection
+and constraint pixels, panel scrolling at 100/125/150% zoom, shortcuts, saved
+projects and window lifecycles. These are validation files, never distributable
+installers. The normal three-platform packaging workflow below still installs
+and verifies the exact published wheel before any public desktop promotion.
 
 ## Build on the target platform
 
@@ -34,7 +43,7 @@ substitutes a local scientific package or changes the published wheel.
 
 
 The helper verifies a pinned official python-build-standalone archive against
-its SHA-256, installs published `v_ase-gui[mcp,rhino]==0.4.8` and locked binary
+its SHA-256, installs published `v_ase-gui[mcp,rhino]==0.4.9` and locked binary
 dependencies, runs `pip check`, and checks scientific imports. The full
 relocatable Python preserves dynamic ASE readers and package resources. It
 never installs into the user's Python environment.
@@ -202,10 +211,10 @@ must be repaired and tested before continuing. Once accepted:
 xcrun stapler staple "$VASE_APP"
 xcrun stapler validate "$VASE_APP"
 spctl --assess --type execute --verbose=2 "$VASE_APP"
-ditto -c -k --sequesterRsrc --keepParent "$VASE_APP" "$VASE_OUTPUT/v_ase-0.4.8-mac-$VASE_ARCH.zip"
+ditto -c -k --sequesterRsrc --keepParent "$VASE_APP" "$VASE_OUTPUT/v_ase-0.4.9-mac-$VASE_ARCH.zip"
 npx --no-install electron-builder --prepackaged "$VASE_APP" --mac dmg --"$VASE_ARCH" --publish never --config.directories.output="$VASE_OUTPUT" --config.dmg.writeUpdateInfo=false
-codesign --force --timestamp --sign "$VASE_IDENTITY" "$VASE_OUTPUT/v_ase-0.4.8-mac-$VASE_ARCH.dmg"
-xcrun notarytool submit "$VASE_OUTPUT/v_ase-0.4.8-mac-$VASE_ARCH.dmg" --keychain-profile vase-notary --wait --output-format json
+codesign --force --timestamp --sign "$VASE_IDENTITY" "$VASE_OUTPUT/v_ase-0.4.9-mac-$VASE_ARCH.dmg"
+xcrun notarytool submit "$VASE_OUTPUT/v_ase-0.4.9-mac-$VASE_ARCH.dmg" --keychain-profile vase-notary --wait --output-format json
 ```
 
 The pinned builder's `--prepackaged` path creates the familiar DMG layout
@@ -213,11 +222,11 @@ without rebuilding or re-signing the app. After the **DMG** submission is
 Accepted, retain that ID/log as well, then run:
 
 ```sh
-xcrun stapler staple "$VASE_OUTPUT/v_ase-0.4.8-mac-$VASE_ARCH.dmg"
-xcrun stapler validate "$VASE_OUTPUT/v_ase-0.4.8-mac-$VASE_ARCH.dmg"
+xcrun stapler staple "$VASE_OUTPUT/v_ase-0.4.9-mac-$VASE_ARCH.dmg"
+xcrun stapler validate "$VASE_OUTPUT/v_ase-0.4.9-mac-$VASE_ARCH.dmg"
 codesign --verify --deep --strict "$VASE_APP"
 python scripts/verify_macos.py "$VASE_APP" --team-id YOUR_TEAM_ID --notarized
-spctl --assess --type open --context context:primary-signature --verbose=2 "$VASE_OUTPUT/v_ase-0.4.8-mac-$VASE_ARCH.dmg"
+spctl --assess --type open --context context:primary-signature --verbose=2 "$VASE_OUTPUT/v_ase-0.4.9-mac-$VASE_ARCH.dmg"
 ```
 
 ZIPs cannot themselves receive a staple: their enclosed `.app` must already
@@ -254,7 +263,7 @@ users should install the native arm64 build.
    download, source archive and evidence file. Preserve hashes for unchanged
    Windows assets. Sign-only promotion does not modify the Python tag, wheel,
    sdist or package version.
-5. Use authenticated `gh release upload v0.4.8 --repo lgyEthan/v_ase --clobber`
+5. Use authenticated `gh release upload v0.4.9 --repo lgyEthan/v_ase --clobber`
    with the explicit changed asset paths. Upload the checksum file last. Use
    `gh release edit ... --notes-file ...` to preserve core release notes and
    update desktop install links, source provenance, Mac signed/notarized status
@@ -263,3 +272,5 @@ users should install the native arm64 build.
    and the checksum file, extract the Mac ZIPs, verify signatures/tickets and
    Gatekeeper assessment, and inspect the DMG's Applications shortcut. Confirm
    the source/evidence links and the online installation guide match delivery.
+
+Windows publisher signing remains disabled. See the [setup and release guide](../docs/windows-signing.md) for eligibility, certificate options and the proposed integration.

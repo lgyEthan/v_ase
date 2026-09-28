@@ -79,8 +79,8 @@ def test_water_mapping_and_source_precision_survive_project_archive(tmp_path):
 
 def test_geometry_exports_do_not_silently_omit_water():
     import pytest
-    from v_ase.export import export_3dm_response, export_obj_response, export_blender_response
-    for export in (export_3dm_response, export_obj_response, export_blender_response):
+    from v_ase.export import export_3dm_response, export_obj_response
+    for export in (export_3dm_response, export_obj_response):
         with pytest.raises(ValueError, match='water surface is not supported'):
             export(None, {'display': {'waterSurface': {'enabled': True}}})
 

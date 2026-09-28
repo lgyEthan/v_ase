@@ -171,7 +171,7 @@ revision. See [connection and recovery](ai-tools.md#read-edit-verify).
 * - `vase_stop_relaxation`
   - Stops the active ordinary or Add Atoms placement optimizer.
 * - `vase_clear_relaxation_trajectory`
-  - Removes the dedicated optimization movie while leaving its mode active. retain is final by default or displayed to keep the frame currently shown. Prerequisites: available-relaxation-trajectory.
+  - Removes the dedicated optimization movie while leaving its mode active. retain is final by default, displayed to keep the frame currently shown, or initial to restore frame 1 before this optimization without removing placed atoms.…
 * - `vase_exit_relaxation_mode`
   - Stops an active optimizer if needed, closes the dedicated movie timeline, and either keeps current coordinates (default) or restores the exact pre-relaxation structure when keep=false.
 * - `vase_configure_calculator`
@@ -381,7 +381,7 @@ revision. See [connection and recovery](ai-tools.md#read-edit-verify).
 * - `vase_export_pickle`
   - Export pickle from the shared GUI to a unique local artifact.
 * - `vase_export_blender`
-  - Export blender from the shared GUI to a unique local artifact.
+  - Export blender from the shared GUI to a unique local artifact. Includes the visible water envelope, mesh finish, material and trajectory. Rejects excessive geometry; lower subdivision or export fewer source frames.
 * - `vase_export_3dm`
   - Export 3dm from the shared GUI to a unique local artifact. Requires the optional rhino3dm dependency.
 * - `vase_export_obj`

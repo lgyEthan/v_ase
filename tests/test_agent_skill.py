@@ -723,6 +723,7 @@ def test_agent_endpoints_serve_the_canonical_skill_and_schema():
     assert clear_relaxation_schema["properties"]["retain"]["enum"] == [
         "displayed",
         "final",
+        "initial",
     ]
     show_schema = next(
         item["then"]

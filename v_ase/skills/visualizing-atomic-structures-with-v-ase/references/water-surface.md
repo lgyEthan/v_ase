@@ -1,5 +1,12 @@
 # Water surface
 
+## Contents
+
+- [Source scope and exports](#source-scope-and-exports)
+- [Shared renderer quality](#shared-renderer-quality)
+
+## Source scope and exports
+
 Discover `capabilities().waterSurface` and `display.waterSurface` in the live display schema. Read `describe().analysis.waterSurface` for build/error diagnostics. Use the existing typed
 display control, preserving document/revision preconditions. Read and merge the
 current nested water settings when modifying one field; the object carries its
@@ -37,8 +44,13 @@ Source coordinates, chemical elements and constraints must remain unchanged.
 The GUI is **Style → Water**; Objects shares its enabled checkbox. `lighting:false`
 uses an unlit surface while preserving other objects' lighting. Surface material
 is unlit in flat mode. The same geometry path serves viewport, PNG/movie/GIF and
-self-contained HTML; project settings persist in .vase. Geometry CAD/Blender
-exports do not currently carry the envelope; report this limitation.
+self-contained HTML; project settings persist in .vase. Blender export includes the editable water mesh, material, periodic copies and
+per-frame geometry. A NumPy/SciPy surface-nets implementation is tested against the
+viewport mesh including fairing/subdivision. Export errors above four million
+refined water triangles/frame or two million total animation sites/vertices must
+be resolved by reducing subdivision/repetitions/frame count, not by silently
+omitting water. Run the generated script in Blender; run it again after reopening
+for procedural trajectory playback. OBJ/3DM still reject enabled water.
 
 Capacity failures appear in the water status and restore molecular spheres.
 Interior sphere/bond instances are excluded from GPU draw counts. An indexed

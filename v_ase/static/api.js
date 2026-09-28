@@ -1537,11 +1537,11 @@ export class ASEApi {
         return await this.post(`/api/relax/stop/{session_id}`);
     }
 
-    async clearRelaxTrajectory(kind, positions, useLatest = true) {
+    async clearRelaxTrajectory(kind, positions, retain = 'final') {
         return await this.jsonPost(`/api/relax/trajectory/clear/{session_id}`, {
             kind,
             positions,
-            use_latest: Boolean(useLatest)
+            retain: retain === true ? 'final' : retain === false ? 'displayed' : retain
         });
     }
 

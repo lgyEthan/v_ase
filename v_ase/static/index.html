@@ -52,14 +52,14 @@
             });
         })();
     </script>
-    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.4.8">
-    <link id="editor-style" rel="stylesheet" href="static/editor.css?v=0.4.8">
-    <link id="direct-workspace-style" rel="stylesheet" href="static/direct_workspace.css?v=0.4.8">
+    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.4.9">
+    <link id="editor-style" rel="stylesheet" href="static/editor.css?v=0.4.9">
+    <link id="direct-workspace-style" rel="stylesheet" href="static/direct_workspace.css?v=0.4.9">
     <script>
         window.__V_ASE_MOCK__ = new URLSearchParams(window.location.search).has('v_ase_mock');
         const threeModulePath = window.location.protocol === 'file:'
             ? './vendor/three.module.js'
-            : '/static/vendor/three.module.js?v=0.4.8';
+            : '/static/vendor/three.module.js?v=0.4.9';
         const importMap = document.createElement('script');
         importMap.type = 'importmap';
         importMap.textContent = JSON.stringify({
@@ -166,7 +166,7 @@
     <header id="top-bar" class="glass-panel">
         <div class="logo">
             <img class="brand-logo-asset" src="static/v_ase-logo.png" alt="v_ase">
-            <span class="version">0.4.8</span>
+            <span class="version">0.4.9</span>
         </div>
         <nav id="editor-menu-bar" class="editor-menu-bar" aria-label="Document commands">
             <details><summary>File</summary><div class="editor-menu-popover">
@@ -670,14 +670,8 @@
                         <input id="add-atoms-mic" type="checkbox" checked>
                         <span>Minimum image convention for regions and repulsion</span>
                     </label>
-                    <div class="add-atoms-relax-link">
-                        <div>
-                            <strong>Shared Relaxation settings</strong>
-                            <span>Calculator, cutoff, device, fmax, and steps are controlled in Structure &gt; Relaxation.</span>
-                        </div>
-                        <button id="btn-add-atoms-open-relaxation" type="button">Open Relaxation</button>
-                    </div>
                 </section>
+
 
                 <div id="add-atoms-status" class="add-atoms-status" data-state="idle">
                     <span class="add-atoms-status-dot" aria-hidden="true"></span>
@@ -688,6 +682,12 @@
                     <button id="btn-add-atoms-cancel" type="button" disabled>Cancel</button>
                     <button id="btn-add-atoms-finish" class="primary" type="button" disabled>Finish</button>
                 </div>
+                <section class="placement-relaxation" aria-label="Relax placement">
+                    <h3>Relax placement <span>Optional</span></h3>
+                    <p class="panel-note">Place atoms or molecules first, then relax them here. Freeze existing atoms controls host movement. Finish keeps your placement; Cancel removes it.</p>
+                    <div id="add-atoms-relax-host"></div>
+                </section>
+
             </div>
 
             <div id="add-atoms-pane-build" class="add-atoms-build hidden" role="tabpanel">
@@ -1339,7 +1339,7 @@
                 <input type="checkbox" id="chk-grid" checked>
             </div>
             <div class="prop-row">
-                <label for="chk-overlays">Show Overlays</label>
+                <label for="chk-overlays">Scientific overlays</label>
                 <input type="checkbox" id="chk-overlays" checked>
             </div>
         </details>
@@ -1377,7 +1377,6 @@
             <h3 class="appearance-section-heading">Selected atoms</h3>
             <div id="selected-appearance" class="selected-appearance">
                 <div class="selected-appearance-head">
-                    <strong>Selected atoms</strong>
                     <span id="selected-appearance-count">None</span>
                 </div>
                 <div class="selected-appearance-fields">
@@ -2031,6 +2030,25 @@
 
         <details class="panel-section" open data-panel="scientific-tools" data-panel-group="structure" data-edit-only>
             <summary class="section-header">Relaxation</summary>
+            <div id="relaxation-home"><div id="relaxation-workflow">
+            <div class="relax-grid">
+                <label>fmax</label>
+                <input type="number" id="relax-fmax" value="0.05" step="0.01" min="0">
+                <label>steps</label>
+                <input type="number" id="relax-steps" value="200" step="10" min="1">
+            </div>
+            <div id="relax-mode-status" class="analysis-mode-card">
+                <div class="analysis-mode-card-head">
+                    <strong>Relaxation mode</strong>
+                    <span id="relax-mode-badge" class="analysis-mode-badge hidden">ACTIVE</span>
+                </div>
+                <p id="relax-mode-detail">Optimization frames use a separate movie timeline until this mode is closed.</p>
+            </div>
+            <button id="btn-relax" class="btn-block">Start Relaxation</button>
+            <button id="btn-stop-relax" class="btn-block">Stop Relaxation</button>
+            <button id="btn-clear-relax-trajectory" class="btn-block hidden">Clear Relaxation Trajectory</button>
+            <button id="btn-exit-relax-mode" class="btn-block hidden">Exit Relaxation Mode</button>
+                <details class="relax-calculator-details"><summary>Calculator &amp; contact distances</summary>
             <div id="calc-controls" class="repulsion-settings" title="These resources apply only to the built-in Repulsion calculator">
                 <div class="panel-subhead">Repulsion calculator</div>
                 <div class="prop-row">
@@ -2088,23 +2106,8 @@
                 </div>
                 <p id="calc-cutoff-note" class="panel-note">Each enabled label pair repels below its own distance, even when that pair is not drawn as a bond. Pair force is zero at and beyond the cutoff.</p>
             </div>
-            <div class="relax-grid">
-                <label>fmax</label>
-                <input type="number" id="relax-fmax" value="0.05" step="0.01" min="0">
-                <label>steps</label>
-                <input type="number" id="relax-steps" value="200" step="10" min="1">
-            </div>
-            <div id="relax-mode-status" class="analysis-mode-card">
-                <div class="analysis-mode-card-head">
-                    <strong>Relaxation mode</strong>
-                    <span id="relax-mode-badge" class="analysis-mode-badge hidden">ACTIVE</span>
-                </div>
-                <p id="relax-mode-detail">Optimization frames use a separate movie timeline until this mode is closed.</p>
-            </div>
-            <button id="btn-relax" class="btn-block">Start Relaxation</button>
-            <button id="btn-stop-relax" class="btn-block">Stop Relaxation</button>
-            <button id="btn-clear-relax-trajectory" class="btn-block hidden">Clear Relaxation Trajectory</button>
-            <button id="btn-exit-relax-mode" class="btn-block hidden">Exit Relaxation Mode</button>
+                </details>
+            </div></div>
         </details>
 
         <section class="panel-section export-section" data-panel="export" data-panel-group="export">
@@ -2366,8 +2369,8 @@
             <button id="project-error-save-as" type="button">Save As…</button>
         </div>
         <div id="active-add-session-controls" class="active-add-session-controls hidden" aria-live="polite">
-            <strong>ADDING ATOMS</strong>
-            <span>Finish or cancel the current placement session</span>
+            <strong>PLACEMENT</strong>
+            <span>Finish keeps the added atoms · Cancel restores the original structure</span>
         </div>
         <div id="trajectory-panel" class="trajectory-strip" aria-label="Trajectory controls">
             <div class="timeline-head">
@@ -2489,7 +2492,7 @@
         }
         const modulePath = (window.location.protocol === 'file:' || window.location.pathname.endsWith('/static/index.html'))
             ? './main.js'
-            : './static/main.js?v=0.4.8';
+            : './static/main.js?v=0.4.9';
         import(modulePath).catch(error => {
             console.error('v_ase failed to initialize:', error?.stack || error);
         });

@@ -879,7 +879,7 @@ AI_CONTROL_SCHEMA = {
                             },
                             "then": {
                                 "properties": {
-                                    "retain": {"enum": ["displayed", "final"]},
+                                    "retain": {"enum": ["displayed", "final", "initial"]},
                                 },
                             },
                         },
@@ -1929,7 +1929,7 @@ AI_OPERATION_PARAMETERS = {
         "optional": ["retain"],
         "notes": (
             "Removes the dedicated optimization movie while leaving its mode active. "
-            "retain is final by default or displayed to keep the frame currently shown."
+            "retain is final by default, displayed to keep the frame currently shown, or initial to restore frame 1 before this optimization without removing placed atoms."
         ),
     },
     "exit-relaxation-mode": {
@@ -2059,7 +2059,7 @@ AI_EXPORT_PARAMETERS = {
     },
     "poscar": {"optional": [], "notes": "ASE rejects Cartesian directional constraints that cannot be represented as POSCAR selective dynamics for the current cell. Constraints are never silently removed; use project or pickle to preserve them."},
     "pickle": {"optional": []},
-    "blender": {"optional": ["includeCell"]},
+    "blender": {"optional": ["includeCell"], "notes": "Includes the visible water envelope, mesh finish, material and trajectory. Rejects excessive geometry; lower subdivision or export fewer source frames."},
     "3dm": {
         "optional": ["includeCell"],
         "notes": "Requires the optional rhino3dm dependency.",

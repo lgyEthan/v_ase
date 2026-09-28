@@ -3433,6 +3433,67 @@ if 'polyhedra_atoms' in DATA or DATA.get("polyhedra") or DATA.get("polyhedra_fra
         bpy.context.scene.frame_start=1;bpy.context.scene.frame_end=len(DATA['polyhedra_frames'])
         bpy.app.handlers.frame_change_post.append(update_polyhedra)
 
+# One editable water mesh; only the current trajectory surface is resident.
+WATER_OBJECT = None
+WATER_FRAME = None
+WATER_MATERIAL = None
+
+@persistent
+def update_water_surface(scene, *_):
+    global WATER_OBJECT, WATER_FRAME, WATER_MATERIAL
+    sequence = DATA.get('water_surface_frames', [])
+    frame_index = max(0,min(len(sequence)-1,scene.frame_current-1)) if sequence else -1
+    if WATER_FRAME == frame_index:
+        return
+    record = sequence[frame_index] if sequence else DATA.get('water_surface')
+    if not record:
+        return
+    import base64, zlib
+    surface = json.loads(zlib.decompress(base64.b85decode(record['mesh'])))
+    mesh = bpy.data.meshes.new('v_ase_water_surface')
+    mesh.from_pydata(surface['vertices'], [], surface['triangles']); mesh.update()
+    for polygon in mesh.polygons: polygon.use_smooth = True
+    if surface['normals'] and hasattr(mesh, 'normals_split_custom_set_from_vertices'):
+        mesh.normals_split_custom_set_from_vertices(surface['normals'])
+    if WATER_MATERIAL is None:
+        WATER_MATERIAL = bpy.data.materials.new('v_ase_water')
+        WATER_MATERIAL.use_nodes = True
+        nodes = WATER_MATERIAL.node_tree.nodes; links = WATER_MATERIAL.node_tree.links
+        nodes.clear(); output = nodes.new('ShaderNodeOutputMaterial')
+        color = hex_rgba(record['color']) if 'hex_rgba' in globals() else tuple(int(record['color'][i:i+2],16)/255 for i in (1,3,5))+(1.,)
+        shader = nodes.new('ShaderNodeBsdfPrincipled' if record['lighting'] else 'ShaderNodeEmission')
+        if record['lighting']:
+            shader.inputs['Base Color'].default_value = color
+            shader.inputs['Roughness'].default_value = record['roughness']
+            shader.inputs['IOR'].default_value = 1.333
+            if 'Coat Weight' in shader.inputs: shader.inputs['Coat Weight'].default_value = 1.
+            if 'Coat Roughness' in shader.inputs: shader.inputs['Coat Roughness'].default_value = record['roughness']
+        else:
+            shader.inputs['Color'].default_value = color
+        # Mix opacity explicitly so Eevee and Cycles both retain translucency.
+        transparent = nodes.new('ShaderNodeBsdfTransparent'); mix = nodes.new('ShaderNodeMixShader')
+        mix.inputs[0].default_value = record['opacity']
+        links.new(transparent.outputs[0],mix.inputs[1]); links.new(shader.outputs[0],mix.inputs[2]); links.new(mix.outputs[0],output.inputs['Surface'])
+        if hasattr(WATER_MATERIAL,'surface_render_method'): WATER_MATERIAL.surface_render_method = 'DITHERED'
+        elif hasattr(WATER_MATERIAL,'blend_method'): WATER_MATERIAL.blend_method = 'HASHED'
+        WATER_MATERIAL.diffuse_color = (*color[:3],record['opacity'])
+    mesh.materials.append(WATER_MATERIAL)
+    if WATER_OBJECT is None:
+        WATER_OBJECT = bpy.data.objects.new('v_ase_water_surface',mesh)
+        bpy.context.collection.objects.link(WATER_OBJECT)
+        WATER_OBJECT['v_ase_visualization'] = 'Coordinate-derived water envelope; coordinates in Angstrom'
+    else:
+        old = WATER_OBJECT.data; WATER_OBJECT.data = mesh
+        if old.users == 0: bpy.data.meshes.remove(old)
+    WATER_OBJECT['v_ase_water_molecules'] = record['molecules']
+    WATER_FRAME = frame_index
+
+if DATA.get('water_surface'):
+    update_water_surface(bpy.context.scene)
+    if DATA.get('water_surface_frames'):
+        bpy.context.scene.frame_start=1; bpy.context.scene.frame_end=len(DATA['water_surface_frames'])
+        bpy.app.handlers.frame_change_post.append(update_water_surface)
+
 positions = DATA["positions"]
 symbols = DATA["symbols"]
 atoms = []
@@ -3494,7 +3555,7 @@ if "polyhedra_atoms" not in DATA and len(FRAMES) > 1 and all(frame_topology_matc
         update_group_radius_attributes(bpy.context.scene)
 
 constraints = DATA.get("constraints", {{}}) if (
-    DISPLAY.get("showOverlays", True) and DISPLAY.get("showConstraints", True)
+    DISPLAY.get("showConstraints", True)
 ) else {{}}
 for idx_text, direction in constraints.get("fixed_line", {{}}).items():
     idx = int(idx_text)
@@ -3550,9 +3611,6 @@ add_scene_camera()
 
 
 def export_blender_response(session, payload: Dict[str, Any]):
-    if (payload.get("display") or {}).get("waterSurface", {}).get("enabled"):
-        raise ValueError("This experimental water surface is not supported by geometry export yet. "
-                         "Use PNG, movie/GIF or interactive HTML, or turn off Water surface to export atoms.")
     atoms = _apply_payload_positions(session, payload)
     if getattr(session, "trajectory_frames", None):
         session.sync_current_frame()
@@ -3572,22 +3630,36 @@ def export_blender_response(session, payload: Dict[str, Any]):
             frame["atom_radius_factors"] = atom_radius_factors_for_atoms(
                 frame_atoms, radius_mapping
             ).tolist()
-    if display.get("showPolyhedra"):
+    water_enabled = bool((display.get("waterSurface") or {}).get("enabled"))
+    if display.get("showPolyhedra") or water_enabled:
         from ase import Atoms
         from types import SimpleNamespace
         from .io import set_atom_labels
         def poly_scene(frame_atoms):
             isolated=SimpleNamespace(working_atoms=frame_atoms,config={},trajectory_frames=[])
-            return _cad_scene_data(isolated,{'display':display,'include_cell':payload.get('include_cell',True)})
+            scene = _cad_scene_data(isolated,{'display':display,'include_cell':payload.get('include_cell',True)})
+            if water_enabled:
+                from .water_export import water_scene
+                scene['water'] = water_scene(frame_atoms, display, scene)
+            return scene
+        def pack_water(record):
+            mesh = {key:record[key] for key in ('vertices','normals','triangles')}
+            return {**{k:v for k,v in record.items() if k not in mesh},
+                    'vertexCount':len(record['vertices']),
+                    'mesh':base64.b85encode(zlib.compress(json.dumps(mesh,separators=(',',':')).encode(),6)).decode('ascii')}
         scene=poly_scene(atoms)
         data['polyhedra']=scene['polyhedra'];data['polyhedra_atoms']=scene['atoms'];data['polyhedra_bonds']=scene['bonds']
         data['polyhedra_cell_edges']=scene['cell_edges']
+        if water_enabled:
+            data['water_surface'] = pack_water(scene['water'])
+            data['water_surface_frames'] = []
         all_polyhedra=[];all_atoms=[];all_bonds=[];all_cells=[];vertex_budget=0
         for frame_index, frame in enumerate(frames):
             frame_atoms=(getattr(session,'trajectory_frames',[]) or [])[frame_index]
-            set_atom_labels(frame_atoms,frame['symbols']);scene=poly_scene(frame_atoms)
-            vertex_budget+=sum(len(mesh['vertices']) for mesh in scene['polyhedra'])+len(scene['atoms'])
-            if vertex_budget>2000000:raise ValueError('Polyhedra animation export exceeds two million sites/vertices. Export fewer frames or centers.')
+            scene=poly_scene(frame_atoms)
+            vertex_budget+=sum(len(mesh['vertices']) for mesh in scene['polyhedra'])+len(scene['atoms'])+len(scene.get('water',{}).get('vertices',[]))
+            if vertex_budget>2000000:raise ValueError('Blender surface animation exceeds two million sites/vertices. Export fewer frames, repetitions, or lower surface subdivision.')
+            if water_enabled: data['water_surface_frames'].append(pack_water(scene['water']))
             all_polyhedra.append(scene['polyhedra']);all_atoms.append(scene['atoms']);all_bonds.append(scene['bonds']);all_cells.append(scene['cell_edges'])
         if all_polyhedra:
             data['polyhedra_frames']=all_polyhedra;data['polyhedra_atoms_frames']=all_atoms;data['polyhedra_bonds_frames']=all_bonds;data['polyhedra_cell_frames']=all_cells

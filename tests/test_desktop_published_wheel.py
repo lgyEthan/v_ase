@@ -13,11 +13,11 @@ def test_published_wheel_validates_metadata_and_bytes(tmp_path, failure):
     namespace = runpy.run_path(str(Path(__file__).resolve().parents[1] / 'desktop/scripts/prepare_runtime.py'))
     resolver = namespace['published_wheel']
     data = b'published-wheel-fixture'
-    (tmp_path / 'package.json').write_text(json.dumps({'version': '0.4.8'}))
-    item = {'filename': 'v_ase_gui-0.4.8-py3-none-any.whl', 'packagetype': 'bdist_wheel',
+    (tmp_path / 'package.json').write_text(json.dumps({'version': '0.4.9'}))
+    item = {'filename': 'v_ase_gui-0.4.9-py3-none-any.whl', 'packagetype': 'bdist_wheel',
             'url': 'https://files.pythonhosted.org/packages/verified.whl',
             'digests': {'sha256': hashlib.sha256(data).hexdigest()}, 'yanked': False}
-    payload = {'info': {'version': '0.4.8'}, 'urls': [item]}
+    payload = {'info': {'version': '0.4.9'}, 'urls': [item]}
     if failure == 'version': payload['info']['version'] = '0.4.7'
     if failure == 'missing': payload['urls'] = []
     if failure == 'yanked': item['yanked'] = True

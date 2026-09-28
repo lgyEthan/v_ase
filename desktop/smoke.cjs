@@ -102,6 +102,7 @@ async function runSmoke({ app, win, handshake, vault, sendCommand }) {
     } finally { win.webContents.debugger.detach(); await js("document.getElementById('smoke-drop-file').remove()"); }
     await open(fixture);
     assert.equal(await js(`${appRef}.state.atoms.positions.length`), 3);
+    const visualParity = await require('./visual-smoke.cjs')({js,active,appRef,win,output,wait});
     const routes = { supercell: 'cell-replication', appearance: 'appearance', bonding: 'bonding', renderer: 'export', 'cell-transform': 'cell-transform' };
     for (const [command, route] of Object.entries(routes)) {
         Menu.getApplicationMenu().getMenuItemById(command).click();
@@ -378,7 +379,7 @@ async function runSmoke({ app, win, handshake, vault, sendCommand }) {
         commands: 10, nativeControlA: true, verticalCutoffTab: true, droppedFileGrant: true, detachedWindow: true, detachedSave: true, transferRollback: true, openNewWindow: true, independentWindowClose: true, nativeKeyInput: true, nativeSave: true, scientificProject: true,
         detachedReadyMs,
         htmlProfile: [720,480], openNewTab: true, quitCancellation: true, render: [800, 600],
-        oxygenPixels, geometryRoutes, nodeIsolation: true };
+        oxygenPixels, geometryRoutes, visualParity, nodeIsolation: true };
     // The remaining source window contains only disposable blank tabs after detach.
     while (await js('window.__V_ASE_WORKSPACE__.tabs.size') > 1) {
         const count=await js('window.__V_ASE_WORKSPACE__.tabs.size');

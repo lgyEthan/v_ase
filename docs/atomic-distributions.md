@@ -1,5 +1,12 @@
 # Build atomic and molecular distributions
 
+Placement uses one vertical panel scrollbar. After **Place atoms/molecules**, use
+**Relax placement** immediately below the placement settings, then **Finish** to
+keep the addition or **Cancel** to restore its starting host. Calculator and
+contact-distance settings expand inside the same section. The original host
+stays fixed according to the placement constraints. Clearing the optimization
+movie can restore the first frame without discarding placed atoms.
+
 Use this workflow to prepare a mixed structure with reproducible positions and
 remove short contacts before a simulation. The output is a starting geometry;
 its density, chemistry, and thermodynamic state still need a suitable physical

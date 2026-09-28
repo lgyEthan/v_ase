@@ -43,6 +43,30 @@ optional cell, trajectory animation, camera, and lighting. Optimized output
 avoids one Blender object per atom; select individual-object output only when
 atom-by-atom Blender editing is required.
 
+Water surfaces are included from 0.4.9. **Render → 3D geometry → Blender** downloads
+`v_ase_blender_scene.py`. In Blender's Scripting workspace, open that file in the
+Text Editor and choose **Run Script**. Run generated scripts only from trusted
+projects. The export sets up the scene; use a new Blender file if you have an
+unrelated scene open.
+
+The water object, `v_ase_water_surface`, is an editable mesh with smooth normals,
+color, opacity, roughness and lit/unlit material. Its physical mesh matches the
+viewport's density grid, smoothing and subdivision. Only displayed water copies
+are included; hidden molecular atoms/bonds stay hidden, while ions and solids
+remain atomistic. Source coordinates and molecule IDs are unchanged.
+
+For trajectories, running the script installs frame handlers that replace the
+current mesh, including frames with no water or changed topology. Scrub Blender's
+timeline after running it. Save a `.blend` for a static editable scene. To resume
+procedural trajectory playback after reopening, run the generated script again;
+the animation is not baked as independent mesh objects for every frame.
+
+Export rejects more than four million refined water triangles in a frame or two
+million combined surface vertices/sites across animation frames. Lower water
+subdivision, repetitions, or export a shorter source trajectory. The scientific
+isovalue is not automatically altered. Water export uses existing NumPy/SciPy;
+Blender needs neither ASE nor a running v_ase server to run the generated file.
+
 ### OBJ/MTL
 
 OBJ export is a static scene packaged with MTL plus camera/metadata sidecar

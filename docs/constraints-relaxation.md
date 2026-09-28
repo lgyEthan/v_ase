@@ -224,8 +224,12 @@ their initial, optimizer, and final states remain in the timeline.
 ### Clear the trajectory
 
 **Clear Relaxation Trajectory** removes only the optimization movie and leaves
-the mode active. Choose whether to retain the displayed frame or final frame.
-The retained structure becomes the current coordinate state.
+the mode active. Choose **Restore Starting Structure**, **Keep Displayed Frame**,
+or **Use Final Frame**. Starting structure means frame 1 of this optimization,
+including atoms/molecules already placed before the run. It is distinct from
+**Cancel placement**, which removes the entire staged addition, and **Exit →
+Restore before relax**, which leaves ordinary relaxation mode. Clearing is one
+Undo action; physical constraints and source-frame identity remain intact.
 
 ### Exit relaxation mode
 

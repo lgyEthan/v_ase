@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.4.9
+
+- Keep live atom selection visible independently of scientific-overlay visibility.
+  Let Objects → Constraints control fixed, line and plane marks consistently in
+  2D/3D, including image/video output.
+- Remove nested vertical scroll containers from Add Atoms/Molecules. Normalize
+  control typography and preserve tool hit targets with classic scrollbars and
+  enlarged Windows display scales. Test rendered pixels in native desktop CI.
+- Keep optional placement relaxation in the Add Atoms panel, with a clear
+  Place → Relax → Finish/Cancel flow and shared calculator settings.
+- Add Restore Starting Structure when clearing any relaxation movie. Restore
+  that run's first frame without leaving its mode or removing inserted atoms.
+- Export water to Blender as one editable, smooth, translucent mesh per current
+  frame. Preserve molecule detection, periodic scope, hidden molecules, material,
+  smoothing and subdivision; bound geometry/animation memory and reject excessive
+  output explicitly. No new Python dependencies.
+- Document Windows publisher-signing eligibility, setup and release checks;
+  leave Windows signing disabled as requested.
+
 ## 0.4.8
 
 - Expose Isosurfaces and stored Forces in Style. Keep field import/combinations

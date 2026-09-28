@@ -1770,7 +1770,7 @@ export class ASERenderer {
     }
 
     fixedAtomDisplayEnabled() {
-        return this.displayOptions.showOverlays !== false && this.displayOptions.showConstraints !== false;
+        return this.displayOptions.showConstraints !== false;
     }
 
     normalizedAtomMaterialPreset(value) {
@@ -4379,15 +4379,16 @@ export class ASERenderer {
         // A commensurate preview replaces the base structure. Base-selection
         // shells refer to the unrotated atom scene and must never leak into a
         // cells-only (or materialized preview-atom) lattice view.
-        const baseSelectionVisible = visible && !this.commensurateSupercellPreview;
+        // Selection is interaction feedback, independent of scientific overlays.
+        const baseSelectionVisible = !this.commensurateSupercellPreview;
         if (this.selectionOutlines) this.selectionOutlines.visible = baseSelectionVisible;
         if (this.replicaSelectionOutlines) {
             this.replicaSelectionOutlines.visible = baseSelectionVisible;
         }
-        if (this.constraintGuideGroup) this.constraintGuideGroup.visible = visible && this.displayOptions.showConstraints !== false;
-        if (this.constraintMotionGuideGroup) this.constraintMotionGuideGroup.visible = visible && this.displayOptions.showConstraints !== false;
-        if (this.constraintMarkGroup) this.constraintMarkGroup.visible = visible && this.displayOptions.showConstraints !== false;
-        if (this.hookeanGroup) this.hookeanGroup.visible = visible && this.displayOptions.showConstraints !== false;
+        if (this.constraintGuideGroup) this.constraintGuideGroup.visible = this.displayOptions.showConstraints !== false;
+        if (this.constraintMotionGuideGroup) this.constraintMotionGuideGroup.visible = this.displayOptions.showConstraints !== false;
+        if (this.constraintMarkGroup) this.constraintMarkGroup.visible = this.displayOptions.showConstraints !== false;
+        if (this.hookeanGroup) this.hookeanGroup.visible = this.displayOptions.showConstraints !== false;
         if (this.displacementGroup) {
             this.displacementGroup.visible = visible && this.displayOptions.showDisplacements === true;
         }

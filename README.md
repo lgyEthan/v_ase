@@ -14,7 +14,7 @@
 [Changelog](https://v-ase.readthedocs.io/en/latest/whats-new.html) ·
 [Issues](https://github.com/lgyEthan/v_ase/issues)
 
-**v_ase 0.4.8 — continuous water surfaces and refined rendering** ·
+**v_ase 0.4.9 — desktop visibility, placement workflow and Blender water export** ·
 [Changes](https://v-ase.readthedocs.io/en/latest/whats-new.html)
 
 An ASE-native workspace for building, editing and visualizing atomic structures,
@@ -29,6 +29,23 @@ target maps no atoms and does not block export. GUI and agent project saves
 both retain the document's mode and presentation.
 Agent revision snapshots wait for pending change notifications to finish.
 Renderer scale and atom radius remain independent.
+
+## Desktop editing improvements
+
+Selection outlines remain visible when scientific overlays are off. The Objects
+**Constraints** checkbox independently controls fixed-atom marks and direction
+guides in both 2D and 3D. The right panel uses one vertical scroll path, including
+Add Molecules at enlarged Windows display scales.
+
+**Build → Add atoms → Atoms/Molecules** keeps optional **Relax placement** in the
+same panel. Place first, relax if needed, then Finish or Cancel. **Clear Relaxation
+Trajectory → Restore Starting Structure** returns to the start of that run while
+keeping placed atoms; Cancel placement still removes the complete addition.
+
+Blender export now includes the water surface as an editable mesh, with color,
+opacity, lighting, mesh finishing, periodic copies and trajectory frames. See
+[Blender export](docs/export-structures.md#blender). Windows publisher signing is
+[documented separately](docs/windows-signing.md); this release does not enable it.
 
 ## Water surfaces and rendering quality
 
@@ -60,7 +77,7 @@ and 20 smoothing passes. Existing saved settings are retained.
 
 macOS and Windows users can install the self-contained
 [desktop app](https://v-ase.readthedocs.io/en/latest/desktop.html) from
-[GitHub Releases](https://github.com/lgyEthan/v_ase/releases/tag/v0.4.8).
+[GitHub Releases](https://github.com/lgyEthan/v_ase/releases/tag/v0.4.9).
 It runs the same GUI with native Command/Ctrl shortcuts and file dialogs;
 Python installation is not required. Python and Jupyter remain available
 independently. Drag a desktop tab out to detach it into another window. Atom magnification,
@@ -73,11 +90,11 @@ window closes independently; Windows Alt+F4 closes the active window, while
 explicit Quit checks all windows. The app icon now features the full atomic-bead
 castle with its small Pinocchio detail and no projecting red foundation board.
 
-| Desktop download (0.4.8) | Install and launch |
+| Desktop download (0.4.9) | Install and launch |
 | --- | --- |
-| [Mac, Apple silicon](https://github.com/lgyEthan/v_ase/releases/download/v0.4.8/v_ase-0.4.8-mac-arm64.dmg) | macOS 15+: open the DMG, drag **v_ase** to **Applications**, eject the disk image, then launch the Applications copy. |
-| [Mac, Intel](https://github.com/lgyEthan/v_ase/releases/download/v0.4.8/v_ase-0.4.8-mac-x64.dmg) | Same steps; choose Intel when **About This Mac** shows an Intel processor. |
-| [Windows, Intel/AMD x64](https://github.com/lgyEthan/v_ase/releases/download/v0.4.8/v_ase-0.4.8-win-x64.exe) | Windows 10/11, 64-bit: run the EXE installer, complete installation, then launch **v_ase** from Start. |
+| [Mac, Apple silicon](https://github.com/lgyEthan/v_ase/releases/download/v0.4.9/v_ase-0.4.9-mac-arm64.dmg) | macOS 15+: open the DMG, drag **v_ase** to **Applications**, eject the disk image, then launch the Applications copy. |
+| [Mac, Intel](https://github.com/lgyEthan/v_ase/releases/download/v0.4.9/v_ase-0.4.9-mac-x64.dmg) | Same steps; choose Intel when **About This Mac** shows an Intel processor. |
+| [Windows, Intel/AMD x64](https://github.com/lgyEthan/v_ase/releases/download/v0.4.9/v_ase-0.4.9-win-x64.exe) | Windows 10/11, 64-bit: run the EXE installer, complete installation, then launch **v_ase** from Start. |
 
 The Mac downloads are **Developer ID signed and Apple-notarized**, with
 stapled tickets for the app and DMG. macOS may show its normal first-open

@@ -127,8 +127,8 @@ the current image profile. `options.selection_appearance="publication"` is the
 default: atom selection outlines are suppressed and plane borders are neutral,
 without clearing live selections. Set `include_plane_borders=false` to omit
 plane borders, or `selection_appearance="interactive"` when selected appearance
-is intentionally part of the image. Scientific constraint markings remain when `display.showConstraints` and
-`showOverlays` are enabled; this is independent of physical enforcement.
+is intentionally part of the image. Scientific constraint markings remain when `display.showConstraints` is enabled;
+live selection outlines are independent of `showOverlays`. Constraint visibility is independent of physical enforcement.
 
 `vase_select_volumetric_planes(plane_ids=[])` explicitly deselects planes.
 Clearing atom selection alone does not clear plane selection. A scene patch with
@@ -278,3 +278,9 @@ for stored molecule IDs, captured source selection, cached surface rendering,
 trajectory topology, bounds, numeric atom/bond quality, cancellable surface
 interpolation, live/export parity and limitations. This is a
 visualization and never generates dynamics or changes atom coordinates.
+
+Clear optimization movies with `retain:"initial"` to restore their first frame,
+`"displayed"` to keep the viewed frame, or `"final"` (default). Initial restoration
+keeps the active mode and any atoms placed before that run. It is not Cancel
+placement or Exit Relaxation. The GUI exposes optional relaxation directly in
+Build → Add atoms; ordinary relaxation shares the same controls/calculator.

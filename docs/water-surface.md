@@ -66,10 +66,10 @@ Image and movie/GIF captures use the same surface and Render Area as the viewer.
 renderer modules and works offline. There are no new Python dependencies.
 In flat display mode the surface is unlit; saved lighting preferences remain.
 
-The current envelope is available in canvas/PNG/video/GIF/HTML. **Blender, OBJ and
-Rhino geometry exports do not yet include this water layer.** Those formats
-are explicitly rejected while the layer is enabled, so they cannot silently
-omit the water. Disable the surface deliberately to export molecular geometry.
+The envelope is available in canvas/PNG/video/GIF/HTML and in
+[Blender exports](export-structures.md#blender), with matching density geometry
+and mesh finishing. **OBJ and Rhino geometry exports** still reject enabled water
+explicitly; disable it deliberately to export molecular geometry in those formats.
 
 ## Performance and bounds
 
@@ -279,8 +279,9 @@ playback, exact exported dimensions, scientific coordinate immutability,
 visibility on/off, custom labels, periodic water, captured scopes, malformed data,
 no-water frames, document switches and undo. Inspect the resulting image/movie.
 
-Known limits: Blender/OBJ/Rhino mesh export remains unavailable while water is
-enabled (an explicit error prevents silent omission). CPU reconstruction uses
+Known limits: OBJ/Rhino mesh export remains unavailable while water is
+enabled (an explicit error prevents silent omission). Blender has explicit per-frame
+and animation mesh budgets; see its export guide. CPU reconstruction uses
 bounded work and may reduce effective grid resolution on large repeated scenes;
 live playback can lag when finishing exceeds a frame interval. Movies wait for
 finished frames. This feature visualizes coordinates; it is not a fluid solver.

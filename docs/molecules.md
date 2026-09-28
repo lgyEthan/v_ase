@@ -1,5 +1,12 @@
 # Insert molecules and set density
 
+Placement uses one vertical panel scrollbar. After **Place atoms/molecules**, use
+**Relax placement** immediately below the placement settings, then **Finish** to
+keep the addition or **Cancel** to restore its starting host. Calculator and
+contact-distance settings expand inside the same section. The original host
+stays fixed according to the placement constraints. Clearing the optimization
+movie can restore the first frame without discarding placed atoms.
+
 Fill a pore or solvent region with complete molecules. Choose **+ Add atoms >
 Batch > Molecules** in Edit. Counts or target density determine how many complete
 molecules are inserted; rigid placement can preserve their internal geometry.

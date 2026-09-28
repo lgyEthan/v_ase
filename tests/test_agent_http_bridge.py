@@ -1224,10 +1224,11 @@ def test_http_bridge_controls_the_same_live_workspace_without_page_evaluation(
                     "expectedRevision": relaxed["collaboration"]["revision"],
                     "operation": {
                         "name": "clear-relaxation-trajectory",
-                        "retain": "displayed",
+                        "retain": "initial",
                     },
                 },
             )
+            np.testing.assert_allclose(cleared_relaxation["positions"], scaled["positions"])
             assert cleared_relaxation["relaxation"]["active"] is True
             assert cleared_relaxation["relaxation"]["running"] is False
             assert cleared_relaxation["relaxation"]["frameCount"] == 0

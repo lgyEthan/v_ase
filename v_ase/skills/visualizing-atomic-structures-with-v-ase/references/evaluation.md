@@ -868,3 +868,16 @@ GUI and saved trajectory must agree; a successful immediate move is insufficient
    final geometry. Round-trip all four surface fields through `.vase`. Inspect
    close-ups and both themes at narrow/wide panels. More subdivision must actually
    add triangles; smoothing must reduce ripples without increasing triangle count.
+
+## 0.4.9 desktop and Blender regressions
+
+- With scientific overlays off, select by box and per-label checkbox; require
+  yellow outline pixels in 2D and 3D. Independently toggle Objects → Constraints
+  and require visible pixel changes without altering physical constraints.
+- Native and packaged desktop checks repeat those actions and verify one vertical
+  scroll ancestor plus a hit-testable Place Molecules button at 100/125/150% zoom.
+- Clear a completed optimization with `retain:"initial"`; require exact pre-run
+  coordinates, active mode, unchanged atom count/constraints and cleared movie.
+- Enable water and export Blender. Execute in real Blender, inspect its render,
+  and scrub across changed topology/no-water frames. Compare its base/refined
+  physical mesh to JavaScript, including periodic and hidden source scope.

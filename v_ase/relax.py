@@ -220,13 +220,15 @@ def clear_relaxation_trajectory(session, payload):
     """Stop the active optimizer and retain one chosen trajectory frame.
 
     Optimization frames are streamed by the browser rather than retained as a
-    second backend trajectory. The client submits either its displayed frame or
-    the final frame; this method commits that choice without leaving the active
+    second backend trajectory. The client submits the initial, displayed, or final frame; this method commits that choice without leaving the active
     Relaxation, Add Atoms, or rigid-translation mode.
     """
     kind = str(payload.get("kind") or "relaxation").strip().lower()
     if kind not in {"relaxation", "add-atoms", "registry"}:
         raise ValueError("Relaxation trajectory kind is not supported.")
+    retain = payload.get("retain", "final" if payload.get("use_latest", True) else "displayed")
+    if retain not in {"initial", "displayed", "final"}:
+        raise ValueError("Retain must be initial, displayed, or final.")
     positions = np.asarray(payload.get("positions"), dtype=float)
     if positions.shape != session.working_atoms.positions.shape or not np.all(np.isfinite(positions)):
         raise ValueError("The retained relaxation frame must be a finite N x 3 array.")
@@ -267,7 +269,7 @@ def clear_relaxation_trajectory(session, payload):
     return {
         "status": "cleared",
         "kind": kind,
-        "retained": "final" if bool(payload.get("use_latest", True)) else "displayed",
+        "retained": retain,
     }
 
 

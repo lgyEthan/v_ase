@@ -340,7 +340,7 @@ body.editor-shell .viewport-tools button { display: grid; place-items: center; w
 body.editor-shell .viewport-tools button.active::before { content: ''; position: absolute; left: -4px; top: 7px; bottom: 7px; width: 2px; background: var(--teal); }
 body.editor-shell .viewport-tools button:focus-visible { outline: 2px solid var(--teal); outline-offset: 1px; }
 body.editor-shell .viewport-tools button:last-child { margin-top: 6px; border-top: 1px solid var(--line); border-radius: 0; }
-body.editor-shell #app-viewport .atom-colorscale-legend { left: 64px; }
+body.editor-shell #app-viewport .atom-colorscale-legend { left: 76px; }
 body.editor-shell #editor-search-toggle { display: grid; place-items: center; width: 30px; height: 30px; }
 body.editor-shell #top-bar .logo .brand-logo-asset { display: block; object-fit: contain; width: 82px; height: 33px; }
 .workbench-tool-list { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; }
@@ -373,7 +373,7 @@ body.file-drag-over::after { content: 'Drop a structure or project to open'; pos
     body.editor-shell #top-bar .logo .brand-logo-asset { width: 64px; height: 28px; }
     body.editor-shell .editor-menu-bar summary { padding-inline: 5px; }
     body.editor-shell #top-bar .logo .version { display: none; }
-    body.editor-shell #app-viewport .atom-colorscale-legend { top: 100px; left: 64px; }
+    body.editor-shell #app-viewport .atom-colorscale-legend { top: 100px; left: 76px; }
 }
 @media (max-width: 480px) {
     body.editor-shell #top-bar #runtime-mode-switch { display: none; }
@@ -503,3 +503,40 @@ body.editor-shell .viewport-status-row :is(#cmd-buffer, #commensurate-candidates
 @media (prefers-reduced-motion: reduce) { .section-activity::before { animation: none; } }
 .export-preview-caption { min-height: 27px; height: auto; flex-wrap: wrap; row-gap: 4px; padding-block: 3px; }
 .export-preview-caption > span { overflow: hidden; text-overflow: ellipsis; }
+
+/* The inspector owns vertical scrolling. Legacy floating insertion cards must
+   not establish a second viewport inside it (classic Windows scrollbars). */
+body.editor-shell #create-atom-widget.editor-route-current,
+body.editor-shell #create-atom-widget .create-atom-card,
+body.editor-shell #create-atom-widget .create-atom-card.batch-active,
+body.editor-shell #create-atom-widget .add-atoms-batch,
+body.editor-shell #create-atom-widget .add-atoms-build {
+    height: auto; max-height: none; min-height: 0; overflow: visible;
+}
+body.editor-shell #create-atom-widget .create-atom-card.batch-active { display: block; }
+body.editor-shell #create-atom-widget :is(.add-atoms-batch, .add-atoms-build) {
+    padding: 8px 0 0; scrollbar-gutter: auto; overscroll-behavior: auto;
+}
+body.editor-shell .add-atoms-session-actions {
+    position: static; grid-template-columns: minmax(0, 1fr);
+    margin-inline: 0; padding: 10px 0; background: var(--panel); backdrop-filter: none;
+}
+body.editor-shell #inspector-content { overscroll-behavior-y: contain; }
+body.editor-shell #inspector :is(button, input, select, textarea) { font-family: var(--font-ui); line-height: 1.35; }
+body.editor-shell #inspector select { width: 100%; min-width: 0; padding-right: 26px; }
+body.editor-shell #inspector .unit-input select { width: auto; }
+body.editor-shell .viewport-tools { max-height: calc(100% - 100px); overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; width: 54px; min-width: 54px; max-width: 54px; scrollbar-gutter: stable; }
+body.editor-shell .viewport-tool-group { flex: none; }
+body.editor-shell .viewport-tools button { flex: none; color: var(--text); }
+body.editor-shell .viewport-tools button[aria-pressed="true"] { color: var(--teal-contrast); }
+
+.placement-relaxation { border-top: 1px solid var(--line-strong); padding-top: 16px; margin-top: 16px; }
+.placement-relaxation h3 { margin: 0 0 8px; font-size: 14px; font-weight: 600; }
+.placement-relaxation h3 span { margin-left: 8px; font-size: 11px; font-weight: 400; color: var(--muted); }
+.relax-calculator-details { border-top: 1px solid var(--line); margin-top: 12px; padding-top: 10px; }
+.relax-calculator-details > summary { cursor: pointer; font-size: 12px; font-weight: 600; padding: 5px 0; }
+body.editor-shell #relaxation-workflow .btn-block { width: 100%; min-width: 0; white-space: normal; }
+body.editor-shell .active-add-session-controls { flex-wrap: wrap; gap: 6px 10px; padding: 6px; }
+body.editor-shell .active-add-session-controls > span { flex: 1 1 190px; }
+
+body.editor-shell .add-atoms-session-actions > button:disabled { display: none; }
