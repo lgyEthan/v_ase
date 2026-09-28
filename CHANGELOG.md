@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased — water-surface experiment
+
+- Add an optional H₂O density envelope with captured oxygen scopes, color,
+  opacity, lighting, smoothing and bounded preview quality.
+- Use the same coordinate-derived surface in trajectories, images, movies/GIF
+  and standalone HTML; retain settings in .vase.
+- Keep ions/solids atomistic and scientific data unchanged. This is visualization,
+  not an MD solver. Geometry exports reject the enabled layer until supported.
+- Keep this work on `codex/water-surface` pending real-data stabilization.
+
+
 ## Unreleased
 
 - Keep selection and hover readouts in a stable-height status row. Avoid

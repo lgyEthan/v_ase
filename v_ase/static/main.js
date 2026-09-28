@@ -7,6 +7,7 @@ import { SelectedAppearanceEditor } from './selected_appearance.js?v=0.4.7';
 import { installActivityIndicators } from './ui_activity.js?v=0.4.7';
 
 import { installPolyhedra } from './polyhedra.js?v=0.4.7';
+import { installWaterUI } from './water_ui.js';
 import { installAIScene } from './ai_scene.js?v=0.4.7';
 import { AtomScalarStore } from './atom_properties.js?v=0.4.7';
 import { DirectWorkspace } from './direct_workspace.js?v=0.4.7';
@@ -39,6 +40,7 @@ const EDITOR_ROUTES = Object.freeze({
     bonding: { group: 'structure', category: 'style', title: 'Bonds' },
     'cell-replication': { group: 'structure', category: 'style', title: 'Cell' },
     polyhedra: { group: 'structure', category: 'scene', title: 'Coordination polyhedra' },
+    water: { group: 'structure', category: 'scene', title: 'Water surface' },
     'scene-fields': { group: 'analysis', category: 'scene', title: 'Scene fields', target: '#scene-field-list' },
     'scene-vectors': { group: 'analysis', category: 'scene', title: 'Vector layers', target: '#scene-displacement-visible' },
     view: { group: 'view', category: 'scene', title: 'View & guides' },
@@ -321,6 +323,7 @@ class VAseApp {
             clipboard: null,
             selectedAppearanceDirty: new Set(),
             display: {
+                waterSurface: {enabled:false},
                 showPolyhedra: false,
                 polyhedraRules: [],
                 polyhedraAtomMode: 'all',
@@ -5814,6 +5817,7 @@ class VAseApp {
         if (this.hasUsableCell()) entries.push({
             id: 'cell', label: 'Cell', route: 'cell-replication', focus: '#chk-cell', visibility: 'chk-cell'
         });
+        entries.push({id:'water', label:'Water surface', route:'water', visibility:'water-enabled'});
         if (this.state.display.polyhedraRules?.length || this.state.display.showPolyhedra) entries.push({
             id: 'polyhedra', label: 'Polyhedra', route: 'polyhedra', visibility: 'poly-enabled'
         });
@@ -19450,6 +19454,7 @@ class VAseApp {
             effectiveRender: this.aiEffectiveRenderSnapshot(),
             analysis: {
                 polyhedra: this.clonePlain(this.state.polyhedraSummary || null),
+                waterSurface: this.clonePlain(this.renderer.waterLayer?.report || null),
                 frameSynchronization: {
                     displayedFrame,
                     rdfFrame: this.state.rdfResult?.frame_index ?? null,
@@ -20167,6 +20172,13 @@ class VAseApp {
             protocol: 'v_ase.ai.v1',
             profile: compact ? 'summary' : 'full',
             schemaUrl,
+            waterSurface: {
+                experimental: true, control: 'display.waterSurface',
+                sources: ['auto', 'selected'], selectedTargets: 'captured oxygen base indices',
+                exports: ['image', 'video', 'html', 'project'],
+                unavailableExportsWhileEnabled: ['blender', '3dm', 'obj'],
+                note: 'Coordinate-derived H2O density envelope; no dynamics or scientific structure changes.'
+            },
             state: [
                 'atoms', 'labels', 'elements', 'positions', 'cell', 'pbc',
                 'constraints', 'forces', 'charges', 'tags', 'magnetic-moments',
@@ -29540,6 +29552,7 @@ class VAseApp {
 }
 
 installPolyhedra(VAseApp);
+installWaterUI(VAseApp);
 installAIScene(VAseApp);
 installActivityIndicators(VAseApp);
 window.__V_ASE_APP__ = new VAseApp();

@@ -990,6 +990,8 @@ def export_html_response(session, payload: Dict[str, Any]):
             (static_dir / "vendor" / "three.module.js").read_bytes()
         ),
         "{{BSP_SOURCE_BASE64}}": _base64_text((static_dir / "polyhedra_bsp.js").read_bytes()),
+        "{{WATER_GEOMETRY_SOURCE_BASE64}}": _base64_text((static_dir / "water_geometry.js").read_bytes()),
+        "{{WATER_LAYER_SOURCE_BASE64}}": _base64_text((static_dir / "water_layer.js").read_bytes()),
         "{{GRID_SOURCE_BASE64}}": _base64_text((static_dir / "viewport_grid.js").read_bytes()),
         "{{RENDERER_SOURCE_BASE64}}": _base64_text(
             (static_dir / "renderer.js").read_bytes()
@@ -1857,6 +1859,9 @@ def _rhino_view_info(rhino3dm, camera, name="v_ase View"):
 
 
 def export_3dm_response(session, payload: Dict[str, Any]):
+    if (payload.get("display") or {}).get("waterSurface", {}).get("enabled"):
+        raise ValueError("This experimental water surface is not supported by geometry export yet. "
+                         "Use PNG, movie/GIF or interactive HTML, or turn off Water surface to export atoms.")
     try:
         import rhino3dm
     except ImportError as exc:
@@ -2294,6 +2299,9 @@ def _obj_sphere_resolution(scene, display):
 
 
 def export_obj_response(session, payload: Dict[str, Any]):
+    if (payload.get("display") or {}).get("waterSurface", {}).get("enabled"):
+        raise ValueError("This experimental water surface is not supported by geometry export yet. "
+                         "Use PNG, movie/GIF or interactive HTML, or turn off Water surface to export atoms.")
     scene = _cad_scene_data(session, payload)
     display = payload.get("display") or {}
     material_specs = {
@@ -3540,6 +3548,9 @@ add_scene_camera()
 
 
 def export_blender_response(session, payload: Dict[str, Any]):
+    if (payload.get("display") or {}).get("waterSurface", {}).get("enabled"):
+        raise ValueError("This experimental water surface is not supported by geometry export yet. "
+                         "Use PNG, movie/GIF or interactive HTML, or turn off Water surface to export atoms.")
     atoms = _apply_payload_positions(session, payload)
     if getattr(session, "trajectory_frames", None):
         session.sync_current_frame()

@@ -1,5 +1,6 @@
 // Shared editor chrome. Scientific state and mutations remain in ASEApp.
 const paths = {
+    water: '<path d="M12 2C9 7 4 11 4 15a8 8 0 0 0 16 0c0-4-5-8-8-13Z"/><path d="M7 15c0 3 2 4 4 4"/>',
     select: '<path d="m5 3 14 9-7 1-3 7z"/>',
     move: '<path d="M12 3v18M3 12h18m-12-6 3-3 3 3m-6 12 3 3 3-3M6 9l-3 3 3 3m12-6 3 3-3 3"/>',
     orbit: '<ellipse cx="12" cy="12" rx="10" ry="4" transform="rotate(-30 12 12)"/><circle cx="12" cy="12" r="4"/>',

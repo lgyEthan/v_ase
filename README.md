@@ -30,6 +30,16 @@ both retain the document's mode and presentation.
 Agent revision snapshots wait for pending change notifications to finish.
 Renderer scale and atom radius remain independent.
 
+## Experimental water visualization (this branch)
+
+**Style → Water** draws detected H₂O as a continuous translucent surface while
+keeping ions and solids atomistic. Color, opacity, smoothing and lighting are
+adjustable; trajectories, images, movies/GIF and offline HTML share the same
+surface. This is a coordinate-derived visualization, not a new MD solver.
+See [Water surface](docs/water-surface.md) and run
+`python examples/water_surface.py` for a synthetic animated example.
+This experiment is not included in the published 0.4.7 app.
+
 ## Installation And Launch
 
 macOS and Windows users can install the self-contained

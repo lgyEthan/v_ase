@@ -2,7 +2,7 @@ import { editorIcon } from './editor_interactions.js?v=0.4.7';
 // The workbench is a presentation adapter. Route IDs and mounted scientific
 // controls belong to the editor; no project state is stored here.
 export const WORKBENCH_ROUTES = Object.freeze({
-    style: ['appearance', 'bonding', 'cell-replication', 'polyhedra', 'view'],
+    style: ['appearance', 'bonding', 'cell-replication', 'polyhedra', 'water', 'view'],
     build: ['add-atoms', 'transform', 'cell-transform', 'constraints',
         'build-match', 'scientific-tools', 'build-rigid'],
     analyze: ['selection', 'rdf', 'displacement', 'forces', 'volumetric', 'registry-map'],
@@ -11,7 +11,7 @@ export const WORKBENCH_ROUTES = Object.freeze({
 
 export const WORKBENCH_LABELS = Object.freeze({
     appearance: 'Atoms', bonding: 'Bonds', 'cell-replication': 'Cell',
-    polyhedra: 'Polyhedra', view: 'View & guides',
+    water: 'Water', polyhedra: 'Polyhedra', view: 'View & guides',
     'add-atoms': 'Add atoms', transform: 'Transform',
     'cell-transform': 'Cell matrix', constraints: 'Constraints',
     'build-match': 'Match cells', 'scientific-tools': 'Relax',
@@ -26,6 +26,7 @@ const descriptions = Object.freeze({
     appearance: 'Atom size, color and property mapping',
     bonding: 'Bond topology, cutoffs and appearance',
     'cell-replication': 'Display cell, repeat and materialize a supercell',
+    water: 'Continuous water surface from H₂O coordinates',
     polyhedra: 'Coordination surfaces and edges', view: 'Camera, background and viewport guides',
     'add-atoms': 'Insert atoms, molecules or an ASE-built structure',
     transform: 'Move, rotate and scale a selection',

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { PolyhedraBSP } from './polyhedra_bsp.js';
 import { createViewportGrid } from './viewport_grid.js';
+import { installWaterRenderer } from './water_layer.js';
 
 function numberArrayEqual(first = [], second = []) {
     if (first === second) return true;
@@ -9743,3 +9744,5 @@ ASERenderer.prototype.syncPolyhedraSelection = function () {
         const result=replicas.call(this,refs,...args);this.syncPolyhedraSelection();return result;
     };
 }
+
+installWaterRenderer(ASERenderer);

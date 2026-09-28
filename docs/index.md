@@ -60,6 +60,7 @@ appearance
 property-radius
 bonds
 polyhedra
+water-surface
 camera
 ```
 

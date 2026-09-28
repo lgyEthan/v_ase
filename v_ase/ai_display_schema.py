@@ -195,3 +195,21 @@ DISPLAY_PROPERTIES.update({
     'polyhedraShowCenterBonds': {'type': 'boolean'},
     'polyhedraRespectVisibility': {'type': 'boolean'},
 })
+
+
+DISPLAY_PROPERTIES['waterSurface'] = {
+    'type': 'object', 'additionalProperties': False,
+    'description': 'Experimental H2O density envelope. Appearance only; not molecular dynamics. Selected source captures oxygen indices.',
+    'properties': {
+        'enabled': {'type': 'boolean'}, 'source': {'enum': ['auto', 'selected']},
+        'indices': {'type': 'array', 'items': {'type': 'integer', 'minimum': 0}},
+        'color': {'type': 'string', 'pattern': '^#[0-9a-fA-F]{6}$'},
+        'opacity': {'type': 'number', 'minimum': 0, 'maximum': 1},
+        'lighting': {'type': 'boolean'}, 'hideMolecules': {'type': 'boolean'},
+        'roughness': {'type': 'number', 'minimum': .02, 'maximum': 1},
+        'smoothing': {'type': 'number', 'minimum': .5, 'maximum': 3},
+        'level': {'type': 'number', 'minimum': .1, 'maximum': 3},
+        'spacing': {'type': 'number', 'minimum': .3, 'maximum': 1.5},
+        'ohCutoff': {'type': 'number', 'minimum': .8, 'maximum': 1.6},
+    },
+}

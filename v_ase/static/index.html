@@ -1854,6 +1854,30 @@
             <p id="poly-status" class="panel-note" role="status">Choose centers and a ligand cutoff, then apply a rule.</p>
         </details>
 
+        <details class="panel-section" data-panel="water" data-panel-group="structure">
+            <summary class="section-header">Water surface</summary>
+            <p class="panel-note">Experimental · a smooth density envelope from water coordinates. This changes appearance, not the molecular dynamics.</p>
+            <div class="prop-row"><label for="water-enabled">Show water surface</label><input id="water-enabled" type="checkbox"></div>
+            <div class="panel-subhead">Molecules</div>
+            <div class="prop-row"><label for="water-source">Source</label><select id="water-source"><option value="auto">All detected H₂O</option><option value="selected">Selected water oxygens</option></select></div>
+            <button id="water-selected" class="btn-block" type="button" hidden>Use current selection</button>
+            <p id="water-scope" class="panel-note"></p>
+            <div class="prop-row"><label for="water-hideMolecules">Replace molecular spheres</label><input id="water-hideMolecules" type="checkbox" checked></div>
+            <div class="panel-subhead">Appearance</div>
+            <div class="prop-row"><label for="water-color">Water color</label><input id="water-color" type="color" value="#65aaca"></div>
+            <div class="prop-row"><label for="water-opacity">Opacity</label><input id="water-opacity" type="number" min="0" max="1" step="0.01" value="0.48"></div>
+            <div class="prop-row"><label for="water-lighting">Lighting &amp; reflections</label><input id="water-lighting" type="checkbox" checked></div>
+            <div class="prop-row"><label for="water-roughness">Surface roughness</label><input id="water-roughness" type="number" min="0.02" max="1" step="0.02" value="0.18"></div>
+            <div class="panel-subhead">Surface shape &amp; quality</div>
+            <div class="prop-row"><label for="water-smoothing">Smoothing / Å</label><input id="water-smoothing" type="number" min="0.5" max="3" step="0.05" value="1.45"></div>
+            <div class="prop-row"><label for="water-level">Density threshold</label><input id="water-level" type="number" min="0.1" max="3" step="0.05" value="0.65"></div>
+            <div class="prop-row"><label for="water-spacing">Grid spacing / Å</label><input id="water-spacing" type="number" min="0.3" max="1.5" step="0.05" value="0.65"></div>
+            <div class="prop-row"><label for="water-ohCutoff">O–H cutoff / Å</label><input id="water-ohCutoff" type="number" min="0.8" max="1.6" step="0.05" value="1.25"></div>
+            <p class="panel-note">A lower threshold expands the envelope. Smoothing can bridge molecular gaps; this is not a measured liquid boundary. Ions and non-water atoms remain visible.</p>
+            <button id="water-fit" class="btn-block" type="button">Fit water &amp; structure</button>
+            <p id="water-status" class="panel-note" role="status">Water surface is off.</p>
+        </details>
+
         <details class="panel-section" open data-panel="bonding" data-panel-group="structure">
             <summary class="section-header">Bonding</summary>
             <div class="panel-subhead">Connectivity</div>

@@ -11,6 +11,7 @@ GUIDE_TOPICS = {
     "rendering": "deterministic-rendering.md",
     "structures": "structures.md",
     "polyhedra": "polyhedra.md",
+    "water": "water-surface.md",
     "trajectories": "trajectories.md",
     "volumetric": "volumetric.md",
     "rdf": "rdf.md",
