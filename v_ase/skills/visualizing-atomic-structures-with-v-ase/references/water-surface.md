@@ -1,12 +1,23 @@
-# Water surface (experimental)
+# Water surface
 
 Discover `capabilities().waterSurface` and `display.waterSurface` in the live display schema. Read `describe().analysis.waterSurface` for build/error diagnostics. Use the existing typed
 display control, preserving document/revision preconditions. Read and merge the
 current nested water settings when modifying one field; the object carries its
-own defaults. Example display payload:
+own defaults. The following camelCase payload is for HTTP `apply` parameters
+(or the browser API), not a native tool's snake_case arguments. Example display payload:
 
 ```json
-{"waterSurface":{"enabled":true,"source":"auto","color":"#65aaca","opacity":0.48,"lighting":true,"hideMolecules":true,"smoothing":1.45,"level":0.65,"spacing":0.65,"ohCutoff":1.25,"roughness":0.18,"indices":[]}}
+{"waterSurface":{"enabled":true,"source":"auto","color":"#65aaca","opacity":0.48,"lighting":true,"hideMolecules":true,"smoothing":2.0,"level":0.63,"spacing":0.65,"ohCutoff":1.25,"roughness":0.18,"indices":[]}}
+```
+
+For native/MCP calls, first read `vase_tool_schema` for `vase_set_display`, then
+call **`vase_set_display`** with the following snake_case payload. Replace the
+example document ID and revision with the latest summary. Do not put these
+renderer fields in `vase_apply_scene.patch.display`: that semantic subset does
+not accept arbitrary display controls.
+
+```json
+{"display":{"water_surface":{"enabled":true,"source":"auto","smoothing":2.0,"level":0.63,"spacing":0.65,"color":"#65aaca","opacity":0.48,"lighting":true,"hide_molecules":true,"oh_cutoff":1.25,"roughness":0.18,"indices":[]},"water_interpolation":1,"water_mesh_smoothing":20},"expected_document_id":"FROM_LATEST_SUMMARY","expected_revision":0}
 ```
 
 `source:"selected"` uses captured **oxygen base indices**, not the current GUI
@@ -81,3 +92,8 @@ and both subdivision and smoothing settings to zero. These display fields persis
 self-contained HTML. Use this recovery in capacity tests; never claim arbitrary
 real-time performance. Test scientific coordinates and instance identities before
 and after a quality change, and inspect a magnified render, not only HTTP success.
+
+New scenes use a 2.0 Å kernel / 0.63 threshold (~1.92 Å isolated footprint),
+water subdivision 1 and 20 mesh smoothing passes. Saved explicit values,
+including zero finish, must survive loading. These are visual defaults derived
+from a molecular length scale, not a calibrated liquid density boundary.

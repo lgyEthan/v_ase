@@ -27,7 +27,7 @@ terminal open while using the document.
 - Use the wheel or trackpad to zoom.
 - Left-click an atom to replace the selection.
 - Shift-click or Shift-box to invert membership in the current selection.
-- Use `Ctrl+A` to select all visible atoms.
+- Use `Command/Ctrl+A` to select all visible atoms.
 - Press `X`, `Y`, or `Z` outside a transform to align the camera.
 
 With two, three, or four ordered atoms selected, **Analyze → Measure** shows
@@ -42,7 +42,7 @@ available at desktop sizes:
 
 | Workspace | Use it for |
 | --- | --- |
-| Style | Atoms, bonds, cell/supercell and contextual object properties |
+| Style | Atoms, bonds, cell/supercell, polyhedra, water, isosurfaces and stored forces |
 | Build | Add atoms/molecules, transform, cell transformation, constraints, relaxation |
 | Analyze | Inspect/measure, distributions, motion, fields, interfaces |
 | Render | Renderer and output media; project Save is in File and defaults in View |
@@ -97,13 +97,13 @@ keyboard focus before using G/R/S when editing a form.
 
 ## 6. Undo and redo
 
-`Ctrl+Z` and `Ctrl+Shift+Z` traverse committed user actions in chronological
+`Command/Ctrl+Z` and `Command/Ctrl+Shift+Z` traverse committed user actions in chronological
 order. Structure and visual-setting actions share the history. Camera orbit,
 pan, zoom, axis alignment, and toolbar navigation are intentionally excluded.
 
 ## 7. Save the work
 
-Open **Render → Project save**:
+Open **File → Save**:
 
 - Save `.vase` for the smallest editable project.
 - Enable **Include interactive rendered view** to create one self-contained
@@ -114,15 +114,16 @@ Use **HTML View** instead when the recipient only needs a lightweight,
 view-only 3D handoff. Use the structure export controls when only the current
 ASE geometry is needed.
 
-Later use **File → Save** or `Ctrl+S` to reuse the same approved project target
+Later use **File → Save** or `Command+S / Ctrl+S` to reuse the same approved project target
 and format. **Save As** chooses a new file. If the browser only downloads a
 copy, v_ase does not claim it overwrote the original.
 
 ## 8. Close cleanly
 
 Use the tab close control or **File → Close tab**. A dirty tab offers Save,
-Discard and Cancel; closing the last internal tab first creates a blank tab so
-the workspace and its blocking Python host remain open. Closing the browser
+Discard and Cancel. The browser returns to an empty document after its last tab
+closes. In the desktop app, closing the last document closes that window;
+closing the last window exits the app after its save checks. Closing the browser
 workspace itself ends the connected blocking session. `--no-block` and Python
 `block=False` return control earlier and require explicit lifecycle handling.
 

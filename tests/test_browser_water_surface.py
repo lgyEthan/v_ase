@@ -80,7 +80,7 @@ def test_water_ui_movie_capture_settings_and_offline_html(tmp_path):
                     for(const delta of [0,.9]) {
                         const positions=a.state.atoms.positions.map(p=>[...p]);
                         for(const i of [3,4,5])positions[i][1]+=delta;
-                        r.updatePositions(positions);r.renderExportCaptureFrame(capture);
+                        r.updatePositions(positions);await r.prepareSurfaceCapture();r.renderExportCaptureFrame(capture);
                         shots.push(r.domElement.toDataURL('image/png'));
                         hashes.push(Array.from(r.waterLayer.mesh.geometry.attributes.position.array).reduce((s,x)=>s+x,0));
                     }
@@ -202,6 +202,28 @@ def test_streaming_molecule_topology_is_current_when_enabling_mid_trajectory():
             assert result['nonwater']['molecules']==0
             assert result['water']['molecules']==2
             assert result['binary'] is False
+            browser.close()
+    finally:
+        editor.close()
+
+
+def test_water_new_scene_defaults_and_explicit_legacy_finish_survive_restore():
+    editor=view(water_frames(),notebook=True,block=False,port=find_free_port(),
+                close_on_disconnect=False,initial_design_settings={'display':{'waterSurface':{'enabled':True}}})
+    try:
+        with sync_playwright() as p:
+            browser=p.chromium.launch(headless=True);page=browser.new_page()
+            page.goto(editor.url);page.wait_for_function('window.__ASE_APP__?.collaborationReady')
+            page.evaluate('window.__ASE_APP__.renderer.prepareSurfaceCapture()')
+            actual=page.evaluate("()=>{const a=window.__ASE_APP__;return {water:a.state.display.waterSurface,key:a.renderer.waterLayer.mesh._surfaceQuality.key};}")
+            assert actual['water']['smoothing']==2 and actual['water']['level']==.63
+            assert actual['key']=='1:20'
+            # Saved explicit settings, particularly zero, must not inherit defaults.
+            page.evaluate("()=>{const a=window.__ASE_APP__,s=a.designSettingsSnapshot();s.display.waterSurface.smoothing=1.45;s.display.waterSurface.level=.65;s.display.waterInterpolation=0;s.display.waterMeshSmoothing=0;a.applyDesignSettings(s);}")
+            page.evaluate('window.__ASE_APP__.renderer.prepareSurfaceCapture()')
+            actual=page.evaluate("()=>{const a=window.__ASE_APP__;return {water:a.state.display.waterSurface,key:a.renderer.waterLayer.mesh._surfaceQuality.key};}")
+            assert actual['water']['smoothing']==1.45 and actual['water']['level']==.65
+            assert actual['key']=='0:0'
             browser.close()
     finally:
         editor.close()

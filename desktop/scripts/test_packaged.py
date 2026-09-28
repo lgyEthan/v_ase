@@ -58,7 +58,7 @@ required = ("nativeControlA", "verticalCutoffTab", "droppedFileGrant", "detached
             "nativeKeyInput", "nativeSave", "scientificProject", "openNewTab",
             "quitCancellation", "nodeIsolation", "lastDocumentClosesWindow",
             "emptyLastWindowRequestsQuit")
-if (report.get("version") != expected_version or report.get("geometryRoutes") != 69
+if (report.get("version") != expected_version or report.get("geometryRoutes") != 75
         or report.get("commands") != 10 or report.get("oxygenPixels", 0) <= 100
         or any(report.get(key) is not True for key in required)):
     raise SystemExit("The packaged application did not complete every required regression check")

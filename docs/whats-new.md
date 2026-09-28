@@ -1,6 +1,13 @@
 # What is new
 
-## Unreleased
+## 0.4.8
+
+- Render detected H₂O as a continuous water envelope in the canvas, trajectories,
+  images, movies/GIF and offline HTML. Keep solids and ions atomistic.
+- Use molecular-scale water defaults, numeric atom/bond detail and independent
+  surface subdivision/smoothing with progress, cancellation and recovery.
+- Find stored Forces and Isosurfaces in Style; keep surface definitions separate
+  from renderer mesh finishing.
 
 - Keep selection, hover properties and transform readouts from changing canvas
   height; redraw resized canvases before a blank frame can appear.

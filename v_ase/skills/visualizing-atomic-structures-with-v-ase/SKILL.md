@@ -270,7 +270,7 @@ legacy users; do not load them for an ordinary MCP figure task. Release/evaluati
 procedures are separate from a user's visualization task.
 
 
-## Experimental water surface (water-surface branch)
+## Water surface
 
 Use `display.waterSurface` through the typed display control to visualize detected
 H₂O as a smooth liquid envelope. Read [water surface](references/water-surface.md)

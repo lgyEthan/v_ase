@@ -199,7 +199,7 @@ DISPLAY_PROPERTIES.update({
 
 DISPLAY_PROPERTIES['waterSurface'] = {
     'type': 'object', 'additionalProperties': False,
-    'description': 'Experimental H2O density envelope. Appearance only; not molecular dynamics. Selected source captures oxygen indices.',
+    'description': 'H2O density envelope. Appearance only; not molecular dynamics. Selected source captures oxygen indices.',
     'properties': {
         'enabled': {'type': 'boolean'}, 'source': {'enum': ['auto', 'selected']},
         'indices': {'type': 'array', 'items': {'type': 'integer', 'minimum': 0}},

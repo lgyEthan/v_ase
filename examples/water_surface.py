@@ -1,6 +1,6 @@
 """Synthetic moving water reservoirs for checking surface visualization, not MD.
 
-Run from this experimental checkout: python examples/water_surface.py
+Run from the source checkout: python examples/water_surface.py
 The membrane/ions remain atomistic; water is drawn as a continuous envelope.
 """
 from pathlib import Path

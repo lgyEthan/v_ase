@@ -19,7 +19,7 @@ export function installWaterUI(App){
             status.textContent=report.error||(!this.state.display.waterSurface?.enabled?'Water surface is off.':
                 `${report.molecules||0} H₂O molecules · ${Math.round(report.triangles||0).toLocaleString()} triangles · ${Number(report.buildMs||0).toFixed(0)} ms build. `+
                 (report.topologyMolecules?'Using stored molecule IDs. ':'')+
-                (!report.molecules?'No H₂O found. Check the source and O–H cutoff. ':!report.triangles?'No envelope at this threshold. Lower it or increase smoothing. ':'')+
+                (!report.molecules?'No H₂O found. Check the source and O–H cutoff. ':!report.triangles?'No envelope at this threshold. Lower it or increase kernel width. ':'')+
                 (report.spacing>Number(this.state.display.waterSurface?.spacing||.65)*1.01?`Grid adapted to ${report.spacing.toFixed(2)} Å to stay within the preview budget.`:''));
             status.dataset.error=String(Boolean(report.error));
         };

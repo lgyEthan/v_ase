@@ -51,7 +51,8 @@ const origin=[3,4,5], result=buildWaterGeometry([origin],{spacing:.3});
 assert.ok(result.positions.length>500);assert.equal(result.indices.length%3,0);
 assert.ok(result.positions.length<result.indices.length*3);
 assert.ok(Array.from(result.indices).every(i=>i<result.positions.length/3));
-const expected=1.45*Math.sqrt(-2*Math.log(.65));
+const expected=2*Math.sqrt(-2*Math.log(.63));
+assert.ok(expected>1.9 && expected<1.95);
 for(let i=0;i<result.positions.length;i+=3){
  const p=[0,1,2].map(d=>result.positions[i+d]-origin[d]),n=Array.from(result.normals.slice(i,i+3));
  const r=Math.hypot(...p);assert.ok(Math.abs(r-expected)<.07);

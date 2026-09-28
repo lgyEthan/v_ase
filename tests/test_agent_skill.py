@@ -980,3 +980,16 @@ def test_legacy_guide_is_a_resolving_compatibility_link():
     assert "Save Project" in text
     assert "Include interactive rendered view" in text
     assert "human HTML Project action" not in text
+
+
+def test_water_guide_native_example_matches_its_named_tool():
+    from jsonschema import Draft202012Validator
+    from v_ase.ai_tools import tool_catalog
+
+    guide = (REFERENCES / "water-surface.md").read_text()
+    blocks = [json.loads(block) for block in re.findall(r"```json\n(.*?)\n```", guide, re.S)]
+    native = next(block for block in blocks if "expected_document_id" in block)
+    Draft202012Validator(tool_catalog()["vase_set_display"].input_schema).validate(native)
+    assert native["display"]["water_surface"]["smoothing"] == 2.0
+    assert native["display"]["water_interpolation"] == 1
+    assert "vase_apply_scene.patch.display" in guide

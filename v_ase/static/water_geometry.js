@@ -1,7 +1,10 @@
+// Defaults give an isolated Gaussian footprint of 1.92 Å, comparable to the
+// sphere-equivalent molecular volume of ambient liquid water (~30 Å³). This
+// sets a visual length scale, not a calibrated liquid density boundary.
 // Visualization only: an oxygen-density envelope, never a fluid dynamics solver.
 export const WATER_DEFAULTS = Object.freeze({enabled:false, source:'auto', indices:[],
     color:'#65aaca', opacity:0.48, lighting:true, roughness:0.18,
-    hideMolecules:true, smoothing:1.45, level:0.65, spacing:0.65, ohCutoff:1.25});
+    hideMolecules:true, smoothing:2.0, level:0.63, spacing:0.65, ohCutoff:1.25});
 export function normalizeWater(value={}) {
     const v={...WATER_DEFAULTS,...value};
     const number=(key,min,max)=>{

@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased — water-surface experiment
+## 0.4.8
 
 - Expose Isosurfaces and stored Forces in Style. Keep field import/combinations
   in Analyze and scientific surface definitions separate from renderer finish.
@@ -18,7 +18,7 @@
   completed water mesh while a replacement is prepared; await final geometry
   for image and movie captures. Persist settings in projects/offline HTML.
 
-- Optimize experimental water surfaces for large structures: use stored molecule
+- Optimize water surfaces for large structures: use stored molecule
   IDs, shared boundary vertices, signed periodic repetitions and removal of
   replaced atom/bond GPU instances. Camera and material changes reuse geometry.
 
@@ -28,10 +28,10 @@
   and standalone HTML; retain settings in .vase.
 - Keep ions/solids atomistic and scientific data unchanged. This is visualization,
   not an MD solver. Geometry exports reject the enabled layer until supported.
-- Keep this work on `codex/water-surface` pending real-data stabilization.
+- Set water kernel width to 2.0 Å and threshold to 0.63 (an isolated footprint
+  of about 1.92 Å), with subdivision 1 and 20 mesh smoothing passes for new scenes.
+  Saved explicit settings remain unchanged.
 
-
-## Unreleased
 
 - Keep selection and hover readouts in a stable-height status row. Avoid
   clearing unchanged canvas buffers and redraw real resizes before presentation.

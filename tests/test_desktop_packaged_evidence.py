@@ -15,7 +15,7 @@ def test_packaged_runner_requires_complete_evidence(tmp_path, monkeypatch, evide
     output = tmp_path / "evidence"
     report = {
         "version": json.loads((root / "package.json").read_text())["version"],
-        "commands": 10, "geometryRoutes": 69, "oxygenPixels": 120,
+        "commands": 10, "geometryRoutes": 75, "oxygenPixels": 120,
         **dict.fromkeys(("nativeControlA", "verticalCutoffTab", "droppedFileGrant",
                         "detachedWindow", "detachedSave", "transferRollback",
                         "openNewWindow", "independentWindowClose", "nativeKeyInput",

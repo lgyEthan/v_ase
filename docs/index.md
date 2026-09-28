@@ -25,6 +25,7 @@ Choose a feature below; the guides are independent, not a sequence of required s
 | Add atoms or fill a pore with molecules | [Distributions](atomic-distributions.md) · [Molecules](molecules.md) |
 | Build a common periodic interface cell | [Commensurate cells](commensurate.md) |
 | Plot RDF or color stored atom properties | [RDF](rdf.md) · [Scalar colors](scalar-colors.md) |
+| Show liquid water around ions or solids | [Water surfaces](water-surface.md) |
 | Show field lobes or a cross-section | [Isosurfaces](isosurfaces.md) · [Planes](field-planes.md) |
 | Save a figure, video or interactive project | [Images](render-images.md) · [Videos](export-video.md) · [Projects](save-projects.md) |
 
@@ -32,7 +33,7 @@ Each feature guide explains the controls first, then walks through a real exampl
 with its input file, settings and expected result. **View** changes presentation;
 **Edit** enables physical edits. [Workspace and modes](workspace.md).
 
-This manual describes **v_ase 0.4.7**. It includes the redesigned scientific
+This manual describes **v_ase 0.4.8**. It includes the redesigned scientific
 workspace, property-dependent atom size, platform shortcuts and project saving.
 The [scientific source audit](scientific-source-audit.md) and
 [ChatGPT tunnel helper](chatgpt-local.md) describe the numerical fixes and personal connection setup in this release.
@@ -61,6 +62,8 @@ property-radius
 bonds
 polyhedra
 water-surface
+isosurfaces
+field-planes
 camera
 ```
 
@@ -101,8 +104,6 @@ vectors
 scalar-colors
 rdf
 field-processing
-isosurfaces
-field-planes
 ```
 
 ```{toctree}

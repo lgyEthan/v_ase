@@ -1,37 +1,37 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.4.7';
-import { ASERenderer } from './renderer.js?v=0.4.7';
-import { ASESelection } from './selection.js?v=0.4.7';
-import { ASETransform } from './transform.js?v=0.4.7';
-import { SelectedAppearanceEditor } from './selected_appearance.js?v=0.4.7';
-import { installActivityIndicators } from './ui_activity.js?v=0.4.7';
+import { ASEApi } from './api.js?v=0.4.8';
+import { ASERenderer } from './renderer.js?v=0.4.8';
+import { ASESelection } from './selection.js?v=0.4.8';
+import { ASETransform } from './transform.js?v=0.4.8';
+import { SelectedAppearanceEditor } from './selected_appearance.js?v=0.4.8';
+import { installActivityIndicators } from './ui_activity.js?v=0.4.8';
 
-import { installPolyhedra } from './polyhedra.js?v=0.4.7';
+import { installPolyhedra } from './polyhedra.js?v=0.4.8';
 import { installWaterUI } from './water_ui.js';
-import { installAIScene } from './ai_scene.js?v=0.4.7';
-import { AtomScalarStore } from './atom_properties.js?v=0.4.7';
-import { DirectWorkspace } from './direct_workspace.js?v=0.4.7';
-import { projectProvenanceFromLoad } from './project_provenance.js?v=0.4.7';
-import { installShortcutCapture } from './shortcut_capture.js?v=0.4.7';
-import { openFileInWindow } from './workspace_windows.js?v=0.4.7';
-import { installEditorInteractions } from './editor_interactions.js?v=0.4.7';
-import { WORKBENCH_ROUTES, mountWorkbenchTools, syncWorkbenchRoute } from './editor_ui.js?v=0.4.7';
+import { installAIScene } from './ai_scene.js?v=0.4.8';
+import { AtomScalarStore } from './atom_properties.js?v=0.4.8';
+import { DirectWorkspace } from './direct_workspace.js?v=0.4.8';
+import { projectProvenanceFromLoad } from './project_provenance.js?v=0.4.8';
+import { installShortcutCapture } from './shortcut_capture.js?v=0.4.8';
+import { openFileInWindow } from './workspace_windows.js?v=0.4.8';
+import { installEditorInteractions } from './editor_interactions.js?v=0.4.8';
+import { WORKBENCH_ROUTES, mountWorkbenchTools, syncWorkbenchRoute } from './editor_ui.js?v=0.4.8';
 import {
     EDITOR_COMMANDS, commandIdForEvent, resolveShortcutPlatform,
     editorShortcutLabel, editorAriaShortcut, editorShortcutSearchTerms,
     viewportNavigationForEvent
-} from './editor_commands.js?v=0.4.7';
+} from './editor_commands.js?v=0.4.8';
 import {
     DEFAULT_ATOM_RADIUS_MAPPING,
     atomRadiusFactors,
     normalizeAtomRadiusMapping,
     radiusMappingPreset
-} from './radius_mapping.js?v=0.4.7';
+} from './radius_mapping.js?v=0.4.8';
 import {
     interpolateTrajectoryFrames,
     interpolatedFrameCount,
     normalizeInterpolationMultiplier
-} from './trajectory.js?v=0.4.7';
+} from './trajectory.js?v=0.4.8';
 
 const EDITOR_ROUTES = Object.freeze({
     'structure-info': { group: 'inspect', category: 'scene', title: 'Scene overview' },
@@ -418,8 +418,8 @@ class VAseApp {
                 imageSmoothnessScale: 1,
                 atomSmoothness: 0,
                 isosurfaceInterpolation: 0,
-                waterInterpolation: 0,
-                waterMeshSmoothing: 0,
+                waterInterpolation: 1,
+                waterMeshSmoothing: 20,
                 isosurfaceMeshSmoothing: 0,
                 videoFormat: 'mov',
                 videoFps: 12,
@@ -20285,7 +20285,7 @@ class VAseApp {
                 isovalueRoute: 'Style → Isosurfaces', inactiveSurfaceControls: 'disabled',
                 cancel: 'Escape or Cancel restores the previous quality; Lightweight uses 12 segments and original meshes.'},
             waterSurface: {
-                experimental: true, control: 'display.waterSurface',
+                experimental: false, control: 'display.waterSurface',
                 sources: ['auto', 'selected'], selectedTargets: 'captured oxygen base indices',
                 exports: ['image', 'video', 'html', 'project'],
                 unavailableExportsWhileEnabled: ['blender', '3dm', 'obj'],
@@ -23342,8 +23342,8 @@ class VAseApp {
             ) ? nextDisplay.imageSphereQuality : 'viewport',
             atomSmoothness: nextDisplay.atomSmoothness ? Math.round(integerClamped(nextDisplay.atomSmoothness, 32, 8, 128) / 2) * 2 : 0,
             isosurfaceInterpolation: integerClamped(nextDisplay.isosurfaceInterpolation, 0, 0, 8),
-            waterInterpolation: integerClamped(nextDisplay.waterInterpolation, 0, 0, 8),
-            waterMeshSmoothing: integerClamped(nextDisplay.waterMeshSmoothing, 0, 0, 100),
+            waterInterpolation: integerClamped(nextDisplay.waterInterpolation, 1, 0, 8),
+            waterMeshSmoothing: integerClamped(nextDisplay.waterMeshSmoothing, 20, 0, 100),
             isosurfaceMeshSmoothing: integerClamped(nextDisplay.isosurfaceMeshSmoothing, 0, 0, 100),
             imageSmoothnessScale: finiteClamped(
                 nextDisplay.imageSmoothnessScale, 1, 0.5, 2

@@ -252,7 +252,7 @@ async function runSmoke({ app, win, handshake, vault, sendCommand }) {
             f.__ASE_APP__.openEditorRoute('appearance');
             return {routes,issues};
         })()`);
-        assert.equal(geometry.routes, 23, `All tools must remain visible at ${width}px`);
+        assert.equal(geometry.routes, 25, `All tools must remain visible at ${width}px`);
         assert.deepEqual(geometry.issues, [], `Clipped controls/units at ${width}px`);
         geometryRoutes += geometry.routes;
         await fs.writeFile(path.join(output, `workspace-${width}.png`), (await win.webContents.capturePage()).toPNG());

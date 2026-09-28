@@ -52,14 +52,14 @@
             });
         })();
     </script>
-    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.4.7">
-    <link id="editor-style" rel="stylesheet" href="static/editor.css?v=0.4.7">
-    <link id="direct-workspace-style" rel="stylesheet" href="static/direct_workspace.css?v=0.4.7">
+    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.4.8">
+    <link id="editor-style" rel="stylesheet" href="static/editor.css?v=0.4.8">
+    <link id="direct-workspace-style" rel="stylesheet" href="static/direct_workspace.css?v=0.4.8">
     <script>
         window.__V_ASE_MOCK__ = new URLSearchParams(window.location.search).has('v_ase_mock');
         const threeModulePath = window.location.protocol === 'file:'
             ? './vendor/three.module.js'
-            : '/static/vendor/three.module.js?v=0.4.7';
+            : '/static/vendor/three.module.js?v=0.4.8';
         const importMap = document.createElement('script');
         importMap.type = 'importmap';
         importMap.textContent = JSON.stringify({
@@ -166,7 +166,7 @@
     <header id="top-bar" class="glass-panel">
         <div class="logo">
             <img class="brand-logo-asset" src="static/v_ase-logo.png" alt="v_ase">
-            <span class="version">0.4.7</span>
+            <span class="version">0.4.8</span>
         </div>
         <nav id="editor-menu-bar" class="editor-menu-bar" aria-label="Document commands">
             <details><summary>File</summary><div class="editor-menu-popover">
@@ -1856,7 +1856,7 @@
 
         <details class="panel-section" data-panel="water" data-panel-group="structure">
             <summary class="section-header">Water surface</summary>
-            <p class="panel-note">Experimental · a smooth density envelope from water coordinates. This changes appearance, not the molecular dynamics.</p>
+            <p class="panel-note">A smooth density envelope from water coordinates. This changes appearance, not the molecular dynamics.</p>
             <div class="prop-row"><label for="water-enabled">Show water surface</label><input id="water-enabled" type="checkbox"></div>
             <div class="panel-subhead">Molecules</div>
             <div class="prop-row"><label for="water-source">Source</label><select id="water-source"><option value="auto">All detected H₂O</option><option value="selected">Selected water oxygens</option></select></div>
@@ -1869,8 +1869,8 @@
             <div class="prop-row"><label for="water-lighting">Lighting &amp; reflections</label><input id="water-lighting" type="checkbox" checked></div>
             <div class="prop-row"><label for="water-roughness">Surface roughness</label><input id="water-roughness" type="number" min="0.02" max="1" step="0.02" value="0.18"></div>
             <div class="panel-subhead">Surface shape &amp; quality</div>
-            <div class="prop-row"><label for="water-smoothing">Smoothing / Å</label><input id="water-smoothing" type="number" min="0.5" max="3" step="0.05" value="1.45"></div>
-            <div class="prop-row"><label for="water-level">Density threshold</label><input id="water-level" type="number" min="0.1" max="3" step="0.05" value="0.65"></div>
+            <div class="prop-row"><label for="water-smoothing">Kernel width / Å</label><input id="water-smoothing" type="number" min="0.5" max="3" step="0.05" value="2.0"></div>
+            <div class="prop-row"><label for="water-level">Density threshold</label><input id="water-level" type="number" min="0.1" max="3" step="0.01" value="0.63"></div>
             <div class="prop-row"><label for="water-spacing">Grid spacing / Å</label><input id="water-spacing" type="number" min="0.3" max="1.5" step="0.05" value="0.65"></div>
             <div class="prop-row"><label for="water-ohCutoff">O–H cutoff / Å</label><input id="water-ohCutoff" type="number" min="0.8" max="1.6" step="0.05" value="1.25"></div>
             <p class="panel-note">A lower threshold expands the envelope. Smoothing can bridge molecular gaps; this is not a measured liquid boundary. Ions and non-water atoms remain visible.</p>
@@ -2489,7 +2489,7 @@
         }
         const modulePath = (window.location.protocol === 'file:' || window.location.pathname.endsWith('/static/index.html'))
             ? './main.js'
-            : './static/main.js?v=0.4.7';
+            : './static/main.js?v=0.4.8';
         import(modulePath).catch(error => {
             console.error('v_ase failed to initialize:', error?.stack || error);
         });

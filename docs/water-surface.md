@@ -1,4 +1,4 @@
-# Water surface — experimental branch
+# Water surfaces
 
 Open **Style → Water**, enable **Show water surface**, then adjust color,
 opacity and **Lighting & reflections**. **Replace molecular spheres** hides only
@@ -6,8 +6,23 @@ the water molecules participating in the visible envelope; disable it to inspect
 both representations. Ions, membrane atoms and other species stay atomistic.
 **Objects → Water surface** controls the same layer.
 
-This experiment belongs to `codex/water-surface`; it is not in the published
-0.4.7 app. The original checkout and `main` remain separate.
+
+## Molecular-scale defaults
+
+New scenes use a **2.0 Å kernel width**, **0.63 relative threshold**, **0.65 Å
+grid spacing**, **subdivision 1**, and **20 mesh smoothing passes**. The isolated
+Gaussian envelope radius is `sigma * sqrt(-2 * ln(level)) = 1.92 Å`, compared
+with the previous 1.35 Å. A water molecule occupies about 30 Å³ in ambient liquid
+water, equivalent to a sphere of radius about 1.93 Å. This provides a physical
+length scale for a visual default; overlapping kernels do not define a measured
+molecular volume or a calibrated liquid interface. Source coordinates and
+explicit saved settings remain unchanged.
+
+The volume estimate uses water's molar mass, Avogadro's constant, and the
+[NIST water-density reference](https://tsapps.nist.gov/publication/get_pdf.cfm?pub_id=923093)
+(about 0.997 g/cm³ at 25 °C). Reduce kernel width or raise the threshold near narrow
+pores if the envelope visually bridges separate liquid regions. Density fields
+and renderer mesh smoothing remain independently adjustable.
 
 ## What the surface means
 
@@ -23,7 +38,7 @@ two assigned H qualifies. This fallback is a geometric heuristic. Hydronium,
 hydroxide, coarse-grained water and heavily dissociated structures are not H₂O.
 
 The displayed surface is an isosurface of a sum of Gaussian oxygen-centred
-kernels. **Smoothing** is the kernel width in Å; **Density threshold** is a
+kernels. **Kernel width** is the Gaussian width in Å; **Density threshold** is a
 relative scalar threshold, not a calibrated density in g/cm³. Lower thresholds
 expand the envelope. Large smoothing can connect nearby regions across a narrow
 membrane or gap: inspect the molecular representation and adjust it. The envelope
@@ -52,7 +67,7 @@ renderer modules and works offline. There are no new Python dependencies.
 In flat display mode the surface is unlit; saved lighting preferences remain.
 
 The current envelope is available in canvas/PNG/video/GIF/HTML. **Blender, OBJ and
-Rhino geometry exports do not yet include this experimental layer.** Those formats
+Rhino geometry exports do not yet include this water layer.** Those formats
 are explicitly rejected while the layer is enabled, so they cannot silently
 omit the water. Disable the surface deliberately to export molecular geometry.
 
@@ -135,7 +150,7 @@ Source coordinates, scalar samples, isovalue and scientific metadata stay intact
 Smoothing changes the displayed approximation and can suppress small features;
 it is not additional data or an exact volume-preservation guarantee. Compare
 against zero passes when interpreting fine structure. The method follows
-[Taubin's surface fairing](https://doi.org/10.1145/218380.218473).
+[Taubin's surface fairing](https://research.ibm.com/publications/signal-processing-approach-to-fair-surface-design).
 
 Use **Style → Isosurfaces** for the actual isovalue, extraction step, field
 smearing, signed levels, colors and opacity. **Analyze → Fields** remains the
@@ -190,14 +205,13 @@ The GIF above was exported by the application: 24 frames, 960 × 640 pixels,
 The light effects use surface shading and environment reflections; this prototype
 does not implement physically accurate refraction through the fluid.
 
-## Validation and next integration gate
+## Validation
 
 Before integration, run the complete test suite, the focused surface-finish and
 navigation regressions, strict Sphinx build, wheel/sdist build and `twine check`.
 Focused checks cover the live AI schema, project persistence, offline HTML,
 curved subdivision above level 2, actual ripple reduction, pinned boundaries,
-cancellation and stale-surface recovery. This remains an experimental branch;
-no public release is performed as part of this work.
+cancellation and stale-surface recovery. Include these checks in every release.
 
 The large-system revision checks stored molecule topology, closed indexed meshes
 (including dense low-threshold boundaries), real GPU instance counts, cached
@@ -227,7 +241,7 @@ renderer**, not the Mac's native GPU: the roughly 2.4× comparison demonstrates
 reduced rendering work, not native FPS or a universal performance guarantee.
 CPU draw-submission timing alone is not used as frame-rate evidence.
 
-The numeric-quality revision was also measured on the same 52,272-atom source.
+The earlier 1.45 Å / 0.65-threshold numeric-quality revision was measured on the same 52,272-atom source.
 With the water surface on, an equivalent whole-scene view submitted **5,947,184
 triangles with legacy geometry versus 3,402,416 with a 64-segment ceiling and
 projected-size detail** (43% fewer). Water interpolation level 1 produced
@@ -239,7 +253,7 @@ page errors occurred. These are draw-count and responsiveness measurements,
 not a native-GPU FPS promise. The timing harness includes completed software
 rendering and pixel readback, so it is not used to claim pure mesh-build latency.
 
-The surface-finish revision was checked on that same source: 302,872 base water
+The earlier 1.45 Å / 0.65-threshold surface-finish revision was checked on that same source: 302,872 base water
 triangles became 1,211,488 at subdivision 1, and 4,845,952 at subdivision 2.
 Fifty smoothing passes changed the displayed mesh while the original mesh buffers
 and atomic coordinates stayed identical. During smoothing plus subdivision, a
@@ -253,7 +267,7 @@ the synthetic 24-frame example and changing-topology browser regressions, not a
 claim that this user's full MD trajectory was tested. The application-exported
 960 × 640 GIF was regenerated and its first/middle frames inspected. Exact-size
 PNG, offline HTML, project round-trip, selection, undo/redo and error recovery are
-also covered. Large real trajectories remain a prerequisite for main integration.
+also covered. Long and reactive trajectories should be checked on their own data; these measurements are not a universal workload guarantee.
 
 Run `tests/test_render_quality.py`, `tests/test_browser_render_quality.py`,
 `tests/test_water_surface.py`, `tests/test_browser_water_surface.py`, existing
@@ -262,8 +276,13 @@ playback, exact exported dimensions, scientific coordinate immutability,
 visibility on/off, custom labels, periodic water, captured scopes, malformed data,
 no-water frames, document switches and undo. Inspect the resulting image/movie.
 
-Before a main/release integration: benchmark larger real aqueous trajectories,
-complete geometry-export parity, test unusual periodic cells and reactive water
-labels, decide whether worker/GPU reconstruction is needed for the supported
-workloads, and execute the full release checklist with refreshed examples. Do not
-publish this experiment as a validated fluid solver.
+Known limits: Blender/OBJ/Rhino mesh export remains unavailable while water is
+enabled (an explicit error prevents silent omission). CPU reconstruction uses
+bounded work and may reduce effective grid resolution on large repeated scenes;
+live playback can lag when finishing exceeds a frame interval. Movies wait for
+finished frames. This feature visualizes coordinates; it is not a fluid solver.
+
+The 0.4.8 default was compared on the same 52,272-atom snapshot: the wider
+kernel creates a more continuous envelope. Camera and material edits reuse
+the mesh, and source coordinates remain unchanged. Default restoration and
+explicit legacy zero-finish settings are separately regression-tested.

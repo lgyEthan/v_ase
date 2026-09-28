@@ -14,7 +14,7 @@
 [Changelog](https://v-ase.readthedocs.io/en/latest/whats-new.html) ·
 [Issues](https://github.com/lgyEthan/v_ase/issues)
 
-**v_ase 0.4.7 — live atom styling and stable camera framing** ·
+**v_ase 0.4.8 — continuous water surfaces and refined rendering** ·
 [Changes](https://v-ase.readthedocs.io/en/latest/whats-new.html)
 
 An ASE-native workspace for building, editing and visualizing atomic structures,
@@ -30,7 +30,7 @@ both retain the document's mode and presentation.
 Agent revision snapshots wait for pending change notifications to finish.
 Renderer scale and atom radius remain independent.
 
-## Experimental water visualization (this branch)
+## Water surfaces and rendering quality
 
 **Style → Water** draws detected H₂O as a continuous translucent surface while
 keeping ions and solids atomistic. Color, opacity, smoothing and lighting are
@@ -51,13 +51,14 @@ requested geometry; screen-space detail and off-screen culling keep large scenes
 manageable. Surface work shows progress and supports **Cancel / Esc**;
 **Revert quality** and **Lightweight** make recovery immediate. See
 [quality and performance](docs/water-surface.md#renderer-quality-and-recovery).
-This experiment is not included in the published 0.4.7 app.
+Water starts from a molecular-scale 2.0 Å kernel, a 0.63 threshold, subdivision 1
+and 20 smoothing passes. Existing saved settings are retained.
 
 ## Installation And Launch
 
 macOS and Windows users can install the self-contained
 [desktop app](https://v-ase.readthedocs.io/en/latest/desktop.html) from
-[GitHub Releases](https://github.com/lgyEthan/v_ase/releases/tag/v0.4.7).
+[GitHub Releases](https://github.com/lgyEthan/v_ase/releases/tag/v0.4.8).
 It runs the same GUI with native Command/Ctrl shortcuts and file dialogs;
 Python installation is not required. Python and Jupyter remain available
 independently. Drag a desktop tab out to detach it into another window. Atom magnification,
@@ -70,11 +71,11 @@ window closes independently; Windows Alt+F4 closes the active window, while
 explicit Quit checks all windows. The app icon now features the full atomic-bead
 castle with its small Pinocchio detail and no projecting red foundation board.
 
-| Desktop download (0.4.7) | Install and launch |
+| Desktop download (0.4.8) | Install and launch |
 | --- | --- |
-| [Mac, Apple silicon](https://github.com/lgyEthan/v_ase/releases/download/v0.4.7/v_ase-0.4.7-mac-arm64.dmg) | macOS 15+: open the DMG, drag **v_ase** to **Applications**, eject the disk image, then launch the Applications copy. |
-| [Mac, Intel](https://github.com/lgyEthan/v_ase/releases/download/v0.4.7/v_ase-0.4.7-mac-x64.dmg) | Same steps; choose Intel when **About This Mac** shows an Intel processor. |
-| [Windows, Intel/AMD x64](https://github.com/lgyEthan/v_ase/releases/download/v0.4.7/v_ase-0.4.7-win-x64.exe) | Windows 10/11, 64-bit: run the EXE installer, complete installation, then launch **v_ase** from Start. |
+| [Mac, Apple silicon](https://github.com/lgyEthan/v_ase/releases/download/v0.4.8/v_ase-0.4.8-mac-arm64.dmg) | macOS 15+: open the DMG, drag **v_ase** to **Applications**, eject the disk image, then launch the Applications copy. |
+| [Mac, Intel](https://github.com/lgyEthan/v_ase/releases/download/v0.4.8/v_ase-0.4.8-mac-x64.dmg) | Same steps; choose Intel when **About This Mac** shows an Intel processor. |
+| [Windows, Intel/AMD x64](https://github.com/lgyEthan/v_ase/releases/download/v0.4.8/v_ase-0.4.8-win-x64.exe) | Windows 10/11, 64-bit: run the EXE installer, complete installation, then launch **v_ase** from Start. |
 
 The Mac downloads are **Developer ID signed and Apple-notarized**, with
 stapled tickets for the app and DMG. macOS may show its normal first-open
