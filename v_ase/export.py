@@ -1862,8 +1862,8 @@ def _rhino_view_info(rhino3dm, camera, name="v_ase View"):
 
 def export_3dm_response(session, payload: Dict[str, Any]):
     if (payload.get("display") or {}).get("waterSurface", {}).get("enabled"):
-        raise ValueError("This experimental water surface is not supported by geometry export yet. "
-                         "Use PNG, movie/GIF or interactive HTML, or turn off Water surface to export atoms.")
+        raise ValueError("Water surface mesh export is not supported in 3DM. "
+                         "Use Blender, PNG, movie/GIF or interactive HTML, or turn off Water surface to export atoms.")
     try:
         import rhino3dm
     except ImportError as exc:
@@ -2302,8 +2302,8 @@ def _obj_sphere_resolution(scene, display):
 
 def export_obj_response(session, payload: Dict[str, Any]):
     if (payload.get("display") or {}).get("waterSurface", {}).get("enabled"):
-        raise ValueError("This experimental water surface is not supported by geometry export yet. "
-                         "Use PNG, movie/GIF or interactive HTML, or turn off Water surface to export atoms.")
+        raise ValueError("Water surface mesh export is not supported in OBJ. "
+                         "Use Blender, PNG, movie/GIF or interactive HTML, or turn off Water surface to export atoms.")
     scene = _cad_scene_data(session, payload)
     display = payload.get("display") or {}
     material_specs = {
@@ -2471,6 +2471,11 @@ import json
 import bpy
 from bpy.app.handlers import persistent
 from mathutils import Vector
+
+# A re-run replaces this generated scene; retire its old callbacks first.
+for handler in list(bpy.app.handlers.frame_change_post):
+    if getattr(handler, "_v_ase_export", False):
+        bpy.app.handlers.frame_change_post.remove(handler)
 
 DATA = {repr(data)}
 FRAMES = DATA.get("frames", [])
@@ -3304,6 +3309,9 @@ def add_hookean_spring(name, start, end, threshold=None, radius_start=0.7, radiu
 
 bpy.ops.object.select_all(action="SELECT")
 bpy.ops.object.delete()
+for mesh in list(bpy.data.meshes):
+    if mesh.users == 0 and mesh.get("v_ase_water_surface"):
+        bpy.data.meshes.remove(mesh)
 
 scene = bpy.context.scene
 for render_engine in ("BLENDER_EEVEE_NEXT", "BLENDER_EEVEE"):
@@ -3431,6 +3439,7 @@ if 'polyhedra_atoms' in DATA or DATA.get("polyhedra") or DATA.get("polyhedra_fra
     update_polyhedra(bpy.context.scene)
     if DATA.get("polyhedra_frames"):
         bpy.context.scene.frame_start=1;bpy.context.scene.frame_end=len(DATA['polyhedra_frames'])
+        update_polyhedra._v_ase_export = True
         bpy.app.handlers.frame_change_post.append(update_polyhedra)
 
 # One editable water mesh; only the current trajectory surface is resident.
@@ -3451,6 +3460,7 @@ def update_water_surface(scene, *_):
     import base64, zlib
     surface = json.loads(zlib.decompress(base64.b85decode(record['mesh'])))
     mesh = bpy.data.meshes.new('v_ase_water_surface')
+    mesh['v_ase_water_surface'] = True
     mesh.from_pydata(surface['vertices'], [], surface['triangles']); mesh.update()
     for polygon in mesh.polygons: polygon.use_smooth = True
     if surface['normals'] and hasattr(mesh, 'normals_split_custom_set_from_vertices'):
@@ -3492,6 +3502,7 @@ if DATA.get('water_surface'):
     update_water_surface(bpy.context.scene)
     if DATA.get('water_surface_frames'):
         bpy.context.scene.frame_start=1; bpy.context.scene.frame_end=len(DATA['water_surface_frames'])
+        update_water_surface._v_ase_export = True
         bpy.app.handlers.frame_change_post.append(update_water_surface)
 
 positions = DATA["positions"]
@@ -3551,6 +3562,7 @@ if "polyhedra_atoms" not in DATA and len(FRAMES) > 1 and all(frame_topology_matc
     else:
         add_group_trajectory_shape_keys(atom_groups, FRAMES)
         radius_group_bindings = tuple(atom_groups)
+        update_group_radius_attributes._v_ase_export = True
         bpy.app.handlers.frame_change_post.append(update_group_radius_attributes)
         update_group_radius_attributes(bpy.context.scene)
 
@@ -3615,9 +3627,10 @@ def export_blender_response(session, payload: Dict[str, Any]):
     if getattr(session, "trajectory_frames", None):
         session.sync_current_frame()
     data = atoms_to_json(atoms)
-    frames = _trajectory_frames_json(session)
-    if frames:
-        data["frames"] = frames
+    source_frames = getattr(session, "trajectory_frames", []) or []
+    if len(source_frames) <= 1:
+        source_frames = []
+    frames = []
     display = payload.get("display") or {}
     if display:
         data["display"] = display
@@ -3626,15 +3639,9 @@ def export_blender_response(session, payload: Dict[str, Any]):
     radius_mapping = normalize_atom_radius_mapping(display.get("atomRadiusMapping"), strict=True)
     if radius_mapping["enabled"]:
         data["atom_radius_factors"] = atom_radius_factors_for_atoms(atoms, radius_mapping).tolist()
-        for frame, frame_atoms in zip(frames, getattr(session, "trajectory_frames", []) or []):
-            frame["atom_radius_factors"] = atom_radius_factors_for_atoms(
-                frame_atoms, radius_mapping
-            ).tolist()
     water_enabled = bool((display.get("waterSurface") or {}).get("enabled"))
     if display.get("showPolyhedra") or water_enabled:
-        from ase import Atoms
         from types import SimpleNamespace
-        from .io import set_atom_labels
         def poly_scene(frame_atoms):
             isolated=SimpleNamespace(working_atoms=frame_atoms,config={},trajectory_frames=[])
             scene = _cad_scene_data(isolated,{'display':display,'include_cell':payload.get('include_cell',True)})
@@ -3654,15 +3661,23 @@ def export_blender_response(session, payload: Dict[str, Any]):
             data['water_surface'] = pack_water(scene['water'])
             data['water_surface_frames'] = []
         all_polyhedra=[];all_atoms=[];all_bonds=[];all_cells=[];vertex_budget=0
-        for frame_index, frame in enumerate(frames):
-            frame_atoms=(getattr(session,'trajectory_frames',[]) or [])[frame_index]
+        for frame_atoms in source_frames:
             scene=poly_scene(frame_atoms)
             vertex_budget+=sum(len(mesh['vertices']) for mesh in scene['polyhedra'])+len(scene['atoms'])+len(scene.get('water',{}).get('vertices',[]))
             if vertex_budget>2000000:raise ValueError('Blender surface animation exceeds two million sites/vertices. Export fewer frames, repetitions, or lower surface subdivision.')
+            # Bound geometry before retaining another full serialized frame.
+            frames.append(atoms_to_json(frame_atoms))
             if water_enabled: data['water_surface_frames'].append(pack_water(scene['water']))
             all_polyhedra.append(scene['polyhedra']);all_atoms.append(scene['atoms']);all_bonds.append(scene['bonds']);all_cells.append(scene['cell_edges'])
         if all_polyhedra:
             data['polyhedra_frames']=all_polyhedra;data['polyhedra_atoms_frames']=all_atoms;data['polyhedra_bonds_frames']=all_bonds;data['polyhedra_cell_frames']=all_cells
+    else:
+        frames = [atoms_to_json(frame) for frame in source_frames]
+    if frames:
+        data["frames"] = frames
+        if radius_mapping["enabled"]:
+            for frame, frame_atoms in zip(frames, source_frames):
+                frame["atom_radius_factors"] = atom_radius_factors_for_atoms(frame_atoms, radius_mapping).tolist()
     _translate_visual_frame(data, display)
     for frame in frames:
         _translate_visual_frame(frame, display)

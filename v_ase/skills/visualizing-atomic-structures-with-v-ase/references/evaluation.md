@@ -573,6 +573,11 @@ Run all scenarios, not only static document checks:
     - verify pairwise rows expose enabled/max only and retain a resized label
       column.
 13. **Interface theme and personal defaults**
+    - launch the disposable evaluation server with `V_ASE_CONFIG_DIR` pointing
+      to a new temporary directory before testing defaults; this supported
+      override isolates `preferences.json` from the real user profile. Keep
+      the browser context disposable as well. Never reset a user’s defaults
+      merely to complete a release check;
     - verify System follows `prefers-color-scheme` and explicit Light/Dark
       choices update the workspace shell and every document frame;
     - save a current 2D/flat-bond/radius setup as the personal default, open a

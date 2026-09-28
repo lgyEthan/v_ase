@@ -1617,69 +1617,17 @@ def test_browser_random_add_atoms_mode_scatter_relax_and_finish():
             assert page.locator("#create-atom-type").input_value() == "O"
             page.click("#add-atoms-tab-batch")
             page.locator(".add-atoms-session-actions").scroll_into_view_if_needed()
-            panel_layout = page.evaluate("""() => {
-                const card = document.getElementById('create-atom-card').getBoundingClientRect();
-                const body = document.getElementById('add-atoms-pane-batch');
-                const actions = document.querySelector('.add-atoms-session-actions').getBoundingClientRect();
-                return {
-                    cardTop: card.top,
-                    cardBottom: card.bottom,
-                    viewportHeight: window.innerHeight,
-                    actionsTop: actions.top,
-                    actionsBottom: actions.bottom,
-                    bodyClientHeight: body.clientHeight,
-                    bodyScrollHeight: body.scrollHeight,
-                };
+            # The inspector is now the only vertical scroller. Its content may
+            # extend above/below the viewport while the action remains reachable.
+            layout = page.locator('#btn-add-atoms-scatter').evaluate("""el => {
+                const r=el.getBoundingClientRect(), hit=document.elementFromPoint(r.x+r.width/2,r.y+r.height/2);
+                const scrollers=[];
+                for(let p=el.parentElement;p;p=p.parentElement) {
+                    if(/auto|scroll/.test(getComputedStyle(p).overflowY) && p.scrollHeight>p.clientHeight+1) scrollers.push(p.id);
+                }
+                return {reachable:hit===el||el.contains(hit),scrollers};
             }""")
-            assert panel_layout["cardTop"] >= 0
-            assert panel_layout["cardBottom"] <= panel_layout["viewportHeight"]
-            assert panel_layout["actionsTop"] >= panel_layout["cardTop"]
-            assert panel_layout["actionsBottom"] <= panel_layout["cardBottom"] + 1
-            assert panel_layout["bodyScrollHeight"] > panel_layout["bodyClientHeight"]
-            drag_handle = page.locator("#create-atom-drag")
-            drag_box = drag_handle.bounding_box()
-            assert drag_box is not None
-            page.mouse.move(
-                drag_box["x"] + drag_box["width"] / 2,
-                drag_box["y"] + drag_box["height"] / 2,
-            )
-            page.mouse.down()
-            page.mouse.move(10_000, 10_000, steps=4)
-            page.mouse.up()
-            dragged_layout = page.evaluate("""() => {
-                const panel = document.getElementById('create-atom-widget').getBoundingClientRect();
-                const header = document.getElementById('top-bar').getBoundingClientRect();
-                return {
-                    left: panel.left,
-                    right: panel.right,
-                    top: panel.top,
-                    bottom: panel.bottom,
-                    width: window.innerWidth,
-                    height: window.innerHeight,
-                    headerBottom: header.bottom,
-                    inspectorLeft: document.getElementById('inspector').getBoundingClientRect().left,
-                    inspectorRight: document.getElementById('inspector').getBoundingClientRect().right
-                };
-            }""")
-            assert dragged_layout["left"] >= dragged_layout["inspectorLeft"]
-            assert dragged_layout["right"] <= dragged_layout["inspectorRight"]
-            assert page.locator('#inspector-content').evaluate(
-                "element => element.getBoundingClientRect().top"
-            ) >= dragged_layout["headerBottom"]
-
-            drag_box = drag_handle.bounding_box()
-            assert drag_box is not None
-            page.mouse.move(
-                drag_box["x"] + drag_box["width"] / 2,
-                drag_box["y"] + drag_box["height"] / 2,
-            )
-            page.mouse.down()
-            page.mouse.move(-10_000, -10_000, steps=4)
-            page.mouse.up()
-            clamped_layout = page.locator("#create-atom-widget").bounding_box()
-            assert clamped_layout is not None
-            assert clamped_layout["x"] == pytest.approx(dragged_layout["left"], abs=1)
-            assert clamped_layout["y"] == pytest.approx(dragged_layout["top"], abs=1)
+            assert layout == {'reachable': True, 'scrollers': ['inspector-content']}
             page.locator("#add-atoms-placement-random").scroll_into_view_if_needed()
             assert page.locator("#add-atoms-spacing-basis-row").is_hidden()
             assert page.locator("#add-atoms-placement-pbc-row").is_hidden()
@@ -1952,8 +1900,9 @@ def test_browser_random_add_atoms_mode_scatter_relax_and_finish():
             ]
             assert_host_unchanged(host, backend.atom_addition.baseline_atoms)
 
-            page.click("#btn-add-atoms-open-relaxation")
-            page.wait_for_selector('#inspector details[data-panel="scientific-tools"]:not(.group-hidden)[open]')
+            page.locator('#add-atoms-relax-host').scroll_into_view_if_needed()
+            assert page.locator('#add-atoms-relax-host #btn-relax').is_visible()
+            page.locator('#relaxation-workflow .relax-calculator-details').evaluate('el=>el.open=true')
             assert page.locator("#calc-device").is_visible()
             assert page.locator("#calc-cpus option").count() >= 1
             thread_value = "2" if page.locator('#calc-cpus option[value="2"]').count() else "1"
@@ -2379,8 +2328,9 @@ def test_browser_add_molecules_homogeneous_transform_rigid_relax_and_finish():
                 after_rotation[len(host):],
             )
 
-            page.click("#btn-add-atoms-open-relaxation")
-            page.wait_for_selector('#inspector details[data-panel="scientific-tools"]:not(.group-hidden)[open]')
+            page.locator('#add-atoms-relax-host').scroll_into_view_if_needed()
+            assert page.locator('#add-atoms-relax-host #btn-relax').is_visible()
+            page.locator('#relaxation-workflow .relax-calculator-details').evaluate('el=>el.open=true')
             page.fill("#relax-steps", "12")
             page.click("#btn-relax")
             page.wait_for_function(

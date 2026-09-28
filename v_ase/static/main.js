@@ -20626,7 +20626,7 @@ class VAseApp {
         const addAtomsControls = new Set([
             'scatter-atoms', 'scatter-molecules',
             'relax-added-atoms', 'stop-added-atoms',
-            'start-relaxation', 'stop-relaxation',
+            'start-relaxation', 'stop-relaxation', 'clear-relaxation-trajectory',
             'finish-add-atoms', 'cancel-add-atoms', 'update-add-atoms-region',
             'scale-add-atoms-regions',
             'move-selection', 'rotate-selection', 'scale-selection'
@@ -20639,7 +20639,7 @@ class VAseApp {
         const registryRelaxationControls = new Set([
             'set-registry-translation',
             'run-registry-relaxation',
-            'stop-registry-relaxation',
+            'stop-registry-relaxation', 'clear-relaxation-trajectory',
             'finish-registry-relaxation',
             'cancel-registry-relaxation'
         ]);

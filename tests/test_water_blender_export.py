@@ -49,6 +49,7 @@ def test_water_scene_runs_and_renders_in_blender(tmp_path):
     response=export_blender_response(session,{'display':{'waterSurface':{'enabled':True},'waterInterpolation':1,'waterMeshSmoothing':3,'showBonds':True},'camera':{'position':[6,-10,7],'target':[1,0,0],'ortho_scale':9,'projection':'orthographic'}})
     source=Path(response.path).read_text();Path(response.path).unlink()
     image=tmp_path/'water.png'
+    source = source + '\nexec(' + repr(source) + ')\nassert len([h for h in bpy.app.handlers.frame_change_post if getattr(h, \"_v_ase_export\", False)]) == 2\n'
     source+='''
 water=bpy.data.objects['v_ase_water_surface']
 assert len(water.data.vertices)>100

@@ -62,6 +62,13 @@ if (report.get("version") != expected_version or report.get("geometryRoutes") !=
         or report.get("commands") != 10 or report.get("oxygenPixels", 0) <= 100
         or any(report.get(key) is not True for key in required)):
     raise SystemExit("The packaged application did not complete every required regression check")
+parity = report.get("visualParity", {})
+pixels, layouts = parity.get("pixelChecks", []), parity.get("layoutChecks", [])
+if (set(p.get("mode") for p in pixels) != {"2d", "3d"}
+        or any(p.get("outlinePixels", 0) <= 100 or p.get("constraintPixels", 0) <= 100 for p in pixels)
+        or set(p.get("zoom") for p in layouts) != {1, 1.25, 1.5}
+        or any(p.get("scroll") != ["inspector-content"] or not p.get("reachable") or not p.get("relaxHost") for p in layouts)):
+    raise SystemExit("The packaged application did not pass native selection/constraint pixels and panel layout checks")
 if platform.system() == "Darwin":
     # Import caches or other runtime writes must not break the sealed bundle.
     subprocess.run(["codesign", "--verify", "--deep", "--strict", str(candidates[0].parents[2])], check=True)

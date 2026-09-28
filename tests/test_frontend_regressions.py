@@ -471,7 +471,7 @@ def test_frontend_renders_constraint_guides_and_blender_export_button():
     assert "fixed_plane" in main_js
     assert "chk-constraints" in index_html
     assert "chk-overlays" in index_html
-    assert "Show Overlays" in index_html
+    assert "Scientific overlays" in index_html
     assert "Apply constraints" in index_html
     assert "apply_constraint</label>" not in index_html
     assert "btn-done" not in index_html
@@ -1852,7 +1852,9 @@ def test_add_atoms_uses_the_shared_relaxation_controls_only():
     main_js = (ROOT / "v_ase" / "static" / "main.js").read_text(encoding="utf-8")
     index_html = (ROOT / "v_ase" / "static" / "index.html").read_text(encoding="utf-8")
 
-    assert 'id="btn-add-atoms-open-relaxation"' in index_html
+    assert 'id="btn-add-atoms-open-relaxation"' not in index_html
+    assert 'id="add-atoms-relax-host"' in index_html
+    assert index_html.count('id="relaxation-workflow"') == 1
     assert 'id="btn-relax"' in index_html
     assert 'id="calc-device"' in index_html
     assert 'id="add-atoms-device"' not in index_html

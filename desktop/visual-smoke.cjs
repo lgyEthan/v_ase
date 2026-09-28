@@ -49,12 +49,13 @@ module.exports = async function visualSmoke({js, active, appRef, win, output, wa
     const layoutChecks=[];
     for(const [width,height,zoom] of [[1280,720,1],[1024,600,1.25],[1024,768,1.5]]) {
         win.setContentSize(width,height);win.webContents.setZoomFactor(zoom);
+        await js(`new Promise(r=>${active}.requestAnimationFrame(()=>${active}.requestAnimationFrame(r)))`);
         const result=await js(`(async()=>{const a=${appRef},d=${active}.document;a.openEditorRoute('add-atoms');d.getElementById('add-atoms-tab-batch').click();d.getElementById('add-atoms-content-molecules').click();
           const el=d.getElementById('btn-add-atoms-scatter');el.scrollIntoView({block:'center'});
           await new Promise(r=>${active}.requestAnimationFrame(()=>${active}.requestAnimationFrame(r)));
           const scroll=[];for(let p=el.parentElement;p;p=p.parentElement)if(/auto|scroll/.test(${active}.getComputedStyle(p).overflowY)&&p.scrollHeight>p.clientHeight+1)scroll.push(p.id||p.className);
           const r=el.getBoundingClientRect(),hit=d.elementFromPoint(r.x+r.width/2,r.y+r.height/2);
-          return {scroll,reachable:hit===el||el.contains(hit),relaxHost:d.getElementById('add-atoms-relax-host').contains(d.getElementById('btn-relax'))};})()`);
+          return {scroll,reachable:hit===el||el.contains(hit),windowSize:[${active}.innerWidth,${active}.innerHeight],buttonRect:{x:r.x,y:r.y,width:r.width,height:r.height},relaxHost:d.getElementById('add-atoms-relax-host').contains(d.getElementById('btn-relax'))};})()`);
         assert.deepEqual(result.scroll,['inspector-content']);assert.ok(result.reachable&&result.relaxHost,JSON.stringify(result));
         await fs.writeFile(path.join(output,`placement-${width}-${zoom}.png`),(await win.webContents.capturePage()).toPNG());
         layoutChecks.push({width,height,zoom,...result});

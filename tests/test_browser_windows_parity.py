@@ -67,7 +67,7 @@ def test_drag_and_panel_selection_and_constraints_draw_pixels(page,mode,backgrou
     Image.fromarray(visible.astype('uint8')).save(f'/tmp/vase049-constraints-{mode}-{background}.png')
     Image.fromarray(selected.astype('uint8')).save(f'/tmp/vase049-selection-{mode}-{background}.png')
 
-@pytest.mark.parametrize('width,height,zoom',[(1280,720,1),(1024,600,1.25),(1024,768,1.5),(390,844,1)])
+@pytest.mark.parametrize('width,height,zoom',[(1280,720,1),(1024,600,1.25),(1024,768,1.5),(390,844,1),(683,464,1)])
 def test_placement_has_one_vertical_scroll_and_reachable_actions(page,width,height,zoom):
     page.set_viewport_size({'width':width,'height':height})
     # Browser zoom applies layout pressure; native Electron also tests OS-style zoom.
@@ -86,7 +86,8 @@ def test_placement_has_one_vertical_scroll_and_reachable_actions(page,width,heig
     assert page.locator('#btn-relax').is_disabled()
 
 
-def test_inline_placement_relaxation_restores_start_without_removing_added_atoms(page):
+@pytest.mark.parametrize('clear_source', ['button', 'semantic'])
+def test_inline_placement_relaxation_restores_start_without_removing_added_atoms(page, clear_source):
     page.evaluate('''async()=>{const a=window.__ASE_APP__;
       await a.aiApply({operation:{name:'scatter-atoms',entries:[{element:'H',label:'H_added',count:2}],
         regions:[{id:'test-allow',name:'Test',role:'allow',bounds:[.1,.5,.1,.5,.1,.5]}],seed:42,freezeExisting:true}});
@@ -97,8 +98,11 @@ def test_inline_placement_relaxation_restores_start_without_removing_added_atoms
     page.fill('#relax-steps','3');page.fill('#relax-fmax','0.001')
     start.click()
     page.wait_for_function('window.__ASE_APP__.state.relaxTrajectory.frames.length>1 && !window.__ASE_APP__.state.isRelaxing',timeout=30000)
-    page.locator('#btn-clear-relax-trajectory').click()
-    page.locator('#relax-clear-initial').click()
+    if clear_source == 'button':
+        page.locator('#btn-clear-relax-trajectory').click()
+        page.locator('#relax-clear-initial').click()
+    else:
+        page.evaluate("()=>window.v_aseAI.apply({operation:{name:'clear-relaxation-trajectory',retain:'initial'}})")
     page.wait_for_function('window.__ASE_APP__.state.relaxTrajectory.frames.length===0')
     result=page.evaluate('''()=>({positions:window.__ASE_APP__.state.atoms.positions,start:window.placementStart,
         active:window.__ASE_APP__.addAtomsUI.active,kind:document.body.dataset.currentEditorRoute})''')

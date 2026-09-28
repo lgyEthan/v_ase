@@ -39,7 +39,7 @@ body.editor-shell:has(#analysis-drawer:not(.hidden)) {
 body.editor-shell.inspector-collapsed { grid-template-columns: minmax(0, 1fr) 0; }
 body.editor-shell.inspector-collapsed #inspector { border-left: 0; }
 body.editor-shell #top-bar { height: 49px; min-height: 49px; grid-template-columns: auto auto auto auto minmax(0, 1fr) auto auto; border-bottom: 1px solid var(--line); }
-body.editor-shell #inspector { grid-area: inspector; position: relative; inset: auto; height: 100%; width: auto; min-width: 0; max-width: none; border-left: 1px solid var(--line); }
+body.editor-shell #inspector { grid-area: inspector; position: relative; inset: auto; height: 100%; width: auto; min-width: 0; max-width: none; border-left: 1px solid var(--line); transition: none; }
 body.editor-shell #inspector .inspector-nav,
 body.editor-shell #inspector .inspector-view-tabs,
 body.editor-shell #inspector #structure-section-picker { display: none !important; }
@@ -115,19 +115,19 @@ body.editor-shell #analysis-drawer { min-width: 0; }
 @media (max-width: 760px) {
     body.editor-shell, body.editor-shell.inspector-collapsed,
     body.editor-shell:has(#analysis-drawer:not(.hidden)) {
-        height: auto; min-height: 100dvh;
+        height: 100dvh; min-height: 0;
         grid-template-columns: minmax(0, 1fr);
-        grid-template-rows: 49px minmax(310px, 55dvh) auto minmax(0, auto) auto;
+        grid-template-rows: 49px minmax(180px, .8fr) minmax(180px, 1fr) 0 auto;
         grid-template-areas: "header" "viewport" "inspector" "results" "footer";
     }
-    body.editor-shell #inspector, body.editor-shell.inspector-collapsed #inspector { position: relative; grid-area: inspector; inset: auto; width: 100%; height: min(560px, 70dvh); min-width: 0; border-left: 0; border-top: 1px solid var(--line); }
+    body.editor-shell #inspector, body.editor-shell.inspector-collapsed #inspector { position: relative; grid-area: inspector; inset: auto; width: 100%; height: 100%; min-height: 0; min-width: 0; border-left: 0; border-top: 1px solid var(--line); }
     body.editor-shell #btn-inspector-collapse, body.editor-shell #inspector-resizer { display: none; }
     body.editor-shell #top-bar { min-width: 0; gap: 3px; padding: 0 5px; }
     body.editor-shell #top-bar .logo .brand-logo-asset { width: 65px; }
     body.editor-shell #top-bar .status-group, body.editor-shell #editor-save { display: none; }
     body.editor-shell .viewport-camera-tools { top: 46px; }
     body.editor-shell #app-viewport .orientation-widget { top: 91px; }
-    body.editor-shell #analysis-drawer:not(.hidden) { min-height: 225px; height: 225px; }
+    body.editor-shell #analysis-drawer:not(.hidden) { position: fixed; inset: 49px 0 32px; min-height: 0; height: auto; z-index: 700; }
     body.editor-shell #trajectory-panel { min-width: 0; }
 }
 @media (max-width: 480px) {
@@ -540,3 +540,16 @@ body.editor-shell .active-add-session-controls { flex-wrap: wrap; gap: 6px 10px;
 body.editor-shell .active-add-session-controls > span { flex: 1 1 190px; }
 
 body.editor-shell .add-atoms-session-actions > button:disabled { display: none; }
+
+/* Compact stacked windows keep every primary tool in one reachable row. */
+@media (max-width: 760px) and (max-height: 600px) {
+    body.editor-shell .viewport-tools {
+        top: auto; bottom: 8px; left: 8px; flex-direction: row;
+        width: max-content; min-width: 0; max-width: calc(100% - 104px);
+        max-height: none; overflow-x: auto; overflow-y: hidden; scrollbar-gutter: auto;
+    }
+    body.editor-shell .viewport-tool-group { flex-direction: row; padding: 0 3px; }
+    body.editor-shell .viewport-tool-group + .viewport-tool-group { border-top: 0; border-left: 1px solid var(--line-strong); }
+    body.editor-shell .viewport-camera-tools { top: 42px; }
+    body.editor-shell #app-viewport .orientation-widget { top: 80px; }
+}
