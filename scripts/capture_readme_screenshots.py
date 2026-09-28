@@ -3011,6 +3011,7 @@ def capture_ai_collaboration_figure(browser) -> None:
     source, expected_final, metadata = make_ai_pyridinic_graphene_scene()
     editor = view(
         source,
+        notebook=False,  # This figure exercises the workspace and its child frame.
         block=False,
         viz_only=False,
         show_cell=True,
