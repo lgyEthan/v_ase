@@ -183,3 +183,18 @@ def test_shared_html_latex_doctrees_use_static_fallbacks(tmp_path):
     assert 'scene.gif' in (tmp_path/'html/index.html').read_text()
     tex=next((tmp_path/'latex').glob('*.tex')).read_text()
     assert 'scene}.png' in tex and 'scene}.gif' not in tex
+
+
+def test_published_markdown_animations_require_offline_fallbacks():
+    # A raw GIF bypasses vase-animation and can leave a truncated PDF even
+    # while Read the Docs marks the overall HTML/ePub build successful.
+    raw_gif = re.compile(r"!\[[^\]]*\]\([^)]*\.gif(?:[?#][^)]*)?\)")
+    for page in DOCS.glob('*.md'):
+        assert not raw_gif.search(page.read_text()), page.name
+    guide = (DOCS / 'water-surface.md').read_text()
+    assert ':fallback: assets/water-surface-experiment.png' in guide
+    from PIL import Image
+    with Image.open(DOCS / 'assets/water-surface-experiment.gif') as animation:
+        animation.seek(12)
+        with Image.open(DOCS / 'assets/water-surface-experiment.png') as still:
+            assert still.convert('RGB').tobytes() == animation.convert('RGB').tobytes()

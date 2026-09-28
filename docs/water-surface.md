@@ -198,7 +198,10 @@ carbon-like sheet and ions. It is an illustration of rendering behavior, **not a
 MD trajectory, membrane permeability calculation or desalination result**. It
 requires no proprietary reference image or video assets.
 
-![Synthetic water envelope around a perforated membrane](assets/water-surface-experiment.gif)
+```{vase-animation} assets/water-surface-experiment.gif
+:fallback: assets/water-surface-experiment.png
+:alt: Synthetic water envelope around a perforated membrane
+```
 
 The GIF above was exported by the application: 24 frames, 960 × 640 pixels,
 15 px/Å, infinite loop, 64 atom/bond segments, water subdivision 1 and 20 smoothing passes. It uses the same rendered water layer as live playback.

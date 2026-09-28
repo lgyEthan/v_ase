@@ -38,6 +38,8 @@ adjustable; trajectories, images, movies/GIF and offline HTML share the same
 surface. Stored molecule IDs distinguish water from surface hydroxyls. A cached,
 indexed boundary mesh replaces water sphere/bond draw instances, including
 visible periodic copies. This is coordinate-derived visualization, not a new MD solver.
+The maintained [PDF manual](https://v-ase.readthedocs.io/_/downloads/en/latest/pdf/)
+uses exact still frames for animation examples.
 See [Water surface](docs/water-surface.md) and run
 `python examples/water_surface.py` for a synthetic animated example.
 **Render → Renderer → Quality** now uses numeric atom/bond segments (8–128),
