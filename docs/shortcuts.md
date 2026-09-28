@@ -18,10 +18,12 @@ Selected appearance is live in View and Edit, with automatic label separation
 and an undoable first adjustment. Reusing a label asks to merge and inherit its
 visual settings. See [Live selected appearance](appearance.md#live-selected-appearance).
 
-The camera-view icon beside the axis presets is a viewpoint indicator. It
-returns to the saved render camera without changing **Lock camera to → World /
-Viewport**. In Viewport lock, selected-camera G/R/S keeps the render area still
-on screen; in World lock the camera moves independently of the editing view.
+Camera icons beside the axis presets and in the Renderer panel toggle camera
+visibility together with Objects. Turning one on fits the saved view beside
+the right panel; turning it off also releases **Lock camera to viewport**.
+Without that optional lock, navigation leaves the output camera fixed in space.
+Rotation arrows and the angle field stay inline when space permits; a chevron
+expands or collapses them on narrower canvases (Escape collapses the controls).
 
 In editable fields, Ctrl+A also selects the entire value on macOS; Command+A
 continues to work. The Supercell shortcut selects the first input value; type `2`, Tab, `2` for

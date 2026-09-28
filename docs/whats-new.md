@@ -1,5 +1,15 @@
 # What is new
 
+## Unreleased
+
+- Keep selection, hover properties and transform readouts from changing canvas
+  height; redraw resized canvases before a blank frame can appear.
+- Use matching camera visibility icons in the viewport, Renderer and Objects.
+  The camera stays fixed in space by default; **Lock camera to viewport** is an
+  optional toggle that switches off when the camera is hidden.
+- Fit camera view beside the right panel. Show rotation arrows inline when they
+  fit, or use a smoothly expanding chevron on narrower canvases.
+
 ## 0.4.7
 
 - Preserve atom magnification, render composition and Undo history when detaching

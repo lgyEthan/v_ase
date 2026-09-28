@@ -137,7 +137,7 @@ def test_renderer_flat_toggle_and_idle_no_redraw_loop(page):
     assert page.evaluate('window.__ASE_APP__.renderer.atomDisplayMode()') == '2d'
     page.select_option('#renderer-atom-display-mode', '3d')
     page.click('#btn-preview-image')
-    page.click('[data-camera-navigation="scene"]')
+    assert not page.evaluate('window.__ASE_APP__.state.exportPreviewFollowViewport')
     page.wait_for_timeout(500)
     start=page.evaluate('window.__ASE_APP__.renderer.renderCount')
     page.wait_for_timeout(500)

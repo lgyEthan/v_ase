@@ -365,8 +365,8 @@ def test_image_export_has_exact_preview_and_option_modal_controls():
     assert "cameraFromSettings(settings, aspect = 1)" in renderer_js
     assert "const configured = this.cameraFromSettings(options.camera, outputAspect)" in renderer_js
     assert "interactionProjectionContext(clientX, clientY)" in renderer_js
-    assert 'data-camera-navigation="scene"' in index_html
-    assert 'data-camera-navigation="camera"' in index_html
+    assert 'id="btn-camera-lock-viewport"' in index_html
+    assert index_html.count('data-render-camera-toggle') == 2
     assert 'id="render-area-eye"' in index_html
     assert "camera.aspect = outputAspect" in renderer_js
     assert "const halfWidth = halfHeight * outputAspect" in renderer_js

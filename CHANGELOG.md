@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+- Keep selection and hover readouts in a stable-height status row. Avoid
+  clearing unchanged canvas buffers and redraw real resizes before presentation.
+- Synchronize camera visibility icons in the viewport, Renderer panel and
+  Objects. Hiding the camera also clears selection and viewport lock, while
+  preserving the saved output composition. World lock is the default; viewport
+  lock is a single optional toggle.
+- Fit camera view beside the right panel, including when entering with the
+  panel collapsed. Keep rotation controls inline when space permits, with an
+  animated chevron disclosure on narrower canvases and reduced-motion support.
+
 ## 0.4.7
 
 - Preserve physical atom magnification when a detached document opens in a

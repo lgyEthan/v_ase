@@ -44,6 +44,8 @@ def test_axis_immediately_preserves_frame_and_camera_button_state(page, projecti
         a.renderer.controls.doZoom(10);}''')
     assert page.get_attribute('#btn-render-area-from-view', 'aria-pressed') == 'true'
     page.evaluate('window.__ASE_APP__.renderer.controls.rotate(80,30)')
+    assert page.get_attribute('#btn-render-area-from-view', 'data-aligned') == 'false'
+    page.click('#btn-render-area-from-view')
     assert page.get_attribute('#btn-render-area-from-view', 'aria-pressed') == 'false'
     page.click('#btn-render-area-from-view')
     assert page.get_attribute('#btn-render-area-from-view', 'aria-pressed') == 'true'
@@ -53,7 +55,7 @@ def test_axis_immediately_preserves_frame_and_camera_button_state(page, projecti
 def test_real_axis_keys_keep_render_area_and_supercell_selects_input(page):
     page.keyboard.press('Meta+Shift+a')
     page.click('#btn-preview-image')
-    page.click('[data-camera-navigation="camera"]')
+    page.click('#btn-camera-lock-viewport')
     page.evaluate('window.__ASE_APP__.renderer.domElement.focus()')
     for key in ['x', 'y', 'z', 'x']:
         page.keyboard.press(key)

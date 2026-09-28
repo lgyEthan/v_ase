@@ -5637,8 +5637,8 @@ def test_export_preview_is_screen_fixed_and_matches_the_png_render():
             assert initial["frameAspect"] == pytest.approx(2.0, abs=0.004)
             assert initial["output"] == [1600, 800]
             assert initial["frame"][1] >= initial["safeBounds"][0]
-            # The guide is centered on the canvas, even behind a floating panel.
-            assert initial["frame"][0] + initial["frame"][2] > initial["safeBounds"][1]
+            # Entering camera view centers inside the work area beside the inspector.
+            assert initial["frame"][0] + initial["frame"][2] < initial["safeBounds"][1]
             assert initial["frame"][1] + initial["frame"][3] <= initial["safeBounds"][2]
             assert initial["previewProjection"] == pytest.approx(initial["directProjection"])
             assert initial["render"] == [1600, 800]
@@ -5698,6 +5698,7 @@ def test_export_preview_is_screen_fixed_and_matches_the_png_render():
 
             # Zoom affects the export camera and atoms inside the frame, but
             # the preview rectangle itself stays fixed in screen coordinates.
+            page.click('#btn-camera-lock-viewport')
             zoomed = page.evaluate("""async () => {
                 const app = window.__ASE_APP__;
                 const camera = app.renderer.camera;
@@ -5948,7 +5949,8 @@ def test_render_area_keeps_an_independent_camera_and_maps_selection_to_its_gate(
             assert left <= pointer_x <= left + width
             assert top <= pointer_y <= top + height
 
-            page.click('#btn-render-area-from-view')
+            page.click('#btn-render-area-from-view')  # deactivate the visible camera
+            page.click('#btn-render-area-from-view')  # return to its saved view
             page.evaluate("window.__ASE_APP__.setInspectorCollapsed(true)")
             point = page.evaluate("""() => {const r=window.__ASE_APP__.renderer;
                 const p=r.projectWorldToClient(r.atomMeshByIndex.get(0).position);return [p.x,p.y];}""")
@@ -9302,7 +9304,8 @@ def test_camera_toolbar_white_background_and_flat_2d_display():
                 camera.up.set(0, 1, 0);
                 app.completeCameraViewChange('test-top-view');
             }""")
-            page.locator('#camera-more > summary').click()
+            if page.locator('#camera-rotation-toggle').is_visible():
+                page.locator('#camera-rotation-toggle').click()
             page.fill("#view-rotate-step", "45")
             before_rotation = page.evaluate("""() => {
                 const app = window.__ASE_APP__;

@@ -267,7 +267,8 @@ class VAseApp {
                 forceInput: event?.source !== 'scale-input'
             });
             if (event?.source !== 'resize' && this.collaborationReady
-                && !this.restoringDesignSettings && this.state?.exportPreviewFollowViewport) {
+                && !this.restoringDesignSettings && !this.aligningRenderCamera
+                && this.state?.exportPreviewFollowViewport) {
                 this.followRenderAreaNavigation();
             }
             this.renderAreaPreviousView = this.currentCameraForExport();
@@ -522,7 +523,7 @@ class VAseApp {
             displayApplyRequest: null,
             bondApplyRequest: null,
             exportPreviewEnabled: false,
-            exportPreviewFollowViewport: true,
+            exportPreviewFollowViewport: false,
             exportPreviewCamera: null,
             renderAreaSelected: false,
             renderAreaTransformOriginal: null,
@@ -5449,7 +5450,7 @@ class VAseApp {
             });
         });
         const cameraTools = document.getElementById('viewport-camera-tools');
-        const cameraMore = document.getElementById('camera-more-content');
+        const cameraMore = document.querySelector('#camera-more-content .camera-rotation-inner');
         ['view-toolbar'].forEach(id => {
             const element = document.getElementById(id);
             if (element && cameraMore) cameraMore.appendChild(element);
@@ -5472,6 +5473,7 @@ class VAseApp {
             });
         });
         this.rehomeLightingWidget();
+        this.setupCameraRotationDisclosure();
         window.addEventListener('resize', () => this.rehomeLightingWidget());
         const viewport = document.getElementById('app-viewport');
         const orientation = document.getElementById('orientation-widget');
@@ -5656,6 +5658,55 @@ class VAseApp {
             });
     }
 
+    setupCameraRotationDisclosure() {
+        const tools = document.getElementById('viewport-camera-tools');
+        const group = document.getElementById('camera-more');
+        const content = document.getElementById('camera-more-content');
+        const button = document.getElementById('camera-rotation-toggle');
+        const toolbar = document.getElementById('view-toolbar');
+        if (!tools || !group || !content || !button || !toolbar) return;
+        const setExpanded = expanded => {
+            group.classList.toggle('expanded', expanded);
+            button.setAttribute('aria-expanded', String(expanded));
+            button.setAttribute('aria-label', `${expanded ? 'Collapse' : 'Expand'} rotation controls`);
+            button.title = button.getAttribute('aria-label');
+            content.inert = group.classList.contains('compact') && !expanded;
+        };
+        button.addEventListener('click', () => setExpanded(!group.classList.contains('expanded')));
+        group.addEventListener('keydown', event => {
+            if (event.key !== 'Escape' || !group.classList.contains('compact') || !group.classList.contains('expanded')) return;
+            event.preventDefault(); event.stopPropagation();
+            setExpanded(false); button.focus();
+        });
+        const update = () => {
+            const viewport = this.renderer.container.getBoundingClientRect();
+            const access = document.querySelector('.viewport-object-access')?.getBoundingClientRect();
+            const top = tools.getBoundingClientRect().top;
+            const start = access && access.bottom > top ? access.right + 12 : viewport.left + 12;
+            const right = parseFloat(getComputedStyle(tools).right) || 12;
+            const otherWidth = [...tools.children].filter(node => node !== group)
+                .reduce((sum, node) => sum + node.getBoundingClientRect().width + 4, 0);
+            const compact = otherWidth + toolbar.scrollWidth + 2 > viewport.right - right - start;
+            if (compact !== group.classList.contains('compact')) {
+                const hadFocus = content.contains(document.activeElement);
+                group.classList.toggle('compact', compact);
+                // Resizing must not hide a field the user is still editing.
+                setExpanded(!compact || hadFocus);
+            }
+        };
+        let pending = null;
+        this.scheduleCameraRotationLayout = () => {
+            if (pending !== null) return;
+            pending = requestAnimationFrame(() => { pending = null; if (!this.disposed) update(); });
+        };
+        this.cameraRotationObserver = new ResizeObserver(this.scheduleCameraRotationLayout);
+        [this.renderer.container, document.getElementById('inspector'),
+            document.querySelector('.viewport-object-access'), toolbar].filter(Boolean)
+            .forEach(element => this.cameraRotationObserver.observe(element));
+        setExpanded(true);
+        this.scheduleCameraRotationLayout();
+    }
+
     rehomeLightingWidget() {
         const widget = document.getElementById('lighting-widget');
         const target = document.getElementById('viewport-camera-tools');
@@ -5809,11 +5860,8 @@ class VAseApp {
         });
         entries.push({ id: 'render-area', label: 'Camera / render area', route: 'export', focus: '#btn-preview-image',
             checked: () => this.state.exportPreviewEnabled,
-            setVisibility: checked => {
-                this.state.exportPreviewEnabled = checked;
-                this.syncImageExportPreview(); this.renderSceneNavigatorObjects();
-                this.scheduleVisualHistoryCommit('render-area-visibility');
-            }, activate: () => this.setRenderAreaSelected(true) });
+            setVisibility: checked => this.setRenderAreaVisible(checked),
+            activate: () => this.setRenderAreaSelected(true) });
         if (this.state.display.showDisplacements
             || Number(this.state.atoms.metadata?.frame_count || 1) > 1) entries.push({
             id: 'displacements', label: 'Displacement vectors', route: 'scene-vectors',
@@ -13853,38 +13901,74 @@ class VAseApp {
     }
 
     syncCameraViewIndicator() {
-        const button = document.getElementById('btn-render-area-from-view');
-        if (!button) return;
-        const active = this.isLookingThroughCamera();
-        button.setAttribute('aria-pressed', String(active));
-        button.classList.toggle('active', active);
-        button.title = active ? 'Camera view · render area' : 'Look through camera';
+        const visible = Boolean(this.state.exportPreviewEnabled);
+        const aligned = this.isLookingThroughCamera();
+        document.querySelectorAll('[data-render-camera-toggle]').forEach(button => {
+            button.setAttribute('aria-pressed', String(visible));
+            button.classList.toggle('active', visible);
+            button.dataset.aligned = String(aligned);
+            button.title = visible ? 'Deactivate camera / render area' : 'Show camera view and render area';
+            button.disabled = !this.state.atoms?.positions?.length;
+        });
+    }
+
+    setRenderAreaVisible(visible, { enterView = false } = {}) {
+        if (this.state.transformSubject === 'render-area' && this.transform.mode !== 'IDLE') this.cancelTransform();
+        this.state.exportPreviewEnabled = Boolean(visible);
+        this.state.exportPreviewProfile = null;
+        if (!visible) {
+            this.state.exportPreviewFollowViewport = false;
+            this.setRenderAreaSelected(false);
+        } else if (enterView) {
+            this.viewOutputCamera();
+        }
+        this.renderAreaPreviousView = this.currentCameraForExport();
+        this.syncImageExportPreview();
+        this.renderSceneNavigatorObjects();
+        this.scheduleVisualHistoryCommit('render-area-visibility');
     }
 
     setRenderCameraNavigation(follow) {
         if (this.transform.mode !== 'IDLE') this.cancelTransform();
         if (!this.state.exportPreviewCamera) this.captureRenderAreaCamera({syncPreview: false});
+        const wasVisible = this.state.exportPreviewEnabled;
         this.state.exportPreviewFollowViewport = Boolean(follow);
+        if (follow) this.state.exportPreviewEnabled = true;
         // Locking to the viewport enters the saved view, without replacing its
         // pose or physical scale. Switching to World leaves everything in place.
-        if (follow && !this.isLookingThroughCamera()) this.viewOutputCamera();
+        if (follow && (!wasVisible || !this.isLookingThroughCamera())) this.viewOutputCamera({force: true});
         this.renderAreaPreviousView = this.currentCameraForExport();
         this.syncImageExportPreview();
+        this.renderSceneNavigatorObjects();
         this.scheduleVisualHistoryCommit('camera-lock');
     }
 
-    viewOutputCamera() {
-        if (this.state.exportPreviewFollowViewport && this.isLookingThroughCamera()) return;
+    viewOutputCamera({ force = false } = {}) {
+        if (!force && this.state.exportPreviewFollowViewport && this.isLookingThroughCamera()) return;
         if (!this.state.exportPreviewCamera) this.captureRenderAreaCamera({ syncPreview: false });
         this.state.exportPreviewEnabled = true;
         const profile = this.currentImageExportProfile();
         const composition = this.renderer.exportCompositionSnapshot(profile.width, profile.height,
             {...profile.options, camera: this.state.exportPreviewCamera});
-        this.applyCameraSettings(composition.camera, { syncScale: false });
+        this.aligningRenderCamera = true;
+        try { this.applyCameraSettings(composition.camera, { syncScale: false }); }
+        finally { this.aligningRenderCamera = false; }
         const size = this.renderer.containerSize();
-        const fit = 0.82 * Math.min(1, (size.width / size.height) / (profile.width / profile.height));
+        // Use the work area with the inspector open, even if it is currently
+        // collapsed. Only entering camera view reframes; panel changes do not.
+        const panelWidth = window.matchMedia('(min-width: 761px)').matches
+            ? Math.min(this.clampInspectorWidth(parseFloat(getComputedStyle(document.documentElement)
+                .getPropertyValue('--inspector-width')) || 352), size.width - 100) : 0;
+        const workWidth = size.width - panelWidth;
+        const fit = 0.82 * Math.min(1, (workWidth / size.height) / (profile.width / profile.height));
         this.renderer.camera.zoom *= fit;
         this.renderer.camera.updateProjectionMatrix();
+        this.renderer.camera.updateMatrixWorld(true);
+        const offset = new THREE.Vector3(1, 0, 0).applyQuaternion(this.renderer.camera.quaternion)
+            .multiplyScalar(panelWidth / 2 / Math.max(1e-8, this.renderer.currentPixelsPerAngstrom()));
+        this.renderer.camera.position.add(offset);
+        this.renderer.controls.target.add(offset);
+        this.renderer.camera.updateMatrixWorld(true);
         this.renderAreaPreviousView = this.currentCameraForExport();
         this.syncAtomicScaleFromCamera({ forceInput: true });
         this.syncImageExportPreview();
@@ -13903,6 +13987,7 @@ class VAseApp {
             visible: Boolean(
                 this.state.exportPreviewEnabled
                 && !this.state.exportPreviewFollowViewport
+                && !this.isLookingThroughCamera()
             ),
             selected: next
         });
@@ -13922,19 +14007,12 @@ class VAseApp {
     }
 
     syncRenderAreaControls() {
-        const follow = document.getElementById('render-area-follow-view');
-        if (follow) follow.checked = Boolean(this.state.exportPreviewFollowViewport);
-        document.querySelectorAll('[data-camera-navigation]').forEach(button => {
-            const selected = (button.dataset.cameraNavigation === 'camera') === this.state.exportPreviewFollowViewport;
-            button.setAttribute('aria-pressed', String(selected));
-            button.classList.toggle('active', selected);
-        });
-        const savedCamera = document.getElementById('btn-render-area-from-view');
-        if (savedCamera) savedCamera.disabled = !this.state.exportPreviewCamera;
+        const follow = document.getElementById('btn-camera-lock-viewport');
+        follow?.setAttribute('aria-pressed', String(Boolean(this.state.exportPreviewFollowViewport)));
         const help = document.getElementById('render-area-mode-help');
         if (help) help.textContent = this.state.exportPreviewFollowViewport
-            ? 'Viewport lock: the render area stays on screen. Orbit, zoom and camera G / R / S adjust the composition.'
-            : 'World lock: the camera stays at its coordinates while you inspect and edit the scene.';
+            ? 'Locked to the viewport. Navigation changes the camera composition.'
+            : 'Camera fixed in the scene. Navigate freely without changing the render.';
         this.syncCameraViewIndicator();
         this.renderer.controls.zoomInPlace = () => Boolean(
             !this.state.exportPreviewFollowViewport && this.state.exportPreviewEnabled
@@ -23327,7 +23405,8 @@ class VAseApp {
         }
         if (source.renderArea && typeof source.renderArea === 'object') {
             this.state.exportPreviewEnabled = source.renderArea.visible === true;
-            this.state.exportPreviewFollowViewport = source.renderArea.followViewport !== false;
+            this.state.exportPreviewFollowViewport = source.renderArea.visible === true
+                && source.renderArea.followViewport === true;
             this.state.exportPreviewCamera = this.normalizedCameraSettings(source.renderArea.camera);
         } else if (this.state.imageExportProfile?.options?.camera) {
             this.state.exportPreviewCamera = this.normalizedCameraSettings(
@@ -26764,6 +26843,7 @@ class VAseApp {
     }
 
     syncImageExportPreview() {
+        if (!this.state.exportPreviewEnabled) this.state.exportPreviewFollowViewport = false;
         const profile = this.state.exportPreviewProfile || this.currentImageExportProfile();
         const { width, height } = profile;
         const enabled = Boolean(this.state.exportPreviewEnabled && this.state.atoms?.positions?.length);
@@ -26787,12 +26867,6 @@ class VAseApp {
             height,
             options: profile.options
         });
-        const button = document.getElementById('btn-preview-image');
-        if (button) {
-            button.setAttribute('aria-pressed', enabled ? 'true' : 'false');
-            button.title = enabled ? 'Hide Render Area' : 'Show the exact exported Render Area';
-            button.textContent = enabled ? 'Hide render area' : 'Show render area';
-        }
         if (!enabled) this.setRenderAreaSelected(false, { update: false });
         this.syncRenderAreaControls();
     }
@@ -28345,30 +28419,18 @@ class VAseApp {
         document.getElementById('btn-export-image').onclick = () => {
             this.showExportImageModal();
         };
-        document.getElementById('btn-preview-image').onclick = () => {
-            this.state.exportPreviewProfile = null;
-            this.state.exportPreviewEnabled = !this.state.exportPreviewEnabled;
-            if (this.state.exportPreviewEnabled && !this.state.exportPreviewCamera) {
-                this.captureRenderAreaCamera({ syncPreview: false });
-            } else {
-                this.setRenderAreaSelected(false, { update: false });
-            }
-            this.syncImageExportPreview();
-        };
-        document.getElementById('render-area-follow-view')?.addEventListener('change', event => {
-            this.setRenderCameraNavigation(Boolean(event.target.checked));
-            if (this.editorRoute === 'export') this.syncProjectHtmlProfileFromRenderer();
-            this.scheduleVisualHistoryCommit('render-area-follow');
+        document.querySelectorAll('[data-render-camera-toggle]').forEach(button => {
+            button.addEventListener('click', () => this.setRenderAreaVisible(
+                !this.state.exportPreviewEnabled, { enterView: true }));
         });
-        document.querySelectorAll('[data-camera-navigation]').forEach(button => {
-            button.addEventListener('click', () => this.setRenderCameraNavigation(button.dataset.cameraNavigation === 'camera'));
+        document.getElementById('btn-camera-lock-viewport')?.addEventListener('click', () => {
+            this.setRenderCameraNavigation(!this.state.exportPreviewFollowViewport);
         });
         document.getElementById('btn-render-area-align-view')?.addEventListener('click', () => {
             this.captureRenderAreaCamera();
             this.syncRenderAreaControls();
             this.scheduleVisualHistoryCommit('output-camera-to-view');
         });
-        document.getElementById('btn-render-area-from-view')?.addEventListener('click', () => this.viewOutputCamera());
         document.getElementById('render-area-eye')?.addEventListener('click', event => {
             event.preventDefault();
             event.stopPropagation();
@@ -29398,6 +29460,7 @@ class VAseApp {
     dispose() {
         if (this.disposed) return;
         this.disposed = true;
+        this.cameraRotationObserver?.disconnect();
         if (this.projectDirtyTimer !== null) {
             clearTimeout(this.projectDirtyTimer);
             this.projectDirtyTimer = null;

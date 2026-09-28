@@ -46,22 +46,26 @@ The sphere button opens a separate panel; it remains clickable below the toolbar
 ## Render Area
 
 Image, video and HTML share the stored **Render Area** camera and dimensions.
-**Show render area** draws a boundary and outside mask on the same editable
-canvas. It does not draw another scene or introduce another picking camera.
-Select, move and measure atoms normally inside or outside the guide; opening
-or resizing the inspector does not shift its composition.
+The camera icon beside the axis views and the matching icon under
+**Render → Renderer → Render area & scale → Camera** toggle the same camera
+object as **Objects → Camera / render area**. Turning it on enters the saved
+camera view and fits the guide in the work area beside the right panel, even
+when that panel is currently collapsed. Opening or resizing the panel afterward
+does not recenter the view. Turning the icon off hides the guide and wire camera,
+clears camera selection, and releases viewport lock without changing the saved
+output pose, dimensions or scale. There is no separate Hide render area button.
 
-The frame toggle, dimensions, px/Å and camera controls live together under
+The frame dimensions, px/Å and camera controls live together under
 **Render area & scale**. Lighting, Quality and Overlays are separate sections.
 
-- **Lock camera to → World** lets you orbit, pan, zoom, use X/Y/Z and edit atoms while
-  preserving the output camera and px/Å.
-- **Lock camera to → Viewport** keeps the render area fixed on screen while
-  navigation and selected-camera G/R/S change the composition. X/Y/Z updates
-  the frame immediately. Switching locks preserves the stored composition.
-- The **Look through camera** icon beside the axis views returns to the saved
-  camera without changing its lock. Its active state indicates camera alignment;
-  World-mode orbit deactivates it, while pan/zoom do not.
+- By default the camera is fixed in the scene (World). Orbit, pan, zoom and
+  X/Y/Z change only the editing view.
+- **Lock camera to viewport** is an optional toggle. When active, navigation
+  and selected-camera G/R/S change the composition while the guide stays on
+  screen. X/Y/Z update the guide immediately. Switching the lock preserves the
+  output composition. Hiding the camera also switches this toggle off.
+- Camera icons indicate object visibility, including when viewing the wire
+  camera from another angle. To return to the saved view, toggle it off and on.
 - **Align camera to current view** deliberately replaces the output pose with the editing
   viewpoint. This is an action, not another navigation mode.
 - Off-axis, a wire camera body, angle arc and oriented output-plane outline show position,

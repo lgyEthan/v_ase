@@ -21,13 +21,12 @@ the recipient must recover.
 Image, video, and HTML use one persistent **Render Area**. Its visible boundary
 and gray outside mask define the exact saved composition.
 
-- **Lock camera to → World** keeps the output fixed while inspecting or editing.
-- **Lock camera to → Viewport** keeps the render area fixed on screen while
-  navigation and camera transforms change the composition.
-  Switching locks preserves the current composition.
-- The **Look through camera** icon beside the axis views indicates alignment and
-  returns to the stored camera without changing its lock. **Align camera to
-  current view** separately replaces the stored camera pose.
+- The camera is fixed in the scene by default. **Lock camera to viewport**
+  optionally keeps the render area on screen while navigation changes the composition.
+- Matching camera icons in the viewport and Renderer panel share the Objects
+  visibility state. Turning one on fits the saved camera beside the right panel;
+  turning it off hides the camera and releases viewport lock.
+- **Align camera to current view** separately replaces the stored camera pose.
 - Select the wire camera or crop-frame camera button for **G/R/S** move,
   rotation and frame scaling. Enter applies; Escape cancels.
 

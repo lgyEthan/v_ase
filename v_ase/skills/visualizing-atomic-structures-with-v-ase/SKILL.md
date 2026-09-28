@@ -24,11 +24,12 @@ also captures label members as indices; `atomColorScaleTargetLabel` is only a UI
 annotation, not a dynamic label selector or a physical constraint. Video exports accept
 MOV/AVI/GIF, inclusive zero-based `startFrame`/`endFrame`, and GIF `loop`.
 The render-area guide stays on the editable canvas; picking uses the editing
-camera. **Lock camera to → World** (`followViewport:false`) fixes the output in
-world coordinates; **Viewport** (`true`) applies editing-view deltas without
-recapturing the composition. The **Look through camera** icon beside axis views
-indicates alignment and returns to that viewpoint without changing the lock.
-World-mode orbit deactivates it; pan/zoom do not. **Align camera to current view**
+camera. World lock (`followViewport:false`) is the default. The optional
+**Lock camera to viewport** toggle (`true`) applies editing-view deltas without
+recapturing the composition. The viewport and Renderer camera icons toggle the
+same visibility as Objects: enabling fits the saved view beside the right panel;
+disabling also releases viewport lock and clears camera selection. The saved
+output pose/scale remain intact. **Align camera to current view**
 deliberately replaces the output pose. Selected-camera G/R/S moves, rotates or
 scales the composition; in Viewport lock its screen rectangle stays stationary.
 Escape restores pose/scale. Camera Undo/Redo preserves physical magnification

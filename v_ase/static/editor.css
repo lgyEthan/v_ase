@@ -156,11 +156,33 @@ body.editor-shell #inspector-content .selected-appearance { border-radius: 0; bo
 .camera-presets { display: flex; gap: 2px; border: 1px solid var(--line); padding: 3px; border-radius: 5px; background: var(--panel); }
 .camera-presets button { min-height: 25px; padding: 0 9px; border: 0; border-radius: 3px; background: transparent; color: var(--text); font: 11px var(--font-ui); cursor: pointer; }
 .camera-presets button:hover { background: var(--teal-soft); }
-.camera-more, .viewport-more-tools { position: relative; }
-.camera-more > summary, .viewport-more-tools > summary { list-style: none; cursor: pointer; padding: 5px 8px; color: var(--text); font: 12px var(--font-ui); }
-.camera-more > summary::-webkit-details-marker, .viewport-more-tools > summary::-webkit-details-marker { display: none; }
-.camera-more > summary { border: 1px solid var(--line-strong); border-radius: 5px; background: var(--panel); min-height: 28px; font-size: 17px; line-height: 17px; }
-#camera-more-content { position: absolute; z-index: 400; right: 0; top: 34px; display: flex; gap: 5px; align-items: center; padding: 6px; background: var(--panel); border: 1px solid var(--line); border-radius: 5px; box-shadow: var(--shadow-md); }
+.viewport-more-tools { position: relative; }
+.viewport-more-tools > summary { list-style: none; cursor: pointer; padding: 5px 8px; color: var(--text); font: 12px var(--font-ui); }
+.viewport-more-tools > summary::-webkit-details-marker { display: none; }
+.camera-rotation-tools { position: relative; flex: none; }
+#camera-rotation-toggle { display: none; width: 34px; height: 34px; padding: 6px; border: 1px solid var(--line-strong); border-radius: 5px; background: var(--panel); color: var(--text); cursor: pointer; }
+#camera-rotation-toggle svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; transition: transform 200ms ease; }
+.camera-rotation-tools.compact #camera-rotation-toggle { display: grid; place-items: center; }
+.camera-rotation-tools.expanded #camera-rotation-toggle svg { transform: rotate(180deg); }
+#camera-more-content { display: grid; grid-template-rows: 1fr; }
+.camera-rotation-inner { min-height: 0; }
+.camera-rotation-tools.compact #camera-more-content {
+    position: absolute; z-index: 400; right: 0; top: 40px; width: max-content;
+    grid-template-rows: 0fr; opacity: 0; pointer-events: none;
+    transform: translateY(-5px);
+    transition: grid-template-rows 200ms ease, opacity 160ms ease, transform 200ms ease;
+}
+.camera-rotation-tools.compact .camera-rotation-inner { overflow: hidden; }
+.camera-rotation-tools.compact.expanded #camera-more-content {
+    grid-template-rows: 1fr; opacity: 1; pointer-events: auto; transform: translateY(0);
+}
+.camera-rotation-tools.compact .view-toolbar { background: var(--panel); }
+body.editor-shell #app-viewport .orientation-widget { translate: 0 0; transition: translate 200ms ease; }
+body.editor-shell #app-viewport:has(.camera-rotation-tools.compact.expanded) .orientation-widget { translate: 0 44px; }
+@media (prefers-reduced-motion: reduce) {
+    #camera-rotation-toggle svg, .camera-rotation-tools.compact #camera-more-content,
+    body.editor-shell #app-viewport .orientation-widget { transition: none; }
+}
 .viewport-more-menu { position: absolute; z-index: 400; bottom: 33px; right: 0; display: grid; gap: 2px; min-width: 130px; padding: 5px; background: var(--panel); border: 1px solid var(--line); border-radius: 5px; box-shadow: var(--shadow-md); }
 body.editor-shell .viewport-more-menu button { border: 0; text-align: left; white-space: nowrap; }
 body.editor-shell .viewport-tools .viewport-more-tools > summary { padding: 7px; min-height: 30px; }
@@ -419,12 +441,10 @@ body.editor-shell #inspector .renderer-properties > .export-group > :not(.panel-
     margin-left: 12px; margin-right: 12px;
 }
 body.editor-shell #inspector .renderer-subsection { border-top: 1px solid var(--line); margin-top: 14px; }
+body.editor-shell #inspector .renderer-output-group > .prop-row { display: grid; grid-template-columns: minmax(70px, .8fr) minmax(0, 1fr); }
 body.editor-shell #inspector .renderer-subsection > .mapping-subhead { border: 0; margin: 0; padding: 12px 0 8px; }
 .render-camera-actions { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 8px; }
 .render-camera-actions button { min-width: 0; white-space: normal; }
-.camera-navigation { display: flex; min-width: 0; border: 1px solid var(--line-strong); border-radius: 4px; overflow: hidden; }
-body.editor-shell #inspector .camera-navigation button { flex: 1; min-width: 0; border: 0; border-radius: 0; padding: 7px 10px; font: 500 12px/1.4 var(--font-ui); background: var(--panel); color: var(--text); }
-body.editor-shell #inspector .camera-navigation button.active { background: var(--teal-soft); color: var(--teal); box-shadow: inset 0 -2px var(--teal); }
 /* Single-atom data is visible and selectable above the footer, never tooltip-only. */
 body.editor-shell #selection-measure-readout.single-atom-properties {
     position: absolute; bottom: calc(100% + 8px); left: 56px; align-items: flex-start;
@@ -449,10 +469,18 @@ body.editor-shell #selection-measure-readout.single-atom-properties.selection-th
     pointer-events: none;
 }
 
-/* A viewpoint indicator belongs with viewpoints; camera alignment is an action. */
-.camera-view-toggle { display: grid; place-items: center; width: 34px; min-width: 34px; height: 34px; }
+/* The two camera icons share visibility; alignment remains a separate action. */
+.camera-view-toggle { display: grid; place-items: center; width: 34px; min-width: 34px; height: 34px; padding: 5px; border: 1px solid var(--line-strong); border-radius: 5px; background: var(--panel); color: var(--text); cursor: pointer; }
 .camera-view-toggle svg { width: 21px; height: 21px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linejoin: round; }
 .camera-view-toggle[aria-pressed="true"] { color: var(--teal); background: var(--teal-soft); border-color: var(--teal-border-strong); }
+.render-camera-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 10px; }
+body.editor-shell #inspector .render-camera-heading .mapping-subhead { margin: 0; padding: 0; border: 0; }
+body.editor-shell #inspector .render-camera-heading .camera-view-toggle { width: 34px; min-width: 34px; padding: 5px; }
+body.editor-shell #inspector .camera-lock-toggle { display: flex; align-items: center; gap: 9px; text-align: left; color: var(--text); background: var(--panel); border: 1px solid var(--line-strong); border-radius: 5px; cursor: pointer; }
+.camera-lock-toggle svg { flex: none; width: 21px; height: 21px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linejoin: round; }
+body.editor-shell #inspector .camera-lock-toggle[aria-pressed="true"] { color: var(--teal); background: var(--teal-soft); border-color: var(--teal-border-strong); }
+.camera-view-toggle:hover, #camera-rotation-toggle:hover,
+body.editor-shell #inspector .camera-lock-toggle:hover { border-color: var(--teal); }
 .render-camera-actions { grid-template-columns: minmax(0, 1fr); }
 .render-area-eye { width: auto; min-width: 76px; display: inline-flex; align-items: center; justify-content: center; gap: 5px; padding: 0 7px; border: 1px solid var(--teal-border-strong); background: var(--panel); }
 .render-area-eye:focus-visible { outline: 2px solid var(--teal); outline-offset: 2px; }
@@ -460,6 +488,14 @@ body.editor-shell #selection-measure-readout.single-atom-properties.selection-th
 /* Scientific values stay in the status bar, with a single horizontal overflow. */
 body.editor-shell #hover-readout { min-width: 0; max-width: none; overflow-x: auto; white-space: nowrap; flex: 1 1 auto; text-overflow: clip; scrollbar-width: thin; }
 body.editor-shell #scene-status-readout { flex: none; }
+/* Selection and property text must not resize the scientific viewport. */
+.viewport-status-row { display: flex; align-items: center; gap: 7px; flex: 0 0 100%; min-width: 0; width: 100%; height: 36px; overflow-x: auto; overflow-y: hidden; pointer-events: auto; scrollbar-width: thin; }
+body.editor-shell .viewport-status-row :is(#selection-measure-readout, #hover-readout, #coord-readout) { box-sizing: border-box; height: 30px; min-height: 30px; }
+body.editor-shell .viewport-status-row #selection-measure-readout { flex: 0 1 auto; min-width: 130px; max-width: 40%; }
+body.editor-shell .viewport-status-row #hover-readout { min-width: 130px; pointer-events: auto; }
+body.editor-shell .viewport-status-row #coord-readout { flex: none; }
+body.editor-shell .viewport-status-row :is(#cmd-buffer, #commensurate-candidates-readout) { flex: none; box-sizing: border-box; height: 30px; }
+.viewport-status-row::-webkit-scrollbar, #hover-readout::-webkit-scrollbar { height: 4px; }
 .section-activity { display: flex; align-items: center; gap: 7px; margin-top: 8px; color: var(--teal); font: 500 12px/1.5 var(--font-ui); }
 .section-activity[hidden] { display: none; }
 .section-activity::before { content: ''; width: 11px; height: 11px; border: 2px solid var(--line-strong); border-top-color: var(--teal); border-radius: 50%; animation: activity-spin .8s linear infinite; }

@@ -97,7 +97,7 @@ Use `v_ase gui` for an empty workspace or `--interactive` to edit a file.
 | --- | --- |
 | **`.vase` project** | Resume editing with your structures, trajectory, camera and appearance preserved. |
 | **Project HTML** | Share an offline interactive view that can also reopen as an editable v_ase project. |
-| **HTML View** | Share a lightweight offline viewing copy, without editable project data by default. |
+| **[Export HTML View](https://v-ase.readthedocs.io/en/latest/save-projects.html#html-view)** | Share a lightweight offline viewing copy, without editable project data by default. |
 
 For Project HTML, enable **Include interactive rendered view** in **File → Project save settings**.
 [Saving and sharing guide](https://v-ase.readthedocs.io/en/latest/save-projects.html).
@@ -287,6 +287,9 @@ Show coordination faces, ligand atoms and connectors in 2D/3D, with per-group co
 ![IrO2 coordination polyhedra with independent colors and face opacity](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_polyhedra.gif)
 
 ## Style Atoms, Bonds, And Rendering
+
+Camera controls stay beside the viewport, with matching camera visibility in the
+Renderer panel. [Render area and camera lock](https://v-ase.readthedocs.io/en/latest/render-images.html#render-area).
 
 Control colors, radii and visibility by label or atom index.
 [Appearance](https://v-ase.readthedocs.io/en/latest/appearance.html#per-atom-overrides)

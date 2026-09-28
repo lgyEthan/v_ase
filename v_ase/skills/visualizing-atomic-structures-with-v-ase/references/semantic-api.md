@@ -193,10 +193,13 @@ Set `followViewport:true` for Viewport lock (subsequent view deltas change the o
 matching projection fields. `describe().renderArea` reports `enabled`,
 `followViewport`, camera, width, and height. The GUI draws an on-screen crop guide when the cameras align, and a world-space wire camera/output-plane outline otherwise.
 With `followViewport:false`, editor orbit/zoom/axis changes preserve the output
-pose and px/Å. GUI Align camera to current view is `renderArea:{fromCurrentView:true}`;
-GUI Look through camera is editor-only alignment/fit and preserves followViewport;
-when already aligned in Viewport lock, it makes no change.
-Picking always uses the editing viewport. Use Look through camera to align and fit the editing view without changing output
+pose and px/Å. World lock is the default. `enabled:false` also clears
+`followViewport` and camera selection; re-enabling does not restore viewport
+lock. GUI Align camera to current view is `renderArea:{fromCurrentView:true}`.
+GUI camera icons toggle visibility; turning one on additionally aligns/fits the
+editing view beside the right panel without changing output scale. API
+`enabled:true` only changes visibility and does not move the editing view.
+Picking always uses the editing viewport. Use the camera icon (off then on if already visible) to align and fit the editing view without changing output
 scale; never infer the crop from an unrelated page screenshot.
 
 Use `describe --profile render` before export. `effectiveRender.source` reports

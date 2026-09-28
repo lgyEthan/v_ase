@@ -139,7 +139,7 @@ Run all scenarios, not only static document checks:
      outlines, flat bonds/vectors/cell/regions, and an X on FixAtoms while
      preserving atom color and radius; switch back and require the prior 3D
      materials and lighting to return without reloading structure data;
-   - capture a persistent Render Area, select Lock camera to: World, orbit the work
+   - capture a persistent Render Area, leave Lock camera to viewport off, orbit the work
      camera, and require the stored export camera to remain unchanged; select
      in the editing canvas and require picking to keep its viewport projection;
      the screen guide must give way to the oriented wire camera and output plane
@@ -824,7 +824,7 @@ project. Decode the project's ASE trajectory and assert that the edit remains on
 that frame. Repeat with a pre-edit cache request completing after the edit. The
 GUI and saved trajectory must agree; a successful immediate move is insufficient.
 
-## Live appearance and camera-lock regression (0.4.7)
+## Live appearance and camera-lock regression (0.4.7 and later)
 
 - GUI change color/material/opacity/radius with no Apply action. Verify automatic
   unused element-suffix labels, simultaneous table/canvas state, first-gesture
@@ -832,8 +832,10 @@ GUI and saved trajectory must agree; a successful immediate move is insufficient
 - Switch View/Edit on variable-topology/element trajectories without transmuting
   untouched frames. Save/reopen and compare labels, radii and render pixels.
 - Use the real Supercell shortcut then `2 Tab 2`; both inputs must read 2.
-- Look through camera must preserve its lock; World orbit turns the indicator
-  off, pan/zoom retain it, and Viewport X/Y/Z retain the guide in the same frame.
+- Camera icons in the viewport and Renderer panel must mirror Objects visibility.
+  Turning either off clears viewport lock and camera selection while preserving
+  output pose/scale; turning it on fits the view beside the right panel. World
+  is the default; the viewport-lock toggle retains the guide through X/Y/Z.
   Selected-camera G/R/S keeps its rectangle fixed in Viewport lock; Escape and
   Undo restore both cameras. Panel changes must not move a saved camera.
   Repeat camera scale Undo/Redo after resizing the viewport. Detach into a

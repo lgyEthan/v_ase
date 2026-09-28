@@ -157,11 +157,12 @@ view magnification while adapting the available UI area.
 ## Render area and visible objects
 
 **Render → Renderer → Render area & scale** owns dimensions, physical px/Å,
-and **Show render area**. **Lock camera to → World** fixes its physical pose;
-**Viewport** keeps its frame on screen while navigation adjusts the composition.
-The camera-view icon beside the axis views returns to the camera without changing
-that lock. Orbiting in World mode deactivates the icon; zoom and pan do not.
-**Align camera to current view** deliberately changes the output camera.
+and the camera icon. Its toggle matches the viewport camera icon and Objects
+visibility. Turning it on fits the saved render view beside the right panel;
+turning it off also releases **Lock camera to viewport**. The camera is fixed
+in the scene by default; enabling that optional lock makes navigation change
+the composition. **Align camera to current view** deliberately changes the
+output pose. See [Render Area](render-images.md#render-area).
 
 Select the **Camera** badge or the outlined camera wedge/plane, then G/R/S to
 translate, rotate or scale the render area. The editable scene remains live.

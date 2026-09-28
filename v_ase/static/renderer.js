@@ -9140,6 +9140,14 @@ export class ASERenderer {
         }
         const pixelsPerAngstrom = this.currentPixelsPerAngstrom();
         const { width, height } = this.containerSize();
+        const current = this.renderer.getSize(new THREE.Vector2());
+        // Export/quality updates may have changed the buffer using
+        // setSize(..., false); keep its CSS size in sync without clearing it.
+        this.domElement.style.width = `${width}px`;
+        this.domElement.style.height = `${height}px`;
+        // Assigning canvas.width/height clears its drawing buffer, even when
+        // the dimensions are unchanged (e.g. an overlay panel opened).
+        if (current.x === width && current.y === height) { this.requestRender(); return; }
         this.renderer.setSize(width, height);
         this.updateCameraProjection();
         this.setPixelsPerAngstrom(pixelsPerAngstrom, {
@@ -9147,7 +9155,9 @@ export class ASERenderer {
             notify: false
         });
         this.onCameraChange?.({ source: 'resize' });
-        this.requestRender();
+        // ResizeObserver runs after RAF. Redraw before the browser presents
+        // the cleared buffer, including footer changes after deselection.
+        this.renderNow();
     }
 
     exportPNG(width, height, options = {}) {
