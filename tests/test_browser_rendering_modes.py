@@ -1663,7 +1663,7 @@ def test_volumetric_isosurface_rdf_drawer_csv_and_supercell_roundtrip(
         editor.close()
 
 
-def test_fixed_plane_move_restores_per_atom_motion_plane_guide():
+def test_fixed_plane_move_keeps_local_ring_without_a_filled_motion_sheet():
     atoms = Atoms(
         "LiOH",
         positions=[
@@ -1702,40 +1702,22 @@ def test_fixed_plane_move_restores_per_atom_motion_plane_guide():
                 app.transform.setAxis('X', app.renderer.camera);
                 app.transform.buffer = '1.25';
                 app.applyTransformPreview();
-                const guide = app.renderer.constraintMotionGuideGroup.children[0];
+                const guide = app.renderer.constraintGuideGroup.children[0];
                 return {
                     atom: app.renderer.atomMeshByIndex.get(0).position.toArray(),
-                    persistent: app.renderer.constraintGuideGroup.children.length,
-                    motionVisible: app.renderer.constraintMotionGuideGroup.visible,
-                    motionCount: app.renderer.constraintMotionGuideGroup.children.length,
-                    motionKind: guide?.userData?.kind,
-                    motionIndex: guide?.userData?.atomIndex,
-                    motionAnchor: guide?.userData?.anchor,
-                    surfaces: guide?.children.filter(
-                        child => child.userData?.fixedPlaneMotionSurface
-                    ).length,
-                    surfaceVisible: guide?.children.find(
-                        child => child.userData?.fixedPlaneMotionSurface
-                    )?.visible,
-                    perimeters: guide?.children.filter(
-                        child => child.userData?.fixedPlaneMotionPerimeter
-                    ).length,
-                    axes: guide?.children.filter(
-                        child => child.userData?.fixedPlaneMotionAxis
-                    ).length
+                    guidePosition: guide.position.toArray(),
+                    kind: guide.userData.kind,
+                    ring: guide.children[0].userData.fixedPlanePerimeter,
+                    detail: guide.children.find(child => child.userData.fixedPlaneDetail)?.visible,
+                    motionCount: app.renderer.constraintMotionGuideGroup.children.length
                 };
             }""")
             assert state["atom"] == pytest.approx([1.25, 0.0, 0.0])
-            assert state["persistent"] == 1
-            assert state["motionVisible"] is True
-            assert state["motionCount"] == 1
-            assert state["motionKind"] == "fixed_plane_motion"
-            assert state["motionIndex"] == 0
-            assert state["motionAnchor"] == pytest.approx([0.0, 0.0, 0.0])
-            assert state["surfaces"] == 1
-            assert state["surfaceVisible"] is True
-            assert state["perimeters"] == 1
-            assert state["axes"] == 2
+            assert state["guidePosition"] == pytest.approx(state["atom"])
+            assert state["kind"] == "fixed_plane"
+            assert state["ring"] is True
+            assert state["detail"] is True
+            assert state["motionCount"] == 0
 
             page.evaluate("window.__ASE_APP__.cancelTransform()")
             assert page.evaluate(
@@ -1791,7 +1773,7 @@ def test_line_constraints_use_one_center_axis_and_move_guide_while_only_planes_u
                         index: group.userData.constraintGuideFor,
                         kind: group.userData.kind,
                         rings: group.children.filter(
-                            child => child.geometry?.type === 'RingGeometry'
+                            child => child.userData?.fixedPlanePerimeter
                         ).length,
                         axes: group.children.filter(
                             child => child.userData?.fixedLineAxis

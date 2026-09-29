@@ -39,7 +39,16 @@ its orientation without masking atoms. Both Viewport and Renderer expose 2D/3D;
 materials and lighting controls are disabled in flat mode.
 Objects visibility is shared by viewport and rendering. `display.showConstraints`
 controls scientific marks independently of `applyConstraints` enforcement; hidden
-marks stay hidden in images/video. The first view accounts for the right panel,
+marks stay hidden in images/video. FixedPlane fills the local plane between
+the atom and its outer ring, with a pale cyan face at 30% opacity and narrow,
+opaque darker rims. Selection expands both ring radii by 0.18 atom radii, preserving face width
+and thickness around the yellow outline. Actual depth and alpha blending
+resolve overlaps. Publication restores the nonselected ring when selection is hidden. Face/rim/normal
+position and size track `atomVisualRadius`, including interpolated property
+radii; zero-radius atoms hide their marks. Selection/hover reveals a dashed
+normal with X ends. All marks obey actual depth in 3D, flat 2D, and exports.
+Faces follow atoms during `G`; there are no scene-sized sheets or foreground decals.
+The first view accounts for the right panel,
 but panel toggles never recenter user/saved views.
 `.vase` opens without import/mode prompts, restoring saved Edit/View mode,
 frame, cameras, appearance, selection and panel presentation in a new tab when

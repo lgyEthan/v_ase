@@ -78,10 +78,17 @@ To create it:
 ### FixedPlane
 
 FixedPlane allows motion inside the plane whose normal is the stored direction
-vector. Each constrained atom retains a local ring, crosshair, and normal
-marker. Starting `G` adds a larger translucent permitted plane anchored at
-that atom's original position. A multi-selection keeps independent per-atom
-planes; v_ase does not substitute one center-of-mass plane.
+vector. Each constrained atom has a translucent pale cyan face in that plane,
+framed by narrow, darker inner and outer rims.
+Selecting or hovering reveals the blocked normal as a dashed line with an X
+at each end; actual selection retains its yellow atom outline. Rings follow
+their atoms during `G`, without filled sheets or a shared center-of-mass plane.
+The face fills the space between the atom and its rim. Selection expands both
+inner and outer radii around the yellow outline, keeping the face width and
+edge thickness. Deselecting restores the original size. Its rounded outer edge has physical thickness. Position
+and size follow the atom’s rendered radius, including property-based animation;
+zero-radius atoms hide their marks. All marks use actual scene depth, including
+occlusion by nearby atoms, in 3D and flat 2D.
 
 Create it by selecting **Directional > FixedPlane**, supplying a nonzero
 normal vector, and choosing **Apply Direction**. Confirm a test move with both

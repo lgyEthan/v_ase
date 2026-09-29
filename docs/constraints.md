@@ -10,7 +10,7 @@ element colors, so a fixed layer can still have its own scientific color group.
 | --- | --- | --- |
 | FixAtoms | Fixed surface appearance; X in flat 2D | Atom remains fixed |
 | FixedLine | Short cyan direction segment | Long cyan line through the original atom |
-| FixedPlane | Ring/crosshair and a normal | Translucent allowed plane through the original atom |
+| FixedPlane | Cyan planetary ring in the allowed plane | Ring follows the atom; dashed normal with X ends marks blocked motion |
 | FixScaled | Cell-aware allowed direction(s) | Uses the cell basis, including skew |
 | Hookean | Spring only while active | A restraint force, not a hard motion lock |
 
@@ -54,9 +54,17 @@ The normal is perpendicular to the allowed plane: z is blocked, x/y are free.
 
 Press `G → X → 1 → Enter`. Li moves 1 Å in x and its height stays fixed.
 Try `G → Z → 1 → Enter`: there is no allowed z displacement.
-The GIF sweeps in two in-plane directions; its plane stays anchored at the
-original height. Multiple selected plane-constrained atoms each have their own
-plane, not one plane at the selection center.
+Each constrained atom keeps its own local ring while moving. Selecting or
+hovering reveals a dashed normal with an X at each end. No filled sheet covers
+the structure. Selected atoms retain the normal yellow outline. The same
+glyphs work in 3D and flat 2D, including differently oriented planes. The
+translucent, pale cyan face reaches from the atom to the outer ring. Narrow, darker
+inner and outer rims distinguish its boundary from the filled area. Selection
+expands both ring boundaries around the yellow outline, preserving the face
+width and edge thickness. Deselecting restores the original size. Position and size track the atom’s
+rendered radius, including property-based animation. Zero-radius atoms hide
+their marks. Atoms, faces, and selection outlines occlude one another at their
+actual depth; no part is forced in front of the scene.
 
 ```{figure} assets/steps/plane-move.png
 :alt: 2. Li has moved within its plane while the fixed substrate remains in place.
@@ -131,10 +139,11 @@ To create it:
 ### FixedPlane
 
 FixedPlane allows motion inside the plane whose normal is the stored direction
-vector. Each constrained atom retains a local ring, crosshair, and normal
-marker. Starting `G` adds a larger translucent permitted plane anchored at
-that atom's original position. A multi-selection keeps independent per-atom
-planes; v_ase does not substitute one center-of-mass plane.
+vector. Each constrained atom has a translucent pale cyan face in its allowed plane,
+filling the area between the atom and the raised outer rim. Selection or hover reveals the blocked
+normal as dashes with X endpoints. The yellow selection outline is unchanged.
+All marks use actual scene depth in 3D and flat 2D. During `G`, each ring follows
+its atom; no filled sheet or shared center-of-mass plane is added.
 
 Create it by selecting **Directional > FixedPlane**, supplying a nonzero
 normal vector, and choosing **Apply Direction**. Confirm a test move with both

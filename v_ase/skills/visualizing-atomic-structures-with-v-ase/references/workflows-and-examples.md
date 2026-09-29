@@ -987,8 +987,13 @@ Do not compare only the requested vector. ASE may project it onto the allowed
 line or plane; the returned coordinates are authoritative.
 
 During human FixedPlane movement, verify that each constrained atom retains its
-compact local plane marker and that `G` adds a larger translucent guide at the
-atom's original position. A group COM plane is an implementation error.
+cyan planetary ring and that it follows the atom during `G`. Selection/hover
+reveals a dashed normal with X ends; selection outlines stay yellow. Its local
+pale face fills to the atom and scales with the rendered radius. Selecting an
+atom expands both rims around the yellow outline while preserving face width;
+deselecting restores the original ring.
+Narrow, darker inner and outer rims remain distinct from the face.
+Scene-sized sheets and a group COM plane are implementation errors.
 
 ## Measure And Animate
 

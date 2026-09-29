@@ -1,4 +1,4 @@
-import { projectProvenanceFromApp, projectProvenanceFromLoad } from './project_provenance.js?v=0.4.9';
+import { projectProvenanceFromApp, projectProvenanceFromLoad } from './project_provenance.js?v=0.4.10';
 
 export async function captureWindowDocument(app) {
     if (app.transform.mode !== 'IDLE' || app.addAtomsSessionActive() || app.state.isRelaxing

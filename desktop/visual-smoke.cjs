@@ -21,10 +21,23 @@ module.exports = async function visualSmoke({js, active, appRef, win, output, wa
         return image.toBitmap();
     };
     const yellow=buffer=>{let count=0;for(let i=0;i<buffer.length;i+=4){const b=buffer[i],g=buffer[i+1],r=buffer[i+2];if(r>160&&g>100&&b<90&&r-b>90)count++;}return count;};
+    const planeRing=async()=>js(`(()=>{const r=${appRef}.renderer;
+        const g=r.constraintGuideGroup.children.find(g=>g.userData.kind==='fixed_plane'&&g.userData.constraintGuideFor===2);
+        const mesh=g?.children.find(c=>c.userData.fixedPlanePerimeter);if(!mesh)return null;
+        const a=mesh.geometry.attributes.position;let inner=Infinity,outer=0;
+        for(let i=0;i<a.count;i++){const radius=Math.hypot(a.getX(i),a.getY(i));inner=Math.min(inner,radius);outer=Math.max(outer,radius);}
+        return {inner,outer,opacity:r.constraintMaterials.planeFace.opacity,visible:g.visible};})()`);
+    const expectRing=(ring,selected)=>{
+        assert.ok(ring?.visible, 'FixedPlane ring is missing');
+        assert.ok(Math.abs(ring.inner-(selected?1.18:1))<1e-5,JSON.stringify(ring));
+        assert.ok(Math.abs(ring.outer-(selected?1.66:1.48))<1e-5,JSON.stringify(ring));
+        assert.ok(Math.abs(ring.opacity-.3)<1e-8,JSON.stringify(ring));
+    };
     const pixelChecks=[];
     for(const mode of ['3d','2d']) {
         await js(`(()=>{const a=${appRef};a.applyDesignSettings({display:{atomDisplayMode:'${mode}',showConstraints:true}});a.clearAtomSelection();a.updateSelectionVisuals();})()`);
         const before=await capture(`selection-${mode}-before`);
+        const unselectedRing=await planeRing();expectRing(unselectedRing,false);
         const bounds=await js(`(()=>{const w=window.__V_ASE_WORKSPACE__,p=w.tabs.get(w.activeSessionId).pane.getBoundingClientRect(),r=${appRef}.renderer;
             const v=[...r.atomMeshByIndex.values()].map(a=>r.projectWorldToClient(a.position));return {x1:Math.round(p.x+Math.min(...v.map(v=>v.x))-28),x2:Math.round(p.x+Math.max(...v.map(v=>v.x))+28),y1:Math.round(p.y+Math.min(...v.map(v=>v.y))-28),y2:Math.round(p.y+Math.max(...v.map(v=>v.y))+28)};})()`);
         win.show();win.focus();win.webContents.focus();
@@ -33,6 +46,7 @@ module.exports = async function visualSmoke({js, active, appRef, win, output, wa
         win.webContents.sendInputEvent({type:'mouseUp',x:bounds.x2,y:bounds.y2,button:'left',clickCount:1});
         await wait(`${appRef}.state.selected.size===3`);
         const selected=await capture(`selection-${mode}-drag`);
+        const selectedRing=await planeRing();expectRing(selectedRing,true);
         const outlinePixels=yellow(selected)-yellow(before);
         assert.ok(outlinePixels>100,`Invisible ${mode} drag selection: ${outlinePixels} yellow pixels`);
         await js(`(()=>{const a=${appRef};a.clearAtomSelection();a.updateSelectionVisuals();a.updateUI();a.openEditorRoute('appearance');const b=${active}.document.querySelector('[data-appearance-field="select"][data-atom-label="H"]');b.click();})()`);
@@ -40,11 +54,12 @@ module.exports = async function visualSmoke({js, active, appRef, win, output, wa
         assert.ok(yellow(await capture(`selection-${mode}-panel`))-yellow(before)>50,`Invisible ${mode} panel selection`);
         await js(`(()=>{const a=${appRef};a.clearAtomSelection();a.updateSelectionVisuals();a.updateUI();})()`);
         const constraints=await capture(`constraints-${mode}-visible`);
+        expectRing(await planeRing(),false);
         await js(`(()=>{const a=${appRef};a.applyDesignSettings({display:{showConstraints:false}});})()`);
         const hidden=await capture(`constraints-${mode}-hidden`);
         let changed=0;for(let i=0;i<constraints.length;i+=4)if(Math.abs(constraints[i]-hidden[i])+Math.abs(constraints[i+1]-hidden[i+1])+Math.abs(constraints[i+2]-hidden[i+2])>20)changed++;
         assert.ok(changed>100,`Invisible ${mode} constraints: ${changed} changed pixels`);
-        pixelChecks.push({mode,outlinePixels,constraintPixels:changed});
+        pixelChecks.push({mode,outlinePixels,constraintPixels:changed,unselectedRing,selectedRing});
     }
     const layoutChecks=[];
     for(const [width,height,zoom] of [[1280,720,1],[1024,600,1.25],[1024,768,1.5]]) {

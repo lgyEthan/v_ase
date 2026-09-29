@@ -183,8 +183,8 @@ Run all scenarios, not only static document checks:
      per-atom stored calculator values, and per-atom material overrides to
      survive while invalidated global total energy is omitted;
    - apply FixAtoms, FixedLine, and FixedPlane;
-   - verify FixedPlane keeps one local marker per atom and adds one original-
-     position motion plane per selected constrained atom during `G`;
+   - verify FixedPlane keeps one oriented ring per atom during `G`, with
+     dashed normals/X ends only for selected or hovered atoms;
    - verify every rotation shows axis/start/current references and that the
      current reference follows the actual rotation sign;
    - verify returned backend coordinates;
@@ -407,8 +407,17 @@ Run all scenarios, not only static document checks:
      `⌘Shift+A` (macOS) or `Ctrl+Shift+A` opens Render → Renderer instead of changing selection.
 7. **Constraints rendering**
    - inspect FixAtoms, FixScaled, FixedLine, FixedPlane, and Hookean;
-   - verify persistent FixedPlane markers remain depth-tested while its
-     motion-only plane remains readable above the moving atom scene;
+   - verify FixedPlane faces fill from the atom to the rim. Selection must
+     expand both inner/outer boundaries by 0.18 atom radii while preserving
+     the face width and thickness. Deselecting restores the 1.00–1.48 radial span. Rotate
+     above/below the plane and verify correct front/back occlusion with atoms
+     and selection. The face blends at 30% opacity while its narrow rims stay
+     opaque. A front face must blend over yellow selection; a rear face must
+     stay occluded by it. Check live position/radius updates, property-radius video
+     interpolation, zero/tiny radii, and many-atom instanced rendering. Repeat
+     in flat 2D, edge-on/oblique views, and image/HTML exports. Publication
+     export must fill to the atom when the editor selection is suppressed.
+     No scene-sized sheet may appear during motion.
    - derive `rt` and `k` from the actual ASE Hookean constraint; verify zero
      constraint force and no active spring at `r <= rt`, force magnitude
      `k(r-rt)` plus an annotation-free 3D helix at `r > rt`, nonzero depth, and
@@ -686,8 +695,9 @@ Every browser render test must check:
 - axis-view direction and projection are correct;
 - atom colors and materials are distinguishable;
 - visible constraints have nonzero pixel coverage;
-- FixedPlane motion planes have a visible surface, perimeter, and two in-plane
-  axes without replacing the compact persistent per-atom marker;
+- FixedPlane has one local planetary ring with a pale translucent face and distinct
+  narrow, darker inner/outer rims, no scene-sized sheet, and per-atom
+  dashed normals with X ends only on selection/hover, including during motion;
 - FixedLine and line-like FixScaled guides contain one center axis and no ring
   geometry; during `G`, they add one longer original-position direction guide.
   FixedPlane and plane-like FixScaled guides retain one local ring;

@@ -1,37 +1,37 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.4.9';
-import { ASERenderer } from './renderer.js?v=0.4.9';
-import { ASESelection } from './selection.js?v=0.4.9';
-import { ASETransform } from './transform.js?v=0.4.9';
-import { SelectedAppearanceEditor } from './selected_appearance.js?v=0.4.9';
-import { installActivityIndicators } from './ui_activity.js?v=0.4.9';
+import { ASEApi } from './api.js?v=0.4.10';
+import { ASERenderer } from './renderer.js?v=0.4.10';
+import { ASESelection } from './selection.js?v=0.4.10';
+import { ASETransform } from './transform.js?v=0.4.10';
+import { SelectedAppearanceEditor } from './selected_appearance.js?v=0.4.10';
+import { installActivityIndicators } from './ui_activity.js?v=0.4.10';
 
-import { installPolyhedra } from './polyhedra.js?v=0.4.9';
+import { installPolyhedra } from './polyhedra.js?v=0.4.10';
 import { installWaterUI } from './water_ui.js';
-import { installAIScene } from './ai_scene.js?v=0.4.9';
-import { AtomScalarStore } from './atom_properties.js?v=0.4.9';
-import { DirectWorkspace } from './direct_workspace.js?v=0.4.9';
-import { projectProvenanceFromLoad } from './project_provenance.js?v=0.4.9';
-import { installShortcutCapture } from './shortcut_capture.js?v=0.4.9';
-import { openFileInWindow } from './workspace_windows.js?v=0.4.9';
-import { installEditorInteractions } from './editor_interactions.js?v=0.4.9';
-import { WORKBENCH_ROUTES, mountWorkbenchTools, syncWorkbenchRoute } from './editor_ui.js?v=0.4.9';
+import { installAIScene } from './ai_scene.js?v=0.4.10';
+import { AtomScalarStore } from './atom_properties.js?v=0.4.10';
+import { DirectWorkspace } from './direct_workspace.js?v=0.4.10';
+import { projectProvenanceFromLoad } from './project_provenance.js?v=0.4.10';
+import { installShortcutCapture } from './shortcut_capture.js?v=0.4.10';
+import { openFileInWindow } from './workspace_windows.js?v=0.4.10';
+import { installEditorInteractions } from './editor_interactions.js?v=0.4.10';
+import { WORKBENCH_ROUTES, mountWorkbenchTools, syncWorkbenchRoute } from './editor_ui.js?v=0.4.10';
 import {
     EDITOR_COMMANDS, commandIdForEvent, resolveShortcutPlatform,
     editorShortcutLabel, editorAriaShortcut, editorShortcutSearchTerms,
     viewportNavigationForEvent
-} from './editor_commands.js?v=0.4.9';
+} from './editor_commands.js?v=0.4.10';
 import {
     DEFAULT_ATOM_RADIUS_MAPPING,
     atomRadiusFactors,
     normalizeAtomRadiusMapping,
     radiusMappingPreset
-} from './radius_mapping.js?v=0.4.9';
+} from './radius_mapping.js?v=0.4.10';
 import {
     interpolateTrajectoryFrames,
     interpolatedFrameCount,
     normalizeInterpolationMultiplier
-} from './trajectory.js?v=0.4.9';
+} from './trajectory.js?v=0.4.10';
 
 const EDITOR_ROUTES = Object.freeze({
     'structure-info': { group: 'inspect', category: 'scene', title: 'Scene overview' },
@@ -15189,6 +15189,7 @@ class VAseApp {
         const normalized = reference === null || reference === undefined ? null : this.normalizeSelectionReference(reference);
         this.state.hoveredReference = normalized;
         this.state.hoveredIndex = normalized?.index ?? null;
+        this.renderer.setConstraintHover(normalized);
         this.updateAtomStatusReadout();
     }
 
@@ -29164,6 +29165,12 @@ class VAseApp {
         const canvas = this.renderer.domElement;
         canvas.tabIndex = 0;
         canvas.setAttribute('aria-label', '3D structure viewport');
+        canvas.addEventListener('pointerleave', () => {
+            clearTimeout(this.state.hoverPickTimer);
+            this.state.hoverPickTimer = null;
+            this.state.hoverPointer = null;
+            this.setHoveredAtom(null);
+        });
         canvas.addEventListener('pointermove', (e) => {
             this.state.lastPointer.set(e.clientX, e.clientY);
             if (this.canViewportSelectAtoms() && this.transform.mode === 'IDLE' && !this.state.isDragging) {

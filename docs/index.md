@@ -35,7 +35,7 @@ Start with the desktop app or use v_ase from Python and Jupyter.
 Each guide includes the controls and examples for that task. If something does
 not work, start with [Troubleshooting](troubleshooting.md).
 
-This manual describes **v_ase 0.4.9**. [What's new](whats-new.md).
+This manual describes **v_ase 0.4.10**. [What's new](whats-new.md).
 
 ```{toctree}
 :caption: Get started

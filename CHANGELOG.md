@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.4.10
+
+- FixedPlane constraints use planetary rings with a translucent cyan face and
+  distinct darker edges. Selecting an atom expands its ring around the yellow
+  selection outline while preserving the width of the face.
+- Selection and hover reveal the blocked normal as a dashed line with X ends.
+  Rings, atoms and selection outlines respect their actual 3D depth in both
+  3D and flat 2D; no large plane hides the surrounding structure.
+- Constraint marks follow live positions and property-based atom radii,
+  including trajectory interpolation. Zero-radius atoms hide their marks.
+- Images, movies and standalone HTML share the same constraint rendering.
+  Publication exports use the nonselected ring when selection is hidden.
+
 ## 0.4.9
 
 - Atom selection and constraint marks remain visible in both 2D and 3D.

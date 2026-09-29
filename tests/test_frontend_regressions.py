@@ -518,7 +518,7 @@ def test_frontend_renders_constraint_guides_and_blender_export_button():
     assert "atomMaterialSpec" in renderer_js
     assert "fixedAdjustedColor" in renderer_js
     assert "lineFade" in renderer_js
-    assert "planeSoft" in renderer_js
+    assert "planeSoft" not in renderer_js
     assert "rebuildPersistentConstraintMarks" not in renderer_js
     assert "addFixedAtomHatch" not in renderer_js
     assert "addFixedPlaneMark" not in renderer_js
@@ -1165,10 +1165,10 @@ def test_trajectory_controls_update_live_and_space_toggles_playback():
     assert "...Object.keys(fixedPlane).map(Number)" in renderer_js
     assert "!selectedIndices.size" not in renderer_js
     assert "constraintGuideMetrics(index)" in renderer_js
-    assert "new THREE.CircleGeometry(metrics.outerRadius, 48)" in renderer_js
-    assert "Math.max(0.01, half - metrics.strokeWidth)" in renderer_js
+    assert "fixedPlaneGeometry" in renderer_js
+    assert "fixedPlaneNormalDashes" in renderer_js
     assert "constraintGuideIndices" in renderer_js
-    assert "planeAggregate" in renderer_js
+    assert "planeAggregate" not in renderer_js
     assert "refreshBondsForCurrentPositions" in renderer_js
     assert "inferCurrentBondTopology" in renderer_js
     assert "const periodicPairs = this.inferBondPairs(true)" in renderer_js
@@ -1790,10 +1790,9 @@ def test_fixed_plane_motion_guide_is_per_atom_and_transform_scoped():
     assert "setConstraintMotionGuides" in main_js
     assert "clearConstraintMotionGuides" in main_js
     assert "v_ase_constraint_motion_guides" in renderer_js
-    assert "fixed_plane_motion" in renderer_js
-    assert "fixedPlaneMotionSurface" in renderer_js
-    assert "fixedPlaneMotionPerimeter" in renderer_js
-    assert "fixedPlaneMotionAxis" in renderer_js
+    assert "fixedPlaneMotionSurface" not in renderer_js
+    assert "fixedPlaneNormalX" in renderer_js
+    assert "setConstraintHover(normalized)" in main_js
 
 
 def test_displacement_analysis_uses_instancing_and_frame_scoped_requests():

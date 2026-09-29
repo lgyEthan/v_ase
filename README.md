@@ -12,7 +12,7 @@ data, available as a desktop app, in your browser and in Jupyter.
 [![Documentation](https://readthedocs.org/projects/v-ase/badge/?version=latest)](https://v-ase.readthedocs.io/en/latest/)
 [![License: AGPL v3+](https://img.shields.io/badge/license-AGPL--3.0--or--later-2f855a.svg)](LICENSE)
 
-[Download for Mac or Windows](https://github.com/lgyEthan/v_ase/releases/tag/v0.4.9) ·
+[Download for Mac or Windows](https://github.com/lgyEthan/v_ase/releases/tag/v0.4.10) ·
 [Install with Python](#get-v_ase) ·
 [User guide](https://v-ase.readthedocs.io/en/latest/) ·
 [Example files](https://v-ase.readthedocs.io/en/latest/example-inputs.html)
@@ -203,6 +203,10 @@ Cartesian or fractional directions. Visible guides make the allowed motion clear
 ![FixedLine keeps selected atom motion on a visible guide line](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_fixedline.gif)
 
 **Within a plane:** move an adsorbate while holding its height above a surface.
+A translucent pale cyan face fills each allowed plane, framed by narrow, darker inner and outer rims.
+Selecting or hovering reveals the blocked normal with a dashed line and X ends.
+Selection expands the ring around the yellow outline while preserving its face width.
+The ring and atom occlude one another at their actual 3D depth.
 
 ![FixedPlane lets a lithium adsorbate move within a plane above copper](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_fixedplane.gif)
 
@@ -278,9 +282,9 @@ Python is included. Download the installer for your computer:
 
 | Computer | Download | Install |
 | --- | --- | --- |
-| Mac with Apple silicon, macOS 15+ | [Apple silicon DMG](https://github.com/lgyEthan/v_ase/releases/download/v0.4.9/v_ase-0.4.9-mac-arm64.dmg) | Open the DMG and drag **v_ase** into **Applications**. |
-| Mac with Intel, macOS 15+ | [Intel DMG](https://github.com/lgyEthan/v_ase/releases/download/v0.4.9/v_ase-0.4.9-mac-x64.dmg) | Open the DMG and drag **v_ase** into **Applications**. |
-| Windows 10/11, Intel or AMD 64-bit | [Windows installer](https://github.com/lgyEthan/v_ase/releases/download/v0.4.9/v_ase-0.4.9-win-x64.exe) | Run the installer, then open **v_ase** from Start. |
+| Mac with Apple silicon, macOS 15+ | [Apple silicon DMG](https://github.com/lgyEthan/v_ase/releases/download/v0.4.10/v_ase-0.4.10-mac-arm64.dmg) | Open the DMG and drag **v_ase** into **Applications**. |
+| Mac with Intel, macOS 15+ | [Intel DMG](https://github.com/lgyEthan/v_ase/releases/download/v0.4.10/v_ase-0.4.10-mac-x64.dmg) | Open the DMG and drag **v_ase** into **Applications**. |
+| Windows 10/11, Intel or AMD 64-bit | [Windows installer](https://github.com/lgyEthan/v_ase/releases/download/v0.4.10/v_ase-0.4.10-win-x64.exe) | Run the installer, then open **v_ase** from Start. |
 
 Open a file with **File → Open**, or drag it into the editor.
 [Installation help and updates](https://v-ase.readthedocs.io/en/latest/desktop.html).
