@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 import runpy
 
 import numpy as np
@@ -507,32 +508,59 @@ def test_readme_presents_real_manipulation_and_analysis_workflows():
             "projects-export.md",
         )
     }
-    for heading in (
-        "## Get v_ase", "## Explore the workspace", "## Build and edit",
-        "## Visualize simulation results", "## Save and share",
-        "## Work with an AI agent", "## Help and project information",
-    ):
-        assert heading in readme
+    # Each major capability stays visible in the README itself: a concrete
+    # demonstration and an adjacent guide, not just a directory of links.
+    showcases = {
+        "Build and edit": (
+            "readme_scratch_amorphous.gif", "readme_add_atoms_allowed.gif",
+            "readme_add_molecules.gif", "readme_ferrocene_pivot.gif",
+        ),
+        "Water and volumetric fields": (
+            "water-surface-experiment.gif", "readme_volumetric.gif",
+            "readme_volumetric_plane.gif",
+        ),
+        "Periodic cells and interfaces": (
+            "readme_commensurate.gif", "readme_commensurate_host_guest.gif",
+            "readme_registry_relax.gif",
+        ),
+        "Atoms, bonds and coordination": (
+            "readme_cu5o4_view_appearance.gif", "readme_polyhedra.gif",
+        ),
+        "Trajectories and analysis": (
+            "readme_atom_colorscale.gif", "readme_measurement.gif", "readme_rdf.png",
+        ),
+        "Constraints and relaxation": (
+            "readme_fixedline.gif", "readme_fixedplane.gif",
+            "readme_hookean.gif", "readme_relaxation.gif",
+        ),
+        "Work with an AI agent": ("readme_ai_collaboration.gif", "readme_ai_edit.gif"),
+        "Render and export": ("readme_materials.png",),
+    }
+    for heading, assets in showcases.items():
+        section = readme.split(f"## {heading}\n", 1)[1].split("\n## ", 1)[0]
+        assert "https://v-ase.readthedocs.io/en/latest/" in section, heading
+        for asset in assets:
+            assert f"docs/assets/github/{asset}" in section, (heading, asset)
+            with Image.open(ROOT / "docs/assets/github" / asset) as image:
+                if asset.endswith(".gif"):
+                    assert image.n_frames > 1, asset
+                else:
+                    image.verify()
 
-    assert "https://v-ase.readthedocs.io/en/latest/" in readme
+    for heading in ("Get v_ase", "Save and share", "Help and project information"):
+        assert f"## {heading}" in readme
     assert "version=latest" in readme
     for guide in (
         "move.html", "rotate.html", "commensurate.html", "trajectories.html",
         "isosurfaces.html", "constraints.html", "save-projects.html",
-        "ai-agents.html", "notebooks-remote.html",
+        "ai-agents.html", "notebooks-remote.html", "property-radius.html",
+        "bonds.html", "rdf.html", "export-structures.html",
     ):
         assert f"https://v-ase.readthedocs.io/en/latest/{guide}" in readme
-    # Keep real examples in the introduction; the complete gallery remains in
-    # the task guides rather than requiring every animation on the landing page.
-    for asset in (
-        "readme_phosphorene_twist.gif", "readme_add_molecules.gif",
-        "readme_atom_colorscale.gif", "water-surface-experiment.gif",
-        "readme_volumetric.gif", "readme_ai_collaboration.gif",
-    ):
-        assert f"docs/assets/github/{asset}" in readme
-        asset_path = ROOT / "docs" / "assets" / "github" / asset
-        with Image.open(asset_path) as animation:
-            assert animation.n_frames > 1, asset
+
+    gifs = re.findall(r"docs/assets/github/([a-z0-9_-]+\.gif)", readme)
+    assert "readme_phosphorene_twist.gif" in gifs
+    assert len(gifs) == len(set(gifs)), "Do not repeat the hero animation down the page"
 
     worked = " ".join(documentation["worked-examples.md"].split())
     for required in (

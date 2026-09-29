@@ -12,8 +12,12 @@ the published Read the Docs version must describe the same tested release.
 
 ## Write for the intended reader
 
-The README is a product introduction: what v_ase does, how to get it, a few real
-examples, and links to task guides. It is not a running record of development.
+The README is a visual tour of the major capabilities: show what users can
+build, inspect and export through real GIF demonstrations. Give each demonstration
+a short explanation and a link to its task guide. Keep the main workflows visible
+in the README rather than replacing them with a link directory. Avoid duplicate
+animations, unexplained spinning structures and implementation diaries. Keep
+installation easy to reach and saving concise.
 User guides explain where a control is, what to do, and what result to expect.
 Keep scientific definitions and limitations that affect interpretation.
 
