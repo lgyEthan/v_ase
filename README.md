@@ -256,6 +256,7 @@ so its preview remains available while adjusting appearance or the camera.
 ## Render and export
 
 Stored force vectors stay synchronized after edits and trajectory frame changes.
+Missing displacement comparisons do not block image rendering.
 
 Choose flat 2D with crisp, uniformly colored bonds or shaded 3D, tune materials
 and lighting, and compose a render

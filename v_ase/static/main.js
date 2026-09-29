@@ -546,6 +546,7 @@ class VAseApp {
             displacementRequestToken: 0,
             displacementRefreshTimer: null,
             displacementStats: null,
+            displacementRenderedFrame: -1,
             volumetricRequestToken: 0,
             volumetricSurfaceSummary: null,
             selectedVolumetricPlanes: new Set(),
@@ -6569,13 +6570,15 @@ class VAseApp {
         if (detailElement) detailElement.textContent = detail;
     }
 
-    clearDisplacementStats() {
+    clearDisplacementStats({ resolvedFrame = -1 } = {}) {
+        this.state.displacementRenderedFrame = resolvedFrame;
         this.state.displacementStats = null;
         document.getElementById('displacement-stats')?.classList.add('hidden');
         this.renderer.clearDisplacementVectors();
     }
 
     updateDisplacementStats(data) {
+        this.state.displacementRenderedFrame = Number(data.current_frame);
         this.state.displacementStats = data;
         document.getElementById('displacement-stats')?.classList.remove('hidden');
         const setText = (id, text) => {
@@ -6616,14 +6619,18 @@ class VAseApp {
         suppressBusy = false
     } = {}) {
         const token = ++this.state.displacementRequestToken;
+        this.state.displacementRenderedFrame = -1;
         const frameCount = Number(this.state.atoms?.metadata?.frame_count) || 1;
+        const currentFrame = frameIndex === null
+            ? (Number(this.state.atoms?.metadata?.current_frame) || 0)
+            : Math.max(0, Math.min(frameCount - 1, Number(frameIndex) || 0));
         if (!this.state.display.showDisplacements) {
             this.setDisplacementStatus(
                 'idle',
                 'Displacement vectors hidden',
                 frameCount > 1 ? 'Enable Show vectors to calculate them.' : 'Load a trajectory with at least two frames.'
             );
-            this.clearDisplacementStats();
+            this.clearDisplacementStats({ resolvedFrame: currentFrame });
             return;
         }
         if (frameCount <= 1) {
@@ -6632,20 +6639,17 @@ class VAseApp {
                 'Displacement unavailable',
                 'At least two trajectory frames are required.'
             );
-            this.clearDisplacementStats();
+            this.clearDisplacementStats({ resolvedFrame: currentFrame });
             return;
         }
 
-        const currentFrame = frameIndex === null
-            ? (Number(this.state.atoms?.metadata?.current_frame) || 0)
-            : Math.max(0, Math.min(frameCount - 1, Number(frameIndex) || 0));
         if (this.state.display.displacementReferenceMode === 'previous' && currentFrame === 0) {
             this.setDisplacementStatus(
                 'warning',
                 'No previous frame',
                 'Move to frame 2 or choose a specific reference frame.'
             );
-            this.clearDisplacementStats();
+            this.clearDisplacementStats({ resolvedFrame: currentFrame });
             return;
         }
         this.setDisplacementStatus(
@@ -6672,7 +6676,7 @@ class VAseApp {
             if (token !== this.state.displacementRequestToken) return;
             if (data.status !== 'ok') {
                 this.setDisplacementStatus('warning', 'Displacement unavailable', data.message || 'No data.');
-                this.clearDisplacementStats();
+                this.clearDisplacementStats({ resolvedFrame: currentFrame });
                 return;
             }
             this.renderer.setDisplacementVectors(data, this.state.display);

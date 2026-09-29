@@ -217,6 +217,7 @@ Fields selects the same live dataset/plane properties. Analyze → Fields owns
 import and combinations. Style → Forces owns stored-force visibility, style and
 availability; Objects → Vectors provides contextual access to vector layers.
 Analyze → Displacements retains trajectory reference, MIC and statistics.
+Unavailable comparisons clear arrows without blocking renders.
 Renderer → Quality finishes existing surface meshes, not their isovalue or data.
 The top-level workspace exposes Fullscreen editing / Keyboard Lock when supported;
 normal browser tabs may reserve ⌘W/⌘N on macOS or Ctrl+W/Ctrl+N on Windows/Linux, so visible File-menu actions

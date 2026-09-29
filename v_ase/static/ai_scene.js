@@ -217,7 +217,7 @@ export function installAIScene(App) {
         if (d.atomColorScaleEnabled && this.atomColorScaleRuntime.renderedFrame !== frame) stale.push('atom-colorscale');
         if (d.atomRadiusMapping?.enabled && this.atomRadiusRuntime.renderedFrame !== frame) stale.push('atom-radius');
         if (d.showForceVectors && this.forceVectorRuntime.renderedFrame !== frame) stale.push('force-vectors');
-        if (d.showDisplacements && this.state.displacementStats?.current_frame !== frame) stale.push('displacements');
+        if (d.showDisplacements && this.state.displacementRenderedFrame !== frame) stale.push('displacements');
         for (const plane of this.volumetricPlanes().filter(p => p.visible && !this.state.volumetricFrameHiddenPlaneIds.has(p.id))) {
             if (!this.renderer.volumetricPlanes.has(plane.id)) stale.push(`plane:${plane.id}`);
         }

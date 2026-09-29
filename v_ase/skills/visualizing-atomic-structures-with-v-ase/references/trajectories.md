@@ -92,3 +92,8 @@ Stored-force visualization lives in **Style → Forces** (visibility, arrow styl
 scale, thickness, color and frame-specific availability). It only reads stored
 values; it never runs a calculator. **Analyze → Displacements** retains reference
 comparison, MIC and statistics because those derive data from frame pairs.
+
+A single-frame structure or frame 0 in previous-frame mode has no displacement
+comparison: the GUI reports availability, clears old arrows and completes scene
+readiness. This is not stale data. Actual failed requests still block readiness
+and report the error. Stored force vectors refresh after physical edits.

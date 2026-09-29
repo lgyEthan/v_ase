@@ -16,7 +16,8 @@
   blurred shading or black seam where their two atom colors meet. The same
   appearance is used in images, movies and standalone HTML.
 - Stored force-vector displays refresh after physical edits, preventing a stale
-  layer from blocking subsequent frame changes.
+  layer from blocking subsequent frame changes. Displacements with no comparison
+  frame no longer leave image rendering waiting for unavailable data.
 
 ## 0.4.10
 

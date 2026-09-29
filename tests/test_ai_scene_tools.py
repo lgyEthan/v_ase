@@ -302,3 +302,23 @@ def test_native_scene_undo_redo_keeps_physical_scale_and_output_after_resize(tmp
             assert restored['ppa']==pytest.approx(original['ppa'],abs=.001)
             assert restored['reported']==pytest.approx(restored['ppa'],abs=.001)
             assert restored['area']==original['area']
+
+
+@pytest.mark.parametrize('reference_mode', ['previous', 'frame'])
+def test_unavailable_displacements_complete_readiness_and_render(tmp_path, monkeypatch, reference_mode):
+    from ase import Atoms
+    from ase.io import write
+    monkeypatch.chdir(tmp_path)
+    write('single.extxyz', Atoms('Cu', positions=[[0,0,0]]))
+    with live_scene(tmp_path, stored_forces=True) as (client, page, apply):
+        apply('vase_refresh_displacements', display={'show_displacements':True,
+            'displacement_reference_mode':reference_mode, 'displacement_reference_frame':0})
+        assert client.call('vase_scene_readiness', {'timeout_ms':4000})['ready']
+        apply('vase_apply_scene', patch={'frame':2}, timeout_ms=4000)
+        assert page.evaluate('window.__V_ASE_APP__.state.displacementStats.current_frame') == 2
+        apply('vase_load_structure', path='single.extxyz', runtime_mode='view', confirm_replace=True)
+        assert client.call('vase_scene_readiness', {'timeout_ms':4000})['ready']
+        assert page.evaluate('window.__V_ASE_APP__.state.displacementStats') is None
+        assert page.evaluate('window.__V_ASE_APP__.state.display.showDisplacements') is True
+        rendered=client.call('vase_render', {'width':320,'height':240})
+        assert (rendered['width'], rendered['height']) == (320,240)
