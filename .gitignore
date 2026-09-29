@@ -31,3 +31,6 @@ ongoing.txt
 .agents/
 *.env
 .env.*
+
+/docs/design/*.md
+/local_notes/

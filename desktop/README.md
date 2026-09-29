@@ -95,8 +95,8 @@ Node tests cover file authority, external changes, interrupted saves, duplicate
 writes, read bounds and ownership. Electron tests use the bundled backend and
 renderer, native menus and keyboard input, project opening, dirty Save, Save As,
 selection, exact PNG rendering, internal New/Close and Node isolation. Inspect
-screenshots as well as `result.json`. Core regressions are recorded in
-`docs/design/v_ase_041_validation.md`.
+screenshots as well as `result.json`. Run the source and packaged checks described
+below against the same release commit.
 Packaged checks parse the complete JSON report and require every regression
 flag; an empty or truncated file fails even when the process exits with zero.
 Node lifecycle tests exercise last-window closure, explicit Quit and cancelled
