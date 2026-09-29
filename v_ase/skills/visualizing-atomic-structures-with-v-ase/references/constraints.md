@@ -43,7 +43,7 @@ Face/rim/normal size and position share the same `atomVisualRadius` and position
 updates as selection, including interpolated property radii, individual radius
 scales, and label radii. Geometry is reused while these values animate. At zero
 radius the marks disappear and return with the atom. Only selected or hovered
-atoms show the blocked normal as dashes with X endpoints. Hover does not select. All geometry writes/tests actual scene
+atoms show the blocked normal as dashes with X endpoints. Hover does not select. All marks respect actual scene
 depth: a rear arc is hidden by its atom or a nearer neighbor, and a front arc
 can cover the yellow selection outline. There is no camera-facing cyan atom
 contour and no always-on-top overlay. The band has a thin rounded edge, so an

@@ -38,6 +38,21 @@ def test_fixedplane_selection_hover_camera_export_and_motion(mode, tmp_path):
                 r.controls.target.set(0,0,0);r.camera.lookAt(r.controls.target);
                 r.setPixelsPerAngstrom(45);r.controls.update();r.renderNow();
             }""", mode)
+            # The visible Orbit tool must start the same real tumble gesture
+            # as middle-drag, without consuming atom-selection clicks afterward.
+            pose=page.evaluate("""()=>{const r=window.__ASE_APP__.renderer;return {
+                position:r.camera.position.toArray(),quaternion:r.camera.quaternion.toArray(),
+                target:r.controls.target.toArray()};}""")
+            page.locator('#tool-orbit').click()
+            box=page.locator('canvas').first.bounding_box()
+            page.mouse.move(box['x']+box['width']*.45,box['y']+box['height']*.4)
+            page.mouse.down();page.mouse.move(box['x']+box['width']*.6,box['y']+box['height']*.5,steps=8);page.mouse.up()
+            assert page.evaluate('window.__ASE_APP__.renderer.camera.position.toArray()') != pose['position']
+            assert page.evaluate('window.__ASE_APP__.state.selected.size') == 0
+            page.locator('#tool-select').click()
+            page.evaluate("""p=>{const r=window.__ASE_APP__.renderer;
+                r.camera.position.fromArray(p.position);r.camera.quaternion.fromArray(p.quaternion);
+                r.controls.target.fromArray(p.target);r.renderNow();}""",pose)
             def capture(name):
                 data = page.evaluate("""() => window.__ASE_APP__.renderer.exportPNG(960,680,{
                     selectionAppearance:'interactive',backgroundColor:'#ffffff',

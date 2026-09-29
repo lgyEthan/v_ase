@@ -18,7 +18,8 @@ in its saved mode and appearance. [Opening files](data-input.md).
 
 ## 2. Move around the structure
 
-- **Middle-drag** to orbit; **Shift + middle-drag** to pan.
+- **Middle-drag** to orbit; **Shift + middle-drag** to pan. With the **Orbit**
+  toolbar tool selected, use a normal drag to orbit or **Shift-drag** to pan.
 - Use the **wheel or trackpad** to zoom.
 - Press **X**, **Y** or **Z** to look along an axis.
 - Choose **Fit view** if the structure is outside the visible area.

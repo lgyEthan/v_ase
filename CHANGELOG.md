@@ -12,6 +12,8 @@
   including trajectory interpolation. Zero-radius atoms hide their marks.
 - Images, movies and standalone HTML share the same constraint rendering.
   Publication exports use the nonselected ring when selection is hidden.
+- The Orbit tool rotates the view with a primary-button drag; Shift-drag pans.
+
 
 ## 0.4.9
 

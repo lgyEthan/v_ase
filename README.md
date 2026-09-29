@@ -207,6 +207,7 @@ A translucent pale cyan face fills each allowed plane, framed by narrow, darker 
 Selecting or hovering reveals the blocked normal with a dashed line and X ends.
 Selection expands the ring around the yellow outline while preserving its face width.
 The ring and atom occlude one another at their actual 3D depth.
+Use the Orbit tool and drag to inspect the plane from any angle; Shift-drag pans.
 
 ![FixedPlane lets a lithium adsorbate move within a plane above copper](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_fixedplane.gif)
 

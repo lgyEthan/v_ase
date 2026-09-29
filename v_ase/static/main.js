@@ -29184,7 +29184,10 @@ class VAseApp {
             if (e.button !== 0) return; // Left click only
             if (document.activeElement && document.activeElement !== canvas) document.activeElement.blur?.();
             canvas.focus({ preventScroll: true });
-            if (this.orbitToolActive && this.transform.mode === 'IDLE') return;
+            if (this.orbitToolActive && this.transform.mode === 'IDLE') {
+                this.renderer.controls.startGesture(e, e.shiftKey ? 'pan' : 'rotate');
+                return;
+            }
             if (this.transform.mode !== 'IDLE') {
                 e.preventDefault();
                 if (this.pointerTransformGesture === 'armed') {

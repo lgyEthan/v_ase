@@ -994,6 +994,8 @@ atom expands both rims around the yellow outline while preserving face width;
 deselecting restores the original ring.
 Narrow, darker inner and outer rims remain distinct from the face.
 Scene-sized sheets and a group COM plane are implementation errors.
+Use the Orbit toolbar tool with primary-button drag to inspect occlusion;
+Shift-drag pans. It does not require selected atoms.
 
 ## Measure And Animate
 

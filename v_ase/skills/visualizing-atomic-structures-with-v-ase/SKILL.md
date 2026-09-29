@@ -172,7 +172,9 @@ bookmark for every section, with hover/focus names and the active section headin
 below. Style includes Atoms, Bonds, Cell, Polyhedra and View & guides. Both the
 Objects drawer and resizable right workbench overlay the viewport at desktop
 sizes, without changing its camera or projection. The left icon toolbar groups
-selection/measurement, selected-object transforms, orbit and creation. Transform
+selection/measurement, selected-object transforms, orbit and creation. The Orbit
+tool uses primary-button drag to rotate and Shift-drag to pan, without requiring
+an atom selection. Transform
 buttons require an editable selection, then drag to apply; switching tools or
 Cancel/Escape cancels a provisional transform. Keyboard G/R/S is still modal.
 Search and File/Edit/View/Preferences/Help/Reset menus sit above the canvas.
