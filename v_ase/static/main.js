@@ -6606,7 +6606,9 @@ class VAseApp {
         }
         this.state.displacementRefreshTimer = setTimeout(() => {
             this.state.displacementRefreshTimer = null;
+            const token = this.state.displacementRequestToken + 1;
             this.refreshDisplacementAnalysis().catch(error => {
+                if (token !== this.state.displacementRequestToken) return;
                 this.setDisplacementStatus('warning', 'Displacement unavailable', error.message);
                 this.clearDisplacementStats();
             });

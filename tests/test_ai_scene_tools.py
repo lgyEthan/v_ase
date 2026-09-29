@@ -322,3 +322,29 @@ def test_unavailable_displacements_complete_readiness_and_render(tmp_path, monke
         assert page.evaluate('window.__V_ASE_APP__.state.display.showDisplacements') is True
         rendered=client.call('vase_render', {'width':320,'height':240})
         assert (rendered['width'], rendered['height']) == (320,240)
+
+
+def test_obsolete_displacement_failure_does_not_clear_new_frame_readiness(tmp_path):
+    with live_scene(tmp_path, stored_forces=True) as (client, page, apply):
+        apply('vase_apply_scene', patch={'frame':2})
+        page.evaluate('''async () => {
+            const a=window.__V_ASE_APP__;
+            a.state.display.showDisplacements=true;
+            a.state.display.displacementReferenceMode='frame';
+            const fetch=a.api.fetchDisplacements;
+            let rejectOld,started;
+            const began=new Promise(resolve=>{started=resolve});
+            a.api.fetchDisplacements=()=>new Promise((resolve,reject)=>{rejectOld=reject;started()});
+            a.scheduleDisplacementAnalysisRefresh(0);
+            await began;
+            a.api.fetchDisplacements=fetch;
+            // A newly opened single-frame document settles while the earlier
+            // request is still in flight. Its later rejection must be ignored.
+            a.state.atoms.metadata.frame_count=1;
+            a.state.atoms.metadata.current_frame=0;
+            await a.refreshDisplacementAnalysis();
+            rejectOld(new Error('Obsolete structure request'));
+            await new Promise(resolve=>setTimeout(resolve,0));
+        }''')
+        assert client.call('vase_scene_readiness', {'timeout_ms':1000})['ready']
+        assert page.evaluate('window.__V_ASE_APP__.state.displacementRenderedFrame') == 0
