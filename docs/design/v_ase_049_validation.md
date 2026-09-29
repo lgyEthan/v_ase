@@ -5,7 +5,7 @@
 The release fixes live selection/constraint visibility, Windows panel scrolling
 and compact/high-DPI layout, placement-to-relaxation flow, and restoration of the
 starting optimization structure. It adds Blender water-surface geometry export.
-Windows publisher signing is documented but remains disabled.
+Windows publisher signing remains disabled. Publisher setup is not part of the user guide.
 
 ## Completed source checks
 

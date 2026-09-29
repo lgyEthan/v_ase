@@ -508,16 +508,9 @@ def test_readme_presents_real_manipulation_and_analysis_workflows():
         )
     }
     for heading in (
-        "## Installation And Launch",
-        "## Explore",
-        "## Edit Structures",
-        "## Periodic Cells And Interfaces",
-        "## Analyze Structures And Fields",
-        "## Constraints And Relaxation",
-        "## Style Atoms, Bonds, And Rendering",
-        "## Export And Save",
-        "## Work With An AI Agent",
-        "## Python And Remote Systems",
+        "## Get v_ase", "## Explore the workspace", "## Build and edit",
+        "## Visualize simulation results", "## Save and share",
+        "## Work with an AI agent", "## Help and project information",
     ):
         assert heading in readme
 
@@ -529,29 +522,15 @@ def test_readme_presents_real_manipulation_and_analysis_workflows():
         "ai-agents.html", "notebooks-remote.html",
     ):
         assert f"https://v-ase.readthedocs.io/en/latest/{guide}" in readme
-    assert readme.count(".gif)") >= 15
+    # Keep real examples in the introduction; the complete gallery remains in
+    # the task guides rather than requiring every animation on the landing page.
     for asset in (
-        "readme_phosphorene_twist.gif",
-        "readme_scratch_amorphous.gif",
-        "readme_add_atoms_allowed.gif",
-        "readme_add_molecules.gif",
-        "readme_commensurate.gif",
-        "readme_commensurate_host_guest.gif",
-        "readme_registry_relax.gif",
-        "readme_measurement.gif",
-        "readme_atom_colorscale.gif",
-        "readme_volumetric.gif",
-        "readme_volumetric_plane.gif",
-        "readme_fixedline.gif",
-        "readme_fixedplane.gif",
-        "readme_hookean.gif",
-        "readme_relaxation.gif",
-        "readme_ai_collaboration.gif",
-        "readme_ai_edit.gif",
+        "readme_phosphorene_twist.gif", "readme_add_molecules.gif",
+        "readme_atom_colorscale.gif", "water-surface-experiment.gif",
+        "readme_volumetric.gif", "readme_ai_collaboration.gif",
     ):
         assert f"docs/assets/github/{asset}" in readme
         asset_path = ROOT / "docs" / "assets" / "github" / asset
-        assert asset_path.is_file()
         with Image.open(asset_path) as animation:
             assert animation.n_frames > 1, asset
 

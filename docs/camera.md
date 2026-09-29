@@ -46,8 +46,7 @@ A tilted surface view reveals substrate and oxide layers.
 
 Viewport quality controls include antialiasing and atom smoothness. Lighting
 supports the current modeling/studio choices, a user-controlled Sun, and
-shadowed rendering where available. A scene using only standard/rubber
-materials does not allocate the metal reflection environment.
+shadowed rendering where available. For output composition and physical scale, see [Render area](render-images.md#render-area).
 
 The **System** interface theme follows the browser/OS preference. Explicit
 Light or Dark persists in that browser. Interface theme and viewport background

@@ -2,26 +2,17 @@
 
 ## 0.4.9
 
-- Clear stale insertion-region guides after finishing placement and exclude them
-  from image/movie exports. Keep semantic isosurface visibility synchronized and
-  remove the previous refined water mesh immediately when its source is empty.
-
-- Keep live atom selection visible independently of scientific-overlay visibility.
-  Let Objects → Constraints control fixed, line and plane marks consistently in
-  2D/3D, including image/video output.
-- Remove nested vertical scroll containers from Add Atoms/Molecules. Normalize
-  control typography and preserve tool hit targets with classic scrollbars and
-  enlarged Windows display scales. Test rendered pixels in native desktop CI.
-- Keep optional placement relaxation in the Add Atoms panel, with a clear
-  Place → Relax → Finish/Cancel flow and shared calculator settings.
-- Add Restore Starting Structure when clearing any relaxation movie. Restore
-  that run's first frame without leaving its mode or removing inserted atoms.
-- Export water to Blender as one editable, smooth, translucent mesh per current
-  frame. Preserve molecule detection, periodic scope, hidden molecules, material,
-  smoothing and subdivision; bound geometry/animation memory and reject excessive
-  output explicitly. No new Python dependencies.
-- Document Windows publisher-signing eligibility, setup and release checks;
-  leave Windows signing disabled as requested.
+- Atom selection and constraint marks remain visible in both 2D and 3D.
+- Add Atoms/Molecules is easier to use on Windows and at larger display scales,
+  with one vertical scroll area and reachable placement controls.
+- Optional relaxation stays with the placement controls: place, relax if needed,
+  then Finish or Cancel.
+- **Clear Relaxation Trajectory → Restore Starting Structure** returns to the
+  beginning of that relaxation run, including atoms you just placed.
+- Blender export includes editable water surfaces and trajectory animation.
+- Placement guides stay out of exported figures and disappear after Finish.
+  Isosurfaces and water surfaces update correctly when their visibility or
+  source data changes.
 
 ## 0.4.8
 

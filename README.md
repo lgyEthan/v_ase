@@ -4,361 +4,46 @@
 
 # v_ase
 
+**Build, explore and present atomic structures.** v_ase brings ASE structures,
+trajectories and volumetric data into an interactive 3D workspace.
+Use the desktop app, a browser or Jupyter.
+
 [![PyPI version](https://img.shields.io/pypi/v/v_ase-gui.svg)](https://pypi.org/project/v-ase-gui/)
-[![Python versions](https://img.shields.io/pypi/pyversions/v_ase-gui.svg)](https://pypi.org/project/v-ase-gui/)
-[![Documentation Status](https://readthedocs.org/projects/v-ase/badge/?version=latest)](https://v-ase.readthedocs.io/en/latest/?badge=latest)
+[![Documentation](https://readthedocs.org/projects/v-ase/badge/?version=latest)](https://v-ase.readthedocs.io/en/latest/)
 [![License: AGPL v3+](https://img.shields.io/badge/license-AGPL--3.0--or--later-2f855a.svg)](LICENSE)
 
-[Documentation](https://v-ase.readthedocs.io/en/latest/) ·
-[PyPI](https://pypi.org/project/v-ase-gui/) ·
-[Changelog](https://v-ase.readthedocs.io/en/latest/whats-new.html) ·
-[Issues](https://github.com/lgyEthan/v_ase/issues)
+[Download the desktop app](https://github.com/lgyEthan/v_ase/releases/tag/v0.4.9) ·
+[User guide](https://v-ase.readthedocs.io/en/latest/) ·
+[First steps](https://v-ase.readthedocs.io/en/latest/quickstart.html) ·
+[Examples](https://v-ase.readthedocs.io/en/latest/example-inputs.html)
 
-**v_ase 0.4.9 — desktop visibility, placement workflow and Blender water export** ·
-[Changes](https://v-ase.readthedocs.io/en/latest/whats-new.html)
+![Building a twisted phosphorene ribbon with successive atom selections and rotations](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_phosphorene_twist.gif)
 
-An ASE-native workspace for building, editing and visualizing atomic structures,
-trajectories and volumetric data.
+## Get v_ase
 
-![Phosphorene nanoribbon manipulation](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_phosphorene_twist.gif)
+### Desktop app
 
-Trajectory navigation retains double-precision coordinates and committed edits
-through frame switches, animation output and scientific project exports.
-Animation export restores the current frame and selection; an empty colorscale
-target maps no atoms and does not block export. GUI and agent project saves
-both retain the document's mode and presentation.
-Agent revision snapshots wait for pending change notifications to finish.
-Renderer scale and atom radius remain independent.
+Python is included. Download the installer for your computer:
 
-## Desktop editing improvements
+| Computer | Download | Install |
+| --- | --- | --- |
+| Mac with Apple silicon, macOS 15+ | [Apple silicon DMG](https://github.com/lgyEthan/v_ase/releases/download/v0.4.9/v_ase-0.4.9-mac-arm64.dmg) | Open the DMG and drag **v_ase** into **Applications**. |
+| Mac with Intel, macOS 15+ | [Intel DMG](https://github.com/lgyEthan/v_ase/releases/download/v0.4.9/v_ase-0.4.9-mac-x64.dmg) | Open the DMG and drag **v_ase** into **Applications**. |
+| Windows 10/11, Intel or AMD 64-bit | [Windows installer](https://github.com/lgyEthan/v_ase/releases/download/v0.4.9/v_ase-0.4.9-win-x64.exe) | Run the installer, then open **v_ase** from Start. |
 
-Selection outlines remain visible when scientific overlays are off. The Objects
-**Constraints** checkbox independently controls fixed-atom marks and direction
-guides in both 2D and 3D. The right panel uses one vertical scroll path, including
-Add Molecules at enlarged Windows display scales.
+Open a file with **File → Open**, or drag it into the editor.
+[Installation help and updates](https://v-ase.readthedocs.io/en/latest/desktop.html).
 
-**Build → Add atoms → Atoms/Molecules** keeps optional **Relax placement** in the
-same panel. Place first, relax if needed, then Finish or Cancel. **Clear Relaxation
-Trajectory → Restore Starting Structure** returns to the start of that run while
-keeping placed atoms; Cancel placement still removes the complete addition.
-Placement-region guides disappear when placement finishes and stay out of image
-and movie exports.
+### Python and Jupyter
 
-Blender export now includes the water surface as an editable mesh, with color,
-opacity, lighting, mesh finishing, periodic copies and trajectory frames. See
-[Blender export](docs/export-structures.md#blender). Windows publisher signing is
-[documented separately](docs/windows-signing.md); this release does not enable it.
-
-## Water surfaces and rendering quality
-
-**Style → Water** draws detected H₂O as a continuous translucent surface while
-keeping ions and solids atomistic. Color, opacity, smoothing and lighting are
-adjustable; trajectories, images, movies/GIF and offline HTML share the same
-surface. Stored molecule IDs distinguish water from surface hydroxyls. A cached,
-indexed boundary mesh replaces water sphere/bond draw instances, including
-visible periodic copies. This is coordinate-derived visualization, not a new MD solver.
-The maintained [PDF manual](https://v-ase.readthedocs.io/_/downloads/en/latest/pdf/)
-uses exact still frames for animation examples.
-See [Water surface](docs/water-surface.md) and run
-`python examples/water_surface.py` for a synthetic animated example.
-**Render → Renderer → Quality** now uses numeric atom/bond segments (8–128),
-with independent isosurface/water subdivision (0–8) and smoothing passes (0–100).
-Smoothing softens mesh ripples without multiplying triangles; high subdivision
-is checked against a mesh budget. **Style → Isosurfaces** owns the isovalue and
-surface definition; **Style → Forces** styles stored force vectors. Renderer
-surface controls are disabled when the corresponding surface is absent or hidden.
-Close-ups receive the
-requested geometry; screen-space detail and off-screen culling keep large scenes
-manageable. Surface work shows progress and supports **Cancel / Esc**;
-**Revert quality** and **Lightweight** make recovery immediate. See
-[quality and performance](docs/water-surface.md#renderer-quality-and-recovery).
-Water starts from a molecular-scale 2.0 Å kernel, a 0.63 threshold, subdivision 1
-and 20 smoothing passes. Existing saved settings are retained.
-
-## Installation And Launch
-
-macOS and Windows users can install the self-contained
-[desktop app](https://v-ase.readthedocs.io/en/latest/desktop.html) from
-[GitHub Releases](https://github.com/lgyEthan/v_ase/releases/tag/v0.4.9).
-It runs the same GUI with native Command/Ctrl shortcuts and file dialogs;
-Python installation is not required. Python and Jupyter remain available
-independently. Drag a desktop tab out to detach it into another window. Atom magnification,
-render composition and Undo history survive a different destination window size.
-**Help → About this runtime** shows the installed desktop version.
-Dropped structures offer trajectory, new-tab and new-window destinations. Saved
-`.vase` projects open immediately in their saved Edit/View mode and presentation,
-using a new tab when the current document has content. Each
-window closes independently; Windows Alt+F4 closes the active window, while
-explicit Quit checks all windows. The app icon now features the full atomic-bead
-castle with its small Pinocchio detail and no projecting red foundation board.
-
-| Desktop download (0.4.9) | Install and launch |
-| --- | --- |
-| [Mac, Apple silicon](https://github.com/lgyEthan/v_ase/releases/download/v0.4.9/v_ase-0.4.9-mac-arm64.dmg) | macOS 15+: open the DMG, drag **v_ase** to **Applications**, eject the disk image, then launch the Applications copy. |
-| [Mac, Intel](https://github.com/lgyEthan/v_ase/releases/download/v0.4.9/v_ase-0.4.9-mac-x64.dmg) | Same steps; choose Intel when **About This Mac** shows an Intel processor. |
-| [Windows, Intel/AMD x64](https://github.com/lgyEthan/v_ase/releases/download/v0.4.9/v_ase-0.4.9-win-x64.exe) | Windows 10/11, 64-bit: run the EXE installer, complete installation, then launch **v_ase** from Start. |
-
-The Mac downloads are **Developer ID signed and Apple-notarized**, with
-stapled tickets for the app and DMG. macOS may show its normal first-open
-confirmation for an internet download. The Windows build is **not yet
-publisher-signed**; after verifying its source and checksum, a SmartScreen
-prompt may offer **More info → Run anyway**. Do not disable OS protection.
-[Step-by-step installation, ZIPs, checksums and troubleshooting](https://v-ase.readthedocs.io/en/latest/desktop.html).
-Maintainer build, signing and notarization steps are in
-[the desktop build guide](desktop/README.md).
-
-`.vase` is registered as a project type. To make double-click use v_ase, choose
-**Get Info → Open with → v_ase → Change All** on Mac, or **Open with → Choose
-another app → v_ase → Always** on Windows. You can also select v_ase for
-`.vasp`, `.xyz` and `.cif`; browse to the installed application if it is not
-listed. Extensionless `POSCAR`/`CONTCAR` can be opened using **File → Open**.
-[Complete file-association instructions](https://v-ase.readthedocs.io/en/latest/desktop.html#open-vase-by-default).
-
-For the Python/browser/Jupyter installation:
+With Python 3.10 or newer:
 
 ```bash
 python -m pip install v_ase-gui
 v_ase gui POSCAR
 ```
 
-Use `v_ase gui` for an empty workspace or `--interactive` to edit a file.
-[Installation](https://v-ase.readthedocs.io/en/latest/installation.html) · [First session](https://v-ase.readthedocs.io/en/latest/quickstart.html) ·
-[Supported formats](https://v-ase.readthedocs.io/en/latest/formats.html) · [Troubleshooting](https://v-ase.readthedocs.io/en/latest/troubleshooting.html)
-
-## Explore
-
-| Work with | Guide |
-| --- | --- |
-| Atoms and molecules | [Move](https://v-ase.readthedocs.io/en/latest/move.html) · [Rotate](https://v-ase.readthedocs.io/en/latest/rotate.html) · [Build](https://v-ase.readthedocs.io/en/latest/build-atoms.html) |
-| Periodic interfaces | [Cells, matching, registry](https://v-ase.readthedocs.io/en/latest/cell-tools.html) |
-| Trajectories and fields | [Analysis](https://v-ase.readthedocs.io/en/latest/trajectories.html) · [Volumetric data](https://v-ase.readthedocs.io/en/latest/field-processing.html) |
-| Figures and projects | [Appearance](https://v-ase.readthedocs.io/en/latest/appearance.html) · [Export](https://v-ase.readthedocs.io/en/latest/save-projects.html) |
-| AI agents | [MCP setup](https://v-ase.readthedocs.io/en/latest/ai-tools.html) · [GUI/MCP comparison](https://v-ase.readthedocs.io/en/latest/agent-material-evaluation.html) |
-| Numerical methods | [Validation](https://v-ase.readthedocs.io/en/latest/scientific-validation.html) · [Source audit](docs/scientific-source-audit.md) |
-
-## Save And Share
-
-| Format | Use it to |
-| --- | --- |
-| **`.vase` project** | Resume editing with your structures, trajectory, camera and appearance preserved. |
-| **Project HTML** | Share an offline interactive view that can also reopen as an editable v_ase project. |
-| **[Export HTML View](https://v-ase.readthedocs.io/en/latest/save-projects.html#html-view)** | Share a lightweight offline viewing copy, without editable project data by default. |
-
-For Project HTML, enable **Include interactive rendered view** in **File → Project save settings**.
-[Saving and sharing guide](https://v-ase.readthedocs.io/en/latest/save-projects.html).
-
-## Work With An AI Agent
-
-You and an external agent edit the same live document.
-[Connect MCP](https://v-ase.readthedocs.io/en/latest/ai-tools.html#install-and-connect-an-mcp-client) ·
-[Scene workflow](https://v-ase.readthedocs.io/en/latest/ai-scene.html) · [CLI compatibility](https://v-ase.readthedocs.io/en/latest/ai-cli.html)
-
-[ChatGPT Chat setup](https://v-ase.readthedocs.io/en/latest/chatgpt-local.html) · personal connection.
-
-![Human and external AI agent working in one live v_ase document](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_ai_collaboration.png)
-
-```bash
-python -m pip install "v_ase-gui[mcp]"
-v_ase mcp
-```
-
-**60-run comparison:** MCP completed 30/30 strict targets; GUI completed 24/30.
-[Images, token usage and success criteria](https://v-ase.readthedocs.io/en/latest/agent-material-evaluation.html)
-
-**Cu₈O₄ extension:** both completed 10/10; MCP used 90.9% fewer median tokens.
-[Images and methods](https://v-ase.readthedocs.io/en/latest/agent-material-evaluation.html#cu8o4-prepared-scene-extension)
-
-![A natural-language request passing through an external AI Agent into the same live revisioned v_ase GUI](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_ai_collaboration.gif)
-
-Exact atom edits from a natural-language request.
-[Agent workflow](https://v-ase.readthedocs.io/en/latest/ai-agents.html#share-one-document) ·
-[Bundled Skill](v_ase/skills/visualizing-atomic-structures-with-v-ase/SKILL.md)
-
-![Natural-language pyridinic N3 graphene edit in the shared GUI](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_ai_edit.gif)
-
-## Edit Structures
-
-Select atoms, then use `G` to move, `R` to rotate and `S` to scale coordinates.
-[Editing guide](https://v-ase.readthedocs.io/en/latest/editing.html#move-rotate-and-scale-coordinates) · [Controls](https://v-ase.readthedocs.io/en/latest/shortcuts.html)
-
-### Build From Scratch
-
-Define a cell and distribute atoms; refine overlaps with repulsion.
-[Atomic distributions](https://v-ase.readthedocs.io/en/latest/atomic-distributions.html) · [ASE crystal builder](https://v-ase.readthedocs.io/en/latest/build-atoms.html#build-a-periodic-bulk-crystal-with-ase)
-
-![Building an amorphous structure from an empty v_ase document](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_scratch_amorphous.gif)
-
-### Add Atoms
-
-Set composition, density, placement and allowed regions.
-[Insertion workflow](https://v-ase.readthedocs.io/en/latest/insertion-regions.html)
-
-![Oxygen distributed through a bulk-like Cu(111) insertion region](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_add_atoms_allowed.gif)
-
-### Add Molecules
-
-Place rigid molecules around an existing structure.
-[Molecular insertion](https://v-ase.readthedocs.io/en/latest/atomic-distributions.html#insert-rigid-molecules)
-
-![Rigid water molecules placed around edge- and basal-hydroxylated graphene-oxide layers](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_add_molecules.gif)
-
-### Rotate Selected Atoms
-
-Rotate around an active atom, center of mass or explicit pivot.
-[Pivot controls](https://v-ase.readthedocs.io/en/latest/rotate.html)
-
-![Ferrocene pivot rotation](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_ferrocene_pivot.gif)
-
-Build a phosphorene twist through successive selections and rotations.
-[Worked examples](https://v-ase.readthedocs.io/en/latest/worked-examples.html)
-
-![Cumulative phosphorene manipulation](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_phosphorene_twist.gif)
-
-## Periodic Cells And Interfaces
-
-### Commensurate Cells
-
-Find compatible 2D cells within declared strain and search limits.
-[Same-lattice matching](https://v-ase.readthedocs.io/en/latest/commensurate.html#commensurate-same-lattice-rotation)
-
-![Graphene hBN commensurate rotation](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_commensurate.gif)
-
-Match separate host and guest lattices.
-[Host/guest workflow](https://v-ase.readthedocs.io/en/latest/commensurate.html)
-
-![Graphene and MoS2 host/guest common-cell search with a live angle plane](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_commensurate_host_guest.gif)
-
-### Rigid Translation
-
-Map registry or relax a selected rigid component.
-[Registry maps](https://v-ase.readthedocs.io/en/latest/registry.html#registry-maps) · [Rigid relaxation](https://v-ase.readthedocs.io/en/latest/registry.html#rigid-registry-relaxation)
-
-![Periodic planar translation scan with current and optimum translations](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_registry_map.png)
-
-![Rigid planar translation trials without a precomputed colorscale map](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_registry_relax.gif)
-
-## Analyze Structures And Fields
-
-### Ordered Geometry
-
-Click 2, 3 or 4 atoms deliberately in order for distance, angle or torsion.
-Marquee, label and Select all selections show a count without incidental geometry.
-[Measurements](https://v-ase.readthedocs.io/en/latest/selection.html#ordered-geometry-through-a-trajectory)
-
-### Property-based atom size
-
-The Atom appearance controls include a global-size slider with a numeric input
-and an independent per-atom property radius mapping. Select an available
-numeric field, input range, minimum/maximum size multipliers and exponent.
-Enabling the mapping first reveals the field picker; it does not apply a
-placeholder property. Custom and charge presets fit the displayed frame's
-finite values, including signed data and the frozen atom scope.
-The mapping multiplies existing label and selected-atom sizing; a zero factor
-hides the glyph, not its scientific atom or bonds. Current and trajectory fits
-lock their resulting limits until fitted again.
-[Field, scope, fit and export details](https://v-ase.readthedocs.io/en/latest/property-radius.html).
-
-![Ordered distance angle and torsion measurement](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_measurement.gif)
-
-### Trajectories And Displacement
-
-Scrub frames and inspect displacement against a reference.
-[Trajectory analysis](https://v-ase.readthedocs.io/en/latest/vectors.html#displacement-analysis)
-
-![Trajectory displacement analysis](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_displacement.png)
-
-### Map Per-Atom Data
-
-Color atoms by stored properties and display force vectors.
-[Colorscales](https://v-ase.readthedocs.io/en/latest/scalar-colors.html#map-numeric-per-atom-data) · [Forces](https://v-ase.readthedocs.io/en/latest/vectors.html#stored-force-vectors)
-
-![Trajectory-wide force-magnitude colorscale with locked limits and matching Cartesian force vectors](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_atom_colorscale.gif)
-
-### Volumetric Fields
-
-Inspect charge, potential and orbital grids as isosurfaces or planar sections.
-[Isosurfaces](https://v-ase.readthedocs.io/en/latest/isosurfaces.html#create-an-isosurface) · [Planes](https://v-ase.readthedocs.io/en/latest/field-planes.html#add-planar-sections) ·
-[Combine fields](https://v-ase.readthedocs.io/en/latest/field-processing.html#combine-compatible-datasets)
-
-![Signed isosurface threshold moving across a fixed volumetric distribution](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_volumetric.gif)
-
-![Interactive hkl scalar-field plane clipped to the displayed cell](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_volumetric_plane.gif)
-
-### Radial And Pair-distribution Functions
-
-Plot periodic RDFs or finite pair distributions with the appropriate normalization.
-[RDF guide](https://v-ase.readthedocs.io/en/latest/rdf.html)
-
-![Pairwise amorphous Cu-Zr RDF curves approaching the bulk limit](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_rdf.png)
-
-## Constraints And Relaxation
-
-Constrain physical motion using ASE constraints.
-[Constraint guide](https://v-ase.readthedocs.io/en/latest/constraints.html#supported-constraint-state)
-
-### FixedLine
-
-Restrict motion to a line. [Details](https://v-ase.readthedocs.io/en/latest/constraints.html#fixedline)
-
-![FixedLine movement](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_fixedline.gif)
-
-### FixedPlane And FixScaled
-
-Restrict motion in Cartesian or fractional directions.
-[FixedPlane](https://v-ase.readthedocs.io/en/latest/constraints.html#fixedplane) · [FixScaled](https://v-ase.readthedocs.io/en/latest/constraints.html#fixscaled-and-fixcartesian)
-
-![FixedPlane movement and guide plane](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_fixedplane.gif)
-
-### Hookean
-
-Apply spring-like restraints. [Details](https://v-ase.readthedocs.io/en/latest/constraints.html#hookean)
-
-![Hookean constraint](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_hookean.png)
-
-![Hookean motion](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_hookean.gif)
-
-### Relaxation
-
-Reduce overlaps or optimize with a configured calculator.
-[Repulsion](https://v-ase.readthedocs.io/en/latest/relaxation.html#built-in-repulsion-calculator) · [Run relaxation](https://v-ase.readthedocs.io/en/latest/relaxation.html#run-an-ordinary-relaxation)
-
-![Repulsive relaxation trajectory](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_relaxation.gif)
-
-## Coordination Polyhedra
-
-Show coordination faces, ligand atoms and connectors in 2D/3D, with per-group color and opacity.
-[Polyhedra guide](https://v-ase.readthedocs.io/en/latest/polyhedra.html)
-
-![IrO2 coordination polyhedra with independent colors and face opacity](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_polyhedra.gif)
-
-## Style Atoms, Bonds, And Rendering
-
-Camera controls stay beside the viewport, with matching camera visibility in the
-Renderer panel. [Render area and camera lock](https://v-ase.readthedocs.io/en/latest/render-images.html#render-area).
-
-Control colors, radii and visibility by label or atom index.
-[Appearance](https://v-ase.readthedocs.io/en/latest/appearance.html#per-atom-overrides)
-
-![View-mode label and appearance editing on Cu5O4](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_cu5o4_view_appearance.gif)
-
-Choose Standard, Metal, Rubber or flat 2D rendering.
-[Materials and rendering](https://v-ase.readthedocs.io/en/latest/appearance.html#d-and-flat-2d-rendering)
-
-![Standard Metal and Rubber atom materials](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_materials.png)
-
-Set bond topology and appearance by pair or exact atom indices.
-[Bond controls](https://v-ase.readthedocs.io/en/latest/bonds.html)
-
-![Pairwise Cu O bonds in a Cu2O(111) film on Cu(111)](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_bonds.png)
-
-## Export And Save
-
-[Images and video](https://v-ase.readthedocs.io/en/latest/render-images.html#image-output) ·
-[Render Area](https://v-ase.readthedocs.io/en/latest/render-images.html#render-area) ·
-[Blender / OBJ / Rhino](https://v-ase.readthedocs.io/en/latest/export-structures.html#d-scene-output) ·
-[Projects and presets](https://v-ase.readthedocs.io/en/latest/save-projects.html#save-project)
-
-## Python And Remote Systems
+Or open ASE objects directly:
 
 ```python
 from ase.build import molecule
@@ -367,9 +52,87 @@ from v_ase import view
 view(molecule("H2O"))
 ```
 
-[Python API](https://v-ase.readthedocs.io/en/latest/python-api.html) · [Jupyter](https://v-ase.readthedocs.io/en/latest/notebooks-remote.html#jupyter-auto-detection) ·
-[SSH / remote files](https://v-ase.readthedocs.io/en/latest/notebooks-remote.html#one-command-remote-files)
+[Python installation](https://v-ase.readthedocs.io/en/latest/installation.html) ·
+[Jupyter and remote systems](https://v-ase.readthedocs.io/en/latest/notebooks-remote.html) ·
+[Supported formats](https://v-ase.readthedocs.io/en/latest/formats.html)
 
-## License And Citation
+## Explore the workspace
 
-[AGPL-3.0-or-later](LICENSE) · [Three.js MIT license](v_ase/static/vendor/THREE_LICENSE) · [Cite v_ase](CITATION.cff)
+| Task | Tools and guides |
+| --- | --- |
+| Inspect and style | [Atom colors and materials](https://v-ase.readthedocs.io/en/latest/appearance.html), [property-based radii](https://v-ase.readthedocs.io/en/latest/property-radius.html), [bonds](https://v-ase.readthedocs.io/en/latest/bonds.html), [polyhedra](https://v-ase.readthedocs.io/en/latest/polyhedra.html) |
+| Build and edit | [Move](https://v-ase.readthedocs.io/en/latest/move.html), [rotate](https://v-ase.readthedocs.io/en/latest/rotate.html), [add atoms and molecules](https://v-ase.readthedocs.io/en/latest/build-atoms.html), [constraints](https://v-ase.readthedocs.io/en/latest/constraints.html), [relaxation](https://v-ase.readthedocs.io/en/latest/relaxation.html) |
+| Work with periodic structures | [Cells and supercells](https://v-ase.readthedocs.io/en/latest/cell-tools.html), [commensurate interfaces](https://v-ase.readthedocs.io/en/latest/commensurate.html), [registry maps](https://v-ase.readthedocs.io/en/latest/registry.html) |
+| Explore simulation results | [Trajectories](https://v-ase.readthedocs.io/en/latest/trajectories.html), [scalar colors](https://v-ase.readthedocs.io/en/latest/scalar-colors.html), [RDF](https://v-ase.readthedocs.io/en/latest/rdf.html), [isosurfaces](https://v-ase.readthedocs.io/en/latest/isosurfaces.html) |
+| Prepare figures | [Camera and image output](https://v-ase.readthedocs.io/en/latest/render-images.html), [movies and GIFs](https://v-ase.readthedocs.io/en/latest/export-video.html), [Blender and 3D export](https://v-ase.readthedocs.io/en/latest/export-structures.html) |
+
+**View** mode lets you explore data and adjust its appearance. Switch to **Edit**
+to change the structure. Select atoms, then press `G` to move, `R` to rotate or
+`S` to scale their spacing. [Keyboard and mouse controls](https://v-ase.readthedocs.io/en/latest/shortcuts.html).
+
+## Build and edit
+
+Place atoms or molecules inside a chosen region, remove close contacts, and
+keep the parts of your structure that should remain fixed.
+[Try molecular insertion](https://v-ase.readthedocs.io/en/latest/molecules.html).
+
+![Water molecules placed around a layered graphene-oxide structure](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_add_molecules.gif)
+
+## Visualize simulation results
+
+Color atoms by charge, displacement or another stored property, and follow the
+changes through a trajectory. [Property colors](https://v-ase.readthedocs.io/en/latest/scalar-colors.html).
+
+![Atoms colored by a per-atom property during trajectory playback](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_atom_colorscale.gif)
+
+Show water as a translucent surface while keeping ions and solids visible.
+[Water surfaces](https://v-ase.readthedocs.io/en/latest/water-surface.html).
+
+![Animated water surface around atomistic structures](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/water-surface-experiment.gif)
+
+Explore volumetric data with isosurfaces and cross-sections.
+[Isosurfaces](https://v-ase.readthedocs.io/en/latest/isosurfaces.html) ·
+[Field planes](https://v-ase.readthedocs.io/en/latest/field-planes.html).
+
+![Positive and negative volumetric isosurfaces around an atomic structure](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_volumetric.gif)
+
+## Save and share
+
+| You want to… | Use |
+| --- | --- |
+| Continue editing later | **Save** a `.vase` project. |
+| Share an interactive view that opens in a browser | [Export HTML View](https://v-ase.readthedocs.io/en/latest/save-projects.html#html-view). |
+| Share a browser view that can also reopen for editing | In **Project save settings**, enable **Include interactive rendered view** and save as HTML. |
+| Publish a figure or animation | Export an image, movie or GIF from **Render**. |
+
+[Saving projects](https://v-ase.readthedocs.io/en/latest/save-projects.html) ·
+[Image output](https://v-ase.readthedocs.io/en/latest/render-images.html) ·
+[Movies and GIFs](https://v-ase.readthedocs.io/en/latest/export-video.html)
+
+## Work with an AI agent
+
+Connect an MCP-capable agent to the same document you are editing. Ask it to
+prepare a structure or figure, inspect the result in v_ase, and refine it by hand.
+
+```bash
+python -m pip install "v_ase-gui[mcp]"
+v_ase mcp
+```
+
+[MCP setup](https://v-ase.readthedocs.io/en/latest/ai-tools.html#install-and-connect-an-mcp-client) ·
+[Shared-document workflow](https://v-ase.readthedocs.io/en/latest/ai-agents.html#share-one-document) ·
+[ChatGPT connection](https://v-ase.readthedocs.io/en/latest/chatgpt-local.html)
+
+![A user and an AI agent refining the same atomic structure in v_ase](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_ai_collaboration.gif)
+
+## Help and project information
+
+[User guide](https://v-ase.readthedocs.io/en/latest/) ·
+[Troubleshooting](https://v-ase.readthedocs.io/en/latest/troubleshooting.html) ·
+[Report a problem](https://github.com/lgyEthan/v_ase/issues) ·
+[What's new](https://v-ase.readthedocs.io/en/latest/whats-new.html)
+
+[Scientific methods](https://v-ase.readthedocs.io/en/latest/scientific-validation.html) ·
+[Contributing](https://v-ase.readthedocs.io/en/latest/development.html) ·
+[Cite v_ase](CITATION.cff) · [AGPL-3.0-or-later](LICENSE) ·
+[Third-party license](v_ase/static/vendor/THREE_LICENSE)

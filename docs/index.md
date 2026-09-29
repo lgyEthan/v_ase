@@ -1,42 +1,41 @@
-# v_ase documentation
+# v_ase user guide
 
-Inspect atomic structures, edit coordinates and create scientific figures.
-Choose a feature below; the guides are independent, not a sequence of required steps.
+Build, explore and present atomic structures, trajectories and volumetric data.
+Start with the desktop app or use v_ase from Python and Jupyter.
 
-[Install v_ase](installation.md) · [Open your first structure](quickstart.md) ·
-[Download example inputs](example-inputs.md) · [Connect ChatGPT](chatgpt-local.md)
+[Install v_ase](installation.md) · [First steps](quickstart.md) ·
+[Example files](example-inputs.md) · [Keyboard shortcuts](shortcuts.md)
 
 ```{vase-demo} logo
 :alt: Interactive v_ase atom logo
 :fallback: assets/v_ase-logo.png
 :height: 300
-:caption: Drag to orbit this atomic scene. The feature guides below use downloadable example structures.
+:caption: Drag to rotate the atomic logo.
 ```
 
-## Find a feature
+(find-a-feature)=
 
-| I want to… | Open this guide |
+## Choose your task
+
+| I want to… | Guide |
 | --- | --- |
-| Move an adsorbate along one axis | [Move atoms](move.md) |
-| Rotate a ring around a metal atom | [Rotate atoms](rotate.md) |
-| Show colored coordination polyhedra | [Polyhedra](polyhedra.md) |
-| Color substrate and surface atoms differently | [Atom appearance](appearance.md) |
-| Show fixed layers, allowed lines or planes | [Constraints](constraints.md) |
-| Add atoms or fill a pore with molecules | [Distributions](atomic-distributions.md) · [Molecules](molecules.md) |
-| Build a common periodic interface cell | [Commensurate cells](commensurate.md) |
-| Plot RDF or color stored atom properties | [RDF](rdf.md) · [Scalar colors](scalar-colors.md) |
-| Show liquid water around ions or solids | [Water surfaces](water-surface.md) |
-| Show field lobes or a cross-section | [Isosurfaces](isosurfaces.md) · [Planes](field-planes.md) |
-| Save a figure, video or interactive project | [Images](render-images.md) · [Videos](export-video.md) · [Projects](save-projects.md) |
+| Open a structure or trajectory | [Open files](data-input.md) · [Supported formats](formats.md) |
+| Find a control or understand View/Edit | [Workspace](workspace.md) |
+| Change atom colors, size or materials | [Atom appearance](appearance.md) · [Property colors](scalar-colors.md) · [Property radii](property-radius.md) |
+| Set bonds, show polyhedra or display water | [Bonds](bonds.md) · [Polyhedra](polyhedra.md) · [Water](water-surface.md) |
+| Move, rotate or add atoms | [Move](move.md) · [Rotate](rotate.md) · [Build](build-atoms.md) |
+| Hold atoms fixed and relax a structure | [Constraints](constraints.md) · [Relaxation](relaxation.md) |
+| Work with periodic cells and interfaces | [Cell tools](cell-tools.md) · [Commensurate cells](commensurate.md) · [Registry maps](registry.md) |
+| Inspect simulation results | [Trajectories](trajectories.md) · [RDF](rdf.md) · [Force vectors](vectors.md) |
+| Explore volumetric data | [Isosurfaces](isosurfaces.md) · [Cross-sections](field-planes.md) |
+| Save a project or share a figure | [Projects and HTML](save-projects.md) · [Images](render-images.md) · [Movies and GIFs](export-video.md) |
+| Continue a scene in Blender | [3D export](export-structures.md#blender) |
+| Connect an AI agent | [MCP setup](ai-tools.md) · [ChatGPT](chatgpt-local.md) |
 
-Each feature guide explains the controls first, then walks through a real example
-with its input file, settings and expected result. **View** changes presentation;
-**Edit** enables physical edits. [Workspace and modes](workspace.md).
+Each guide includes the controls and examples for that task. If something does
+not work, start with [Troubleshooting](troubleshooting.md).
 
-This manual describes **v_ase 0.4.9**. It includes the redesigned scientific
-workspace, property-dependent atom size, platform shortcuts and project saving.
-The [scientific source audit](scientific-source-audit.md) and
-[ChatGPT tunnel helper](chatgpt-local.md) describe the numerical fixes and personal connection setup in this release.
+This manual describes **v_ase 0.4.9**. [What's new](whats-new.md).
 
 ```{toctree}
 :caption: Get started
@@ -45,7 +44,6 @@ The [scientific source audit](scientific-source-audit.md) and
 
 installation
 desktop
-windows-signing
 quickstart
 workspace
 data-input
@@ -60,6 +58,8 @@ worked-examples
 
 appearance
 property-radius
+scalar-colors
+vectors
 bonds
 polyhedra
 water-surface
@@ -101,8 +101,6 @@ registry
 :hidden:
 
 trajectories
-vectors
-scalar-colors
 rdf
 field-processing
 ```
@@ -142,6 +140,13 @@ troubleshooting
 scientific-validation
 agent-material-evaluation
 api
-development
 whats-new
+```
+
+```{toctree}
+:caption: Contributing
+:maxdepth: 1
+:hidden:
+
+development
 ```

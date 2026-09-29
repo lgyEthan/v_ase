@@ -10,6 +10,23 @@ the published Read the Docs version must describe the same tested release.
 :depth: 1
 ```
 
+## Write for the intended reader
+
+The README is a product introduction: what v_ase does, how to get it, a few real
+examples, and links to task guides. It is not a running record of development.
+User guides explain where a control is, what to do, and what result to expect.
+Keep scientific definitions and limitations that affect interpretation.
+
+Do not paste conversation replies, implementation notes, test counts, release
+checklists or account/certificate setup instructions into user guides. Explain
+maintainer-only questions directly to the maintainer. Existing contributor
+reference belongs under Contributing, not Get started. Mention installation
+warnings only where users encounter them, with a short actionable explanation.
+
+A guide must stand on its own without phrases such as "as requested", descriptions
+of an old broken UI, or a sequence of patch-specific promises. Link to the one
+canonical guide rather than duplicating saving, camera or installation details.
+
 ## Documentation stack
 
 The site uses:
@@ -243,7 +260,7 @@ remains mandatory. See [Release checklist](release_checklist.md).
 ## Documentation pull-request checklist
 
 - [ ] The page is in the correct toctree and has one clear audience.
-- [ ] Commands were checked against v_ase 0.3.3 or the version being released.
+- [ ] Commands were checked against the documented v_ase version.
 - [ ] Local links, anchors and image paths resolve.
 - [ ] HTML builds with warnings as errors.
 - [ ] Live WebGL demos load, interact, and retain static PDF/ePub fallbacks.

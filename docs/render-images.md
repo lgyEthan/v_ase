@@ -32,9 +32,7 @@ Use this surface composition as the input; the exported image excludes the surro
 3. For the sun modes, adjust **Brightness**, source and target coordinates.
 4. Close with **×**, **Escape**, or a click outside the panel.
 
-The toolbar popover follows its button and stays inside the
-window when resized. On short windows, scroll inside the panel to reach all
-controls. These settings affect the shared scene and its rendered exports.
+These lighting settings apply to the live scene and exported images.
 
 ```{figure} assets/render-lighting-controls.png
 :alt: Open Render Lighting controls above the Cu surface viewport, with the Renderer selector accessible outside the scrolling toolbar.
@@ -45,59 +43,45 @@ The sphere button opens a separate panel; it remains clickable below the toolbar
 
 ## Render Area
 
-Image, video and HTML share the stored **Render Area** camera and dimensions.
-The camera icon beside the axis views and the matching icon under
-**Render → Renderer → Render area & scale → Camera** toggle the same camera
-object as **Objects → Camera / render area**. Turning it on enters the saved
-camera view and fits the guide in the work area beside the right panel, even
-when that panel is currently collapsed. Opening or resizing the panel afterward
-does not recenter the view. Turning the icon off hides the guide and wire camera,
-clears camera selection, and releases viewport lock without changing the saved
-output pose, dimensions or scale. There is no separate Hide render area button.
+The render area defines the camera and crop used for image, video and HTML
+output. Open **Render → Renderer → Render area & scale**, choose the output
+width and height, and turn on the **Camera** icon to see the frame.
 
-The frame dimensions, px/Å and camera controls live together under
-**Render area & scale**. Lighting, Quality and Overlays are separate sections.
+| Control | When to use it |
+| --- | --- |
+| **Camera icon** | Show or hide the camera and frame. Turning it on returns to the saved camera view. The viewport and Renderer icons control the same object. |
+| **Align camera to current view** | Replace the output viewpoint with the view you have just arranged. |
+| **Lock camera to viewport** | Adjust the composition while keeping the frame on screen. Turn it off to inspect or edit the structure from another angle without moving the output camera. |
+| **Physical scale** | Set an exact output scale in pixels per Å. |
+| **Copy viewport scale** | Use the current viewing scale as a starting point for the output. |
 
-- By default the camera is fixed in the scene (World). Orbit, pan, zoom and
-  X/Y/Z change only the editing view.
-- **Lock camera to viewport** is an optional toggle. When active, navigation
-  and selected-camera G/R/S change the composition while the guide stays on
-  screen. X/Y/Z update the guide immediately. Switching the lock preserves the
-  output composition. Hiding the camera also switches this toggle off.
-- Camera icons indicate object visibility, including when viewing the wire
-  camera from another angle. To return to the saved view, toggle it off and on.
-- **Align camera to current view** deliberately replaces the output pose with the editing
-  viewpoint. This is an action, not another navigation mode.
-- Off-axis, a wire camera body, angle arc and oriented output-plane outline show position,
-  facing direction and framing without a filled surface that covers atoms.
-  Click its outline or the bordered **Camera** badge on the render area to select it.
-- **G** translates camera and target together; **R** rotates around the output
-  center (X/Y/Z constrain the world axis); **S** uniformly scales the frame,
-  inversely changing physical px/Å when enabled. Enter applies, Escape restores
-  both camera and scale. Camera transforms work in View as well as Edit and
-  compose all rendered geometry, including the unit cell.
-- Output lighting, overlays and transparency apply when rendering. Both
-  **Style → Viewport** and **Render → Quality → Atom rendering** expose
-  **2D flat / 3D spheres**, independently of camera projection.
-- The viewport work grid is an adaptive analytic plane with a fading horizon.
-  It has no finite mesh edge and never writes depth or masks atoms. Camera clip
-  limits adapt to the rendered structure without changing stored composition.
+The camera is fixed in the scene by default. Hiding it also turns off viewport
+lock, while retaining the saved composition. To return from another viewpoint,
+toggle the camera icon off and on.
 
-The distinction between navigating a camera view and moving the camera follows
-[Blender's camera-view interaction](https://docs.blender.org/manual/en/latest/editors/3dview/navigate/camera_view.html).
+### Move or resize the render area
 
-For exact physical sizing, choose **Physical scale** and enter output px/Å on
-the Renderer page. The Image, Video and Interactive HTML routes also show
-these shared frame controls alongside their format-specific settings and
-export actions. Image selects PNG, JPEG, WebP or PDF; Video offers MOV/AVI/GIF, source-frame ranges, repeat mode,
-FPS, interpolation/MIC and an output-duration estimate; Interactive HTML
-chooses whether to embed the editable project and explains its offline poster.
-**Copy viewport scale** takes the current camera scale as a starting value;
-afterward output scale is independent of viewport zoom and the global atom
-sphere-size multiplier. Canceling an image or HTML export does not change a
-saved project's HTML output profile.
-Committed changes on the shared Renderer page update a reopened editable
-HTML project's matching output profile; one-shot export-dialog drafts do not.
+Click the **Camera** badge on the frame, or the camera outline in the scene.
+Press **G** to move, **R** to rotate or **S** to scale it; use **X/Y/Z** for an
+axis constraint. **Enter** applies and **Esc** cancels. Camera transforms work in
+View and Edit modes and do not change atom coordinates.
+
+With **Lock camera to viewport** enabled, the frame stays in place while the
+scene moves within it. Scaling the frame changes physical output px/Å when that
+setting is enabled. Opening the right panel does not change the saved camera.
+
+### Choose what appears in the output
+
+Use **Objects** to show or hide atoms, bonds, cell, grid, axes and constraints.
+These choices also apply to rendering. Hiding constraint marks does not remove
+the underlying constraints.
+
+Set **2D flat / 3D spheres** under **Style → Viewport** or the Renderer quality
+controls. Lighting and materials apply to 3D spheres, not flat 2D drawing.
+
+The Image, Video and HTML export sections use the same frame settings.
+Output scale is independent of atom size: changing px/Å magnifies the figure,
+while changing atom radius changes the spheres themselves.
 
 ## Image output
 
@@ -108,10 +92,6 @@ Images support:
 - lossless WebP; and
 - a single-page 300 dpi PDF containing the rendered pixels.
 
-The semantic renderer normalizes width/height to 64–8192 pixels. The chosen
-dimensions and Render Area camera determine the exact output; JPEG and PDF are
-opaque, while PNG/WebP can retain supported transparency.
-
-Lossless WebP and optimized PNG preserve the requested pixel dimensions and
-RGBA result. PNG recompression is used only when it is smaller than the browser
-source.
+Choose dimensions from 64 to 8192 pixels per side. PNG and WebP support a
+transparent background; JPEG and PDF are opaque. The exported image uses the
+render area rather than the size of the application window.

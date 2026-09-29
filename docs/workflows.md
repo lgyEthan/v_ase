@@ -6,4 +6,4 @@ orphan: true
 
 The independent feature pages are now directly available in the sidebar.
 
-[Find a feature](index.md#find-a-feature) · [Example inputs](example-inputs.md)
+[Choose your task](index.md#choose-your-task) · [Example inputs](example-inputs.md)

@@ -1,290 +1,149 @@
-# macOS and Windows desktop apps
+# Install the desktop app
 
-The desktop app runs the same v_ase scientific editor with its own Python
-backend. You do not need to install Python, Node.js or a browser. Native menus
-provide document shortcuts without browser conflicts or fullscreen mode.
+Use v_ase on macOS or Windows without installing Python. The desktop app includes
+the scientific tools and uses your system's file dialogs and keyboard shortcuts.
 
 ## Choose a download
 
-Open the [v0.4.9 GitHub release](https://github.com/lgyEthan/v_ase/releases/tag/v0.4.9)
-and expand **Assets**, or use a direct installer link below. GitHub's **Source
-code** archives and the Python `.whl`/`.tar.gz` files are not desktop installers.
+| Your computer | Download |
+| --- | --- |
+| Apple silicon Mac (M-series), macOS 15+ | [Apple silicon installer](https://github.com/lgyEthan/v_ase/releases/download/v0.4.9/v_ase-0.4.9-mac-arm64.dmg) |
+| Intel Mac, macOS 15+ | [Intel installer](https://github.com/lgyEthan/v_ase/releases/download/v0.4.9/v_ase-0.4.9-mac-x64.dmg) |
+| Windows 10/11, Intel or AMD 64-bit | [Windows installer](https://github.com/lgyEthan/v_ase/releases/download/v0.4.9/v_ase-0.4.9-win-x64.exe) |
 
-| Computer | Requirement | Installer |
-| --- | --- | --- |
-| Apple silicon Mac (M-series) | macOS 15 or newer | [Download Apple silicon DMG](https://github.com/lgyEthan/v_ase/releases/download/v0.4.9/v_ase-0.4.9-mac-arm64.dmg) |
-| Intel Mac | macOS 15 or newer | [Download Intel DMG](https://github.com/lgyEthan/v_ase/releases/download/v0.4.9/v_ase-0.4.9-mac-x64.dmg) |
-| Windows PC, Intel/AMD x64 | Windows 10 or 11, 64-bit | [Download Windows EXE](https://github.com/lgyEthan/v_ase/releases/download/v0.4.9/v_ase-0.4.9-win-x64.exe) |
-
-On a Mac, **Apple menu → About This Mac** shows either an Apple **Chip** or an
-Intel **Processor**. On Windows, **Settings → System → About → System type**
-identifies the processor and OS architecture. Windows ARM and 32-bit Windows
-do not have native builds in this release. The Mac minimum includes the
-bundled scientific/Rhino dependencies; older Macs can use a compatible Python
-environment and the browser GUI instead.
+On a Mac, **Apple menu → About This Mac** shows your chip or processor.
+Windows users can check **Settings → System → About → System type**.
+There is no native Windows ARM or 32-bit build. For Linux, or a compatible
+Python environment on another system, use [Python installation](installation.md#python-installation).
 
 ## Install on macOS
 
-1. Download the matching `.dmg` above and open it in Finder.
-2. Drag **v_ase.app** into **Applications**. Wait for the copy to finish.
-3. Eject the v_ase disk image. Open **Applications → v_ase**; run the installed
-   copy, not the copy inside the mounted disk image.
-4. The first launch starts the bundled Python backend. Wait for the editor
-   window, then use **File → Open** or **Command+O** to select a project or
-   structure. No `pip`, Conda, Node.js or terminal setup is necessary.
+1. Download and open the matching `.dmg` file.
+2. Drag **v_ase** into **Applications** and wait for the copy to finish.
+3. Eject the disk image, then open **v_ase** from **Applications**.
+4. Choose **File → Open** (`Command+O`) to open your structure or project.
 
-The Mac DMGs and apps are **signed with Developer ID Application: Giyeok Lee
-(B89YQRGQ6C) and notarized by Apple**. Both carry stapled notarization tickets;
-the portable ZIP also contains the app with its ticket. macOS may show the
-normal confirmation that the app was downloaded from the internet: choose
-**Open** after checking the source. The current downloads do not require an
-**Open Anyway** exception or disabling Gatekeeper.
-
-If an older copy reports an unidentified developer, download the current
-matching DMG, compare its checksum and replace the Applications copy. If a
-current, checksum-matching copy is blocked, keep the exact error and consult
-your administrator on a managed Mac. Do not remove quarantine attributes or
-disable Gatekeeper as an installation step. See
-[Apple's explanation of Developer ID distribution](https://developer.apple.com/developer-id/).
-
-The release's `mac-notarization.json` records the public signing identity,
-Apple submission results and final hashes. `desktop-SHA256SUMS.txt` covers
-the final downloads. No Apple developer account is needed to install the app.
+The Mac app is signed and notarized. A first-launch confirmation that the app
+was downloaded from the internet is normal; choose **Open** if you downloaded
+it from the release linked above.
 
 ## Install on Windows
 
-1. Download **v_ase-0.4.9-win-x64.exe** and open it from File Explorer.
-2. The current build is **not publisher-signed**. If SmartScreen displays
-   **Windows protected your PC**, verify the source and checksum, then use
-   **More info → Run anyway** if offered. Do not disable SmartScreen or
-   antivirus protection. A managed PC may require administrator approval.
-3. Follow the installer, choose the destination when offered, and complete
-   installation. The default installation is for your Windows user and does
-   not require administrator access.
-4. Launch **v_ase** from the Start menu or the installed shortcut. Wait for the
-   bundled backend to start, then use **File → Open** or **Ctrl+O**.
+1. Download and run **v_ase-0.4.9-win-x64.exe**.
+2. Follow the installer to choose where to install the app.
+3. Open **v_ase** from the Start menu.
+4. Choose **File → Open** (`Ctrl+O`) to open your structure or project.
 
-Install the EXE when you want normal Start-menu integration and `.vase` file
-registration. The default per-user application directory is
-`%LOCALAPPDATA%\Programs\v_ase\`; a custom installation directory takes
-precedence. The executable for **Open with** is the installed `v_ase.exe`,
-not the downloaded installer and not the bundled `python.exe`.
+The Windows installer is currently unsigned, so SmartScreen may show
+**Windows protected your PC**. If you downloaded it from the release above,
+**More info → Run anyway** may be available. If your organisation blocks it,
+ask your administrator; do not disable Windows protection.
+
+## Open your files
+
+Use **File → Open**, or drag a file into the editor. v_ase reads structures such
+as `.xyz`, `.extxyz`, `.vasp`, `.cif` and `.traj`, as well as its own `.vase`
+projects. [Supported formats](formats.md).
+
+A `.vase` project restores its saved view, appearance, frame and Edit/View mode.
+It opens in a new tab when you are already working on another document.
+For structure files, you can choose a new tab, replace the current structure,
+or add frames to its trajectory. An empty document needs no destination choice.
+
+Use **Save** (`Command/Ctrl+S`) to save a project and **Save As**
+(`Command/Ctrl+Shift+S`) to make a separate copy. [Saving and sharing](save-projects.md).
+
+## Open .vase by default
+
+If double-clicking a `.vase` file does not open v_ase, choose the app once in
+your operating system:
+
+### macOS file association
+
+1. In Finder, select a `.vase` file and press `Command+I` for **Get Info**.
+2. Under **Open with**, choose **v_ase**. If needed, choose **Other…** and
+   select it from Applications.
+3. Click **Change All…** to use v_ase for other `.vase` files.
+
+### Windows file association
+
+1. Right-click a `.vase` file and choose **Open with → Choose another app**.
+2. Select **v_ase**, or browse to the installed `v_ase.exe` if it is not listed.
+3. Choose **Always**, or **Always use this app** on Windows 10.
+
+Choose the installed application, not the downloaded installer.
+
+## Open .vasp and other structure files
+
+Other structure types keep their existing default application. To change one,
+use the same **Open with** steps on a file of that type. You can also use
+**Open with** just once without changing its default.
+
+For extensionless `POSCAR` or `CONTCAR`, use **File → Open**. If the reader is
+not recognised, choose **POSCAR / CONTCAR** in the import dialog.
+Keep ordinary HTML files associated with your browser; use v_ase's **File → Open**
+for an editable v_ase HTML project.
+
+## Work with documents
+
+Use the **+** button to create a tab. Drag a tab below the tab bar to move it to
+its own window, or choose **File → Move tab to new window**.
+
+`Command+W` on Mac or `Ctrl+W` on Windows closes the active tab. The last tab
+closes its window; the last window closes the app. Unsaved changes always offer
+**Save**, **Discard** or **Cancel**. [Workspace](workspace.md) · [All shortcuts](shortcuts.md).
+
+## Update or uninstall
+
+To update, quit v_ase and download the newer installer from
+[GitHub Releases](https://github.com/lgyEthan/v_ase/releases).
+On Mac, replace the copy in Applications. On Windows, run the new installer.
+Keep your projects outside the application folder. There are no automatic updates.
+
+To uninstall, quit the app and move it to Trash on Mac, or remove it through
+**Settings → Apps** on Windows. Your separate Python or Jupyter installation is unaffected.
 
 ## ZIP downloads and checksums
 
-ZIPs are alternatives to the installers. Extract the **entire** archive to a
-permanent location first. On Mac, move the extracted **v_ase.app** into
-Applications. On Windows, open **v_ase.exe** in the extracted directory and
-keep all adjacent files and resource folders with it. Opening an EXE from
-inside a ZIP, or copying only the EXE, cannot provide its bundled runtime.
-The Windows ZIP does not run the installer or register file associations;
-choose the executable manually when configuring **Open with**. Moving it
-later invalidates that saved association.
+The [release page](https://github.com/lgyEthan/v_ase/releases/tag/v0.4.9) also
+provides ZIP downloads. Extract the entire ZIP first. On Mac, move **v_ase.app**
+to Applications; on Windows, run **v_ase.exe** and keep its adjacent files together.
+The Windows ZIP does not create Start-menu entries or file associations.
 
-Download [desktop-SHA256SUMS.txt](https://github.com/lgyEthan/v_ase/releases/download/v0.4.9/desktop-SHA256SUMS.txt)
-from the same release. In the download directory, compute the relevant hash:
+If a download appears incomplete, download it again. You can check its integrity
+against [desktop-SHA256SUMS.txt](https://github.com/lgyEthan/v_ase/releases/download/v0.4.9/desktop-SHA256SUMS.txt):
 
-```sh
-# macOS Terminal; substitute mac-x64 for an Intel download.
+```bash
+# macOS; use mac-x64 for an Intel download
 shasum -a 256 v_ase-0.4.9-mac-arm64.dmg
 ```
 
 ```powershell
-# Windows PowerShell.
+# Windows
 Get-FileHash .\v_ase-0.4.9-win-x64.exe -Algorithm SHA256
 ```
 
-Compare it with the line for that exact filename in the checksum file.
-Matching hashes verify download integrity, not the publisher's identity.
-For Mac downloads, Developer ID signatures and Apple's notarization checks
-provide the separate OS-level publisher and distribution checks.
-
-## Open .vase by default
-
-**Yes: `.vase` can open in the desktop app when double-clicked.** The Mac app
-and Windows installer declare it as a v_ase project type. Registration makes
-the app available; the OS or a previously chosen default may still require
-you to select it. v_ase does not override the user's existing default by force.
-
-### macOS file association
-
-1. Install v_ase in Applications and launch it once.
-2. In Finder, select a `.vase` file and choose **File → Get Info** (Command+I).
-3. Expand **Open with**, select **v_ase**, and click **Change All…** to apply
-   it to `.vase` files. Confirm the change.
-4. If v_ase is missing, select **Other…**, enable **All Applications** if
-   needed, and choose `/Applications/v_ase.app`.
-
-To open one file without changing its default, use **Open With → v_ase** from
-the file's context menu. These are the standard
-[macOS file association controls](https://support.apple.com/en-mo/guide/mac-help/mh35597/mac).
-
-### Windows file association
-
-1. Right-click a `.vase` file in File Explorer and choose **Open with → Choose
-   another app**.
-2. Select **v_ase**. If it is missing, use **Choose an app on your PC** or
-   **More apps → Look for another app on this PC** (wording varies by Windows
-   version) and select the installed `v_ase.exe`.
-3. On Windows 11 choose **Always**. On Windows 10 enable **Always use this app
-   to open .vase files**, then confirm. Choose **Just once**, when offered,
-   for a single file instead.
-
-Alternatively, use **Settings → Apps → Default apps** and select the default
-for `.vase`; Windows 10 exposes **Choose default apps by file type**. See
-[Microsoft's default-app instructions](https://support.microsoft.com/en-us/windows/apps/change-default-apps-in-windows).
-
-Double-clicking a `.vase` project hands it to the existing v_ase window, or
-starts the app if needed. It opens directly in its saved Edit/View mode and
-presentation, without an import or mode-choice dialog. When documents are
-already open, it creates a new tab and preserves their unsaved work. Other
-supported structure files use the **Open File** workflow described below.
-
-## Open .vasp and other structure files
-
-Only `.vase` is declared as the native default project type. v_ase never claims
-JSON settings or generic `.json`, `.xml`, `.html`, `.md`, `.log`, `.dat`, `.in`,
-or `.out` files as associated documents. The installer removes only its own
-legacy Windows OpenWithProgids entries for these generic extensions; it does
-not rewrite UserChoice or another application's defaults.
-
-Specific structure formats such as `.extxyz`, `.xyz`, `.vasp`, `.cif`, `.traj`,
-`.pdb`, `.cube`, and `.xsf` can be opened explicitly with v_ase. Windows registers
-optional Open With candidates. On macOS the secondary type has Launch Services
-rank None, so it is never chosen automatically: use Get Info → Open with and
-select v_ase (enable All Applications if necessary), then Change All only if
-that is your intended default. File → Open still imports supported structures
-and v_ase HTML projects without claiming the generic file extension.
-
-Saved `.vase` files open without an import or mode-choice dialog. They restore
-the saved Edit/View mode, current frame, camera, appearance, render-area
-visibility, selection and properties-panel location. An existing document is
-preserved in its tab and the project opens in a new tab; an empty startup tab
-is reused. Older projects restore every field they contain; archives without
-mode information fall back to Edit.
-
-Command+W on macOS / Ctrl+W on Windows closes the current document. With one
-document left it closes that window; with no other windows left it quits the
-application. Empty windows close too. Unsaved work still offers Save, Discard
-and Cancel, and Cancel keeps the window open. Browser/notebook use keeps an
-internal blank document rather than closing the browser.
-
-The portable Windows ZIP cannot register associations; use the installer or
-browse to its executable manually.
-
-The application has the full castle icon. `.vase` documents use a paper icon
-with the castle and a teal **VASE** footer; structure documents use an **ATOM**
-footer when v_ase supplies their icon. Other applications' default icons remain
-their own. Finder/Explorer may cache icons until a folder refresh or relaunch.
-
-
-For `.vasp`, **Auto detect** normally selects the VASP reader. If the name is
-ambiguous, select **Reader → POSCAR / CONTCAR** in the Open File dialog.
-Extensionless `POSCAR` and `CONTCAR` have no `.vasp` extension to associate;
-open them with **File → Open** and select **All files** in the native chooser
-if necessary. Avoid changing the default for all extensionless files.
-
-Opening a `.vasp` structure does not make it a v_ase project. Save the editor's
-complete state as `.vase` or project HTML; use the existing POSCAR export when
-you need VASP-compatible structural output. Merely associating or opening a
-file does not convert or overwrite it. Leave `.html` associated with a browser
-unless you intentionally want a different system-wide default; open embedded
-v_ase HTML projects through **File → Open**.
-
-## Update or uninstall
-
-There is no automatic update service. Quit v_ase, download a newer matching
-installer, and install it explicitly. On Mac, replace the Applications copy;
-on Windows, run the new installer. Keep projects outside the application and
-ZIP extraction directories.
-
-To uninstall, quit v_ase and move the Mac app to Trash, or use Windows
-**Settings → Apps → Installed apps** (Windows 11) / **Apps & features**
-(Windows 10). For a Windows ZIP, remove its extracted directory after saving
-projects elsewhere. Choose another default app if an association still points
-to the removed executable. Removing the app does not require uninstalling
-your independent Python/Jupyter environment.
-
-## Work with documents
-
-File → Open (Command+O / Ctrl+O) selects a structure or project anywhere on your
-computer. The existing Reader, Frames, View/Edit and Replace/Add to trajectory/
-Open in new tab choices remain available. Project appearance and scientific
-content are restored by the same reader as the browser GUI.
-
-Save writes to the approved current project file. Save As chooses a new file.
-`.vase` stays `.vase`; project HTML stays HTML and retains its output profile.
-Saving detects external changes and refuses to silently overwrite them. Use
-Save As or reopen the externally modified file. A cancelled or failed save
-leaves the prior file and dirty document intact.
-
-| Action | macOS | Windows |
-| --- | --- | --- |
-| Open file | Command+O | Ctrl+O |
-| New window | Command+Shift+N | Ctrl+Shift+N |
-| New internal document | Command+N | Ctrl+N |
-| Close internal document | Command+W | Ctrl+W |
-| Save / Save As | Command+S / Command+Shift+S | Ctrl+S / Ctrl+Shift+S |
-| Atom color and radius properties | Command+Shift+P | Ctrl+Shift+P |
-| Bonds | Command+B | Ctrl+B |
-| Supercell | Command+Shift+B | Ctrl+Shift+B |
-| Renderer and output px/Å | Command+Shift+A | Ctrl+Shift+A |
-| Cell transformation | Command+E | Ctrl+E |
-
-The [existing viewport, selection and G/R/S shortcuts](shortcuts.md) are
-unchanged. Typing into a field retains normal text editing. Close document
-keeps the app open, including when the last document becomes a blank tab.
-Drag a tab below the tab strip to detach it into its own window, or use
-**File → Move tab to new window**. The document retains its scientific session,
-camera, visual settings, Undo/Redo, dirty state and writable project target.
-Each window closes independently (Alt+F4 closes the active window on Windows);
-explicitly quitting the app checks every window for
-unsaved changes and active jobs before stopping the shared Python server.
-Use **File → New window** for a separate blank workspace. Drop a structure or
-project onto the editor to choose **Add to trajectory**, **Open in new tab**,
-**Open in new window** or **Replace**. Adding to a trajectory imports frames;
-opening a project separately also restores its project appearance and profile.
-
-Ctrl+A selects the complete value in a numeric input even on Mac. Tab and
-Shift+Tab navigate successive bond cutoffs. The Reset menu above the viewport
-offers **Reset coordinates** and **Full reset**.
-
 ## Python, Jupyter and agents
 
-**Help → About this runtime** reports the installed desktop version.
-The private desktop runtime does not replace your Python environments.
-`pip install v_ase-gui`, `v_ase gui`, Python `view(...)`, and `%v_ase inline`,
-`%v_ase browser` and `%v_ase auto` continue to work. Use your Python environment
-for custom calculators and project-specific dependencies; the desktop app does
-not import packages from Conda or Jupyter. Transfer editable scenes using
-`.vase` projects.
+Use a separate [Python installation](installation.md#python-installation) for
+Jupyter or custom calculators. Exchange complete documents with the desktop app
+using `.vase` files. Python and ASE are already included in the desktop app;
+Blender is only needed if you want to run a [Blender export](export-structures.md#blender).
 
-The bundled runtime includes the normal scientific dependencies, video support,
-MCP support and optional Rhino export. Blender export produces the same script
-as the web GUI; running that script still requires Blender, as before.
-
-To let an agent refine the **same desktop document**, choose native
-Help → Copy agent connection URL. Use that loopback URL with the existing
-[CLI/HTTP interface](ai-cli.md):
-
-```bash
-v_ase api 'COPIED_CONNECTION_URL' describe --profile structure
-```
-
-Keep the desktop app open. Its URL changes when the app restarts and is not a
-cloud connection. Use the normal MCP/tunnel setup for a remote agent.
+To connect an agent to your open desktop document, use
+**Help → Copy agent connection URL** and follow the [connection guide](ai-cli.md).
 
 ## Diagnostics
 
-The app starts a loopback Python server and stops it on Quit. It does not
-modify system Python, install a background service, or upload structures.
-Backend diagnostics are in `backend.log` under:
+If the app does not open, check that the download matches your computer.
+On Mac, launch the Applications copy after ejecting the DMG. On Windows,
+reinstall or extract the whole ZIP rather than copying only the executable.
 
-- macOS: `~/Library/Application Support/v_ase/`
+For other problems, include **Help → About this runtime**, your OS version and
+the error message in a [bug report](https://github.com/lgyEthan/v_ase/issues).
+If a log is requested, `backend.log` is in:
+
+- Mac: `~/Library/Application Support/v_ase/`
 - Windows: `%APPDATA%\v_ase\`
 
-Include the desktop version, OS and relevant error text when reporting a
-problem. Inspect logs for private paths before sharing them. Source and build
-instructions are in [desktop/README.md](https://github.com/lgyEthan/v_ase/blob/main/desktop/README.md).
-
-Windows publisher signing remains disabled. See the [setup and release guide](windows-signing.md) for eligibility, certificate options and the proposed integration.
+Check logs for private paths before sharing them.

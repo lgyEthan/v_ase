@@ -1,141 +1,77 @@
-# First session
+# First steps
 
-This walkthrough opens a structure, inspects it without changing scientific
-data, makes an optional edit, and saves a complete project.
+Open a structure, explore it, make an edit and save your work.
+If you do not have an input file, download an [example structure](example-inputs.md).
 
 ## 1. Open a structure
+
+In the desktop app, choose **File → Open** (`Command+O` on Mac, `Ctrl+O` on
+Windows), or drag a structure into the editor. With Python installed, you can
+also open a file from a terminal:
 
 ```bash
 v_ase gui POSCAR
 ```
 
-Files open in **View** mode by default. View mode avoids attaching the fallback
-calculator and keeps large trajectory access lazy when the input format allows
-it. Use `--interactive` to start a file in **Edit**:
+Structure files normally open in **View** mode. A saved `.vase` project reopens
+in its saved mode and appearance. [Opening files](data-input.md).
 
-```bash
-v_ase gui POSCAR --interactive
-```
+## 2. Move around the structure
 
-The complete local URL is printed before a blocking command waits. Keep the
-terminal open while using the document.
+- **Middle-drag** to orbit; **Shift + middle-drag** to pan.
+- Use the **wheel or trackpad** to zoom.
+- Press **X**, **Y** or **Z** to look along an axis.
+- Choose **Fit view** if the structure is outside the visible area.
 
-## 2. Navigate and select
+[Complete mouse and keyboard controls](shortcuts.md).
 
-- Middle-drag to orbit.
-- Shift + middle-drag to pan.
-- Use the wheel or trackpad to zoom.
-- Left-click an atom to replace the selection.
-- Shift-click or Shift-box to invert membership in the current selection.
-- Use `Command/Ctrl+A` to select all visible atoms.
-- Press `X`, `Y`, or `Z` outside a transform to align the camera.
+## 3. Select and inspect atoms
 
-With two, three, or four ordered atoms selected, **Analyze → Measure** shows
-distance, angle, or torsion information. A selected supercell replica retains
-its displayed Cartesian position for direct measurement while also exposing
-periodic distance information when applicable.
+Click an atom to inspect it, or drag a box to select several atoms.
+**Shift-click** adds or removes an atom. **Command/Ctrl+A** selects all visible
+atoms when the cursor is outside an input field.
 
-## 3. Inspect the document
+To measure a distance, angle or torsion, select two, three or four atoms
+individually in the intended order. Bulk box selection does not create an
+automatic measurement. Open **Analyze → Measure** for measurement controls.
 
-The right workbench is divided by purpose, with the atomic viewport always
-available at desktop sizes:
+## 4. Choose a task
 
-| Workspace | Use it for |
+| Panel | What you can do |
 | --- | --- |
-| Style | Atoms, bonds, cell/supercell, polyhedra, water, isosurfaces and stored forces |
-| Build | Add atoms/molecules, transform, cell transformation, constraints, relaxation |
-| Analyze | Inspect/measure, distributions, motion, fields, interfaces |
-| Render | Renderer and output media; project Save is in File and defaults in View |
+| **Style** | Change atoms, bonds, supercells, polyhedra, water surfaces, isosurfaces and force vectors. |
+| **Build** | Add atoms or molecules, transform a structure, edit its cell, set constraints and relax. |
+| **Analyze** | Measure geometry and explore trajectories, distributions, fields and interfaces. |
+| **Render** | Set a camera and export images, animations or 3D scenes. |
 
-**Analyze → Measure** shows atom details and deliberate measurements;
-selecting an atom does not switch away from a task. Use the header search to
-find a control. File/Edit/View/Help menus sit above the canvas; the optional
-Objects drawer opens scene objects and their real properties. Each workbench
-has icon bookmarks above its section title; hover or focus an icon for its name.
-The left toolbar groups selection/measurement, transforms of a selected object,
-camera orbit and creation. Select atoms first, choose Move/Rotate/Scale, then
-drag in the viewport; Apply/Enter confirms and Cancel/Escape reverts. Switching
-tools cancels the previous provisional transform. G/R/S keeps the keyboard modal
-workflow. The right panel overlays the canvas and can be widened without moving
-the structure. At narrow widths it stacks below the viewport. The Reset menu
-provides coordinates-only and full reset.
-On short windows, an open analysis result uses the work area; **Back to
-viewport** returns to the structure.
-
-## 4. Play a trajectory
-
-If the file has more than one frame, use the bottom timeline:
-
-- `Space` toggles playback.
-- Option+Left/Right Arrow on macOS (Alt+Left/Right on Windows/Linux) moves one frame.
-- Plain arrow keys orbit or tilt the structure view.
-- FPS controls playback speed.
-- Skip advances by more than one source frame.
-
-The source trajectory and a generated relaxation trajectory may coexist. Use
-the timeline selector explicitly; only the active timeline receives keyboard
-playback commands.
+Hover over a panel's icons to see the section names, or use the search button
+to find a control. **Objects** controls which scene objects are visible.
 
 ## 5. Make an edit
 
-Switch the top-bar mode to **Edit**, select one or more atoms, and press `Esc`
-to return keyboard focus to the viewport. Then:
+Switch the top bar to **Edit**, select the atoms to change, and click the canvas.
 
-1. Press `G` to move, `R` to rotate, or `S` to physically scale spacing.
-2. Optionally press `X`, `Y`, or `Z` to lock a global Cartesian axis.
-3. Type an exact value, or move the pointer for an interactive preview.
-4. Confirm with `Enter`/left-click, or cancel with `Esc`/right-click.
+1. Press **G** to move, **R** to rotate, or **S** to scale their spacing.
+2. Optionally press **X**, **Y** or **Z** to constrain the axis.
+3. Move the pointer for a preview, or type an exact value.
+4. Press **Enter** to apply or **Esc** to cancel.
 
-Constraints are enforced by ASE when **Apply constraints** is enabled. The
-browser preview can move freely, but committed coordinates return from the
-backend's constraint-aware update.
+Use **Command/Ctrl+Z** to undo. Camera navigation does not fill the undo history.
+[Move atoms](move.md) · [Rotate atoms](rotate.md) · [Constraints](constraints.md).
 
-:::{tip}
-`Esc` cancels an active transform or closes a modal. Click the canvas to return
-keyboard focus before using G/R/S when editing a form.
-:::
+## 6. Play a trajectory
 
-## 6. Undo and redo
+For a file with multiple frames, use the timeline below the canvas.
+**Space** starts or pauses playback. **Option/Alt + Left/Right** steps through
+frames; **FPS** changes playback speed. [Trajectory controls](trajectories.md).
 
-`Command/Ctrl+Z` and `Command/Ctrl+Shift+Z` traverse committed user actions in chronological
-order. Structure and visual-setting actions share the history. Camera orbit,
-pan, zoom, axis alignment, and toolbar navigation are intentionally excluded.
+## 7. Save or share
 
-## 7. Save the work
+Choose **File → Save** (`Command/Ctrl+S`) and save a `.vase` project to keep your
+structures, camera and appearance. **Save As** makes a separate copy.
+Export **HTML View** when someone only needs to explore your result in a browser.
+[Saving and sharing](save-projects.md).
 
-Open **File → Save**:
-
-- Save `.vase` for the smallest editable project.
-- Enable **Include interactive rendered view** to create one self-contained
-  project HTML containing the validated `.vase` archive, poster, and offline
-  interactive view.
-
-Use **HTML View** instead when the recipient only needs a lightweight,
-view-only 3D handoff. Use the structure export controls when only the current
-ASE geometry is needed.
-
-Later use **File → Save** or `Command+S / Ctrl+S` to reuse the same approved project target
-and format. **Save As** chooses a new file. If the browser only downloads a
-copy, v_ase does not claim it overwrote the original.
-
-## 8. Close cleanly
-
-Use the tab close control or **File → Close tab**. A dirty tab offers Save,
-Discard and Cancel. The browser returns to an empty document after its last tab
-closes. In the desktop app, closing the last document closes that window;
-closing the last window exits the app after its save checks. Closing the browser
-workspace itself ends the connected blocking session. `--no-block` and Python
-`block=False` return control earlier and require explicit lifecycle handling.
-
-## A reproducible practice file
-
-From a source checkout, the examples provide small test scenes:
-
-```bash
-python examples/basic.py
-python examples/constrained.py
-python examples/relax.py
-```
-
-Continue with [Workspace model](workspace.md) for documents and modes, or jump
-to a task in the user guide.
+Close a document using its tab's **×** or **Command/Ctrl+W**. Unsaved work offers
+**Save**, **Discard** or **Cancel**. In the desktop app, closing its last window
+exits the app. A browser workspace keeps an empty tab ready for another structure.

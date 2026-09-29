@@ -415,7 +415,7 @@ def test_skill_explains_vendor_neutral_agent_handoff():
     assert "There is no natural-language endpoint and no command loop on stdin." in setup
     assert "`viewportBackground` controls the interactive GUI only" in documented
     assert "terminate the persistent CLI process while the human GUI is still open" in documented
-    assert "agent-material-evaluation.html" in readme
+    assert (ROOT / "docs/agent-material-evaluation.md").is_file()
 
 
 def test_skill_documents_bidirectional_same_document_collaboration():
@@ -434,13 +434,15 @@ def test_skill_documents_bidirectional_same_document_collaboration():
         "state.resync-required",
         "human_url",
         '"sessionId":"EVENT_SESSION_ID"',
-        "Human and external AI agent working in one live v_ase document",
-        "readme_ai_collaboration.png",
         "stale-revision",
     ):
         assert required.lower() in (
             collaboration + readme + evaluation
         ).lower(), required
+
+    guide = (ROOT / "docs/ai-agents.md").read_text(encoding="utf-8")
+    assert "readme_ai_collaboration.png" in guide
+    assert "readme_ai_collaboration.gif" in readme
 
     assert "request_id" in collaboration
     assert "Scene snapshots expose `revision`" in collaboration

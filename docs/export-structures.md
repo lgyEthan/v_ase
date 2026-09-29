@@ -1,8 +1,8 @@
 # Export structures and 3D scenes
 
 Save physical structures for scientific programs, or export scene geometry
-for Blender, OBJ-compatible tools or Rhino. Open **Render → Renderer & export**
-and choose the format required by the destination. Structure-only POSCAR and
+for Blender, OBJ-compatible tools or Rhino. Open **Render → Geometry**
+and choose the export format. Structure-only POSCAR and
 ASE Pickle are also available from the File commands.
 
 ## Structure and data output
@@ -43,7 +43,7 @@ optional cell, trajectory animation, camera, and lighting. Optimized output
 avoids one Blender object per atom; select individual-object output only when
 atom-by-atom Blender editing is required.
 
-Water surfaces are included from 0.4.9. **Render → 3D geometry → Blender** downloads
+Water surfaces are included from 0.4.9. **Render → Geometry → Blender** downloads
 `v_ase_blender_scene.py`. In Blender's Scripting workspace, open that file in the
 Text Editor and choose **Run Script**. Run generated scripts only from trusted
 projects. The export sets up the scene; use a new Blender file if you have an
@@ -55,17 +55,16 @@ viewport's density grid, smoothing and subdivision. Only displayed water copies
 are included; hidden molecular atoms/bonds stay hidden, while ions and solids
 remain atomistic. Source coordinates and molecule IDs are unchanged.
 
-For trajectories, running the script installs frame handlers that replace the
-current mesh, including frames with no water or changed topology. Scrub Blender's
-timeline after running it. Save a `.blend` for a static editable scene. To resume
+For trajectories, scrub Blender's timeline after running the script to see the
+water surface change with each frame. Save a `.blend` for a static editable scene. To resume
 procedural trajectory playback after reopening, run the generated script again;
 the animation is not baked as independent mesh objects for every frame.
 
 Export rejects more than four million refined water triangles in a frame or two
 million combined surface vertices/sites across animation frames. Lower water
 subdivision, repetitions, or export a shorter source trajectory. The scientific
-isovalue is not automatically altered. Water export uses existing NumPy/SciPy;
-Blender needs neither ASE nor a running v_ase server to run the generated file.
+isovalue is not automatically altered. Blender needs neither ASE nor a running
+v_ase server to run the generated file.
 
 ### OBJ/MTL
 

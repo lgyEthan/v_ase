@@ -1,150 +1,86 @@
-# Workspace model
+# Find your way around
 
-Understanding the workspace, document, and mode boundaries prevents accidental
-cross-document edits and explains when v_ase materializes large trajectories.
+The atomic structure stays in the canvas. Use the top menus for files, the left
+toolbar for direct interaction, and the right panel for the current task.
 
 ## Workspace and documents
 
-One browser workspace can contain multiple document tabs. Each tab maps to an
-independent backend editor session with its own:
+Each tab is a separate document with its own structure, trajectory, selection,
+camera, appearance and undo history. Use **+** for a new document or
+**File → Open** to load a file. In the desktop app, drag a tab below the tab bar
+to move it to its own window.
 
-- original and working ASE structure;
-- source, virtual, and relaxation trajectory state;
-- current frame and selection;
-- camera, rendering, labels, atom/bond appearance, and analysis state;
-- calculator and constraints;
-- undo/redo history;
-- volumetric datasets; and
-- collaboration revision and project output.
+| Area | Use it for |
+| --- | --- |
+| **File** | Open, Save, Save As and structure export. |
+| Left toolbar | Select and measure atoms; move, rotate or scale a selection; orbit the view. |
+| **Objects** | Show or hide atoms, bonds, cell, guides, constraints and camera. |
+| **Style** | Atom appearance, bonds, supercells, polyhedra, water, isosurfaces and stored forces. |
+| **Build** | Add atoms/molecules, transform, edit the cell, add constraints and relax. |
+| **Analyze** | Inspect measurements, trajectories, distributions, fields and interfaces. |
+| **Render** | Configure lighting, quality and output; export images, animations and 3D scenes. |
 
-The **+** tab action creates an empty document. **Open** can replace the active
-document, append frames to its trajectory, create a new tab, or open a new window.
-Dropping a supported structure or project opens the same destination choices. Inactive
-document iframes suspend rendering and movie playback, although a backend
-calculation already in progress can continue.
-In a direct or notebook editor, the first New/Open-in-new-tab action adds the
-same tab bar in place: the original app is not reloaded, so its approved
-browser file handle, selection and camera remain attached to the first tab.
-Later tabs use independent child sessions inside that page or notebook frame.
-File/Edit/View/Help menus and Save/Render actions sit above the document canvas.
-An optional Objects drawer overlays the viewport; the single right workbench
-uses Style / Build / Analyze / Render tabs. Each tab has distinct icon bookmarks
-above its active section heading; hover or focus a bookmark for its name. The
-right panel overlays a stable canvas and can expand up to 900 px. The left
-toolbar groups selection/measurement, selected-object transforms, orbit and
-creation. Choosing a new tool cancels an uncommitted transform. Style includes Atoms, Bonds, Cell, Polyhedra
-and View & guides. Search in the
-header reveals an existing control, not a duplicate setting. At narrow widths
-the viewport comes first and the workbench stacks beneath it. A dirty tab offers Save, Discard and Cancel before closing;
-closing the last internal tab creates a replacement blank document first.
-Child-tab reloads reconstruct the most recent committed appearance, camera and
-output settings along with the retained save target and clean/dirty baseline.
-The child waits for its parent to finish that reconstruction before accepting
-human or agent edits.
-The top-level **Fullscreen editing** control reports whether Keyboard Lock is
-active; unsupported or denied capture leaves File actions usable. A notebook
-iframe offers **Open full editor** for the same session rather than claiming
-that an embedded frame can capture browser-reserved keys.
-Continuous appearance, lighting, vector, bond and field sliders also provide
-editable numeric values. Enter/Tab/Save reject invalid drafts. Navigating to another
-section discards an invalid draft with a notice and restores its prior value without changing
-the current rendered setting.
-Analysis results live in a dock below the canvas. Drag its top edge to give
-plots more room without changing the camera's px/Å scale; on short windows,
-results take the work area and **Back** returns to the canvas.
+Panel icons are section shortcuts: hover or focus one to see its name.
+The header search finds controls across panels. Drag the right panel's edge to
+resize it; opening the panel does not move your view of the structure.
+On a narrow window the panel sits below the canvas.
 
-Desktop tabs can be dragged below the tab strip into a separate native window.
-The same backend session moves with its history and writable project target.
-Closing that window releases its documents while other windows keep running.
-The native Help menu copies the connection URL for its focused workspace.
+Analysis results open below the canvas. Drag the top edge to resize that area.
+On short windows, use **Back to viewport** to return from a plot to the structure.
 
 ## View and Edit
 
 ### View mode
 
-View is the default for a loaded file and is optimized for inspection:
-
-- camera navigation and axis views;
-- click, box, label, and replica selection;
-- ordered geometry and detailed single-atom inspection;
-- trajectory scrubbing/playback;
-- appearance, bonds, supercells, wrapping, and visual translation;
-- analysis and all non-mutating exports.
-
-View mode does not attach the fallback repulsion calculator. For indexed
-XDATCAR, ASE trajectory, and compatible large LAMMPS sources, it can request
-only the current frame rather than materializing the entire trajectory.
+Use **View** to navigate, select, measure, play trajectories, change appearance,
+run analysis and export results without editing atomic coordinates.
+Structure files normally open in this mode.
 
 ### Edit mode
 
-Edit adds physical mutation workflows:
-
-- `G`, `R`, and physical `S` transforms;
-- atom/molecule creation, deletion, duplication, copy, and paste;
-- cell and topology changes;
-- constraint editing;
-- calculator configuration and relaxation;
-- structure-aware undo and redo.
-
-Switching a lazy trajectory to Edit materializes all required frames first.
-This is necessary because topology changes and trajectory-wide physical
-operations need editable ASE objects rather than a view-only frame source.
+Switch to **Edit** to move, rotate, add or delete atoms, change a cell, set
+constraints or run relaxation. A large trajectory may take time to become
+editable; wait for its loading indication to finish.
 
 ### Empty launch behavior
 
-`v_ase gui` with no file creates an empty **Edit** document. Define a finite
-cell under **Style > Cell** when building a periodic model,
-then use **+ Add atoms** or **Build with ASE**.
+A new empty document starts in **Edit**. To build a periodic structure,
+set a cell under **Style → Cell**, then use **Build → Add atoms**.
+A saved project reopens in the mode it had when saved.
 
 ## Original, working, and displayed state
 
-v_ase never mutates the caller's original Python `Atoms`. Each document owns a
-working copy. A browser transform previews displayed coordinates immediately,
-then the backend validates and commits the operation and returns authoritative
-coordinates.
-
-Several visual operations deliberately do not change ASE coordinates:
-
-- camera motion and projection;
-- visual translation/alignment;
-- displayed supercell replication in View;
-- atom radius, opacity, color, material, and visibility;
-- bond style and lighting;
-- Render Area composition.
-
-Physical operations such as translation, rotation, scaling, delete, add,
-wrap, committed supercell construction, or relaxation do change the working
-ASE object.
+Changing camera position, atom size, colors or render composition affects the
+presentation, not the physical structure. Moving atoms with **G**, rotating
+them with **R**, or scaling their spacing with **S** in Edit changes coordinates.
+The original input file changes only when you explicitly save or export to it.
 
 ## Selection identities
 
-Each atom has an ASE chemical **TYPE** and may have a separate visual **LABEL**.
-TYPE controls element defaults and scientific interpretation. LABEL controls
-group selection, appearance rows, and label-pair bond/repulsion rules. Repeated
-VASP species blocks and custom extxyz/LAMMPS identities can therefore remain
-visually separate without inventing new chemical elements.
+An atom's **element** describes its chemistry. Its **label** groups it for
+appearance and selection. For example, two groups labelled `O_1` and `O_2` are
+both oxygen but can have different colors or bond rules.
 
-In View, a displayed supercell replica is a distinct visual selection and can
-be hidden or measured at its displayed position. In Edit, replicas resolve to
-their unique base atom so a periodic image cannot become an accidental second
-editable atom.
+In View, you can select and measure a displayed periodic copy at its visible
+position. In Edit, copies refer to their underlying atom, so editing one also
+changes its periodic images. [Selection](selection.md).
 
 ## History boundary
 
-History records committed user actions, including compatible visual settings.
-A confirmed transform, applied setting group, placement batch, or completed
-relaxation start is one action. Continuous visual inputs are debounced. Camera
-navigation is excluded so coordinate undo is not buried under orbit events.
+**Command/Ctrl+Z** undoes a committed edit or appearance change;
+**Command/Ctrl+Shift+Z** redoes it. Camera orbit, pan and zoom do not enter this
+history. **Esc** cancels an unfinished transform.
 
-Active Add Atoms sessions add a second safety boundary: Cancel restores the
-exact pre-session baseline; Finish commits the accumulated staged content as a
-single session result while individual placement batches remain undoable during
-the session.
+During atom/molecule placement, **Cancel** removes the current placement session;
+**Finish** keeps it. Individual placement batches remain undoable while working.
+[Adding atoms and molecules](build-atoms.md).
 
 ## Project restoration
 
-Replacing a document or opening a new tab with `.vase`/project HTML restores
-the complete saved state. Appending the same file to a trajectory imports only
-its selected structure frames and keeps the receiving document's visual state.
+Opening a project restores its saved structure and presentation. Adding its
+frames to an existing trajectory keeps the receiving document's visual settings.
+Closing an unsaved document offers **Save**, **Discard** or **Cancel**.
 
-See [Data input and documents](data-input.md) for the complete opening matrix.
+In the desktop app, closing the last tab closes its window, and closing the last
+window exits the app. A browser workspace keeps an empty tab instead.
+[Opening files](data-input.md) · [Saving projects](save-projects.md).

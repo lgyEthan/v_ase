@@ -1,7 +1,25 @@
-# Data input and documents
+# Open structures and projects
 
-The CLI, Python path API, and browser file picker use the same canonical input
-resolver. Explicit reader choices take priority over filename inference.
+Choose **File → Open** or drag a file into v_ase. Use the automatic reader for
+standard file names, or choose a reader explicitly when needed.
+
+(open-from-the-browser)=
+
+## Open from the app or browser
+
+For a structure or trajectory, choose the reader, frames and View/Edit mode.
+If you already have a document open, choose where the new data should go:
+
+| Destination | Result |
+| --- | --- |
+| **Replace current** | Replace the current structure. Unsaved work offers Save, Discard or Cancel. |
+| **Add to trajectory** | Append frames and keep the receiving document's camera and appearance. |
+| **Open in new tab** | Keep both documents open independently. |
+| **Open in new window** (desktop) | Open a separate app window. |
+
+An empty document opens the file directly, without a destination choice.
+A `.vase` project restores its saved mode, frame and appearance; it uses a new
+tab if the current document contains work. [Saving and reopening projects](save-projects.md).
 
 ## Open from the terminal
 
@@ -16,26 +34,11 @@ v_ase gui AMBIGUOUS --format POSCAR
 `--index :` loads or exposes all frames, `-1` selects the last frame, and an
 integer selects one frame. The default is all frames.
 
-## Open from the browser
-
-The top-bar **Open** action invokes the operating-system picker immediately.
-After selecting a file, choose the reader, frame range, mode, and destination:
-
-| Destination | Structure/trajectory | `.vase` or project HTML |
-| --- | --- | --- |
-| Replace current | Replaces scientific content and reconciles existing visual settings | Restores the complete project state |
-| Add to trajectory | Appends selected frames and keeps current frame/camera/settings | Appends only selected embedded structures |
-| Open in new tab | Creates an independent document | Restores the project in an independent document |
-
-When the current document is empty, the file replaces it directly and the
-destination chooser is skipped.
-
 ## Filename inference
 
 Standard VASP stems can carry `.`, `_`, or `-` suffixes. Examples such as
 `POSCAR_1`, `CONTCAR-final`, `XDATCAR.02`, `CHGCAR_spin`, and `LOCPOT-test`
-retain their intended reader. The same rule applies to local CLI files and
-temporary browser uploads because inference uses the original visible name.
+retain their intended reader. You can keep these file names when opening them from either the app or terminal.
 
 Use an explicit reader when a name is genuinely ambiguous:
 
@@ -60,10 +63,8 @@ scientific calculations key on TYPE.
 
 ## Large and remote trajectories
 
-In View mode, compatible XDATCAR and ASE `.traj` inputs use indexed random
-access. Large numeric LAMMPS dumps use a byte-offset/memory-mapped trajectory
-path when their layout is supported. Frame changes load only the requested
-frame and keep stable identity checks.
+Use View mode to inspect large trajectories. Supported XDATCAR, ASE `.traj`
+and LAMMPS inputs can load frames on demand, reducing startup time and memory.
 
 Remote `HOST:/path` sessions always stream frames. The source file, ASE objects,
 trajectory cache, volumetric processing, and backend calculations stay on the

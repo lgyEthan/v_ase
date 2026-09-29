@@ -272,5 +272,3 @@ users should install the native arm64 build.
    and the checksum file, extract the Mac ZIPs, verify signatures/tickets and
    Gatekeeper assessment, and inspect the DMG's Applications shortcut. Confirm
    the source/evidence links and the online installation guide match delivery.
-
-Windows publisher signing remains disabled. See the [setup and release guide](../docs/windows-signing.md) for eligibility, certificate options and the proposed integration.

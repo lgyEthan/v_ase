@@ -1,43 +1,56 @@
-# Installation
+# Install v_ase
 
-For a self-contained macOS or Windows application with native shortcuts,
-see [Desktop apps](desktop.md) for Mac and Windows download links, installation
-steps, first-launch security prompts and `.vase`/`.vasp` default-app setup.
-No Python installation is needed for those desktop downloads. The installation
-below is for Python, the browser GUI, Jupyter and custom calculator environments.
+Choose the installation that fits how you work:
 
-v_ase requires CPython 3.10 or newer. The current release metadata and
-validation matrix cover Python 3.10 through 3.13. Install the distribution
-named `v_ase-gui`; it provides the Python package and terminal command both
-named `v_ase`.
+| Use v_ase with… | Start here |
+| --- | --- |
+| A Mac or Windows desktop app | [Desktop installation](desktop.md); Python is included. |
+| Python, Jupyter or a browser on Linux | Install the Python package below. |
+| A remote workstation or cluster | [Remote setup](notebooks-remote.md). |
 
-## PyPI installation
+(pypi-installation)=
 
-Using a dedicated virtual environment avoids binary conflicts with an older
-NumPy/SciPy stack:
+## Python installation
+
+Use Python **3.10 or newer**. Install the package and open a structure:
+
+```bash
+python -m pip install v_ase-gui
+v_ase gui POSCAR
+```
+
+`v_ase gui` without a filename opens an empty workspace. Keep the terminal open
+while using the browser editor. Required scientific packages, including ASE,
+are installed automatically. You do not need Node.js or an online account.
+
+### Use a virtual environment
+
+A separate environment avoids conflicts with other scientific packages.
 
 ```bash
 python -m venv .venv
-source .venv/bin/activate            # Windows: .venv\Scripts\activate
-python -m pip install --upgrade pip
-python -m pip install v_ase-gui
 ```
 
-Verify the executable and Python import:
+Activate it on macOS/Linux:
 
 ```bash
-v_ase --version
-python -c "import v_ase; print(v_ase.__version__)"
+source .venv/bin/activate
 ```
 
-The installed runtime includes ASE, FastAPI/Uvicorn, NumPy, SciPy,
-scikit-image, Plotly, Matplotlib, Pillow, imageio-ffmpeg, and a Python-version
-appropriate matscipy build. Node.js and a hosted account are not required.
+Or on Windows PowerShell:
+
+```powershell
+.\.venv\Scripts\Activate.ps1
+```
+
+Then install and verify:
+
+```bash
+python -m pip install v_ase-gui
+v_ase --version
+```
 
 ## Conda or Mamba
-
-Create the environment first, then use that environment's Python to install
-the PyPI distribution:
 
 ```bash
 conda create -n vase python=3.12 -y
@@ -45,73 +58,37 @@ conda activate vase
 python -m pip install v_ase-gui
 ```
 
-Use `python -m pip`, not a bare `pip`, when more than one Python installation
-is present. Both `python -m pip --version` and `which v_ase` (Windows:
-`where v_ase`) should point into the same environment.
-
-## Source checkout
-
-For development or an unreleased commit:
-
-```bash
-git clone https://github.com/lgyEthan/v_ase.git
-cd v_ase
-python -m pip install -e .
-```
-
-Install development dependencies to run the complete test and packaging suite:
-
-```bash
-python -m pip install -e ".[dev]"
-python -m playwright install chromium
-```
+Use `python -m pip` from the activated environment so v_ase and your scientific
+packages use the same Python.
 
 ## Optional Rhino export
 
-OBJ/MTL export uses the standard library. Rhino `.3dm` export requires the
-optional dependency:
+For Rhino `.3dm` export in a Python installation:
 
 ```bash
 python -m pip install "v_ase-gui[rhino]"
 ```
 
-The option only changes 3DM availability; normal viewing, editing, analysis,
-image, video, HTML, OBJ, and Blender export do not require `rhino3dm`.
+The desktop app already includes this option. Blender and OBJ exports need no
+additional v_ase package. [Export guide](export-structures.md).
 
 ## Browser and network model
 
-v_ase starts a loopback-only HTTP/WebSocket server and opens a normal browser
-tab. The scientific Python objects and source files stay in the Python process;
-the browser receives the data needed for the active document and renders with
-WebGL. The application does not require an external web service.
-
-If a browser cannot be launched automatically:
+The Python installation opens the editor in your browser and processes data
+locally. If the browser does not open automatically:
 
 ```bash
 v_ase gui POSCAR --no-browser
 ```
 
-Open the printed `http://127.0.0.1:...` URL on the same computer. Closing the
-last v_ase browser page normally finalizes a blocking CLI/Python session.
+Open the printed local URL on the same computer. For remote work, follow
+[Notebooks and remote systems](notebooks-remote.md).
 
 ## Platform notes
 
-### Linux
-
-Use any recent Chromium-, Firefox-, or WebKit-based browser with WebGL enabled.
-On a headless node, use `--no-browser`, an SSH tunnel, or the one-command remote
-workflow in [Notebooks and remote systems](notebooks-remote.md).
-
-### macOS
-
-The default browser is opened with the operating-system launcher. A project
-HTML file can also include an optimized poster used by Finder/Quick Look.
-
-### Windows and WSL
-
-Native Windows Python uses the configured default browser. Under WSL, v_ase
-tries Windows-aware launchers before Linux desktop helpers. If interop is not
-available, use `--no-browser` and open the printed loopback URL manually.
+Use a browser with WebGL enabled. On Linux servers without a desktop, use the
+remote workflow. Under WSL, open the printed local URL manually if automatic
+browser launching is unavailable. [Troubleshooting](troubleshooting.md).
 
 ## Upgrade and uninstall
 
@@ -120,10 +97,14 @@ python -m pip install --upgrade v_ase-gui
 python -m pip uninstall v_ase-gui
 ```
 
-For a remote `HOST:/path` workflow, keep the local and remote installations on
-the same release so their browser, backend, and semantic schemas agree.
+When using a remote host, update both installations to the same version.
+Desktop updates are described in [Update or uninstall](desktop.md#update-or-uninstall).
+
+## Source checkout
+
+To change v_ase itself, see [Contributing](development.md). A source checkout is
+not needed for normal use.
 
 ## Next step
 
-Continue with [First session](quickstart.md). If installation succeeds but the
-application does not open or import, use [Troubleshooting](troubleshooting.md).
+Open a structure and follow [First steps](quickstart.md).
