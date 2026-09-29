@@ -7193,7 +7193,7 @@ export class ASERenderer {
         ].join(':');
         if (this.materialCache.has(key)) return this.materialCache.get(key);
         let material;
-        if (preset === 'unlit') {
+        if (style === 'flat' || preset === 'unlit') {
             material = new THREE.MeshBasicMaterial({
                 color,
                 side: style === 'flat' ? THREE.DoubleSide : THREE.FrontSide,
@@ -7252,14 +7252,14 @@ export class ASERenderer {
                     '#include <color_fragment>',
                     `
                     #include <color_fragment>
-                    float vAseBondEdge = min(
-                        min(vVAseBondUv.x, 1.0 - vVAseBondUv.x),
-                        min(vVAseBondUv.y, 1.0 - vVAseBondUv.y)
-                    );
-                    float vAseBondAA = max(fwidth(vAseBondEdge) * 1.25, 0.006);
+                    // Width-only ink: color halves meet without a false end
+                    // cap at their midpoint. Only the one-pixel transition is
+                    // antialiased, independent of bond length and export scale.
+                    float vAseBondEdge = min(vVAseBondUv.x, 1.0 - vVAseBondUv.x);
+                    float vAseBondAA = max(fwidth(vVAseBondUv.x) * 0.5, 0.000001);
                     float vAseBondInterior = smoothstep(
-                        0.035 - vAseBondAA,
-                        0.080 + vAseBondAA,
+                        0.060 - vAseBondAA,
+                        0.060 + vAseBondAA,
                         vAseBondEdge
                     );
                     diffuseColor.rgb = mix(${outlineColor}, diffuseColor.rgb, vAseBondInterior);
@@ -7267,7 +7267,7 @@ export class ASERenderer {
                 );
         };
         material.customProgramCacheKey = () => [
-            'v-ase-flat-bond-v1',
+            'v-ase-flat-bond-v2-crisp-sides',
             this.viewportBackgroundMode === 'white' ? 'dark-outline' : 'light-outline'
         ].join(':');
         material.needsUpdate = true;

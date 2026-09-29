@@ -196,7 +196,7 @@ def main():
 <section><h2>Depth study · rotate above and below the ring</h2><p>The rear band disappears behind the atom and its yellow selection outline. The front band passes in front. The face is 30% opaque on both sides; its narrow, darker rims stay opaque.</p><figure style="max-width:960px"><img src="depth-orbit.gif" alt="Real renderer animation showing front and rear ring occlusion"><figcaption>Actual 3D camera rotation</figcaption></figure></section>
 <section><h2>Oblique view · 3D and flat 2D</h2><div class="pair"><figure><img src="depth-3d-oblique.png" alt="3D annular ring with correct occlusion"><figcaption>3D</figcaption></figure><figure><img src="depth-2d-oblique.png" alt="Flat annular ring with correct occlusion"><figcaption>2D flat</figcaption></figure></div></section>
 <section><h2>Raised edge · filled face</h2><div class="pair"><figure><img src="depth-3d-edge.png" alt="Edge-on physical ring"><figcaption>Edge-on · finite thickness</figcaption></figure><figure><img src="depth-3d-top.png" alt="Face-on physical ring"><figcaption>Near top · the face keeps its width around the yellow outline</figcaption></figure></div></section>
-'''+''.join(rows)+'''<small>Local design review for the planned 0.4.10 update. Not published. The .vase example requires this preview source to show the new glyphs; an older installed app uses its own renderer.</small></main></html>''')
+'''+''.join(rows)+'''<small>Local design review for the planned 0.4.11 update. Not published. The .vase example requires this preview source to show the new glyphs; an older installed app uses its own renderer.</small></main></html>''')
     (out / 'capture.json').write_text(json.dumps({'panels':panels,'console_errors':errors},indent=2))
     print(out / 'index.html')
 

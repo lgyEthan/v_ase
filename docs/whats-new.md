@@ -1,5 +1,23 @@
 # What is new
 
+## 0.4.11
+
+- Open several files together in one window: choose separate tabs or combine
+  all frames into a new trajectory, with a visible, editable file order.
+  Works from Finder/Explorer, File → Open and drag-and-drop. Failed or cancelled
+  imports preserve existing documents and remove temporary imports.
+- Supported structure formats, including `.vasp`, `.cif`, `.xyz` and `.extxyz`,
+  appear as macOS Open With candidates. Only `.vase` claims format ownership;
+  other file types retain the user's existing default app.
+- **A / B / C** looks along the actual unit-cell vectors; press the same key
+  again for the opposite side. **X / Y / Z** remains Cartesian. Whole-structure
+  selection uses **Command/Ctrl+A**. Missing cell vectors disable their shortcut.
+- Flat 2D bonds have uniform unlit colors and sharp side outlines, with no
+  blurred shading or black seam where their two atom colors meet. The same
+  appearance is used in images, movies and standalone HTML.
+- Stored force-vector displays refresh after physical edits, preventing a stale
+  layer from blocking subsequent frame changes.
+
 ## 0.4.10
 
 - FixedPlane constraints use planetary rings with a translucent cyan face and

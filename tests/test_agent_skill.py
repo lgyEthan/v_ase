@@ -1013,3 +1013,9 @@ def test_commensurate_rotation_schema_matches_the_global_z_runtime_contract():
     for axis in ([0, 0, 1], "X", "Y", "ALL"):
         assert not focused.is_valid({**request, "axis": axis})
         assert not native.is_valid({"angle_deg": 21.2, "indices": [0, 1], "axis": axis, **guards})
+
+
+def test_apply_capability_index_lists_every_control_schema_key():
+    text = (ROOT / 'v_ase/static/main.js').read_text()
+    declared = re.search(r"\bapply: \[(.*?)\]", text, re.DOTALL).group(1)
+    assert set(re.findall(r"'([^']+)'", declared)) == set(ai_schema_payload()['control_schema']['properties'])

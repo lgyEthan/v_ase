@@ -7491,3 +7491,14 @@ body.editor-shell #app-viewport .orientation-widget { top: 53px; right: 17px; }
 .quality-surface-heading {font-size:12px; font-weight:600; margin:16px 0 8px;}
 .renderer-quality-group .text-action {padding:0; border:0; background:none; color:var(--teal); text-decoration:underline; cursor:pointer; font:inherit;}
 .renderer-quality-group input:disabled {opacity:.5; cursor:not-allowed;}
+
+/* One ordered file group, with a single bounded list on small screens. */
+.open-batch-heading { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 16px; margin: 16px 0 8px; }
+.open-batch-heading span { color: var(--muted); font-size: 12px; }
+.open-batch-files { max-height: min(28vh, 240px); overflow-y: auto; padding: 0; margin: 0; list-style: none; border: 1px solid var(--line); border-radius: 4px; }
+.open-batch-files li { display: flex; align-items: center; gap: 6px; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+.open-batch-files li:last-child { border-bottom: 0; }
+.open-batch-files li > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.open-batch-files .btn { flex: 0 0 30px; min-width: 30px; padding: 4px; }
+#open-batch-progress { overflow-wrap: anywhere; }
+#open-batch-progress-bar { width: 100%; }

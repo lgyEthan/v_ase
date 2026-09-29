@@ -451,7 +451,7 @@ def test_selection_marquee_transform_increment_and_view_axis_shortcuts_are_wired
     assert "alignViewToAxis" in main_js
     assert "axisFromKey" in main_js
     assert "Restore canonical +axis view" in index_html
-    assert "const canonicalUp = axis === 'Z'" in main_js
+    assert "this.alignViewAlongDirection(axisVectors[axis], axis === 'Z'" in main_js
     assert "const canonicalUpAligned = basis.up.dot(canonicalUp) > poseTolerance;" in main_js
     assert "positiveDirectionAligned && canonicalUpAligned ? -1 : 1" in main_js
     assert "Lock the global Cartesian axis in G/R/S mode" in index_html

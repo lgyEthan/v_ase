@@ -92,3 +92,7 @@ output lighting is applied at capture. Display DPI never resizes the encoder.
 Insertion-region editing guides are excluded from image and movie captures,
 even while placement is active; their interactive visibility is restored after
 capture. Scientific constraint visuals instead follow Objects → Constraints.
+
+Enabled stored-force layers refresh after physical edits and on project reload.
+Wait for scene readiness before capture; missing data yields no arrows rather than
+a permanently stale layer, and visualization never triggers force calculation.

@@ -24,8 +24,8 @@ function fixture(decisions) {
     const context = vm.createContext({
         require: name => name === 'electron' ? electron
             : name === './file-vault.cjs' ? { FileVault: class { async revoke(id) { revoked.push(id); } } }
-                : require(name),
-        process: { argv: ['electron', '.'], platform: process.platform, env: {} },
+                : name.startsWith('./') ? require(path.join(__dirname, '..', name)) : require(name),
+        process: { argv: ['electron', '.'], cwd: () => process.cwd(), platform: process.platform, env: {} },
         __dirname: path.join(__dirname, '..'), console, URL, setTimeout, clearTimeout,
         fetch: async () => ({ ok: true }),
     });

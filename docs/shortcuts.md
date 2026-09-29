@@ -54,6 +54,7 @@ Press these keys to enter transformation mode:
 | **X** | **Align / Lock X** | In select mode, restore the canonical +X pose, including screen-up orientation. Press X again only from that exact pose to flip to -X. During G/R/S, lock the transform to X. |
 | **Y** | **Align / Lock Y** | In select mode, restore the canonical +Y pose, including screen-up orientation. Press Y again only from that exact pose to flip to -Y. During G/R/S, lock the transform to Y. |
 | **Z** | **Align / Lock Z** | In select mode, restore the canonical +Z pose, including screen-up orientation. Press Z again only from that exact pose to flip to -Z. During G/R/S, lock the transform to Z. |
+| **A / B / C** | **Unit-cell view** | Look from +a / +b / +c toward the current target; repeat to view from the opposite side. Uses the current cell vectors, including skewed cells, not Cartesian axes or plane normals. A zero/missing vector disables that key. |
 | **Esc** | **Cancel / Inspector** | Revert an active transform or close a modal. Otherwise, open a collapsed control panel; when the panel is open, commit its active field, close it, and return keyboard focus to the viewport. |
 | **Enter / Left Click** | **Confirm** | Confirm the current atom or Sun transform. |
 | **Shift+A** | **Invert selection** | Invert the current visible atom selection. |
@@ -99,6 +100,13 @@ an active lock cannot guarantee every OS shortcut. An embedded notebook editor
 offers **Open full editor** for the same session. Use visible File actions when
 the browser consumes a chord first. Modified letters do not fall through to
 unmodified G/R/S/axis commands.
+A/B/C changes only the camera and never selects atoms. Command/Ctrl+A selects all;
+Shift+A inverts and Alt+A clears selection. Cell views keep c pointing up along
+a/b, and b pointing up along c (projected for skewed cells). They preserve the
+view target, magnification and world-locked render camera; an active viewport
+camera lock follows the view as for X/Y/Z. They do not fire while typing, holding
+a modifier, composing text, or performing G/R/S.
+
 Arrow keys in input fields keep native text and number editing; finish or
 cancel an active transform before using camera or timeline arrows.
 

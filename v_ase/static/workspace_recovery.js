@@ -1,4 +1,4 @@
-import { projectProvenanceFromApp } from './project_provenance.js?v=0.4.10';
+import { projectProvenanceFromApp } from './project_provenance.js?v=0.4.11';
 
 // Parent-owned runtime state. Browser handles never enter the project archive.
 export function captureDocumentRecovery(entry, app = entry?.pane?.contentWindow?.__ASE_APP__) {
@@ -40,6 +40,16 @@ export function restoreDocumentRecovery(entry, app) {
             app.projectFile.savedVisualSignature = entry.savedContent.visual;
         }
         app.updateProjectDirtyState();
+    }
+    if (entry.pendingUnsaved) {
+        if (app.workspaceBaselineTimer !== null) clearTimeout(app.workspaceBaselineTimer);
+        app.workspaceBaselineTimer = null;
+        app.workspaceBaselineSettled = true;
+        app.workspaceRecoveryRestored = true;
+        app.adoptProjectProvenance(null);
+        app.projectFile.savedScientificSignature = 'unsaved:combined-trajectory';
+        app.updateProjectDirtyState();
+        entry.pendingUnsaved = false;
     }
     entry.pendingProvenance = null;
     entry.appInstance = app;

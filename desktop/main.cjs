@@ -25,7 +25,21 @@ const closingWindows = new Set();
 let quitting = false, quitRequested = false;
 const focusedWindow = () => BrowserWindow.getFocusedWindow() || [...windows].find(w => !w.isDestroyed());
 let commands = {};
-const pendingFiles = [];
+const { OpenFileQueue } = require('./open-file-queue.cjs');
+const readyWindows = new Set();
+const openQueue = new OpenFileQueue(async filenames => {
+    const target = focusedWindow();
+    if (!target || !readyWindows.has(target)) return false;
+    const files = [], errors = [];
+    for (const filename of filenames) {
+        try { files.push(await describeOpenFile(filename, target)); }
+        catch (error) { errors.push(`${path.basename(filename)}: ${error.message}`); }
+    }
+    if (files.length) target.webContents.send('vase:open-file', files);
+    if (errors.length) await dialog.showMessageBox(target, { type: 'error',
+        message: 'Some files could not be opened', detail: errors.join('\n') });
+    return true;
+});
 
 function pythonExecutable() {
     if (!app.isPackaged && process.env.VASE_DEV_PYTHON) return path.resolve(process.env.VASE_DEV_PYTHON);
@@ -138,10 +152,13 @@ function registerIPC() {
     ipcMain.handle('vase:open-dialog', async event => {
         authorized(event);
         const target = BrowserWindow.fromWebContents(event.sender);
-        const result = await dialog.showOpenDialog(target, { title: 'Open structure or project', properties: ['openFile'],
+        const result = await dialog.showOpenDialog(target, { title: 'Open structure or project', properties: ['openFile', 'multiSelections'],
             filters: [{ name: 'Structures and projects', extensions: ['vase', ...require('./file-formats.json').structureExtensions, ...require('./file-formats.json').projectImportExtensions] },
                       { name: 'All files', extensions: ['*'] }] });
-        return result.canceled ? null : describeOpenFile(result.filePaths[0], target);
+        if (result.canceled) return null;
+        const files = [];
+        for (const filename of result.filePaths) files.push(await describeOpenFile(filename, target));
+        return files;
     });
     ipcMain.handle('vase:save-dialog', async (event, options) => {
         const owner = authorized(event);
@@ -256,11 +273,7 @@ function stopBackend() {
     else backend.kill('SIGTERM');
 }
 
-async function openQueued() {
-    const target = focusedWindow();
-    if (!target) return;
-    for (const file of pendingFiles.splice(0)) target.webContents.send('vase:open-file', await describeOpenFile(file, target));
-}
+async function openQueued() { return openQueue.flush(); }
 
 function inputCommand(input) {
     if (input.type !== 'keyDown' || input.isComposing || input.alt) return null;
@@ -298,7 +311,7 @@ async function createEditorWindow(url, { snapshot = null, sourceOwner = null, po
     windows.add(win);
     if (position && Number.isFinite(position.x) && Number.isFinite(position.y)) win.setPosition(Math.round(position.x), Math.round(position.y));
     win.on('close', event => { if (!exiting) { event.preventDefault(); closeWindowSafely(win); } });
-    win.on('closed', () => { windows.delete(win); });
+    win.on('closed', () => { readyWindows.delete(win); windows.delete(win); });
     win.webContents.on('will-navigate', event => { if (!localFrame(event.url)) event.preventDefault(); });
     win.webContents.on('will-frame-navigate', event => {
         if (!localFrame(event.url) && event.url !== 'about:blank') event.preventDefault();
@@ -346,11 +359,12 @@ async function createEditorWindow(url, { snapshot = null, sourceOwner = null, po
                 await win.webContents.executeJavaScript(`window.__vaseDesktopHost.restore(${JSON.stringify(snapshot)})`);
                 snapshot = null;
             }
+            readyWindows.add(win);
             clearTimeout(readyTimeout); readyResolve(win);
-            if (initial) await openQueued();
+            await openQueued();
             if (smoke && initial) {
                 const { runSmoke } = require('./smoke.cjs');
-                await runSmoke({ app, win, handshake, vault, sendCommand });
+                await runSmoke({ app, win, handshake, vault, sendCommand, openQueue });
                 exiting = true; if (!win.isDestroyed()) win.destroy(); stopBackend(); app.exit(0);
             }
         } catch (error) {
@@ -377,14 +391,19 @@ async function createEditorWindow(url, { snapshot = null, sourceOwner = null, po
     }
 }
 
-app.on('open-file', (event, filename) => { event.preventDefault(); pendingFiles.push(filename); if (commands.new) openQueued().catch(console.error); });
+app.on('open-file', (event, filename) => { event.preventDefault(); openQueue.add([filename]); });
 if (!app.requestSingleInstanceLock()) app.quit();
 else {
-    app.on('second-instance', (_event, argv) => {
-        for (const value of argv.slice(app.isPackaged ? 1 : 2)) if (!value.startsWith('-') && fs.existsSync(value) && fs.statSync(value).isFile()) pendingFiles.push(value);
-        focusedWindow()?.show(); focusedWindow()?.focus(); if (commands.new) openQueued().catch(console.error);
+    const argumentFiles = (argv, directory = process.cwd()) => argv.slice(app.isPackaged ? 1 : 2)
+        .filter(value => !value.startsWith('-'))
+        .map(value => path.resolve(directory, value)).filter(value => {
+            try { return fs.statSync(value).isFile(); } catch { return false; }
+        });
+    app.on('second-instance', (_event, argv, directory) => {
+        openQueue.add(argumentFiles(argv, directory));
+        focusedWindow()?.show(); focusedWindow()?.focus();
     });
-    for (const value of process.argv.slice(app.isPackaged ? 1 : 2)) if (!value.startsWith('-') && fs.existsSync(value) && fs.statSync(value).isFile()) pendingFiles.push(value);
+    openQueue.add(argumentFiles(process.argv));
     app.on('before-quit', event => { if (!exiting && windows.size) { event.preventDefault(); quitSafely(); } });
     app.on('window-all-closed', () => {
         // Explicit Quit owns its request after all windows have been released.

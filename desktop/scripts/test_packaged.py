@@ -28,7 +28,7 @@ if platform.system() == "Darwin":
     project = next(item for item in types if 'vase' in item.get('CFBundleTypeExtensions', []))
     structures = next(item for item in types if 'extxyz' in item.get('CFBundleTypeExtensions', []))
     assert project['LSHandlerRank'] == 'Owner'
-    assert structures['LSHandlerRank'] == 'None'
+    assert structures['LSHandlerRank'] == 'Alternate'
     expected = json.loads((root / 'file-formats.json').read_text())['structureExtensions']
     assert set(structures['CFBundleTypeExtensions']) == set(expected)
     icons = [info['CFBundleIconFile'], project['CFBundleTypeIconFile'], structures['CFBundleTypeIconFile']]
@@ -57,7 +57,7 @@ required = ("nativeControlA", "verticalCutoffTab", "droppedFileGrant", "detached
             "detachedSave", "transferRollback", "openNewWindow", "independentWindowClose",
             "nativeKeyInput", "nativeSave", "scientificProject", "openNewTab",
             "quitCancellation", "nodeIsolation", "lastDocumentClosesWindow",
-            "emptyLastWindowRequestsQuit")
+            "emptyLastWindowRequestsQuit", "multiFileOpen", "osOpenBatch", "cellAxisShortcuts")
 if (report.get("version") != expected_version or report.get("geometryRoutes") != 75
         or report.get("commands") != 10 or report.get("oxygenPixels", 0) <= 100
         or any(report.get(key) is not True for key in required)):

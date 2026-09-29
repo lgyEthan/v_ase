@@ -90,6 +90,8 @@ export function viewportNavigationForEvent(event) {
         if (code === 'ArrowRight') return { kind: 'frame', delta: 1 };
         return null;
     }
+    const cellAxis = { KeyA: 'a', KeyB: 'b', KeyC: 'c', a: 'a', b: 'b', c: 'c' }[code];
+    if (cellAxis) return event.repeat ? null : { kind: 'cell-axis', axis: cellAxis };
     const directions = {
         ArrowLeft: 'left', ArrowRight: 'right',
         ArrowUp: 'up', ArrowDown: 'down'

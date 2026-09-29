@@ -4,7 +4,7 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const { Menu, nativeImage, BrowserWindow } = require('electron');
 
-async function runSmoke({ app, win, handshake, vault, sendCommand }) {
+async function runSmoke({ app, win, handshake, vault, sendCommand, openQueue }) {
     const output = process.env.V_ASE_SMOKE_DIR || path.join(__dirname, 'smoke-output');
     await fs.mkdir(output, { recursive: true });
     const js = async code => {
@@ -56,6 +56,7 @@ async function runSmoke({ app, win, handshake, vault, sendCommand }) {
             }
             return;
         }
+        await wait(`${active}.document.querySelector('#open-file-confirm')`);
         if (newTab) {
             const count = await js('window.__V_ASE_WORKSPACE__.tabs.size');
             await js(`${active}.document.querySelector('[name="open-file-mode"][value="new-tab"]').checked=true; ${active}.document.querySelector('#open-file-confirm').click()`);
@@ -103,6 +104,7 @@ async function runSmoke({ app, win, handshake, vault, sendCommand }) {
     await open(fixture);
     assert.equal(await js(`${appRef}.state.atoms.positions.length`), 3);
     const visualParity = await require('./visual-smoke.cjs')({js,active,appRef,win,output,wait});
+    const multiOpen = await require('./multi-open-smoke.cjs')({app,win,js,active,appRef,wait,key,output,openQueue});
     const routes = { supercell: 'cell-replication', appearance: 'appearance', bonding: 'bonding', renderer: 'export', 'cell-transform': 'cell-transform' };
     for (const [command, route] of Object.entries(routes)) {
         Menu.getApplicationMenu().getMenuItemById(command).click();
@@ -362,6 +364,7 @@ async function runSmoke({ app, win, handshake, vault, sendCommand }) {
     nativeDialog.showOpenDialog = async()=>({canceled:false,filePaths:[html]});
     try { await js("window.__vaseDesktopHost.command('open')"); }
     finally { nativeDialog.showOpenDialog=previousOpen; }
+    await wait(`${active}.document.querySelector('#open-file-confirm')`);
     await js(`${active}.document.querySelector('[name="open-file-mode"][value="new-window"]').checked=true; ${active}.document.querySelector('#open-file-confirm').click()`);
     let openedWindow, openedState;
     const openDeadline = Date.now() + windowReadyBudget;
@@ -379,7 +382,7 @@ async function runSmoke({ app, win, handshake, vault, sendCommand }) {
         commands: 10, nativeControlA: true, verticalCutoffTab: true, droppedFileGrant: true, detachedWindow: true, detachedSave: true, transferRollback: true, openNewWindow: true, independentWindowClose: true, nativeKeyInput: true, nativeSave: true, scientificProject: true,
         detachedReadyMs,
         htmlProfile: [720,480], openNewTab: true, quitCancellation: true, render: [800, 600],
-        oxygenPixels, geometryRoutes, visualParity, nodeIsolation: true };
+        oxygenPixels, geometryRoutes, visualParity, ...multiOpen, nodeIsolation: true };
     // The remaining source window contains only disposable blank tabs after detach.
     while (await js('window.__V_ASE_WORKSPACE__.tabs.size') > 1) {
         const count=await js('window.__V_ASE_WORKSPACE__.tabs.size');

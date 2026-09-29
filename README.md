@@ -12,7 +12,7 @@ data, available as a desktop app, in your browser and in Jupyter.
 [![Documentation](https://readthedocs.org/projects/v-ase/badge/?version=latest)](https://v-ase.readthedocs.io/en/latest/)
 [![License: AGPL v3+](https://img.shields.io/badge/license-AGPL--3.0--or--later-2f855a.svg)](LICENSE)
 
-[Download for Mac or Windows](https://github.com/lgyEthan/v_ase/releases/tag/v0.4.10) ·
+[Download for Mac or Windows](https://github.com/lgyEthan/v_ase/releases/tag/v0.4.11) ·
 [Install with Python](#get-v_ase) ·
 [User guide](https://v-ase.readthedocs.io/en/latest/) ·
 [Example files](https://v-ase.readthedocs.io/en/latest/example-inputs.html)
@@ -255,7 +255,10 @@ so its preview remains available while adjusting appearance or the camera.
 
 ## Render and export
 
-Choose flat 2D or shaded 3D, tune materials and lighting, and compose a render
+Stored force vectors stay synchronized after edits and trajectory frame changes.
+
+Choose flat 2D with crisp, uniformly colored bonds or shaded 3D, tune materials
+and lighting, and compose a render
 area independently of your editing view. Set output resolution and physical
 scale for figures, or export a selected trajectory range as a movie or GIF.
 
@@ -288,11 +291,15 @@ Python is included. Download the installer for your computer:
 
 | Computer | Download | Install |
 | --- | --- | --- |
-| Mac with Apple silicon, macOS 15+ | [Apple silicon DMG](https://github.com/lgyEthan/v_ase/releases/download/v0.4.10/v_ase-0.4.10-mac-arm64.dmg) | Open the DMG and drag **v_ase** into **Applications**. |
-| Mac with Intel, macOS 15+ | [Intel DMG](https://github.com/lgyEthan/v_ase/releases/download/v0.4.10/v_ase-0.4.10-mac-x64.dmg) | Open the DMG and drag **v_ase** into **Applications**. |
-| Windows 10/11, Intel or AMD 64-bit | [Windows installer](https://github.com/lgyEthan/v_ase/releases/download/v0.4.10/v_ase-0.4.10-win-x64.exe) | Run the installer, then open **v_ase** from Start. |
+| Mac with Apple silicon, macOS 15+ | [Apple silicon DMG](https://github.com/lgyEthan/v_ase/releases/download/v0.4.11/v_ase-0.4.11-mac-arm64.dmg) | Open the DMG and drag **v_ase** into **Applications**. |
+| Mac with Intel, macOS 15+ | [Intel DMG](https://github.com/lgyEthan/v_ase/releases/download/v0.4.11/v_ase-0.4.11-mac-x64.dmg) | Open the DMG and drag **v_ase** into **Applications**. |
+| Windows 10/11, Intel or AMD 64-bit | [Windows installer](https://github.com/lgyEthan/v_ase/releases/download/v0.4.11/v_ase-0.4.11-win-x64.exe) | Run the installer, then open **v_ase** from Start. |
 
-Open a file with **File → Open**, or drag it into the editor.
+Open files with **File → Open**, Finder/Explorer, or drag-and-drop. Select
+several files to open **separate tabs** or **one trajectory** in the same window.
+Use **A/B/C** to view along the unit-cell vectors (press again to reverse);
+**X/Y/Z** uses Cartesian axes. [Opening files](https://v-ase.readthedocs.io/en/latest/data-input.html) ·
+[Shortcuts](https://v-ase.readthedocs.io/en/latest/shortcuts.html).
 [Installation help and updates](https://v-ase.readthedocs.io/en/latest/desktop.html).
 
 ### Python and Jupyter

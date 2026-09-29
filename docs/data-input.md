@@ -21,6 +21,22 @@ An empty document opens the file directly, without a destination choice.
 A `.vase` project restores its saved mode, frame and appearance; it uses a new
 tab if the current document contains work. [Saving and reopening projects](save-projects.md).
 
+## Open several files
+
+Select multiple files in **File → Open**, drop them together, or open the
+selection from Finder/Explorer. One chooser offers:
+
+- **Separate tabs** (default): each file keeps its own frames; projects restore
+  their saved mode and appearance.
+- **One trajectory**: combine all structures into one new tab. Project files
+  contribute structures, not appearance. Scalar-field files use separate tabs.
+
+Files start in natural filename order (`frame-2` before `frame-10`). Check the
+list and use its arrows to set the desired frame order. Existing tabs are kept.
+Opening shows progress. Cancel waits for the current file to finish, then removes
+all temporary imports. A failed file is named and the batch creates no partial tabs.
+Save the combined trajectory as a new `.vase` project.
+
 ## Open from the terminal
 
 ```bash

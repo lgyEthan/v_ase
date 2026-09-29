@@ -34,7 +34,7 @@ def main():
     extensions = formats['structureExtensions']
     config = json.loads((ROOT / 'package.json').read_text())['build']
     assert config['mac']['fileAssociations'][0]['ext'] == extensions, 'Synchronize Mac candidate extensions'
-    assert config['mac']['fileAssociations'][0]['rank'] == 'None'
+    assert config['mac']['fileAssociations'][0]['rank'] == 'Alternate'
     assert [item['ext'] for item in config['fileAssociations']] == ['vase']
     target = ROOT / 'assets/file-associations.nsh'
     content = nsis_source(extensions, formats['legacyGenericExtensions'])

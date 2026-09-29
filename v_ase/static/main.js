@@ -1,37 +1,37 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.4.10';
-import { ASERenderer } from './renderer.js?v=0.4.10';
-import { ASESelection } from './selection.js?v=0.4.10';
-import { ASETransform } from './transform.js?v=0.4.10';
-import { SelectedAppearanceEditor } from './selected_appearance.js?v=0.4.10';
-import { installActivityIndicators } from './ui_activity.js?v=0.4.10';
+import { ASEApi } from './api.js?v=0.4.11';
+import { ASERenderer } from './renderer.js?v=0.4.11';
+import { ASESelection } from './selection.js?v=0.4.11';
+import { ASETransform } from './transform.js?v=0.4.11';
+import { SelectedAppearanceEditor } from './selected_appearance.js?v=0.4.11';
+import { installActivityIndicators } from './ui_activity.js?v=0.4.11';
 
-import { installPolyhedra } from './polyhedra.js?v=0.4.10';
+import { installPolyhedra } from './polyhedra.js?v=0.4.11';
 import { installWaterUI } from './water_ui.js';
-import { installAIScene } from './ai_scene.js?v=0.4.10';
-import { AtomScalarStore } from './atom_properties.js?v=0.4.10';
-import { DirectWorkspace } from './direct_workspace.js?v=0.4.10';
-import { projectProvenanceFromLoad } from './project_provenance.js?v=0.4.10';
-import { installShortcutCapture } from './shortcut_capture.js?v=0.4.10';
-import { openFileInWindow } from './workspace_windows.js?v=0.4.10';
-import { installEditorInteractions } from './editor_interactions.js?v=0.4.10';
-import { WORKBENCH_ROUTES, mountWorkbenchTools, syncWorkbenchRoute } from './editor_ui.js?v=0.4.10';
+import { installAIScene } from './ai_scene.js?v=0.4.11';
+import { AtomScalarStore } from './atom_properties.js?v=0.4.11';
+import { DirectWorkspace } from './direct_workspace.js?v=0.4.11';
+import { projectProvenanceFromLoad } from './project_provenance.js?v=0.4.11';
+import { installShortcutCapture } from './shortcut_capture.js?v=0.4.11';
+import { openFileInWindow } from './workspace_windows.js?v=0.4.11';
+import { installEditorInteractions } from './editor_interactions.js?v=0.4.11';
+import { WORKBENCH_ROUTES, mountWorkbenchTools, syncWorkbenchRoute } from './editor_ui.js?v=0.4.11';
 import {
     EDITOR_COMMANDS, commandIdForEvent, resolveShortcutPlatform,
     editorShortcutLabel, editorAriaShortcut, editorShortcutSearchTerms,
     viewportNavigationForEvent
-} from './editor_commands.js?v=0.4.10';
+} from './editor_commands.js?v=0.4.11';
 import {
     DEFAULT_ATOM_RADIUS_MAPPING,
     atomRadiusFactors,
     normalizeAtomRadiusMapping,
     radiusMappingPreset
-} from './radius_mapping.js?v=0.4.10';
+} from './radius_mapping.js?v=0.4.11';
 import {
     interpolateTrajectoryFrames,
     interpolatedFrameCount,
     normalizeInterpolationMultiplier
-} from './trajectory.js?v=0.4.10';
+} from './trajectory.js?v=0.4.11';
 
 const EDITOR_ROUTES = Object.freeze({
     'structure-info': { group: 'inspect', category: 'scene', title: 'Scene overview' },
@@ -6447,6 +6447,11 @@ class VAseApp {
         if (!this.collaborationReady || (this.workspaceChild && !this.workspaceRecoveryAcknowledged)
             || !document.getElementById('modal-container')?.classList.contains('hidden')
             || this.transform.mode !== 'IDLE') return true;
+        if (navigation.kind === 'cell-axis') {
+            const sign = this.alignViewToCellAxis(navigation.axis);
+            if (sign !== null) this.toast(`View along unit-cell ${sign > 0 ? '+' : '-'}${navigation.axis}.`, 'success');
+            return true;
+        }
         if (navigation.kind === 'camera') {
             this.rotateCameraView(navigation.direction, this.state.display.viewRotationStepDeg);
             return true;
@@ -6813,7 +6818,9 @@ class VAseApp {
 
     async updateForceVectorsForCurrentFrame() {
         if (!this.state.display.showForceVectors || !this.state.atoms?.positions?.length) {
-            this.forceVectorRuntime.renderedFrame = -1;
+            this.forceVectorRuntime.renderedFrame = this.state.display.showForceVectors
+                ? Number(this.state.atoms?.metadata?.current_frame || 0) : -1;
+            this.renderer.setForceVectors([], this.state.display);
             return;
         }
         const frameIndex = Number(this.state.atoms.metadata?.current_frame || 0);
@@ -11717,6 +11724,9 @@ class VAseApp {
             this.syncRegistryRelaxationFromData(data);
             this.renderVolumetricControls();
             const initialFieldRequests = [];
+            if (this.state.display.showForceVectors) {
+                initialFieldRequests.push(this.updateForceVectorsForCurrentFrame());
+            }
             // Initial project settings are applied without rendering while the
             // scene is constructed. Resolve their stored scalar colors before
             // declaring the document ready, just like volumetric layers.
@@ -12860,6 +12870,13 @@ class VAseApp {
         this.updateUI();
         this.syncAtomColorScaleControls();
         this.syncAtomRadiusMappingControls();
+        // Physical edits invalidate the force cache just as frame changes do.
+        // Resolve stored values again; never leave an enabled layer permanently
+        // stale or evaluate a calculator merely to draw it.
+        if (!trajectoryFrame && this.state.display.showForceVectors) {
+            queueMicrotask(() => this.updateForceVectorsForCurrentFrame()
+                .catch(error => this.updateForceVectorStatus(error.message)));
+        }
         if (!trajectoryFrame && this.state.display.atomColorScaleEnabled && data?.positions?.length) {
             queueMicrotask(() => {
                 this.updateAtomColorScale({ refreshCatalog: true }).catch(error => {
@@ -15018,30 +15035,55 @@ class VAseApp {
         marquee.style.height = '0px';
     }
 
+    cellViewBasis(axis) {
+        const index = { a: 0, b: 1, c: 2 }[axis];
+        const rows = this.state.atoms?.cell;
+        const valid = row => Array.isArray(row) && row.length === 3
+            && row.every(Number.isFinite) && Math.hypot(...row) > 1e-8;
+        if (index === undefined || !valid(rows?.[index])) return null;
+        const direction = new THREE.Vector3(...rows[index]).normalize();
+        // c is vertical when looking along a/b; b is vertical along c.
+        // Project the up vector for skewed cells, and fall back safely for
+        // lower-dimensional cells without inventing missing lattice vectors.
+        const candidates = [rows[axis === 'c' ? 1 : 2], ...rows, [0,0,1], [0,1,0], [1,0,0]];
+        for (const row of candidates.filter(valid)) {
+            const up = new THREE.Vector3(...row).normalize();
+            up.addScaledVector(direction, -up.dot(direction));
+            if (up.lengthSq() > 1e-10) return { direction, up: up.normalize() };
+        }
+        return null;
+    }
+
+    alignViewToCellAxis(axis) {
+        const basis = this.cellViewBasis(axis);
+        if (!basis) return null;
+        return this.alignViewAlongDirection(basis.direction, basis.up);
+    }
+
     alignViewToAxis(axis) {
         const axisVectors = {
             X: new THREE.Vector3(1, 0, 0),
             Y: new THREE.Vector3(0, 1, 0),
             Z: new THREE.Vector3(0, 0, 1)
         };
-        const baseDir = axisVectors[axis];
-        if (!baseDir) return 1;
+        if (!axisVectors[axis]) return 1;
+        return this.alignViewAlongDirection(axisVectors[axis], axis === 'Z'
+            ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(0, 0, 1));
+    }
+
+    alignViewAlongDirection(baseDir, canonicalUp) {
         const camera = this.renderer.camera;
         const controls = this.renderer.controls;
         const target = controls.target.clone();
         const distance = Math.max(camera.position.distanceTo(target), 4.0);
-        const canonicalUp = axis === 'Z'
-            ? new THREE.Vector3(0, 1, 0)
-            : new THREE.Vector3(0, 0, 1);
         const basis = this.cameraViewBasis();
         const poseTolerance = 1 - 1e-7;
         const positiveDirectionAligned = basis.offset.lengthSq() > 1e-12
             && basis.offset.clone().normalize().dot(baseDir) > poseTolerance;
         const canonicalUpAligned = basis.up.dot(canonicalUp) > poseTolerance;
         const sign = positiveDirectionAligned && canonicalUpAligned ? -1 : 1;
-        const dir = baseDir.clone().multiplyScalar(sign);
         camera.up.copy(canonicalUp);
-        camera.position.copy(target).add(dir.clone().multiplyScalar(distance));
+        camera.position.copy(target).addScaledVector(baseDir, sign * distance);
         controls.target.copy(target);
         this.completeCameraViewChange('axis-view');
         return sign;
@@ -20334,7 +20376,7 @@ class VAseApp {
             apply: [
                 'expectedDocumentId', 'expectedRevision', 'frame', 'mode', 'display', 'quality',
                 'applyConstraints', 'camera', 'renderArea', 'selection', 'operation',
-                'responseProfile'
+                'responseProfile', 'requestId'
             ],
             queries: Object.keys(discovery.query_schemas || discovery.queries || {}),
             describeProfiles: this.clonePlain(discovery.describe_profiles || {}),
@@ -26386,18 +26428,23 @@ class VAseApp {
         return `${(value / 1024 ** 3).toFixed(2)} GB`;
     }
 
+    async showOpenFilesModal(entries, options = {}) {
+        const { queueFileOpen } = await import('./file_open_batch.js?v=0.4.11');
+        return queueFileOpen(this, entries, options);
+    }
+
     async chooseSystemStructureFile() {
         if (performance.now() < this.filePickerSuppressUntil) return;
         if (window.isSecureContext && !navigator.webdriver && window.showOpenFilePicker) {
             try {
-                const [handle] = await window.showOpenFilePicker({
-                    multiple: false,
+                const handles = await window.showOpenFilePicker({
+                    multiple: true,
                     types: [{ description: 'Atomic structures and v_ase projects', accept: {
                         'application/octet-stream': ['.vase', '.traj', '.xyz', '.extxyz', '.vasp', '.cif'],
                         'text/html': ['.html', '.htm']
                     } }]
                 });
-                if (handle) this.showOpenFileModal(await handle.getFile(), { handle });
+                this.showOpenFilesModal(handles.map(handle => ({ name: handle.name, handle, getFile: () => handle.getFile() })));
             } catch (err) {
                 if (err?.name !== 'AbortError') this.toast(`Open file failed: ${err.message}`, 'error');
             }
@@ -26418,7 +26465,7 @@ class VAseApp {
         return openFileInWindow(this, file, inputFormat, index, runtimeMode, options);
     }
 
-    showOpenFileModal(file, { handle = null, dropped = false } = {}) {
+    showOpenFileModal(file, { handle = null, dropped = false, onCommit = null } = {}) {
         const newTabAvailable = Boolean(this.sessionId);
         const hasDocument = this.hasScratchContent();
         if (/\.vase$/i.test(file.name)) {
@@ -26428,6 +26475,8 @@ class VAseApp {
                 ? this.openStructureFileInNewTab(file, 'vase', ':', null, { handle })
                 : this.loadStructureFile(file, 'vase', ':', null, { handle });
         }
+        let finishOpen;
+        const completed = new Promise(resolve => { finishOpen = resolve; });
         const currentRuntimeMode = this.state.vizOnly ? 'view' : 'edit';
         this.showModal(`
             <h2>Open File</h2>
@@ -26496,6 +26545,7 @@ class VAseApp {
             <button id="open-file-cancel" class="btn">Cancel</button>
             <button id="open-file-confirm" class="btn primary">Replace</button>
         `);
+        this.modalDismiss = () => finishOpen(false);
         const name = document.getElementById('open-file-name');
         const size = document.getElementById('open-file-size');
         if (name) {
@@ -26523,7 +26573,10 @@ class VAseApp {
             const index = document.getElementById('open-file-index')?.value.trim() || ':';
             const mode = document.querySelector('input[name="open-file-mode"]:checked')?.value || 'replace';
             const runtimeMode = document.querySelector('input[name="open-runtime-mode"]:checked')?.value || currentRuntimeMode;
+            onCommit?.();
+            this.modalDismiss = null;
             this.closeModal();
+            try {
             if (mode === 'new-window') {
                 await this.openStructureFileInNewWindow(file, inputFormat, index, runtimeMode, { handle });
             } else if (mode === 'append') {
@@ -26533,7 +26586,9 @@ class VAseApp {
             } else {
                 await this.loadStructureFile(file, inputFormat, index, runtimeMode, { handle });
             }
+            } finally { finishOpen(true); }
         }, { once: true });
+        return completed;
     }
 
     async loadStructureFile(file, inputFormat = '', index = ':', runtimeMode = null, { path = null, handle = null, throwErrors = false, confirmedIntent = false } = {}) {
@@ -26814,7 +26869,8 @@ class VAseApp {
                 <span>Sun source + G</span><label>Move source and target together</label>
                 <span>Sun target + G</span><label>Move target only</label>
                 <span>Sun handle + R</span><label>Rotate target around source</label>
-                <span>X / Y / Z</span><label>Align view in select mode</label>
+                <span>X / Y / Z</span><label>View along Cartesian axes; press again for the opposite side</label>
+                <span>A / B / C</span><label>View along unit-cell vectors a / b / c; press again for the opposite side. Requires a nonzero cell vector.</label>
                 <span>X / Y / Z</span><label>Lock the global Cartesian axis in G/R/S mode</label>
                 <span>Enter</span><label>Confirm transform</label>
                 <span>Esc</span><label>Cancel a transform, close a modal, or close the open control panel and return focus to the viewport</label>
@@ -28404,14 +28460,14 @@ class VAseApp {
         document.getElementById('btn-open-file')?.addEventListener('click', () => this.chooseStructureFile());
         document.getElementById('btn-empty-open')?.addEventListener('click', () => this.chooseStructureFile());
         document.getElementById('structure-file')?.addEventListener('change', event => {
-            const file = event.target.files?.[0];
+            const files = [...(event.target.files || [])];
             event.target.value = '';
             // Native pickers can return an Enter key activation to the button
             // that opened them. Ignore that trailing activation so the picker
             // does not immediately reopen after a file is accepted.
             this.filePickerSuppressUntil = performance.now() + 750;
-            if (!file) return;
-            this.showOpenFileModal(file);
+            if (!files.length) return;
+            this.showOpenFilesModal(files.map(file => ({ file })));
         });
         
         document.getElementById('btn-reset').onclick = async () => {
@@ -29589,7 +29645,8 @@ class VAseApp {
                     }
                     return;
                 }
-                if (this.isPhysicalKey(e, 'KeyA', ['a'])) {
+                if ((selectAllChord || clearSelectionChord || e.shiftKey)
+                    && this.isPhysicalKey(e, 'KeyA', ['a'])) {
                     e.preventDefault();
                     this.setSunSelected(false, { update: false });
                     if (e.altKey) {

@@ -7,10 +7,10 @@ const root = path.join(__dirname, '..');
 const config = require('../package.json').build;
 const extensions = require('../file-formats.json').structureExtensions;
 
-test('only vase is registered as a default; Mac structure handlers never become automatic defaults', () => {
+test('only vase claims ownership; Mac structures are recommended secondary handlers', () => {
     assert.deepEqual(config.fileAssociations.map(item => item.ext), ['vase']);
     const formats = config.mac.fileAssociations[0];
-    assert.equal(formats.rank, 'None');
+    assert.equal(formats.rank, 'Alternate');
     assert.deepEqual(formats.ext, extensions);
     for (const ext of ['extxyz', 'xyz', 'vasp', 'cif', 'traj', 'cube']) assert.ok(extensions.includes(ext));
     for (const ext of ['json', 'xml', 'html', 'log', 'md', 'dat', 'in', 'out']) assert.ok(!extensions.includes(ext));

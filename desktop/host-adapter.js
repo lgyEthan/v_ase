@@ -2,9 +2,9 @@
 (async () => {
     if (window.__vaseDesktopHost || !window.vaseDesktop) return;
     const native = window.vaseDesktop;
-    const { EDITOR_COMMANDS, commandIdForEvent } = await import('/static/editor_commands.js?v=0.4.10');
+    const { EDITOR_COMMANDS, commandIdForEvent } = await import('/static/editor_commands.js?v=0.4.11');
     const installed = new WeakSet();
-    const { detachWorkspaceDocument, restoreWindowDocument } = await import('/static/workspace_windows.js?v=0.4.10');
+    const { detachWorkspaceDocument, restoreWindowDocument } = await import('/static/workspace_windows.js?v=0.4.11');
     let transfer = null;
     const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     const workspace = () => window.__V_ASE_WORKSPACE__;
@@ -54,15 +54,26 @@
         if (!selected) return;
         if (transfer) throw new Error('Wait until the tab finishes moving before opening another file.');
         const app = await waitForApp();
-        const parts = [];
-        let offset = 0;
-        while (offset < selected.size) {
-            const bytes = await native.read(selected.token, offset);
-            if (!bytes.byteLength) throw new Error('The file changed while opening. Choose it again.');
-            parts.push(bytes); offset += bytes.byteLength;
-        }
-        const file = new File(parts, selected.name, { lastModified: selected.lastModified });
-        app.showOpenFileModal(file, { handle: fileHandle(selected) });
+        const entries = (Array.isArray(selected) ? selected : [selected]).map(description => ({
+            name: description.name, size: description.size, handle: fileHandle(description),
+            async getFile() {
+                const current = await native.stat(description.token);
+                if (current.size !== description.size || current.lastModified !== description.lastModified) {
+                    throw new Error('The file changed after it was chosen. Open it again.');
+                }
+                const parts = [];
+                let offset = 0;
+                while (offset < description.size) {
+                    const bytes = await native.read(description.token, offset);
+                    if (!bytes.byteLength) throw new Error('The file changed while opening. Choose it again.');
+                    parts.push(bytes); offset += bytes.byteLength;
+                }
+                return new File(parts, description.name, { lastModified: description.lastModified });
+            }
+        }));
+        // Rendering the choice is immediate; its completion is owned by the
+        // shared window queue so later OS events cannot overwrite a dialog.
+        app.showOpenFilesModal(entries);
     }
 
     function install(app) {

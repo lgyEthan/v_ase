@@ -10,7 +10,7 @@
 
 ## Current source and connection
 
-Install `v_ase-gui[mcp]==0.4.10` for the scene transaction and discovery tools.
+Install `v_ase-gui[mcp]==0.4.11` for the scene transaction and discovery tools.
 Restart the GUI and adapter together after upgrading; their contracts must match.
 No model or model API key is required by v_ase itself.
 
@@ -89,6 +89,19 @@ All original structure, insertion, constraints, interface, analysis and export
 tools remain available through the same catalog.
 
 ## Native function integration
+
+Use the `command_url` from the CLI handshake or desktop connection command:
+
+```python
+from v_ase.ai_tools import FunctionTools
+
+with FunctionTools(command_url, artifact_dir="./vase-artifacts") as tools:
+    tools.call("vase_ready")
+    summary = tools.call("vase_describe", {"profile": "summary"})
+```
+
+The GUI must stay connected. The full apply schema and capability index include
+`requestId` for idempotent retries; native mutation tools expose `request_id`.
 
 `FunctionTools.initial_definitions()` supplies the small starting catalog.
 When a host manages discovery explicitly, install returned `vase_tool_schema`

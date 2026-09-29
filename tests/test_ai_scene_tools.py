@@ -86,7 +86,7 @@ def test_scene_patch_rejects_unknown_settings_and_scientific_mutations_before_ht
 
 
 @contextmanager
-def live_scene(tmp_path, *, volume=False, stored_forces=False):
+def live_scene(tmp_path, *, volume=False, stored_forces=False, edit=False):
     from ase import Atoms
     import numpy as np
     from playwright.sync_api import sync_playwright
@@ -110,7 +110,7 @@ def live_scene(tmp_path, *, volume=False, stored_forces=False):
         values = np.exp(-sum((axis-5.5)**2 for axis in grid)/12).astype('float32')
         fields.append(VolumetricData(name='Scene test field', values=values, cell=np.diag([8.,8.,8.]), dataset_id='scene-test-field'))
     editor = view(atoms, block=False, open_browser=False, close_on_disconnect=False,
-                  port=find_free_port(), volumetric_datasets=fields)
+                  port=find_free_port(), volumetric_datasets=fields, viz_only=not edit)
     handshake = ai_handshake(editor.url)
     try:
         with sync_playwright() as pw, FunctionTools(handshake['command_url'], artifact_dir=tmp_path) as client:
@@ -189,6 +189,19 @@ def test_scene_force_visibility_loads_and_settles_current_frame(tmp_path):
         assert state['arrows'] > 0
         apply('vase_apply_scene', patch={'display': {'show_force_vectors': False}})
         assert client.call('vase_scene_readiness', {})['ready'] is True
+
+
+
+def test_edit_with_force_vectors_then_frame_change_does_not_stay_stale(tmp_path):
+    with live_scene(tmp_path, stored_forces=True, edit=True) as (client, page, apply):
+        apply('vase_apply_scene', patch={'frame': 2, 'display': {'show_force_vectors': True}})
+        apply('vase_move_selection', indices=[1], vector=[.25,0,0], apply_constraints=True)
+        assert client.call('vase_scene_readiness', {'timeout_ms':4000})['ready']
+        apply('vase_apply_scene', patch={'frame':0}, timeout_ms=4000)
+        assert client.call('vase_scene_readiness', {})['ready']
+        assert page.evaluate('window.__V_ASE_APP__.state.atoms.forces') == [[1.,0,0],[0,.5,0]]
+        apply('vase_undo')
+        assert client.call('vase_scene_readiness', {'timeout_ms':4000})['ready']
 
 
 def test_scene_map_merge_and_mid_application_rollback(tmp_path):

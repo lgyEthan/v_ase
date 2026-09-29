@@ -36,7 +36,11 @@ Escape restores pose/scale. Camera Undo/Redo preserves physical magnification
 across viewport sizes; transferring a document retains the render camera and
 complete history. A wire camera wedge and render-plane outline identify
 its orientation without masking atoms. Both Viewport and Renderer expose 2D/3D;
-materials and lighting controls are disabled in flat mode.
+materials and lighting controls are disabled in flat mode. Flat bonds are unlit,
+with crisp side outlines and no false seam between color halves.
+GUI A/B/C views use the actual unit-cell vectors with repeated-key reversal;
+X/Y/Z remains Cartesian. Command/Ctrl+A selects all. For semantic camera control,
+use the existing compose-view cell-direction contract, not synthetic key events.
 Objects visibility is shared by viewport and rendering. `display.showConstraints`
 controls scientific marks independently of `applyConstraints` enforcement; hidden
 marks stay hidden in images/video. FixedPlane fills the local plane between
@@ -52,7 +56,10 @@ The first view accounts for the right panel,
 but panel toggles never recenter user/saved views.
 `.vase` opens without import/mode prompts, restoring saved Edit/View mode,
 frame, cameras, appearance, selection and panel presentation in a new tab when
-another document is open. Desktop Command/Ctrl+W closes the last tab's window
+another document is open. Multi-file GUI opening offers separate tabs or one new
+trajectory; the latter imports structures only, has no source save authority,
+and starts unsaved. See the grouped-import safeguards in `references/cli-and-environments.md`.
+Desktop Command/Ctrl+W closes the last tab's window
 and quits only after the last window, with normal dirty-document guards.
 For rotation/scaling, the GUI label “Selection COM” currently denotes an
 unweighted coordinate centroid; use an explicit pivot for a mass-weighted center.

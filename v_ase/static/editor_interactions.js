@@ -139,12 +139,13 @@ export function installEditorInteractions(app) {
         document.body.classList.remove('file-drag-over');
         const files = [...event.dataTransfer.files];
         if (!files.length) return;
-        if (files.length > 1) { app.toast('Drop one structure or trajectory file at a time.', 'warning'); return; }
-        // Obtain browser handles within the trusted drop gesture, before awaiting.
-        const handlePromise = app.droppedFileHandle
-            ? app.droppedFileHandle(files[0])
-            : event.dataTransfer.items[0]?.getAsFileSystemHandle?.();
-        const handle = await handlePromise?.catch(() => null);
-        app.showOpenFileModal(files[0], { handle: handle || null, dropped: true });
+        // Request all handles synchronously within the trusted drop event.
+        const items = [...event.dataTransfer.items].filter(item => item.kind === 'file');
+        const handles = files.map((file, index) => app.droppedFileHandle
+            ? app.droppedFileHandle(file) : items[index]?.getAsFileSystemHandle?.());
+        const entries = await Promise.all(files.map(async (file, index) => ({
+            file, handle: await Promise.resolve(handles[index]).catch(() => null)
+        })));
+        app.showOpenFilesModal(entries, { dropped: true });
     });
 }

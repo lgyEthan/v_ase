@@ -1,10 +1,10 @@
-import { restoreWindowDocument } from './workspace_windows.js?v=0.4.10';
-import { projectProvenanceFromLoad } from './project_provenance.js?v=0.4.10';
-import { captureDocumentRecovery, restoreDocumentRecovery } from './workspace_recovery.js?v=0.4.10';
-import { createWorkspaceAIBridge, handleWorkspaceAICommand } from './workspace_ai.js?v=0.4.10';
-import { installShortcutCapture } from './shortcut_capture.js?v=0.4.10';
+import { restoreWindowDocument } from './workspace_windows.js?v=0.4.11';
+import { projectProvenanceFromLoad } from './project_provenance.js?v=0.4.11';
+import { captureDocumentRecovery, restoreDocumentRecovery } from './workspace_recovery.js?v=0.4.11';
+import { createWorkspaceAIBridge, handleWorkspaceAICommand } from './workspace_ai.js?v=0.4.11';
+import { installShortcutCapture } from './shortcut_capture.js?v=0.4.11';
 import { commandIdForEvent, editorAriaShortcut, editorShortcutLabel, resolveShortcutPlatform,
-    viewportNavigationForEvent } from './editor_commands.js?v=0.4.10';
+    viewportNavigationForEvent } from './editor_commands.js?v=0.4.11';
 
 class VAseWorkspace {
     constructor() {

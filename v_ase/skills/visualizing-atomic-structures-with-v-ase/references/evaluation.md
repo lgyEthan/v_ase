@@ -904,3 +904,21 @@ GUI and saved trajectory must agree; a successful immediate move is insufficient
   Require visible geometry, ready capture, and an exact-size nonblank PNG.
 - Refine water, then switch to an empty source. Require zero rendered triangles,
   no stale replacement mesh, and restored atom visibility.
+
+
+### Grouped opens and cell view keys (0.4.11)
+
+Run `tests/test_batch_and_cell.py`, `tests/test_flat_bond_pixels.py` and native
+`desktop/multi-open-smoke.cjs`. Check Finder-style open-file bursts, Explorer
+second-instance arguments, one-window routing, natural/reordered frame order,
+separate project handles, malformed-input rollback and cancellation.
+A/B/C must align normalized actual skew-cell rows, reverse on the next press,
+preserve atom selection and be inert for missing vectors, input focus and G/R/S.
+Command/Ctrl+A, Shift+A, Alt+A and existing X/Y/Z workflows remain independent.
+Inspect rendered flat bond interiors and borders at normal and high DPI: no
+midpoint cap, no multi-pixel blend, no lighting response. Recheck movie and
+standalone HTML output because those share the renderer.
+
+Force-layer edit regression: enable stored vectors at frame 2, physically move an
+atom, wait for scene readiness, switch to frame 0, and undo. Every step must settle
+and show the current stored vectors without running a calculator.

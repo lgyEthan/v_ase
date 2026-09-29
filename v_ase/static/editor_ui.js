@@ -1,4 +1,4 @@
-import { editorIcon } from './editor_interactions.js?v=0.4.10';
+import { editorIcon } from './editor_interactions.js?v=0.4.11';
 // The workbench is a presentation adapter. Route IDs and mounted scientific
 // controls belong to the editor; no project state is stored here.
 export const WORKBENCH_ROUTES = Object.freeze({

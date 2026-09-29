@@ -21,7 +21,7 @@ def test_packaged_runner_requires_complete_evidence(tmp_path, monkeypatch, evide
                         "openNewWindow", "independentWindowClose", "nativeKeyInput",
                         "nativeSave", "scientificProject", "openNewTab",
                         "quitCancellation", "nodeIsolation", "lastDocumentClosesWindow",
-                        "emptyLastWindowRequestsQuit"), True),
+                        "emptyLastWindowRequestsQuit", "multiFileOpen", "osOpenBatch", "cellAxisShortcuts"), True),
     }
     report["visualParity"] = {
         "pixelChecks": [{"mode": mode, "outlinePixels": 250, "constraintPixels": 300}
