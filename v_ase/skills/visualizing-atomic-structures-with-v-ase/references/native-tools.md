@@ -23,8 +23,8 @@ an appropriately configured host/tunnel. Keep stdout for MCP protocol messages.
 
 Use bounded search and exact-schema reads instead of printing the catalog.
 `--discovery progressive` is opt-in: the host must rebuild callable bindings
-after notifications during an active turn. Codex 0.153.4 did not do this in
-the observed code-host path; use the default `all` mode there. Initialization or
+after notifications during an active turn. An observed code-host integration
+did not do this; keep the default `all` mode unless late registration is verified. Initialization or
 a successful search alone does not establish late-tool usability. Schemas and
 GUI must share the same contract; restart both after changing source.
 
@@ -68,8 +68,8 @@ registered app ID. Distribute generic v_ase packages and setup instructions;
 each account configures its own connection. Never publish a personalized ZIP as
 a generic starter or embed a person's key or connection IDs in common software.
 For conversational control, the user can use ordinary Chat with the MCP plugin.
-Do not conflate ordinary Chat with ChatGPT Work: the documented shared allowance
-applies to Work and Codex. Tokens, product limits and API invoices are distinct.
+Do not conflate ordinary Chat with ChatGPT Work. Check the host's published
+allowance for the actual mode. Tokens, product limits and API invoices are distinct.
 See the [official tunnel guide](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels)
 and [plugin packaging](https://developers.openai.com/plugins/build/plugins).
 
@@ -140,5 +140,5 @@ single-tunnel handoff. Another account needs its own authorized resources.
 Install v_ase 0.3.4 or newer for the complete tunnel lifecycle. Use `--source`
 with a matching checkout or wheel only when intentionally overriding PyPI.
 Never include personal IDs, keys or actual local directory paths in public
-instructions. Ordinary Chat, Work/Codex usage and model API billing are distinct;
+instructions. Ordinary Chat, Work usage and model API billing are distinct;
 the local launcher calls no model API, and no tunnel-pricing guarantee follows.

@@ -5,7 +5,7 @@ documented `SKILL.md` workflow. Their inclusion does not imply sponsorship,
 affiliation, or endorsement.
 
 - `openai-symbol.svg`: OpenAI 2025 symbol, sourced from the OpenAI brand asset
-  mirrored by Wikimedia Commons. OpenAI and Codex are trademarks of OpenAI.
+  mirrored by Wikimedia Commons. OpenAI is a trademark of OpenAI.
 - `anthropic.svg`: Anthropic mark from the CC0 Simple Icons collection.
   Anthropic and Claude Code are trademarks of Anthropic PBC.
 - `github-copilot.svg`: GitHub Copilot mark from the CC0 Simple Icons

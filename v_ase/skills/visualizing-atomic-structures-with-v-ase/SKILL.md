@@ -7,6 +7,8 @@ description: Inspect, edit, analyze and render atomic structures, trajectories a
 
 Use the live document's structured state. MCP is the primary interface;
 CLI and native function adapters share the same scientific backend.
+Install the complete Skill in the client's documented local directory; keep
+personal client configuration outside shared projects and release artifacts.
 The optional macOS/Windows desktop host uses the same GUI and API. To attach
 to an existing desktop document, use Help → Copy agent connection URL and the
 normal CLI/HTTP contract. Keep the app open; do not start another viewer or

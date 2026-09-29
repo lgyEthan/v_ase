@@ -13,7 +13,7 @@ Start with:
 - [verified workflows](skills/visualizing-atomic-structures-with-v-ase/references/workflows-and-examples.md)
 - [safety and errors](skills/visualizing-atomic-structures-with-v-ase/references/safety-and-errors.md)
 
-Codex and Claude Code can install the directory as a native skill. ChatGPT
+Clients with native Skill support can install the complete directory. ChatGPT
 desktop agents, Gemini-based agents, agentic IDEs, and other local models can
 attach `SKILL.md`, `agent-setup.md`, and the task-specific references, then
 control the same vendor-neutral HTTP JSON semantic API.

@@ -301,9 +301,9 @@ call from ChatGPT against the intended document.
 
 The runtime key authenticates the tunnel. **The launcher does not call a model
 API.** ChatGPT still processes prompts, tool results and images as model context;
-“uses tokens” does not mean “charges a separate API bill” or automatically mean
-“uses the Codex weekly allowance.” Ordinary **Chat** is distinct from **Work**;
-OpenAI documents shared usage specifically for Work and Codex. See
+“uses tokens” does not mean “charges a separate API bill.” Ordinary **Chat**
+and **Work** have different usage rules; check the allowance for the mode you
+actually use. See
 [Chat/Work modes](https://learn.chatgpt.com/docs/use-chatgpt) and
 [usage information](https://learn.chatgpt.com/docs/pricing). This guide does not
 make a separate tunnel-pricing guarantee where none is established publicly.

@@ -52,12 +52,9 @@ Do not load every reference into context when only one is relevant.
 
 ## Native Skill Loaders
 
-For Codex:
-
-```bash
-cp -R v_ase/skills/visualizing-atomic-structures-with-v-ase \
-  "$CODEX_HOME/skills/"
-```
+Copy the complete skill directory to the installation location documented by
+your client. Keep client-specific configuration on your own computer; it is
+not part of a shared v_ase project.
 
 For Claude Code in a project:
 

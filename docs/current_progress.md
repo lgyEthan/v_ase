@@ -323,7 +323,7 @@ and documentation use `view()`.
     recomputed before every captured real or interpolated frame.
 55. File Open directly replaces an empty document. Replace/Add/New Tab choices
     appear only when the active document already contains atoms.
-56. The bundled agent skill is vendor-neutral. Codex, Claude Code, ChatGPT
+56. The bundled agent skill is vendor-neutral. Local coding agents, Claude Code, ChatGPT
     desktop agents, Gemini-based agents, agentic IDEs, and other local agents
     receive the same canonical `SKILL.md`, agent setup reference, task-specific
     references, and `--cli` startup JSON. Documentation never relies on a

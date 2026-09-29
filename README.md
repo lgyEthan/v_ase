@@ -238,6 +238,8 @@ the starting structure. The example shows repulsive overlap removal.
 
 Ask an MCP-capable agent to prepare a structure or figure in the same document
 you have open. Watch its edits, inspect the result, and continue refining it by hand.
+The same bundled Skill works across compatible clients; install it in your
+client's documented local Skill directory.
 
 ![A user and an AI agent exchange requests and refine one shared live v_ase document](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_ai_collaboration.gif)
 

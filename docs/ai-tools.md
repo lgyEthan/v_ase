@@ -62,9 +62,10 @@ eight), and `vase_tool_schema` for at most four exact definitions. Registering
 the catalog does not require printing its complete schemas into model context.
 
 `--discovery progressive` remains available for clients verified to rebuild
-callable bindings after a list-change notification during the same turn. In the
-tested Codex 0.153.4 code host, a server notification alone did not create the
-new `configure_bonds` function binding. Use the default `all` mode there. Search
+callable bindings after a list-change notification during the same turn. In an
+observed code-host integration, a server notification alone did not create the
+new `configure_bonds` function binding. Use the default `all` mode unless the
+client has been verified to handle late tool registration. Search
 results and server initialization alone are insufficient proof of this capability.
 
 For example, search for `configure_bonds`, read its schema, then call

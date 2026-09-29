@@ -378,7 +378,7 @@ def test_skill_explains_vendor_neutral_agent_handoff():
     compatibility = (ROOT / "v_ase" / "skills_v_ase.md").read_text(encoding="utf-8")
 
     for required in (
-        "Codex",
+        "Native Skill Loaders",
         "Claude Code",
         "GitHub Copilot",
         "ChatGPT desktop agents",

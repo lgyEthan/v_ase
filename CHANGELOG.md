@@ -1492,7 +1492,7 @@ formats, physical units, and RDF normalization conventions remain supported.
 - Extended the natural-language graphene edit through atom creation: the
   verified result now contains a pyridinic N3 vacancy and a `Li_site` atom
   exactly 2.15 A above it.
-- Added a vendor-neutral agent setup reference covering Codex, Claude Code,
+- Added a vendor-neutral agent setup reference covering local coding agents, Claude Code,
   ChatGPT desktop agents, Gemini-based agents, agentic IDEs, generic local
   agents, live startup JSON, semantic control, and human handoff.
 - Expanded scene, browser, README, and agent-contract regressions for the

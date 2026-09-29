@@ -395,7 +395,7 @@ to an untrusted network.
 
 ## Runtime Constraints
 
-- Codex, Claude Code, ChatGPT desktop agents, Gemini-based agents, agentic
+- Local coding agents, Claude Code, ChatGPT desktop agents, Gemini-based agents, agentic
   IDEs, and other local models can control the same live browser API when they
   have local shell and browser access. Follow `agent-setup.md`; do not assume a
   vendor-specific skill directory when one is not documented.

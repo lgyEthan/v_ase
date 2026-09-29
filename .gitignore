@@ -24,3 +24,10 @@ test-results/
 
 dev/legacy/
 ongoing.txt
+
+# Personal host integration and local credentials are never repository content.
+.*-plugin/
+.agent-local/
+.agents/
+*.env
+.env.*

@@ -24,3 +24,20 @@ rendered examples synchronized in every release.
 - Verify the published wheel in a clean environment.
 
 The complete sequence is in `docs/release_checklist.md`.
+
+## Public naming and local integration files
+
+- Use descriptive `fix/`, `feature/`, `release/`, or `maintenance/` branches.
+  Do not use an automated coding assistant's product name in branch names,
+  authored identifiers, comments, file paths, UI copy, or public artifacts.
+- Keep private agent/plugin configuration local. Never commit personal plugin
+  manifests, host-specific installation folders, environment settings, account
+  bindings, or generated private bundles. Ignore them and exclude them from
+  source distributions and release archives.
+- Before publishing, inspect tracked paths and text, generated package contents,
+  public documentation, and release metadata. Do not claim a naming check has
+  passed unless it was actually performed; do not disguise forbidden names by
+  splitting or encoding string literals.
+- Before deleting a work branch, verify its commits are included in `main`.
+  Preserve unmerged work and local changes, and do not rename a checkout used
+  by another active task. Keep the working release checkout on `main` afterward.

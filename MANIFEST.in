@@ -75,3 +75,7 @@ include docs/assets/readme_polyhedra_*_3d.png
 include docs/assets/water-surface-experiment.gif
 
 include docs/assets/water-surface-experiment.png
+
+# Never package personal host integrations or environment configuration.
+global-exclude .env .env.* *.env
+global-exclude */.*-plugin/* */.agent-local/* */.agents/*

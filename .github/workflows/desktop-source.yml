@@ -2,7 +2,7 @@ name: Verify desktop source before publication
 
 on:
   push:
-    branches: ["codex/**"]
+    branches: ["fix/**", "feature/**", "release/**", "maintenance/**"]
     paths: ["v_ase/**", "desktop/**", ".github/workflows/desktop-source.yml"]
   pull_request:
     paths: ["v_ase/**", "desktop/**", ".github/workflows/desktop-source.yml"]
