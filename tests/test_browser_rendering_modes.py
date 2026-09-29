@@ -18,7 +18,7 @@ from ase.constraints import FixAtoms, FixedLine, FixedPlane, FixScaled, Hookean
 from ase.io import read, write
 from PIL import Image
 from playwright._impl._errors import Error as PlaywrightError
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import expect, sync_playwright
 
 from examples.readme_scenes import make_ai_pyridinic_graphene_scene
 from v_ase.io import set_atom_labels
@@ -3123,7 +3123,10 @@ def test_empty_workspace_opens_a_complete_trajectory_from_the_browser(tmp_path):
             }""")
 
             page.set_input_files('#structure-file', str(replacement_source))
-            assert page.locator('#open-file-name').inner_text() == replacement_source.name
+            # Queued imports publish the next reader after the preceding load
+            # finishes; hidden markup from that reader is not the next dialog.
+            expect(page.locator('#modal-container')).to_be_visible()
+            expect(page.locator('#open-file-name')).to_have_text(replacement_source.name)
             page.locator('input[name="open-runtime-mode"][value="edit"]').check()
             page.click('#open-file-confirm')
             page.locator('#modal-discard-document').click()

@@ -103,7 +103,8 @@ Node lifecycle tests exercise last-window closure, explicit Quit and cancelled
 closure through the real main-process handlers. Only one quit request may be
 issued, so a cancelled `will-quit` event cannot be bypassed by a duplicate.
 Packaged Mac checks inspect the actual application/document icon resources and
-Owner/None file-type ranks. The disposable Windows CI runner also installs
+Owner/Alternate file-type ranks: only `.vase` is owned; supported structure
+formats are offered in Open With without replacing their defaults. The disposable Windows CI runner also installs
 and uninstalls the NSIS package, checks every Open With registration, and asserts
 that all existing structure-file defaults are unchanged.
 Multi-window checks keep destination windows visible, as in normal use, and
