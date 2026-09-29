@@ -165,7 +165,8 @@ preview bounds, including parent grids and optional atoms. GUI users have
 **Fit Preview in View**. Creating a proposal preserves the existing camera;
 the halo adapts to the parent-lattice window and is not fixed to one cell.
 `analysis.commensurate.currentAngleDeg` reports the active proposal angle.
-`rotate-to-commensurate` requires a proper selected subset with at least one
+`rotate-to-commensurate` accepts only the string axis `"Z"` (or `"z"`); omit
+`axis` for global Z. Do not supply a numeric vector. It requires a proper selected subset with at least one
 host atom remaining. Commensurate CSV includes plotted reference candidates;
 filter its `within_area_limit` column before treating a row as inside the
 current materialization area bound.

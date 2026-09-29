@@ -244,6 +244,8 @@ a Li atom above it. The resulting atoms remain editable in the GUI.
 
 ![An agent creates a pyridinic N3 vacancy in graphene and places a lithium atom above it](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_ai_edit.gif)
 
+Commensurate rotation tools validate the supported global Z axis.
+
 [MCP setup](https://v-ase.readthedocs.io/en/latest/ai-tools.html#install-and-connect-an-mcp-client) ·
 [Shared-document workflow](https://v-ase.readthedocs.io/en/latest/ai-agents.html#share-one-document) ·
 [ChatGPT connection](https://v-ase.readthedocs.io/en/latest/chatgpt-local.html)

@@ -84,8 +84,8 @@ def sync_github_readme_assets() -> None:
         return
     github_dir = canonical_dir / "github"
     github_dir.mkdir(parents=True, exist_ok=True)
-    for source in canonical_dir.glob("readme_*"):
-        if source.is_file():
+    for source in canonical_dir.iterdir():
+        if source.is_file() and source.name.startswith(("readme_", "water-surface-experiment.")):
             shutil.copy2(source, github_dir / source.name)
 
 
@@ -5179,6 +5179,39 @@ def capture_rdf_media(browser) -> None:
         editor.close()
 
 
+def capture_water_media(browser) -> None:
+    """Regenerate the water example with the release renderer and saved defaults."""
+    from examples.water_surface import make_water_frames
+    atoms = make_water_frames()
+    editor, page = open_scene(browser, atoms, viz_only=True, show_bonds=False)
+    try:
+        set_display(page, {"waterSurface": {"enabled": True}, "atomSmoothness": 64,
+            "waterInterpolation": 1, "waterMeshSmoothing": 20,
+            "showGrid": False, "showCell": False, "showAxes": False})
+        page.wait_for_function('window.__ASE_APP__?.renderer?.waterLayer?.report?.molecules === 150')
+        data = page.evaluate("""async () => {
+            const app = window.__ASE_APP__;
+            const blob = await app.exportTrajectoryVideo({
+                width:960, height:640, fps:12, format:'gif', startFrame:0, endFrame:23,
+                loop:true, scaleMode:'physical', pixelsPerAngstrom:15, antiAliasing:'off',
+                camera:{projection:'orthographic',position:[30,-40,28],target:[0,0,0],
+                    up:[0,0,1],ortho_scale:640/15}}, null, {returnBlob:true});
+            return await new Promise(resolve => {
+                const reader = new FileReader(); reader.onload = () => resolve(reader.result);
+                reader.readAsDataURL(blob);
+            });
+        }""")
+        raw = base64.b64decode(data.split(',', 1)[1])
+        image = Image.open(BytesIO(raw))
+        assert image.size == (960, 640) and image.n_frames == 24 and image.info['loop'] == 0
+        (ASSET_DIR / 'water-surface-experiment.gif').write_bytes(raw)
+        image.seek(12)
+        image.convert('RGB').save(ASSET_DIR / 'water-surface-experiment.png')
+    finally:
+        page.close()
+        editor.close()
+
+
 def capture_analysis_media(browser) -> None:
     capture_registry_media(browser)
     capture_volumetric_media(browser)
@@ -5403,6 +5436,7 @@ def main() -> int:
             "volumetric",
             "colorscale",
             "rdf",
+            "water",
             "analysis",
         ),
         help="Regenerate one README scene group.",
@@ -5444,6 +5478,7 @@ def main() -> int:
                 "volumetric": capture_volumetric_media,
                 "colorscale": capture_atom_colorscale_media,
                 "rdf": capture_rdf_media,
+                "water": capture_water_media,
                 "analysis": capture_analysis_media,
             }
             if args.only:

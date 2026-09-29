@@ -996,3 +996,20 @@ def test_water_guide_native_example_matches_its_named_tool():
     assert native["display"]["water_surface"]["smoothing"] == 2.0
     assert native["display"]["water_interpolation"] == 1
     assert "vase_apply_scene.patch.display" in guide
+
+
+def test_commensurate_rotation_schema_matches_the_global_z_runtime_contract():
+    from jsonschema import Draft202012Validator
+    from v_ase.ai_tools import tool_catalog
+
+    focused = Draft202012Validator(ai_schema_payload({"operation": "rotate-to-commensurate"})["schema"])
+    native = Draft202012Validator(tool_catalog()["vase_rotate_to_commensurate"].input_schema)
+    request = {"name": "rotate-to-commensurate", "angleDeg": 21.2, "indices": [0, 1]}
+    guards = {"expected_document_id": "example", "expected_revision": 0}
+    for axis in ("Z", "z"):
+        focused.validate({**request, "axis": axis})
+        native.validate({"angle_deg": 21.2, "indices": [0, 1], "axis": axis, **guards})
+    focused.validate(request)
+    for axis in ([0, 0, 1], "X", "Y", "ALL"):
+        assert not focused.is_valid({**request, "axis": axis})
+        assert not native.is_valid({"angle_deg": 21.2, "indices": [0, 1], "axis": axis, **guards})

@@ -2260,7 +2260,7 @@ def _complete_operation_contracts():
         "set-constraints": {"fixAtoms": BOOLEAN, "kind": {"enum": ["fixed_line", "fixed_plane", "none"]}, "vector": VECTOR, "clearDirectional": BOOLEAN},
         "move-selection": {"vector": VECTOR},
         "rotate-selection": {"angleDeg": NUMBER, "axis": VECTOR, "pivot": PIVOT},
-        "rotate-to-commensurate": {"angleDeg": NUMBER, "axis": VECTOR, "pivot": PIVOT, "maxAngleDifferenceDeg": {"type": "number", "minimum": 0}},
+        "rotate-to-commensurate": {"angleDeg": NUMBER, "axis": {"type": "string", "enum": ["Z", "z"], "default": "Z"}, "pivot": PIVOT, "maxAngleDifferenceDeg": {"type": "number", "minimum": 0}},
         "exit-relaxation-mode": {"keep": BOOLEAN},
         "refresh-displacements": {"display": AI_CONTROL_SCHEMA["properties"]["display"]},
         "combine-volumetric": {

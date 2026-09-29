@@ -1370,7 +1370,8 @@ must use the same accepted candidate set. The moving angle plane and current
 marker must follow rotation without repeating the bounded search.
 
 `rotate-to-commensurate` is the stricter Edit-mode shortcut for rotating the
-selected layer to the nearest validated angle:
+selected layer to the nearest validated angle. Pass the string `axis: "Z"`
+(or omit it for the default); a numeric axis vector is not accepted:
 
 ```javascript
 await applyCurrent({

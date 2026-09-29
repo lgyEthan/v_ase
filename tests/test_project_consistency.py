@@ -215,7 +215,7 @@ def test_readme_render_assets_are_synchronized_for_github():
     names = {
         path.name
         for path in source_dir.iterdir()
-        if path.is_file() and path.name.startswith("readme_")
+        if path.is_file() and path.name.startswith(("readme_", "water-surface-experiment."))
     }
     assert names
     for name in sorted(names):

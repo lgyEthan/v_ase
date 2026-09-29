@@ -176,7 +176,8 @@ selection/measurement, selected-object transforms, orbit and creation. The Orbit
 tool uses primary-button drag to rotate and Shift-drag to pan, without requiring
 an atom selection. Transform
 buttons require an editable selection, then drag to apply; switching tools or
-Cancel/Escape cancels a provisional transform. Keyboard G/R/S is still modal.
+Cancel/Escape cancels a provisional transform. Keyboard G/R/S is still modal. For semantic commensurate rotation, `axis` is the
+string `"Z"` (the default), not a three-number vector.
 Search and File/Edit/View/Preferences/Help/Reset menus sit above the canvas.
 Bonds defaults to editable pair specifications; reset restores suggested cutoffs.
 The legacy automatic bonding mode remains readable through the semantic API,
