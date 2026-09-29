@@ -62,52 +62,55 @@ class RegistryRelaxationSession:
         return int(self.translation_basis.shape[0])
 
     def summary(self) -> dict[str, Any]:
-        return {
-            "schema": "v_ase.rigid-translation-relaxation.v2",
-            "session_id": self.session_id,
-            "status": self.status,
-            "is_relaxing": self.is_relaxing,
-            "selected_indices": list(self.selected_indices),
-            "hkl": list(self.hkl),
-            "periodic_axes": list(self.periodic_axes),
-            "plane_integer_basis": self.plane_integer_basis.tolist(),
-            "plane_normal_cartesian": self.plane_normal.tolist(),
-            "plane_basis_cartesian": self.plane_basis.tolist(),
-            "translation_basis_angstrom": self.translation_basis.tolist(),
-            "translation_basis_2d_angstrom": self.translation_basis_2d.tolist(),
-            "translation_space": self.translation_space,
-            "degrees_of_freedom": self.degrees_of_freedom,
-            "coordinate_basis": (
-                "fractional-plane-lattice"
-                if self.translation_space == "plane"
-                else "cartesian-angstrom"
-            ),
-            "max_displacement_angstrom": self.max_displacement,
-            "reference_component": "unselected-host",
-            "mobile_component": "selected-guest",
-            "translation_cartesian": self.translation_vector().tolist(),
-            "translation_fractional": (
-                None
-                if self.fractional_translation() is None
-                else self.fractional_translation().tolist()
-            ),
-            "translation_coordinates": self.current_coordinates.tolist(),
-            "trials": list(self.trials),
-            "step": int(self.step),
-            "max_steps": int(self.max_steps),
-            "energy": self.energy,
-            "projected_force": self.projected_force,
-            # Keep the unreleased field as an alias while callers migrate to
-            # the physically explicit projected-force name.
-            "generalized_force": self.projected_force,
-            "generalized_gradient": self.generalized_gradient,
-            "force_definition": (
-                "norm of the selected-component net force projected into the periodic interface plane"
-                if self.translation_space == "plane"
-                else "norm of the selected-component net Cartesian force"
-            ),
-            "force_units": "eV/angstrom",
-        }
+        # HTTP polling and WebSocket updates must observe one optimizer state.
+        # The worker changes status, running state and coordinates under this lock.
+        with self.lock:
+            return {
+                "schema": "v_ase.rigid-translation-relaxation.v2",
+                "session_id": self.session_id,
+                "status": self.status,
+                "is_relaxing": self.is_relaxing,
+                "selected_indices": list(self.selected_indices),
+                "hkl": list(self.hkl),
+                "periodic_axes": list(self.periodic_axes),
+                "plane_integer_basis": self.plane_integer_basis.tolist(),
+                "plane_normal_cartesian": self.plane_normal.tolist(),
+                "plane_basis_cartesian": self.plane_basis.tolist(),
+                "translation_basis_angstrom": self.translation_basis.tolist(),
+                "translation_basis_2d_angstrom": self.translation_basis_2d.tolist(),
+                "translation_space": self.translation_space,
+                "degrees_of_freedom": self.degrees_of_freedom,
+                "coordinate_basis": (
+                    "fractional-plane-lattice"
+                    if self.translation_space == "plane"
+                    else "cartesian-angstrom"
+                ),
+                "max_displacement_angstrom": self.max_displacement,
+                "reference_component": "unselected-host",
+                "mobile_component": "selected-guest",
+                "translation_cartesian": self.translation_vector().tolist(),
+                "translation_fractional": (
+                    None
+                    if self.fractional_translation() is None
+                    else self.fractional_translation().tolist()
+                ),
+                "translation_coordinates": self.current_coordinates.tolist(),
+                "trials": list(self.trials),
+                "step": int(self.step),
+                "max_steps": int(self.max_steps),
+                "energy": self.energy,
+                "projected_force": self.projected_force,
+                # Keep the unreleased field as an alias while callers migrate to
+                # the physically explicit projected-force name.
+                "generalized_force": self.projected_force,
+                "generalized_gradient": self.generalized_gradient,
+                "force_definition": (
+                    "norm of the selected-component net force projected into the periodic interface plane"
+                    if self.translation_space == "plane"
+                    else "norm of the selected-component net Cartesian force"
+                ),
+                "force_units": "eV/angstrom",
+            }
 
 
 def registry_relaxation_summary(session: Any) -> dict[str, Any] | None:

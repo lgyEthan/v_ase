@@ -209,18 +209,22 @@ def test_commensurate_cli_reports_the_proposal_angle_and_can_fit_its_preview():
             state = _stable_description(url)
             rotated = _run_cli_command(url, "apply", {
                 "expectedRevision": state["collaboration"]["revision"],
-                "selection": {"indices": [2, 3]},
                 "operation": {"name": "rotate-to-commensurate", "indices": [2, 3],
                               "angleDeg": 21.2, "maxAreaRatio": 16, "showAtoms": True},
             })
             assert rotated["analysis"]["commensurate"]["currentAngleDeg"] == pytest.approx(21.7867893, abs=1e-6), page.evaluate("JSON.stringify(window.__ASE_APP__.state.commensurateProposal?.context)")
+            assert [item["index"] for item in rotated["selection"]] == [2, 3]
             settled = _stable_description(url)
             analysis = _run_cli_command(url, "describe", {"profile": "analysis"})
             assert analysis["analysis"]["commensurate"]["currentAngleDeg"] == pytest.approx(21.7867893, abs=1e-6), page.evaluate("JSON.stringify(window.__ASE_APP__.state.commensurateProposal?.context)")
             assert page.evaluate("window.__ASE_APP__.state.commensurateProposal.context.positionsIncludeDisplayRotation") is True
             _run_cli_command(url, "apply", {
+                "expectedDocumentId": settled["documentId"],
                 "expectedRevision": settled["collaboration"]["revision"],
-                "camera": {"fit": "commensurate"},
+                "operation": {"name": "apply-scene", "patch": {
+                    "display": {"showCell": False, "showGrid": False, "showAxes": False},
+                    "camera": {"axis": "+Z", "fit": "commensurate", "zoom": 1},
+                }},
             })
             assert page.evaluate("""() => {
                 const app = window.__ASE_APP__;

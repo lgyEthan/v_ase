@@ -124,6 +124,8 @@ strain. Here, graphene and MoS₂ are matched as separate host and guest structu
 
 ![Graphene and MoS2 host and guest lattices are searched for a common periodic cell](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_commensurate_host_guest.gif)
 
+Rigid translation relaxation keeps its progress and completion state synchronized.
+
 [Host/guest matching](https://v-ase.readthedocs.io/en/latest/commensurate.html)
 
 ### Explore interfacial registry
@@ -244,7 +246,8 @@ a Li atom above it. The resulting atoms remain editable in the GUI.
 
 ![An agent creates a pyridinic N3 vacancy in graphene and places a lithium atom above it](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_ai_edit.gif)
 
-Commensurate rotation tools validate the supported global Z axis.
+Commensurate rotation tools use global Z and keep the guest layer selected,
+so its preview remains available while adjusting appearance or the camera.
 
 [MCP setup](https://v-ase.readthedocs.io/en/latest/ai-tools.html#install-and-connect-an-mcp-client) ·
 [Shared-document workflow](https://v-ase.readthedocs.io/en/latest/ai-agents.html#share-one-document) ·

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+import threading
 
 import numpy as np
 from ase import Atoms
@@ -396,3 +397,46 @@ def test_manual_cartesian_rigid_translation_is_exact_and_reversible():
 
     set_registry_translation(session, [0.0, 0.0, 0.0])
     np.testing.assert_array_equal(session.working_atoms.positions, baseline)
+
+
+def test_registry_summary_waits_for_atomic_optimizer_completion():
+    session, selected = make_registry_session("registry-atomic-summary")
+    start_registry_relaxation_mode(session, selected)
+    mode = session.registry_relaxation
+    mode.status = "relaxing"
+    mode.is_relaxing = True
+    halfway = threading.Event()
+    finish = threading.Event()
+    reading = threading.Event()
+    read_done = threading.Event()
+    result = {}
+
+    def complete():
+        with mode.lock:
+            mode.is_relaxing = False
+            halfway.set()
+            assert finish.wait(5)
+            mode.status = "converged"
+            mode.current_coordinates = np.array([0.25, 0.5])
+
+    def read():
+        reading.set()
+        result.update(mode.summary())
+        read_done.set()
+
+    worker = threading.Thread(target=complete)
+    reader = threading.Thread(target=read)
+    worker.start()
+    assert halfway.wait(5)
+    reader.start()
+    try:
+        assert reading.wait(5)
+        assert not read_done.wait(0.05), "A partial optimizer state escaped its lock"
+    finally:
+        finish.set()
+        worker.join(5)
+        reader.join(5)
+    assert not worker.is_alive() and not reader.is_alive()
+    assert result["is_relaxing"] is False
+    assert result["status"] == "converged"
+    assert result["translation_coordinates"] == [0.25, 0.5]

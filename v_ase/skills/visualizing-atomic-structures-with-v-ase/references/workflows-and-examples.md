@@ -1371,7 +1371,9 @@ marker must follow rotation without repeating the bounded search.
 
 `rotate-to-commensurate` is the stricter Edit-mode shortcut for rotating the
 selected layer to the nearest validated angle. Pass the string `axis: "Z"`
-(or omit it for the default); a numeric axis vector is not accepted:
+(or omit it for the default); a numeric axis vector is not accepted. Explicit
+`indices` become the selected guest layer so later scene styling and camera-fit
+commands retain the proposal:
 
 ```javascript
 await applyCurrent({

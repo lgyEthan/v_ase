@@ -21494,6 +21494,10 @@ class VAseApp {
             if (indices.length === 0 || indices.length >= current.length) {
                 throw new Error('Select a proper subset for the rotating guest; at least one host atom must remain.');
             }
+            // The same-lattice preview is scoped to the selected guest. Keep
+            // explicit indices selected, as calculate-commensurate does, so
+            // later style/camera changes do not dismiss a valid proposal.
+            this.aiSelectIndices(indices);
             const pivot = this.aiRotationPivot(operation, indices, current);
             const axisVector = {
                 X: [1, 0, 0],

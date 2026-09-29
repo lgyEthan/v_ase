@@ -166,7 +166,9 @@ preview bounds, including parent grids and optional atoms. GUI users have
 the halo adapts to the parent-lattice window and is not fixed to one cell.
 `analysis.commensurate.currentAngleDeg` reports the active proposal angle.
 `rotate-to-commensurate` accepts only the string axis `"Z"` (or `"z"`); omit
-`axis` for global Z. Do not supply a numeric vector. It requires a proper selected subset with at least one
+`axis` for global Z. Do not supply a numeric vector. Explicit `indices` also
+become the selected guest layer, preserving the proposal across style and camera
+changes. It requires a proper selected subset with at least one
 host atom remaining. Commensurate CSV includes plotted reference candidates;
 filter its `within_area_limit` column before treating a row as inside the
 current materialization area bound.
@@ -1763,3 +1765,7 @@ radius scaling into the label's Å radius. Existing `atomColors`, `atomMaterials
 `atomOpacities` and `atomRadiusScales` API maps remain valid and separate. Changing
 View/Edit mode propagates only actual identity edits and preserves unedited
 per-frame elements, including trajectories with changing chemistry.
+
+Rigid translation state snapshots are atomic with optimizer updates: poll the
+mode status and `is_relaxing` together; a completed run must not report a mixed
+`relaxing` status and `is_relaxing: false`.

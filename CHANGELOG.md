@@ -14,6 +14,10 @@
   Publication exports use the nonselected ring when selection is hidden.
 - The Orbit tool rotates the view with a primary-button drag; Shift-drag pans.
 - AI tool schemas correctly describe the global Z axis for commensurate rotation.
+  Explicit guest indices stay selected so later styling and camera fitting preserve
+  the common-cell preview.
+- Rigid translation relaxation reports completion as one consistent state,
+  including very short optimizations.
 
 
 ## 0.4.9
