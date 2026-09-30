@@ -131,6 +131,9 @@ pixels in the export to reject a blank WebGL image. Windows starts isolated
 Python with explicit UTF-8 mode so Unicode GUI source does not depend on the
 system ANSI code page.
 
+Pixel checks allow up to 15 seconds for the native compositor to present a new
+selection frame; their required visible-pixel thresholds remain unchanged.
+
 `.github/workflows/desktop.yml` tests Apple silicon, Intel Mac and Windows
 independently, then repeats tests against each packaged app. It retains build
 candidates and evidence as workflow artifacts. It deliberately does **not**

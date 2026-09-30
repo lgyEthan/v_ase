@@ -4,6 +4,7 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const path = require('node:path');
+const waitForVisualFrame = require('./visual-frame.cjs');
 module.exports = async function visualSmoke({js, active, appRef, win, output, wait}) {
     const prior = await js(`({settings:${appRef}.designSettingsSnapshot(),vizOnly:${appRef}.state.vizOnly})`);
     await js(`(async()=>{const a=${appRef};await a.aiApply({mode:'edit'});
@@ -45,13 +46,18 @@ module.exports = async function visualSmoke({js, active, appRef, win, output, wa
         for(let i=1;i<=8;i++)win.webContents.sendInputEvent({type:'mouseMove',x:Math.round(bounds.x1+(bounds.x2-bounds.x1)*i/8),y:Math.round(bounds.y1+(bounds.y2-bounds.y1)*i/8),button:'left',buttons:['left']});
         win.webContents.sendInputEvent({type:'mouseUp',x:bounds.x2,y:bounds.y2,button:'left',clickCount:1});
         await wait(`${appRef}.state.selected.size===3`);
-        const selected=await capture(`selection-${mode}-drag`);
+        const selected=await waitForVisualFrame(
+            () => capture(`selection-${mode}-drag`),
+            bitmap => yellow(bitmap)-yellow(before)>100);
         const selectedRing=await planeRing();expectRing(selectedRing,true);
         const outlinePixels=yellow(selected)-yellow(before);
         assert.ok(outlinePixels>100,`Invisible ${mode} drag selection: ${outlinePixels} yellow pixels`);
         await js(`(()=>{const a=${appRef};a.clearAtomSelection();a.updateSelectionVisuals();a.updateUI();a.openEditorRoute('appearance');const b=${active}.document.querySelector('[data-appearance-field="select"][data-atom-label="H"]');b.click();})()`);
         await wait(`${appRef}.state.selected.size===2`);
-        assert.ok(yellow(await capture(`selection-${mode}-panel`))-yellow(before)>50,`Invisible ${mode} panel selection`);
+        const panelSelected=await waitForVisualFrame(
+            () => capture(`selection-${mode}-panel`),
+            bitmap => yellow(bitmap)-yellow(before)>50);
+        assert.ok(yellow(panelSelected)-yellow(before)>50,`Invisible ${mode} panel selection`);
         await js(`(()=>{const a=${appRef};a.clearAtomSelection();a.updateSelectionVisuals();a.updateUI();})()`);
         const constraints=await capture(`constraints-${mode}-visible`);
         expectRing(await planeRing(),false);
