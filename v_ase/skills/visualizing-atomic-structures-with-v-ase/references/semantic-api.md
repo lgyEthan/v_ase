@@ -277,7 +277,7 @@ Pass `operation` as a name string or object:
 | Operation | Fields | Effect |
 | --- | --- | --- |
 | `wrap` | none | Wrap current View frame or all Edit frames |
-| `translate-all` | `vector`, `coordinateMode` | Physically move every atom, leave cell fixed |
+| `translate-all` | `vector`, `coordinateMode`; optional `frameScope:"current"|"all"` (default all) | Physically move every atom without an optimizer; fractional vectors use each frame cell, constraints are retained but not applied to the rigid shift; leave cell fixed |
 | `center-selection-at-origin` | selection/`indices` | Set scene translation so one selected atom or the mass-weighted selected COM lies at Cartesian origin; ASE positions and cell remain unchanged |
 | `compose-view` | optional display repetition/translation, motif center, camera basis or orientation preservation, scene mode, target, fit, padding | Reproduce a periodic composition deterministically without changing ASE coordinates or atom count |
 | `set-unit-cell` | Cartesian 3 x 3 `cell`; optional three-axis `pbc` | Define or replace the ASE cell without moving atoms; creates a usable scratch document when no structure is loaded |
@@ -293,7 +293,7 @@ Pass `operation` as a name string or object:
 | `stop-added-atoms` | none | Compatibility alias that requests placement-optimizer stop while retaining current staged positions |
 | `finish-add-atoms` | none | Commit staged atoms after optimization is inactive |
 | `cancel-add-atoms` | none | Restore the exact structure and history from before scattering |
-| `delete-selection` | selection or `indices` | View: hide exact visual references only. Edit: delete unique base atoms and remap constraints |
+| `delete-selection` | selection or `indices`; optional `frameScope:"current"|"all"` (default current) | View: hide exact visual references only. Edit: delete unique base atoms, remap arrays/labels/constraints; all uses identical indices regardless of elements and skips absent indices. Complete Undo/Redo |
 | `set-visual-label` | View mode `indices`, `label` | Assign an index-scoped visual role while preserving ASE elements and topology |
 | `style-atoms` | `indices`, `labels`, and/or `elements`; appearance fields | Apply final color/material/opacity/radius overrides to the selector union without changing structure |
 | `configure-bonds` | `pairs` and/or exact `indexPairs`; optional `disableUnspecified`, `clearEndpointOverrides` | Apply an intentional visual-label policy or select exact atom edges without rewriting that policy |

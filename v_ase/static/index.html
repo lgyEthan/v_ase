@@ -52,14 +52,14 @@
             });
         })();
     </script>
-    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.4.11">
-    <link id="editor-style" rel="stylesheet" href="static/editor.css?v=0.4.11">
-    <link id="direct-workspace-style" rel="stylesheet" href="static/direct_workspace.css?v=0.4.11">
+    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.4.12">
+    <link id="editor-style" rel="stylesheet" href="static/editor.css?v=0.4.12">
+    <link id="direct-workspace-style" rel="stylesheet" href="static/direct_workspace.css?v=0.4.12">
     <script>
         window.__V_ASE_MOCK__ = new URLSearchParams(window.location.search).has('v_ase_mock');
         const threeModulePath = window.location.protocol === 'file:'
             ? './vendor/three.module.js'
-            : '/static/vendor/three.module.js?v=0.4.11';
+            : '/static/vendor/three.module.js?v=0.4.12';
         const importMap = document.createElement('script');
         importMap.type = 'importmap';
         importMap.textContent = JSON.stringify({
@@ -166,7 +166,7 @@
     <header id="top-bar" class="glass-panel">
         <div class="logo">
             <img class="brand-logo-asset" src="static/v_ase-logo.png" alt="v_ase">
-            <span class="version">0.4.11</span>
+            <span class="version">0.4.12</span>
         </div>
         <nav id="editor-menu-bar" class="editor-menu-bar" aria-label="Document commands">
             <details><summary>File</summary><div class="editor-menu-popover">
@@ -1187,6 +1187,20 @@
 
         <details class="panel-section" open data-panel="registry-map" data-panel-group="analysis">
             <summary class="section-header">Rigid Translation</summary>
+            <section class="export-group" id="rigid-translation-controls" data-edit-only aria-labelledby="rigid-translation-title">
+                <strong id="rigid-translation-title">Translate coordinates</strong>
+                <div class="prop-row"><label for="rigid-translation-target">Move</label><select id="rigid-translation-target"><option value="all">All atoms</option><option value="selected">Selected atoms</option></select></div>
+                <div class="prop-row"><label for="rigid-translation-coordinates">Coordinates</label><select id="rigid-translation-coordinates"><option value="cartesian">Cartesian / Å</option><option value="fractional">Fractional / a, b, c</option></select></div>
+                <div class="prop-row"><label>Offset</label><div class="num-group">
+                    <input id="rigid-translation-x" type="number" step="any" value="0" aria-label="Rigid translation first component">
+                    <input id="rigid-translation-y" type="number" step="any" value="0" aria-label="Rigid translation second component">
+                    <input id="rigid-translation-z" type="number" step="any" value="0" aria-label="Rigid translation third component">
+                </div></div>
+                <div class="prop-row"><label for="rigid-translation-frames">Apply to</label><select id="rigid-translation-frames"><option value="current">Current frame</option><option value="all">All trajectory frames</option></select></div>
+                <button id="btn-rigid-translate" class="btn-block primary" type="button">Translate</button>
+                <p class="panel-note compact-note">Moves coordinates rigidly, keeping the cell and constraints. No relaxation or calculator is run. Fractional offsets use each frame’s cell.</p>
+            </section>
+            <details class="export-group" id="rigid-translation-optional"><summary>Optional constrained translation &amp; relaxation</summary>
             <p id="registry-mode-description" class="panel-note">Move the selected atoms as one rigid component in a periodic (hkl) plane. The cell, host atoms, and selected internal coordinates remain fixed.</p>
             <div class="prop-row">
                 <label for="registry-translation-space">Degrees of freedom</label>
@@ -1252,6 +1266,7 @@
                     <span class="analysis-status-detail">Activate translation mode to inspect the physical plane and cell boundary.</span>
                 </div>
             </div>
+            </details>
         </details>
 
         <details class="panel-section" open data-panel="view" data-panel-group="view">
@@ -1612,6 +1627,8 @@
 
         <details class="panel-section" open data-panel="cell-transform" data-panel-group="structure">
             <summary class="section-header">Cell Transform</summary>
+            <button type="button" data-editor-route="build-rigid" class="btn-block">Translate coordinates…</button>
+            <p class="panel-note compact-note">Move atoms without changing the cell or running relaxation.</p>
             <p id="cell-transform-view-note" class="panel-note">Switch to Edit to apply a physical cell transformation.</p>
             <button id="btn-cell-transform-switch-edit" class="btn-block" type="button">Switch to Edit</button>
             <div class="matrix-grid" id="make-supercell-matrix">
@@ -2492,7 +2509,7 @@
         }
         const modulePath = (window.location.protocol === 'file:' || window.location.pathname.endsWith('/static/index.html'))
             ? './main.js'
-            : './static/main.js?v=0.4.11';
+            : './static/main.js?v=0.4.12';
         import(modulePath).catch(error => {
             console.error('v_ase failed to initialize:', error?.stack || error);
         });

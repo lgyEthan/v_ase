@@ -1548,8 +1548,8 @@ AI_OPERATION_PARAMETERS = {
     "translate-all": {
         "mode": "edit",
         "required": ["vector"],
-        "optional": ["coordinateMode", "applyConstraints"],
-        "notes": "coordinateMode is cartesian or fractional.",
+        "optional": ["coordinateMode", "applyConstraints", "frameScope"],
+        "notes": "Rigid physical translation without relaxation. coordinateMode is cartesian (Angstrom) or fractional (offset @ each frame's cell). frameScope defaults to all; current changes only the displayed frame. Cell and constraints are retained, but the shared offset bypasses constraint projection. For constraint-enforced movement use move-selection or the registry workflow.",
     },
     "set-unit-cell": {
         "mode": "edit",
@@ -1699,11 +1699,13 @@ AI_OPERATION_PARAMETERS = {
     "delete-selection": {
         "mode": "view-or-edit",
         "required": ["selection-or-indices"],
-        "optional": ["indices"],
+        "optional": ["indices", "frameScope"],
         "notes": (
             "View mode hides the exact selected visual instances without "
             "changing ASE atoms. Edit mode deletes the corresponding base "
-            "atom indices from the physical structure."
+            "atom indices from the physical structure. frameScope defaults to current; all deletes "
+            "the same base indices across the trajectory, even if elements differ; missing indices "
+            "in shorter frames are skipped. One Undo restores all affected frames."
         ),
     },
     "set-identity": {
@@ -2252,7 +2254,8 @@ def _complete_operation_contracts():
         operation["properties"]["name"]["enum"].append(name)
         operation["allOf"].append({"if": {"required": ["name"], "properties": {"name": {"const": name}}}, "then": {"properties": deepcopy(props), "required": required}})
     extras = {
-        "translate-all": {"vector": VECTOR, "coordinateMode": {"enum": ["cartesian", "fractional"]}},
+        "translate-all": {"vector": VECTOR, "coordinateMode": {"enum": ["cartesian", "fractional"]}, "frameScope": {"enum": ["current", "all"]}, "applyConstraints": {"type": "boolean", "description": "Compatibility setting for committing pending GUI positions before the shift. The rigid translation itself bypasses constraints, even when true; stored constraints remain intact. Use move-selection for constraint-enforced coordinate changes."}},
+        "delete-selection": {"frameScope": {"enum": ["current", "all"]}},
         "set-supercell": {"reps": {**INTEGER_VECTOR, "items": {"type": "integer", "minimum": 1, "maximum": 64}}},
         "make-supercell": {"matrix": {"type": "array", "items": INTEGER_VECTOR, "minItems": 3, "maxItems": 3}},
         "add-atom": {"position": VECTOR, "label": {"type": "string", "minLength": 1}, "element": {"type": "string", "minLength": 1}},

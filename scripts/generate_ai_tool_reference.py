@@ -6,6 +6,7 @@ import re
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from v_ase.ai_tools import tool_catalog
+from v_ase._version import __version__
 
 
 def section(spec):
@@ -31,7 +32,7 @@ def render():
     for spec in tool_catalog().values():
         groups.setdefault(section(spec), []).append(spec)
     lines = ['# Tools by feature', '',
-             'This reference describes the v_ase 0.3.3 tool catalog.',
+             f'This reference describes the v_ase {__version__} tool catalog.',
              'See [scene workflows](ai-scene.md) for compact inspection and visual edits.', '',
              'The catalog below is generated from the same schemas used by MCP and native',
              'function tools. Inputs use snake_case. Scientific units are Angstrom and',

@@ -74,7 +74,7 @@ function sendCommand(id, target = focusedWindow()) {
 
 function createMenu(registry = {}) {
     const item = (id, label) => ({ id, label, enabled: Boolean(registry[id]),
-        accelerator: registry[id] ? `CommandOrControl+${registry[id].shift ? 'Shift+' : ''}${registry[id].code.slice(3)}` : undefined,
+        accelerator: registry[id] ? `CommandOrControl+${registry[id].alt ? 'Alt+' : ''}${registry[id].shift ? 'Shift+' : ''}${registry[id].code.replace(/^Key|^Digit/, '').replace('Arrow', '')}` : undefined,
         click: () => sendCommand(id) });
     const edit = (label, keyCode, shift = false) => ({ label,
         accelerator: `CommandOrControl+${shift ? 'Shift+' : ''}${keyCode}`,
@@ -105,6 +105,8 @@ function createMenu(registry = {}) {
         { label: 'View', submenu: [item('appearance', 'Atom properties'), item('bonding', 'Bonds'),
             item('supercell', 'Supercell'), item('cell-transform', 'Cell transformation'), item('renderer', 'Renderer'),
             { type: 'separator' }, { role: 'togglefullscreen' }] },
+        { label: 'Window', submenu: [item('previous-tab', 'Previous document tab'), item('next-tab', 'Next document tab'),
+            { type: 'separator' }, ...Array.from({ length: 9 }, (_, i) => item(`tab-${i + 1}`, i === 8 ? 'Last document tab' : `Document tab ${i + 1}`))] },
         { label: 'Help', submenu: [{ label: 'Shortcuts', click: () => sendCommand('shortcuts') },
             { label: 'User guide', click: () => shell.openExternal('https://v-ase.readthedocs.io/en/latest/desktop.html') },
             { label: 'Copy agent connection URL', click: () => {
@@ -276,9 +278,10 @@ function stopBackend() {
 async function openQueued() { return openQueue.flush(); }
 
 function inputCommand(input) {
-    if (input.type !== 'keyDown' || input.isComposing || input.alt) return null;
+    if (input.type !== 'keyDown' || input.isComposing) return null;
     if (process.platform === 'darwin' ? (!input.meta || input.control) : (!input.control || input.meta)) return null;
-    return Object.entries(commands).find(([, command]) => command.code === input.code && command.shift === Boolean(input.shift))?.[0];
+    return Object.entries(commands).find(([, command]) => command.code === input.code
+        && Boolean(command.alt) === Boolean(input.alt) && command.shift === Boolean(input.shift))?.[0];
 }
 
 async function start() {

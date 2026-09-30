@@ -14,9 +14,9 @@ async function runSmoke({ app, win, handshake, vault, sendCommand, openQueue }) 
     const active = 'window.__V_ASE_WORKSPACE__.tabs.get(window.__V_ASE_WORKSPACE__.activeSessionId).pane.contentWindow';
     const appRef = `${active}.__ASE_APP__`;
     const modifier = process.platform === 'darwin' ? 'meta' : 'control';
-    async function key(keyCode, shift = false) {
+    async function key(keyCode, shift = false, alt = false) {
         win.show(); win.focus(); win.webContents.focus();
-        const modifiers = [modifier, ...(shift ? ['shift'] : [])];
+        const modifiers = [modifier, ...(shift ? ['shift'] : []), ...(alt ? ['alt'] : [])];
         win.webContents.sendInputEvent({ type: 'keyDown', keyCode, modifiers });
         win.webContents.sendInputEvent({ type: 'keyUp', keyCode, modifiers });
     }

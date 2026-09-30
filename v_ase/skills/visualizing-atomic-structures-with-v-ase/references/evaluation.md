@@ -906,7 +906,7 @@ GUI and saved trajectory must agree; a successful immediate move is insufficient
   no stale replacement mesh, and restored atom visibility.
 
 
-### Grouped opens and cell view keys (0.4.11)
+### Grouped opens and cell view keys (0.4.12)
 
 Run `tests/test_batch_and_cell.py`, `tests/test_flat_bond_pixels.py` and native
 `desktop/multi-open-smoke.cjs`. Check Finder-style open-file bursts, Explorer
@@ -922,3 +922,20 @@ standalone HTML output because those share the renderer.
 Force-layer edit regression: enable stored vectors at frame 2, physically move an
 atom, wait for scene readiness, switch to frame 0, and undo. Every step must settle
 and show the current stored vectors without running a calculator.
+
+### Document navigation and scoped physical edits (0.4.12)
+
+Run `tests/test_browser_trajectory_edits.py`, `tests/test_trajectory_edit_scope.py`,
+`tests/test_batch_and_cell.py` and the native desktop multi-open smoke.
+Use real mouse input on tab buttons (programmatic activation cannot catch
+pointer-capture regressions), then actual native primary+Alt arrows and digits.
+Check unloaded tabs, wrapping, positional order, editable-field focus, modal and
+transform guards. A/B/C direction must remain the exact cell row with global
+screen-up projection, including the zero-roll case a parallel to global X.
+Apply current/all Cartesian and fractional physical translation; compare each
+frame against its own cell, verify no optimizer and complete Undo/Redo.
+Delete indices across unequal counts and elements; cancel/Escape must do nothing,
+current must preserve other frames, all must remap each frame's arrays and
+constraints. Verify snapshot/skill/schema expose `frameScope` consistently and
+stale requests cannot mutate the structure. Keep text-field native Undo distinct
+from structure Undo after clicking a button.

@@ -87,6 +87,9 @@ apply to browser-hosted sessions.
 | **⌘Shift+S** | **Ctrl+Shift+S** | **Save As** | Choose a new project target and keep the previous file. |
 | **⌘O** | **Ctrl+O** | **Open** | Choose a structure or project and its destination. |
 | **⌘N** | **Ctrl+N** | **New document** | Add one new internal document tab. |
+| **⌘Option+← / ⌘Option+→** | **Ctrl+Alt+← / Ctrl+Alt+→** | **Previous / Next tab** | Switch internal document tabs, wrapping at the ends. |
+| **⌘1–8** | **Ctrl+1–8** | **Numbered tab** | Select that tab in visible left-to-right order; an absent position does nothing. |
+| **⌘9** | **Ctrl+9** | **Last tab** | Select the last internal document tab. |
 | **⌘A** | **Ctrl+A** | **Select all** | Select all visible base atoms and eligible periodic images. |
 | **Option+← / Option+→** | **Alt+← / Alt+→** | **Previous / Next Frame** | Move one frame in the selected source or relaxation timeline. |
 
@@ -101,13 +104,18 @@ offers **Open full editor** for the same session. Use visible File actions when
 the browser consumes a chord first. Modified letters do not fall through to
 unmodified G/R/S/axis commands.
 A/B/C changes only the camera and never selects atoms. Command/Ctrl+A selects all;
-Shift+A inverts and Alt+A clears selection. Cell views keep c pointing up along
-a/b, and b pointing up along c (projected for skewed cells). They preserve the
+Shift+A inverts and Alt+A clears selection. Cell views project global Z into the
+screen-up plane, with global Y then X as pole fallbacks. Other cell vectors do
+not introduce roll; an a vector along global X therefore matches the X view.
+They preserve the
 view target, magnification and world-locked render camera; an active viewport
 camera lock follows the view as for X/Y/Z. They do not fire while typing, holding
 a modifier, composing text, or performing G/R/S.
 
-Arrow keys in input fields keep native text and number editing; finish or
+Tab commands work while a field is focused, but wait for a modal or active
+G/R/S operation to finish. Browser-native tab shortcuts may take precedence;
+use the desktop app or visible document tabs. Native text undo is preserved in
+editable fields. Arrow keys in input fields keep native text and number editing; finish or
 cancel an active transform before using camera or timeline arrows.
 
 ## Sun Direction Controls

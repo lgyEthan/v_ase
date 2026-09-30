@@ -301,7 +301,7 @@ is hidden rather than reusing stale data.
 
 ## Rigid-translation timeline
 
-**Analysis > Rigid Translation** can activate a selected component in either:
+**Build → Rigid translation → Optional constrained translation & relaxation** can activate a selected component in either:
 
 - two-coordinate **In-plane (hkl)** mode; or
 - bounded **3D Cartesian** mode.
@@ -432,3 +432,13 @@ only one raster needs to be staged at a time. Video is opaque.
 The original GUI frame is restored after export. Semantic edits and another
 capture wait until the video is complete. Closing the page aborts its encoder;
 failed sequences do not return a partial movie as a successful export.
+
+## Delete atoms across frames
+
+For a multi-frame source trajectory in Edit, choose **Current frame only** or
+**All frames · same indices** in the deletion dialog. All frames removes those
+zero-based indices regardless of element names; shorter frames skip indices
+they do not contain. Remaining arrays, labels and supported constraints are
+remapped per frame. Playback pauses before the choice. **Cancel** or Escape
+leaves every frame unchanged; Undo restores the full operation, not just the
+displayed frame. View-mode hiding remains a visual action.

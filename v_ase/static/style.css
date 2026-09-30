@@ -7224,6 +7224,8 @@ body.editor-shell[data-current-editor-route="transform"] #commensurate-supercell
 body.editor-shell[data-current-editor-route="build-match"] #inspector-content [data-panel="transform"] .transform-selection-control,
 body.editor-shell[data-current-editor-route="build-rigid"] #registry-map-card,
 body.editor-shell[data-current-editor-route="registry-map"] #inspector-content [data-panel="registry-map"] .registry-relax-card { display: none !important; }
+body.editor-shell[data-current-editor-route="registry-map"] #rigid-translation-controls,
+body.editor-shell[data-current-editor-route="registry-map"] #rigid-translation-optional > summary { display: none !important; }
 .scene-object-list { display: flex; flex-direction: column; gap: 5px; margin: 10px 0; }
 .scene-object-list button { text-align: left; padding: 9px 11px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel-raised); color: var(--text); cursor: pointer; }
 .scene-object-list button:hover { border-color: var(--teal); }

@@ -3036,6 +3036,9 @@ def capture_ai_collaboration_figure(browser) -> None:
             "describe",
             {"includePositions": True},
         )
+        page.wait_for_function("""() => [...document.querySelectorAll('iframe')].some(
+            frame => frame.contentWindow?.__ASE_APP__?.workspaceRecoveryAcknowledged
+                && frame.contentWindow.location.search.includes('workspace_child=1'))""")
         child = next(
             frame for frame in page.frames
             if "workspace_child=1" in frame.url
@@ -3328,7 +3331,7 @@ def capture_ai_collaboration_figure(browser) -> None:
             write_ai_collaboration_recording_html(
                 figure_html,
                 stage_records,
-                Path(os.environ.get("V_ASE_README_RECORDING_PATH", ROOT / "docs/design/ai_collaboration_recording.html")),
+                Path(os.environ.get("V_ASE_README_RECORDING_PATH", ROOT / "local_notes/media/ai_collaboration_recording.html")),
             )
             # set_content avoids Chromium retaining a previous file:// document
             # between targeted README capture runs.

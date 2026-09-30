@@ -276,6 +276,11 @@ edit. Cartesian or fractional values are absolute, apply after display
 repetition, and move atom-attached overlays while the cell stays fixed. The
 input retains the applied value; applying zero restores the unshifted scene.
 
+For physical movement without an optimizer, **Build → Rigid translation →
+Translate coordinates** accepts Cartesian Å or fractional a/b/c, selected/all
+atoms and current/all frames. The cell stays unchanged. Optional constrained
+translation and relaxation are grouped below it.
+
 The top-bar **View / Edit** switch changes mode without reopening the document.
 Entering Edit materializes a lazy trajectory into editable ASE frames before
 the switch completes. Returning to View preserves coordinates and creates

@@ -38,7 +38,8 @@ to history.
 
 - Visual translation changes only where the rendered scene appears. It can be
   Cartesian or fractional and is stored with display settings.
-- Physical `translate-all` changes ASE coordinates on every applicable frame
+- **Build → Rigid translation** changes selected or all ASE coordinates in the
+  current frame or all frames. Semantic `translate-all` defaults to all frames
   without changing the cell. Fractional vectors use the full non-orthogonal
   cell matrix.
 
@@ -52,7 +53,7 @@ the saved coordinates themselves must move.
 | Show repeated images | **Replicate cell** / `display.supercell` | No |
 | Visually offset atoms and overlays | translation controls / `display.translation` | No |
 | Put selected COM at scene origin | **Selection COM to Origin** | No |
-| Move every atom but keep cell | **Apply Translation** / `translate-all` | Yes |
+| Move selected or all atoms but keep cell | **Build → Rigid translation** / `translate-all` | Yes |
 | Wrap into the cell | **Wrap Atoms Into Cell** / `wrap` | Yes for the affected frame(s) |
 | Make diagonal repeats the real cell | **Set Supercell as Cell** / `set-supercell` | Yes |
 | Apply a general integer cell transform | **Cell Transform** / `make-supercell` | Yes |

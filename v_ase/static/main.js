@@ -1,37 +1,38 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.4.11';
-import { ASERenderer } from './renderer.js?v=0.4.11';
-import { ASESelection } from './selection.js?v=0.4.11';
-import { ASETransform } from './transform.js?v=0.4.11';
-import { SelectedAppearanceEditor } from './selected_appearance.js?v=0.4.11';
-import { installActivityIndicators } from './ui_activity.js?v=0.4.11';
+import { ASEApi } from './api.js?v=0.4.12';
+import { ASERenderer } from './renderer.js?v=0.4.12';
+import { ASESelection } from './selection.js?v=0.4.12';
+import { ASETransform } from './transform.js?v=0.4.12';
+import { SelectedAppearanceEditor } from './selected_appearance.js?v=0.4.12';
+import { installActivityIndicators } from './ui_activity.js?v=0.4.12';
 
-import { installPolyhedra } from './polyhedra.js?v=0.4.11';
+import { installPolyhedra } from './polyhedra.js?v=0.4.12';
 import { installWaterUI } from './water_ui.js';
-import { installAIScene } from './ai_scene.js?v=0.4.11';
-import { AtomScalarStore } from './atom_properties.js?v=0.4.11';
-import { DirectWorkspace } from './direct_workspace.js?v=0.4.11';
-import { projectProvenanceFromLoad } from './project_provenance.js?v=0.4.11';
-import { installShortcutCapture } from './shortcut_capture.js?v=0.4.11';
-import { openFileInWindow } from './workspace_windows.js?v=0.4.11';
-import { installEditorInteractions } from './editor_interactions.js?v=0.4.11';
-import { WORKBENCH_ROUTES, mountWorkbenchTools, syncWorkbenchRoute } from './editor_ui.js?v=0.4.11';
+import { installAIScene } from './ai_scene.js?v=0.4.12';
+import { AtomScalarStore } from './atom_properties.js?v=0.4.12';
+import { DirectWorkspace } from './direct_workspace.js?v=0.4.12';
+import { navigateWorkspaceDocument } from './workspace_navigation.js?v=0.4.12';
+import { projectProvenanceFromLoad } from './project_provenance.js?v=0.4.12';
+import { installShortcutCapture } from './shortcut_capture.js?v=0.4.12';
+import { openFileInWindow } from './workspace_windows.js?v=0.4.12';
+import { installEditorInteractions } from './editor_interactions.js?v=0.4.12';
+import { WORKBENCH_ROUTES, mountWorkbenchTools, syncWorkbenchRoute } from './editor_ui.js?v=0.4.12';
 import {
     EDITOR_COMMANDS, commandIdForEvent, resolveShortcutPlatform,
     editorShortcutLabel, editorAriaShortcut, editorShortcutSearchTerms,
-    viewportNavigationForEvent
-} from './editor_commands.js?v=0.4.11';
+    viewportNavigationForEvent, DOCUMENT_COMMANDS, documentCommandIdForEvent, documentShortcutLabel
+} from './editor_commands.js?v=0.4.12';
 import {
     DEFAULT_ATOM_RADIUS_MAPPING,
     atomRadiusFactors,
     normalizeAtomRadiusMapping,
     radiusMappingPreset
-} from './radius_mapping.js?v=0.4.11';
+} from './radius_mapping.js?v=0.4.12';
 import {
     interpolateTrajectoryFrames,
     interpolatedFrameCount,
     normalizeInterpolationMultiplier
-} from './trajectory.js?v=0.4.11';
+} from './trajectory.js?v=0.4.12';
 
 const EDITOR_ROUTES = Object.freeze({
     'structure-info': { group: 'inspect', category: 'scene', title: 'Scene overview' },
@@ -50,7 +51,7 @@ const EDITOR_ROUTES = Object.freeze({
     constraints: { group: 'structure', category: 'build', title: 'Constraints' },
     'scientific-tools': { group: 'structure', category: 'build', title: 'Relaxation' },
     'build-match': { group: 'structure', category: 'build', title: 'Match periodic cells', panel: 'transform', target: '#chk-commensurate-guide' },
-    'build-rigid': { group: 'analysis', category: 'build', title: 'Rigid translation', panel: 'registry-map', target: '#registry-translation-space' },
+    'build-rigid': { group: 'analysis', category: 'build', title: 'Rigid translation', panel: 'registry-map', target: '#rigid-translation-controls' },
     rdf: { group: 'analysis', category: 'analyze', title: 'Distributions' },
     displacement: { group: 'analysis', category: 'analyze', title: 'Displacements' },
     forces: { group: 'analysis', category: 'style', title: 'Stored forces' },
@@ -74,7 +75,7 @@ const EDITOR_SEARCH = Object.freeze({
     'cell-transform': [['matrix determinant make supercell physical cell', '#matrix-00']],
     transform: [['pivot rotate snap move selection', '#rotate-pivot']],
     'build-match': [['commensurate guest strain periodic matching', '#chk-commensurate-guide']],
-    'build-rigid': [['rigid translation component optimize plane', '#registry-translation-space']],
+    'build-rigid': [['rigid translation fractional cartesian coordinates move atoms', '#rigid-translation-controls'], ['optimize plane relaxation', '#rigid-translation-optional']],
     'registry-map': [['translation map metric grid', '#registry-metric']],
     isosurfaces: [['isosurface isovalue threshold surface color opacity', '#volume-level'], ['plane section', '#volume-tool-tab-planes']],
     volumetric: [['field import precision fp32 fp64', '#volume-import-precision'],
@@ -1015,6 +1016,7 @@ class VAseApp {
             this.renderer.onResize();
             this.renderer.requestRender();
         }
+        this.renderer.domElement.focus({ preventScroll: true });
         if (this.workspaceChild && !this.workspaceBaselineSettled) {
             this.workspaceBaselineSettled = true;
             const userActions = this.userInteractionCount;
@@ -6371,6 +6373,7 @@ class VAseApp {
             this.syncRendererFormatProperties();
         }
         if (route === 'isosurfaces') this.setVolumetricToolView('surface');
+        if (route === 'registry-map') document.getElementById('rigid-translation-optional').open = true;
         if (route === 'scene-fields') this.renderSceneContextObjects();
         if (route === 'scene-vectors') this.syncSceneVectorControls();
         const picker = document.getElementById('structure-section-select');
@@ -6395,6 +6398,12 @@ class VAseApp {
     }
 
     handleEditorShortcut(event) {
+        const documentCommand = documentCommandIdForEvent(event, this.shortcutPlatform);
+        if (documentCommand) {
+            event.preventDefault(); event.stopPropagation();
+            if (!event.repeat) this.executeDocumentNavigation(documentCommand);
+            return true;
+        }
         const commandId = commandIdForEvent(event, this.shortcutPlatform);
         if (!commandId) return false;
         event.preventDefault();
@@ -6405,6 +6414,10 @@ class VAseApp {
     }
 
     executeEditorCommand(commandId, { repeat = false, target = null } = {}) {
+        if (DOCUMENT_COMMANDS[commandId]) {
+            if (!repeat) this.executeDocumentNavigation(commandId);
+            return true;
+        }
         const command = EDITOR_COMMANDS[commandId];
         if (!command) return false;
         if (repeat) return true;
@@ -6465,6 +6478,11 @@ class VAseApp {
             return true;
         }
         return false;
+    }
+
+    executeDocumentNavigation(commandId) {
+        const workspace = this.workspaceChild ? window.parent.__V_ASE_WORKSPACE__ : this.directWorkspace;
+        return workspace ? navigateWorkspaceDocument(workspace, commandId) : true;
     }
 
     setupDisplacementAnalysis() {
@@ -10497,6 +10515,12 @@ class VAseApp {
         const mode = this.state.registryRelaxation;
         const active = Boolean(mode);
         const running = Boolean(mode?.is_relaxing);
+        const translate = document.getElementById('btn-rigid-translate');
+        if (translate) translate.disabled = !this.canEditAtoms() || active;
+        const coordinateMode = document.getElementById('rigid-translation-coordinates');
+        if (coordinateMode) coordinateMode.querySelector('[value="fractional"]').disabled = !this.hasUsableCell();
+        const frameScope = document.getElementById('rigid-translation-frames');
+        if (frameScope) frameScope.disabled = (this.state.atoms?.metadata?.frame_count || 1) < 2;
         document.getElementById('registry-relax-mode-badge')?.classList.toggle('hidden', !active);
         const activate = document.getElementById('btn-registry-relax-activate');
         const run = document.getElementById('btn-registry-relax-run');
@@ -15048,10 +15072,10 @@ class VAseApp {
             && row.every(Number.isFinite) && Math.hypot(...row) > 1e-8;
         if (index === undefined || !valid(rows?.[index])) return null;
         const direction = new THREE.Vector3(...rows[index]).normalize();
-        // c is vertical when looking along a/b; b is vertical along c.
-        // Project the up vector for skewed cells, and fall back safely for
-        // lower-dimensional cells without inventing missing lattice vectors.
-        const candidates = [rows[axis === 'c' ? 1 : 2], ...rows, [0,0,1], [0,1,0], [1,0,0]];
+        // Match the Cartesian views when a lattice vector lies on X/Y/Z.
+        // Keep global Z upright, with Y as the stable pole fallback; skew in
+        // another cell vector must not introduce an unrelated camera roll.
+        const candidates = [[0,0,1], [0,1,0], [1,0,0]];
         for (const row of candidates.filter(valid)) {
             const up = new THREE.Vector3(...row).normalize();
             up.addScaledVector(direction, -up.dot(direction));
@@ -20967,7 +20991,8 @@ class VAseApp {
                 ? 'fractional'
                 : 'cartesian';
             setData(await this.api.applyTranslation(
-                positions(), vector, coordinateMode, applyConstraints
+                positions(), vector, coordinateMode, applyConstraints,
+                { frameScope: operation.frameScope || 'all' }
             ));
             return;
         }
@@ -21345,7 +21370,9 @@ class VAseApp {
                 this.hideSelectedVisualReferences();
                 return;
             }
-            setData(await this.api.deleteAtoms(this.aiOperationIndices(operation)), true);
+            const indices = this.aiOperationIndices(operation);
+            const data = await this.api.deleteAtoms(indices, operation.frameScope || 'current');
+            this.setAtomsData(data, { clearSelection: true, radiusScopeRemap: { kind: 'delete', indices } });
             return;
         }
         if (name === 'set-identity') {
@@ -24208,6 +24235,32 @@ class VAseApp {
         }
     }
 
+    async applyRigidTranslation() {
+        if (!this.canEditAtoms() || this.state.registryRelaxation) {
+            this.toast('Finish the active editing mode before translating coordinates.', 'warning'); return;
+        }
+        try {
+            const vector = ['x', 'y', 'z'].map(axis => {
+                const raw = document.getElementById(`rigid-translation-${axis}`).value.trim();
+                const value = Number(raw);
+                if (!raw || !Number.isFinite(value)) throw new Error('Enter three finite translation components.');
+                return value;
+            });
+            if (vector.every(value => value === 0)) { this.toast('Enter a nonzero offset.', 'info'); return; }
+            const target = document.getElementById('rigid-translation-target').value;
+            const indices = target === 'selected' ? [...this.state.selected].sort((a, b) => a - b) : null;
+            if (indices && !indices.length) throw new Error('Select the atoms to translate first.');
+            const coordinateMode = document.getElementById('rigid-translation-coordinates').value;
+            const frameScope = document.getElementById('rigid-translation-frames').value;
+            const data = await this.withBusy('Translating coordinates…', () => this.api.applyTranslation(
+                this.backendPositionsPayload(), vector, coordinateMode, this.state.applyConstraints,
+                { indices, frameScope }
+            ));
+            this.setAtomsData(data, { clearSelection: false });
+            this.toast(`Coordinates translated in ${frameScope === 'all' ? 'all trajectory frames' : 'the current frame'}; cell unchanged.`, 'success');
+        } catch (error) { this.toast(`Translation failed: ${error.message}`, 'error'); }
+    }
+
     async applyMakeSupercellMatrix() {
         try {
             const matrix = this.parseSupercellMatrix();
@@ -24297,7 +24350,8 @@ class VAseApp {
         }
     }
 
-    async deleteSelection() {
+    async deleteSelection({ frameScope = null } = {}) {
+        if (this.deletionPending) return;
         if (this.state.vizOnly) {
             this.hideSelectedVisualReferences();
             return;
@@ -24312,16 +24366,57 @@ class VAseApp {
             this.toast('No atoms selected to delete.', 'warning');
             return;
         }
+        this.deletionPending = true;
         try {
-            const data = await this.api.deleteAtoms(indices);
+            if (!frameScope && (this.state.atoms?.metadata?.frame_count || 1) > 1) {
+                this.stopPlayback();
+                const revision = this.projectFile.structureRevision;
+                const frame = this.state.atoms.metadata.current_frame;
+                frameScope = await this.chooseDeletionFrameScope(indices);
+                if (!frameScope) return;
+                if (revision !== this.projectFile.structureRevision
+                    || frame !== this.state.atoms.metadata.current_frame) {
+                    this.toast('The structure changed while choosing deletion scope. Select atoms again.', 'warning');
+                    return;
+                }
+            }
+            frameScope ||= 'current';
+            const data = await this.api.deleteAtoms(indices, frameScope);
             this.setAtomsData(data, {
                 clearSelection: true,
                 radiusScopeRemap: { kind: 'delete', indices }
             });
-            this.toast(`Deleted ${indices.length} atom${indices.length > 1 ? 's' : ''}.`, 'success');
+            this.toast(`Deleted ${indices.length} atom${indices.length > 1 ? 's' : ''} in ${frameScope === 'all' ? 'all trajectory frames' : 'the current frame'}.`, 'success');
         } catch (err) {
             this.toast(`Delete failed: ${err.message}`, 'error');
+        } finally {
+            this.deletionPending = false;
         }
+    }
+
+    chooseDeletionFrameScope(indices) {
+        return new Promise(resolve => {
+            let settled = false;
+            const finish = scope => { if (settled) return; settled = true; this.closeModal(); resolve(scope); };
+            this.showModal(`
+                <h2>Delete atoms from trajectory</h2>
+                <p>Delete ${indices.length} selected atom${indices.length === 1 ? '' : 's'} from this frame, or delete the same zero-based indices from every frame?</p>
+                <p class="panel-note">All frames uses indices, even when elements differ. Missing indices in shorter frames are skipped. Undo restores the complete change.</p>
+                <div class="modal-actions">
+                    <button id="delete-frames-cancel" type="button">Cancel</button>
+                    <button id="delete-frames-current" type="button">Current frame only</button>
+                    <button id="delete-frames-all" type="button">All frames · same indices</button>
+                </div>`);
+            const modal = document.getElementById('modal-container');
+            const observer = new MutationObserver(() => {
+                if (modal.classList.contains('hidden')) { observer.disconnect(); if (!settled) { settled = true; resolve(null); } }
+            });
+            observer.observe(modal, { attributes: true, attributeFilter: ['class'] });
+            document.getElementById('delete-frames-cancel').onclick = () => finish(null);
+            document.getElementById('delete-frames-current').onclick = () => finish('current');
+            document.getElementById('delete-frames-all').onclick = () => finish('all');
+            document.getElementById('delete-frames-current').focus();
+        });
     }
 
     hideSelectedVisualReferences() {
@@ -26435,7 +26530,7 @@ class VAseApp {
     }
 
     async showOpenFilesModal(entries, options = {}) {
-        const { queueFileOpen } = await import('./file_open_batch.js?v=0.4.11');
+        const { queueFileOpen } = await import('./file_open_batch.js?v=0.4.12');
         return queueFileOpen(this, entries, options);
     }
 
@@ -26863,6 +26958,8 @@ class VAseApp {
                 <span>Shift+A</span><label>Invert selection for all visible atoms</label>
                 <span>Alt+A</span><label>Clear selection</label>
                 ${editorShortcuts}
+                <span>${documentShortcutLabel('previous-tab', this.shortcutPlatform)} / ${documentShortcutLabel('next-tab', this.shortcutPlatform)}</span><label>Previous / next document tab</label>
+                <span>${primary}1–8 / ${primary}9</span><label>Document tab by position / last document tab</label>
                 <span>Middle drag</span><label>Orbit viewport</label>
                 <span>Shift + middle drag</span><label>Pan viewport</label>
                 <span>Space</span><label>Play or pause the selected timeline</label>
@@ -29019,6 +29116,7 @@ class VAseApp {
         });
         this.setTranslationCoordinateMode(this.state.translationCoordinateMode);
         document.getElementById('btn-apply-translation').onclick = () => this.applyAtomTranslation();
+        document.getElementById('btn-rigid-translate').onclick = () => this.applyRigidTranslation();
         document.getElementById('btn-selection-to-origin').onclick = () => {
             try {
                 this.centerSelectionAtOrigin();
@@ -29520,6 +29618,13 @@ class VAseApp {
             if (navigation && !isEditableControl && !e.defaultPrevented) {
                 e.preventDefault();
                 this.executeViewportNavigation(navigation);
+                return;
+            }
+            if (!isEditableControl && (e.ctrlKey || e.metaKey) && !e.altKey
+                && this.transform.mode === 'IDLE' && this.isPhysicalKey(e, 'KeyZ', ['z'])) {
+                e.preventDefault();
+                (e.shiftKey ? this.performRedo() : this.performUndo())
+                    .catch(err => this.toast(`${e.shiftKey ? 'Redo' : 'Undo'} failed: ${err.message}`, 'error'));
                 return;
             }
             if (isFormControl) return;

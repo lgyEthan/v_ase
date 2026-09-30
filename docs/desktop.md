@@ -7,9 +7,9 @@ the scientific tools and uses your system's file dialogs and keyboard shortcuts.
 
 | Your computer | Download |
 | --- | --- |
-| Apple silicon Mac (M-series), macOS 15+ | [Apple silicon installer](https://github.com/lgyEthan/v_ase/releases/download/v0.4.11/v_ase-0.4.11-mac-arm64.dmg) |
-| Intel Mac, macOS 15+ | [Intel installer](https://github.com/lgyEthan/v_ase/releases/download/v0.4.11/v_ase-0.4.11-mac-x64.dmg) |
-| Windows 10/11, Intel or AMD 64-bit | [Windows installer](https://github.com/lgyEthan/v_ase/releases/download/v0.4.11/v_ase-0.4.11-win-x64.exe) |
+| Apple silicon Mac (M-series), macOS 15+ | [Apple silicon installer](https://github.com/lgyEthan/v_ase/releases/download/v0.4.12/v_ase-0.4.12-mac-arm64.dmg) |
+| Intel Mac, macOS 15+ | [Intel installer](https://github.com/lgyEthan/v_ase/releases/download/v0.4.12/v_ase-0.4.12-mac-x64.dmg) |
+| Windows 10/11, Intel or AMD 64-bit | [Windows installer](https://github.com/lgyEthan/v_ase/releases/download/v0.4.12/v_ase-0.4.12-win-x64.exe) |
 
 On a Mac, **Apple menu → About This Mac** shows your chip or processor.
 Windows users can check **Settings → System → About → System type**.
@@ -29,7 +29,7 @@ it from the release linked above.
 
 ## Install on Windows
 
-1. Download and run **v_ase-0.4.11-win-x64.exe**.
+1. Download and run **v_ase-0.4.12-win-x64.exe**.
 2. Follow the installer to choose where to install the app.
 3. Open **v_ase** from the Start menu.
 4. Choose **File → Open** (`Ctrl+O`) to open your structure or project.
@@ -112,22 +112,22 @@ To uninstall, quit the app and move it to Trash on Mac, or remove it through
 
 ## ZIP downloads and checksums
 
-The [release page](https://github.com/lgyEthan/v_ase/releases/tag/v0.4.11) also
+The [release page](https://github.com/lgyEthan/v_ase/releases/tag/v0.4.12) also
 provides ZIP downloads. Extract the entire ZIP first. On Mac, move **v_ase.app**
 to Applications; on Windows, run **v_ase.exe** and keep its adjacent files together.
 The Windows ZIP does not create Start-menu entries or file associations.
 
 If a download appears incomplete, download it again. You can check its integrity
-against [desktop-SHA256SUMS.txt](https://github.com/lgyEthan/v_ase/releases/download/v0.4.11/desktop-SHA256SUMS.txt):
+against [desktop-SHA256SUMS.txt](https://github.com/lgyEthan/v_ase/releases/download/v0.4.12/desktop-SHA256SUMS.txt):
 
 ```bash
 # macOS; use mac-x64 for an Intel download
-shasum -a 256 v_ase-0.4.11-mac-arm64.dmg
+shasum -a 256 v_ase-0.4.12-mac-arm64.dmg
 ```
 
 ```powershell
 # Windows
-Get-FileHash .\v_ase-0.4.11-win-x64.exe -Algorithm SHA256
+Get-FileHash .\v_ase-0.4.12-win-x64.exe -Algorithm SHA256
 ```
 
 ## Python, Jupyter and agents

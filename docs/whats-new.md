@@ -1,5 +1,25 @@
 # What is new
 
+## 0.4.12
+
+- Switch document tabs reliably with the mouse, Command+Option+Left/Right
+  on Mac or Ctrl+Alt+Left/Right on Windows. Command/Ctrl+1–8 selects a numbered
+  tab; Command/Ctrl+9 selects the last tab. Alt/Option+Left/Right still steps
+  trajectory frames. Desktop windows own the tab commands.
+- Unit-cell A/B/C views keep a clean Cartesian screen-up orientation instead
+  of inheriting roll from other skewed lattice vectors. The view direction and
+  repeated-key reversal still follow the actual selected cell vector.
+- Build → Rigid translation starts with ordinary coordinate translation:
+  Cartesian Å or fractional a/b/c, all or selected atoms, current or all frames.
+  No optimizer runs; optional constrained translation and relaxation stay below.
+  Transform cell links directly to these controls.
+- Deleting atoms from a trajectory in Edit asks whether to delete only in the
+  current frame or remove the same zero-based indices in every frame. Shorter
+  frames skip missing indices, even when elements differ. Cancel changes
+  nothing, and Undo/Redo covers the entire chosen scope.
+- Tab activation returns keyboard focus to the canvas. Structural Undo/Redo
+  also works after clicking a control; text fields retain native text undo.
+
 ## 0.4.11
 
 - Open several files together in one window: choose separate tabs or combine

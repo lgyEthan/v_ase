@@ -13,6 +13,34 @@ export const EDITOR_COMMANDS = Object.freeze({
     new: { code: 'KeyN', shift: false, label: 'Create one new document', action: 'new' }
 });
 
+export const DOCUMENT_COMMANDS = Object.freeze({
+    'previous-tab': { code: 'ArrowLeft', alt: true, shift: false, label: 'Previous document tab' },
+    'next-tab': { code: 'ArrowRight', alt: true, shift: false, label: 'Next document tab' },
+    ...Object.fromEntries(Array.from({ length: 9 }, (_, index) => [
+        `tab-${index + 1}`, { code: `Digit${index + 1}`, alt: false, shift: false,
+            label: index === 8 ? 'Last document tab' : `Document tab ${index + 1}` }
+    ]))
+});
+
+export function documentCommandIdForEvent(event, platform = resolveShortcutPlatform()) {
+    if (!event || event.isComposing || event.keyCode === 229
+        || event.getModifierState?.('AltGraph')) return null;
+    const apple = resolveShortcutPlatform(platform) === 'mac';
+    if (apple ? (!event.metaKey || event.ctrlKey) : (!event.ctrlKey || event.metaKey)) return null;
+    const fallback = /^[1-9]$/.test(event.key || '') ? `Digit${event.key}` : event.key;
+    const code = event.code && event.code !== 'Unidentified' ? event.code : fallback;
+    return Object.entries(DOCUMENT_COMMANDS).find(([, command]) => command.code === code
+        && command.alt === Boolean(event.altKey) && command.shift === Boolean(event.shiftKey))?.[0] || null;
+}
+
+export function documentShortcutLabel(id, platform = resolveShortcutPlatform()) {
+    const command = DOCUMENT_COMMANDS[id];
+    if (!command) return '';
+    const apple = resolveShortcutPlatform(platform) === 'mac';
+    const key = { ArrowLeft: '←', ArrowRight: '→' }[command.code] || command.code.replace('Digit', '');
+    return `${apple ? '⌘' : 'Ctrl+'}${command.alt ? (apple ? 'Option+' : 'Alt+') : ''}${key}`;
+}
+
 export function resolveShortcutPlatform(injected = null) {
     if (injected === 'mac' || injected === 'windows' || injected === 'linux') return injected;
     const browser = globalThis.navigator;
@@ -73,6 +101,7 @@ export function editorShortcutSearchTerms(id, platform = resolveShortcutPlatform
 export function editorLockCodes() {
     return [...new Set([
         ...Object.values(EDITOR_COMMANDS).map(command => command.code),
+        ...Object.values(DOCUMENT_COMMANDS).map(command => command.code),
         'ArrowLeft', 'ArrowRight'
     ])];
 }

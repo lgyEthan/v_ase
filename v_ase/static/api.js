@@ -476,11 +476,11 @@ export class ASEApi {
                     vector[0] * cell[0][2] + vector[1] * cell[1][2] + vector[2] * cell[2][2]
                 ];
             }
-            const positions = (payload.positions || this.mockState.atoms.positions).map(position => [
-                position[0] + shift[0],
-                position[1] + shift[1],
-                position[2] + shift[2]
-            ]);
+            const indices = payload.indices === null || payload.indices === undefined ? null : new Set(payload.indices);
+            const positions = (payload.positions || this.mockState.atoms.positions).map((position, index) =>
+                indices && !indices.has(index) ? [...position] : [
+                    position[0] + shift[0], position[1] + shift[1], position[2] + shift[2]
+                ]);
             return await this.mockApplyPositions(positions);
         }
         if (path.includes('/api/supercell/apply/')) {
@@ -1106,8 +1106,8 @@ export class ASEApi {
         return await this.jsonPost(`/api/add-session/cancel/{session_id}`, {});
     }
 
-    async deleteAtoms(indices) {
-        return await this.jsonPost(`/api/delete/{session_id}`, this.framePayload({ indices }));
+    async deleteAtoms(indices, frameScope = 'current') {
+        return await this.jsonPost(`/api/delete/{session_id}`, this.framePayload({ indices, frame_scope: frameScope }));
     }
 
     async updateAtomIdentity(indices, label, positions = null, applyConstraint = true, baseSymbol = null) {
@@ -1209,11 +1209,13 @@ export class ASEApi {
         return await this.jsonPost(`/api/build/bulk/apply/{session_id}`, payload);
     }
 
-    async applyTranslation(positions, vector, coordinateMode = 'cartesian', applyConstraint = true) {
+    async applyTranslation(positions, vector, coordinateMode = 'cartesian', applyConstraint = true, { indices = null, frameScope = 'all' } = {}) {
         return await this.jsonPost(`/api/translate/{session_id}`, this.framePayload({
             positions,
             vector,
             coordinate_mode: coordinateMode,
+            indices,
+            frame_scope: frameScope,
             apply_constraint: applyConstraint
         }));
     }

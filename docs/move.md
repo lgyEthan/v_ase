@@ -26,6 +26,22 @@ For pointer movement in fixed steps, set **Build > Transform & cell match >
 Move increment / A**. `0` means continuous movement; `0.1` snaps pointer movement
 to 0.1 Å steps. Typed distances bypass this increment.
 
+## Translate coordinates without relaxation
+
+In **Edit**, open **Build → Rigid translation → Translate coordinates**.
+**Build → Transform cell → Translate coordinates…** opens the same controls.
+Choose **All atoms** or **Selected atoms**, **Cartesian / Å** or **Fractional / a,b,c**,
+and **Current frame** or **All frames**, enter three offsets, then click
+**Translate coordinates**. Fractional offsets are multiplied by each frame's
+own full cell matrix; no unit cell is required for Cartesian offsets.
+
+This is a physical rigid shift. It retains the cell, arrays, labels and stored
+constraints, but deliberately does not project the offset through those
+constraints or start an optimizer. Use constrained `G` movement or the optional
+workflow below when motion must obey individual positional constraints.
+Undo/Redo covers the chosen frames. For composition only, use **Style → Cell →
+Translate atoms**, which leaves ASE coordinates unchanged.
+
 ## Example: Li moving through a carbon nanotube
 
 Download {download}`fixedline.traj <assets/examples/fixedline.traj>`. This input contains 128 C atoms and

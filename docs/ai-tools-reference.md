@@ -1,6 +1,6 @@
 # Tools by feature
 
-This reference describes the v_ase 0.3.3 tool catalog.
+This reference describes the v_ase 0.4.12 tool catalog.
 See [scene workflows](ai-scene.md) for compact inspection and visual edits.
 
 The catalog below is generated from the same schemas used by MCP and native
@@ -115,7 +115,7 @@ revision. See [connection and recovery](ai-tools.md#read-edit-verify).
 * - `vase_wrap`
   - Requires a usable cell. View mode wraps the displayed atoms only; Edit mode wraps ASE positions with the requested constraint handling.
 * - `vase_translate_all`
-  - coordinateMode is cartesian or fractional.
+  - Rigid physical translation without relaxation. coordinateMode is cartesian (Angstrom) or fractional (offset @ each frame's cell). frameScope defaults to all; current changes only the displayed frame. Cell and constraints are retained,…
 * - `vase_set_unit_cell`
   - Defines the 3 x 3 ASE cell without scaling atom coordinates. pbc defaults to [true,true,true]. This also creates a usable scratch document when no atoms have been loaded.
 * - `vase_build_bulk`
@@ -127,7 +127,7 @@ revision. See [connection and recovery](ai-tools.md#read-edit-verify).
 * - `vase_add_atom`
   - Prerequisites: label-or-element.
 * - `vase_delete_selection`
-  - View mode hides the exact selected visual instances without changing ASE atoms. Edit mode deletes the corresponding base atom indices from the physical structure. Prerequisites: selection-or-indices.
+  - View mode hides the exact selected visual instances without changing ASE atoms. Edit mode deletes the corresponding base atom indices from the physical structure. frameScope defaults to current; all deletes the same base indices…
 * - `vase_set_identity`
   - Prerequisites: selection-or-indices.
 * - `vase_move_selection`

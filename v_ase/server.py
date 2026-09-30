@@ -1447,7 +1447,25 @@ def materialize_host_guest_atoms(
     return combined
 
 
-def translate_atoms(atoms, vector, coordinate_mode="cartesian"):
+def edit_frame_scope(payload, default="current"):
+    scope = payload.get("frame_scope", default)
+    if scope not in {"current", "all"}:
+        raise HTTPException(status_code=400, detail="frame_scope must be 'current' or 'all'.")
+    return scope
+
+
+def edit_atom_indices(value, natoms):
+    if not isinstance(value, list) or any(
+        isinstance(index, bool) or not isinstance(index, (int, np.integer)) for index in value
+    ):
+        raise HTTPException(status_code=400, detail="Atom indices must be a list of integers.")
+    indices = sorted(set(int(index) for index in value))
+    if indices and (indices[0] < 0 or indices[-1] >= natoms):
+        raise HTTPException(status_code=400, detail="Atom indices are out of range for the current frame.")
+    return indices
+
+
+def translate_atoms(atoms, vector, coordinate_mode="cartesian", indices=None):
     shift = np.asarray(vector, dtype=float)
     if shift.shape != (3,) or not np.isfinite(shift).all():
         raise HTTPException(status_code=400, detail="Translation must contain three finite numeric components.")
@@ -1467,7 +1485,11 @@ def translate_atoms(atoms, vector, coordinate_mode="cartesian"):
         )
 
     translated = atoms.copy()
-    translated.translate(shift)
+    if indices is None:
+        translated.translate(shift)
+    else:
+        present = [index for index in indices if index < len(atoms)]
+        translated.positions[present] += shift
     if atoms.calc:
         translated.calc = copy_calculator(atoms.calc)
     return translated
@@ -1637,7 +1659,10 @@ def constraints_after_delete(atoms, delete_indices):
 def delete_indices_from_atoms(atoms, delete_indices):
     indices = sorted({int(i) for i in delete_indices})
     if not indices:
-        return atoms.copy()
+        unchanged = atoms.copy()
+        if atoms.calc:
+            unchanged.calc = copy_calculator(atoms.calc)
+        return unchanged
     if indices[0] < 0 or indices[-1] >= len(atoms):
         raise HTTPException(status_code=400, detail="Delete indices are out of range.")
     new_constraints = constraints_after_delete(atoms, indices)
@@ -4385,12 +4410,24 @@ async def delete_atoms(session_id: str, payload: Dict[str, Any]):
     session = get_session(session_id)
     require_editable(session, "Deleting atoms")
     sync_session_frame_from_payload(session, payload)
-    indices = payload.get("indices", [])
+    scope = edit_frame_scope(payload)
+    indices = edit_atom_indices(payload.get("indices", []), len(session.working_atoms))
     if not indices:
         return session_update_to_json(session)
 
-    session.push_history()
-    session.working_atoms = delete_indices_from_atoms(session.working_atoms, indices)
+    # Prepare all affected frames before committing any mutation or history.
+    if scope == "all" and session.trajectory_frames:
+        frames = [session.working_atoms if i == session.current_frame else frame
+                  for i, frame in enumerate(session.trajectory_frames)]
+        changed = [delete_indices_from_atoms(frame, [i for i in indices if i < len(frame)])
+                   for frame in frames]
+        session.push_history(include_trajectory=True)
+        session.trajectory_frames = changed
+        refresh_working_frame(session)
+    else:
+        changed = delete_indices_from_atoms(session.working_atoms, indices)
+        session.push_history()
+        session.working_atoms = changed
     session.invalidate_trajectory_layout()
     session.sync_current_frame()
     session.refresh_trajectory_identity()
@@ -5618,14 +5655,28 @@ async def apply_translation(session_id: str, payload: Dict[str, Any]):
     sync_session_frame_from_payload(session, payload)
     vector = payload.get("vector", [0, 0, 0])
     coordinate_mode = payload.get("coordinate_mode", "cartesian")
-    # Validate before creating a history entry.
-    translate_atoms(session.working_atoms, vector, coordinate_mode)
-    session.push_history(include_trajectory=True)
-    set_current_payload_positions(session, payload)
-    apply_all_frames(
-        session,
-        lambda atoms: translate_atoms(atoms, vector, coordinate_mode),
+    scope = edit_frame_scope(payload, "all")
+    indices = None if payload.get("indices") is None else edit_atom_indices(
+        payload["indices"], len(session.working_atoms)
     )
+    current = session.working_atoms.copy()
+    current.calc = session.working_atoms.calc
+    if payload.get("positions") is not None:
+        current.set_positions(np.asarray(payload["positions"], dtype=float),
+                              apply_constraint=payload_apply_constraint(payload))
+    if scope == "all" and session.trajectory_frames:
+        frames = [current if i == session.current_frame else frame
+                  for i, frame in enumerate(session.trajectory_frames)]
+        changed = [translate_atoms(frame, vector, coordinate_mode, indices) for frame in frames]
+        session.push_history(include_trajectory=True)
+        session.trajectory_frames = changed
+        refresh_working_frame(session)
+    else:
+        changed = translate_atoms(current, vector, coordinate_mode, indices)
+        session.push_history()
+        session.working_atoms = changed
+        session.sync_current_frame()
+    session.invalidate_trajectory_layout()
     return session_update_to_json(session)
 
 

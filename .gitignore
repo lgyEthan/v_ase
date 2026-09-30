@@ -33,4 +33,5 @@ ongoing.txt
 .env.*
 
 /docs/design/*.md
+/docs/design/ai_collaboration_recording.html
 /local_notes/

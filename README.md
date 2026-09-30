@@ -12,7 +12,7 @@ data, available as a desktop app, in your browser and in Jupyter.
 [![Documentation](https://readthedocs.org/projects/v-ase/badge/?version=latest)](https://v-ase.readthedocs.io/en/latest/)
 [![License: AGPL v3+](https://img.shields.io/badge/license-AGPL--3.0--or--later-2f855a.svg)](LICENSE)
 
-[Download for Mac or Windows](https://github.com/lgyEthan/v_ase/releases/tag/v0.4.11) ·
+[Download for Mac or Windows](https://github.com/lgyEthan/v_ase/releases/tag/v0.4.12) ·
 [Install with Python](#get-v_ase) ·
 [User guide](https://v-ase.readthedocs.io/en/latest/) ·
 [Example files](https://v-ase.readthedocs.io/en/latest/example-inputs.html)
@@ -63,7 +63,9 @@ around hydroxylated graphene-oxide layers.
 
 Use `G`, `R` and `S` for direct manipulation, or enter exact values. Rotate a
 fragment about its center, an active atom or a chosen pivot; undo an edit when
-trying another arrangement.
+trying another arrangement. **Build → Rigid translation** also moves coordinates
+in Cartesian Å or fractional cell units without running relaxation, for selected
+or all atoms in the current frame or every frame.
 
 ![A selected ferrocene ring rotates about an explicit pivot and axis](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_ferrocene_pivot.gif)
 
@@ -111,6 +113,8 @@ Cartesian or crystallographic planes and keep the atomic structure in view.
 Explore relative rotations and compatible periodic cells within your strain
 and size limits. Preview candidates before creating the matched structure.
 Cell tools also provide supercells, wrapping and cell transformations.
+Press `A`, `B` or `C` for an upright view along that lattice vector; repeat for
+the opposite side.
 
 ![Rotating a graphene and hBN bilayer reveals a compatible periodic cell](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_commensurate.gif)
 
@@ -137,6 +141,12 @@ the fragment's internal structure; they are not potential-energy maps.
 ![A selected layer translates rigidly over its host without deforming its internal structure](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_registry_relax.gif)
 
 [Registry maps and rigid translation](https://v-ase.readthedocs.io/en/latest/registry.html)
+
+Desktop document shortcuts switch tabs without changing trajectory frames:
+**Command+Option+←/→** on Mac, **Ctrl+Alt+←/→** on Windows, and **Command/Ctrl+1–9**
+for numbered tabs (9 is last). In Edit, deleting a trajectory selection asks
+whether to change the current frame or the same indices in every frame;
+the complete change is undoable.
 
 ## Atoms, bonds and coordination
 
@@ -294,9 +304,9 @@ Python is included. Download the installer for your computer:
 
 | Computer | Download | Install |
 | --- | --- | --- |
-| Mac with Apple silicon, macOS 15+ | [Apple silicon DMG](https://github.com/lgyEthan/v_ase/releases/download/v0.4.11/v_ase-0.4.11-mac-arm64.dmg) | Open the DMG and drag **v_ase** into **Applications**. |
-| Mac with Intel, macOS 15+ | [Intel DMG](https://github.com/lgyEthan/v_ase/releases/download/v0.4.11/v_ase-0.4.11-mac-x64.dmg) | Open the DMG and drag **v_ase** into **Applications**. |
-| Windows 10/11, Intel or AMD 64-bit | [Windows installer](https://github.com/lgyEthan/v_ase/releases/download/v0.4.11/v_ase-0.4.11-win-x64.exe) | Run the installer, then open **v_ase** from Start. |
+| Mac with Apple silicon, macOS 15+ | [Apple silicon DMG](https://github.com/lgyEthan/v_ase/releases/download/v0.4.12/v_ase-0.4.12-mac-arm64.dmg) | Open the DMG and drag **v_ase** into **Applications**. |
+| Mac with Intel, macOS 15+ | [Intel DMG](https://github.com/lgyEthan/v_ase/releases/download/v0.4.12/v_ase-0.4.12-mac-x64.dmg) | Open the DMG and drag **v_ase** into **Applications**. |
+| Windows 10/11, Intel or AMD 64-bit | [Windows installer](https://github.com/lgyEthan/v_ase/releases/download/v0.4.12/v_ase-0.4.12-win-x64.exe) | Run the installer, then open **v_ase** from Start. |
 
 Open files with **File → Open**, Finder/Explorer, or drag-and-drop. Select
 several files to open **separate tabs** or **one trajectory** in the same window.

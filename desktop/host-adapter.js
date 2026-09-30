@@ -2,9 +2,10 @@
 (async () => {
     if (window.__vaseDesktopHost || !window.vaseDesktop) return;
     const native = window.vaseDesktop;
-    const { EDITOR_COMMANDS, commandIdForEvent } = await import('/static/editor_commands.js?v=0.4.11');
+    const { EDITOR_COMMANDS, DOCUMENT_COMMANDS, commandIdForEvent, documentCommandIdForEvent } = await import('/static/editor_commands.js?v=0.4.12');
     const installed = new WeakSet();
-    const { detachWorkspaceDocument, restoreWindowDocument } = await import('/static/workspace_windows.js?v=0.4.11');
+    const { detachWorkspaceDocument, restoreWindowDocument } = await import('/static/workspace_windows.js?v=0.4.12');
+    const { navigateWorkspaceDocument } = await import('/static/workspace_navigation.js?v=0.4.12');
     let transfer = null;
     const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     const workspace = () => window.__V_ASE_WORKSPACE__;
@@ -147,13 +148,17 @@
         try { install(event.source.__ASE_APP__); } catch {}
     });
     const host = {
-        commands: EDITOR_COMMANDS,
+        commands: { ...EDITOR_COMMANDS, ...DOCUMENT_COMMANDS },
         commandForInput: input => commandIdForEvent({
+            code: input.code, key: input.key, shiftKey: input.shift, ctrlKey: input.control,
+            metaKey: input.meta, altKey: input.alt, isComposing: input.isComposing,
+        }, native.platform === 'darwin' ? 'mac' : 'windows') || documentCommandIdForEvent({
             code: input.code, key: input.key, shiftKey: input.shift, ctrlKey: input.control,
             metaKey: input.meta, altKey: input.alt, isComposing: input.isComposing,
         }, native.platform === 'darwin' ? 'mac' : 'windows'),
         async command(id) {
             if (transfer) throw new Error('Wait until the tab finishes moving to its new window.');
+            if (DOCUMENT_COMMANDS[id]) return navigateWorkspaceDocument(workspace(), id);
             const app = await waitForApp();
             if (id === 'open') return app.chooseSystemStructureFile();
             if (id === 'detach-tab') return host.detach(workspace().activeSessionId);
@@ -214,11 +219,11 @@
         tabDrag = { tab, id: tab.dataset.sessionId, x: event.clientX, y: event.clientY,
             pointer: event.pointerId, moved: false, title: tab.title };
         suppressDragClick = false;
-        tab.setPointerCapture(event.pointerId);
     });
     document.addEventListener('pointermove', event => {
         if (!tabDrag || event.pointerId !== tabDrag.pointer) return;
         if (Math.hypot(event.clientX-tabDrag.x, event.clientY-tabDrag.y) < 8) return;
+        if (!tabDrag.moved) tabDrag.tab.setPointerCapture(event.pointerId);
         tabDrag.moved = true;
         tabDrag.tab.style.opacity = '0.5';
         tabDrag.tab.title = 'Release below the tab strip to move this document into a new window';

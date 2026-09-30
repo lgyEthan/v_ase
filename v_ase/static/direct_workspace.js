@@ -1,11 +1,12 @@
 // Adopt a direct/notebook editor in place. The original app and its opaque
 // browser file handle stay alive as the first tab; only later tabs use iframes.
-import { projectProvenanceFromLoad } from './project_provenance.js?v=0.4.11';
-import { captureDocumentRecovery, restoreDocumentRecovery } from './workspace_recovery.js?v=0.4.11';
-import { createWorkspaceAIBridge, handleWorkspaceAICommand } from './workspace_ai.js?v=0.4.11';
-import { installShortcutCapture } from './shortcut_capture.js?v=0.4.11';
+import { projectProvenanceFromLoad } from './project_provenance.js?v=0.4.12';
+import { captureDocumentRecovery, restoreDocumentRecovery } from './workspace_recovery.js?v=0.4.12';
+import { createWorkspaceAIBridge, handleWorkspaceAICommand } from './workspace_ai.js?v=0.4.12';
+import { installShortcutCapture } from './shortcut_capture.js?v=0.4.12';
+import { navigateWorkspaceDocument } from './workspace_navigation.js?v=0.4.12';
 import { commandIdForEvent, editorAriaShortcut, editorShortcutLabel, resolveShortcutPlatform,
-    viewportNavigationForEvent } from './editor_commands.js?v=0.4.11';
+    viewportNavigationForEvent, documentCommandIdForEvent } from './editor_commands.js?v=0.4.12';
 
 export class DirectWorkspace {
     constructor(app) {
@@ -207,12 +208,19 @@ export class DirectWorkspace {
         }
         this.tabs.forEach(item => this.updateTab(item));
         document.title = `${entry.name} - v_ase`;
+        if (hostActive) this.app.renderer.domElement.focus({ preventScroll: true });
         return true;
     }
 
     activateDocument(sessionId) { return this.activate(sessionId); }
 
     dispatchParentShortcut(event) {
+        const documentCommand = documentCommandIdForEvent(event, this.shortcutPlatform);
+        if (documentCommand) {
+            event.preventDefault(); event.stopImmediatePropagation();
+            if (!event.repeat) navigateWorkspaceDocument(this, documentCommand);
+            return;
+        }
         if (this.activeSessionId === this.hostSessionId) return;
         const commandId = commandIdForEvent(event, this.shortcutPlatform);
         const navigation = commandId ? null : viewportNavigationForEvent(event);

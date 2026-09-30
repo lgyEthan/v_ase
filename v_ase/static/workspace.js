@@ -1,10 +1,11 @@
-import { restoreWindowDocument } from './workspace_windows.js?v=0.4.11';
-import { projectProvenanceFromLoad } from './project_provenance.js?v=0.4.11';
-import { captureDocumentRecovery, restoreDocumentRecovery } from './workspace_recovery.js?v=0.4.11';
-import { createWorkspaceAIBridge, handleWorkspaceAICommand } from './workspace_ai.js?v=0.4.11';
-import { installShortcutCapture } from './shortcut_capture.js?v=0.4.11';
+import { restoreWindowDocument } from './workspace_windows.js?v=0.4.12';
+import { projectProvenanceFromLoad } from './project_provenance.js?v=0.4.12';
+import { captureDocumentRecovery, restoreDocumentRecovery } from './workspace_recovery.js?v=0.4.12';
+import { createWorkspaceAIBridge, handleWorkspaceAICommand } from './workspace_ai.js?v=0.4.12';
+import { installShortcutCapture } from './shortcut_capture.js?v=0.4.12';
+import { navigateWorkspaceDocument } from './workspace_navigation.js?v=0.4.12';
 import { commandIdForEvent, editorAriaShortcut, editorShortcutLabel, resolveShortcutPlatform,
-    viewportNavigationForEvent } from './editor_commands.js?v=0.4.11';
+    viewportNavigationForEvent, documentCommandIdForEvent } from './editor_commands.js?v=0.4.12';
 
 class VAseWorkspace {
     constructor() {
@@ -247,6 +248,12 @@ class VAseWorkspace {
     }
 
     dispatchParentShortcut(event) {
+        const documentCommand = documentCommandIdForEvent(event, this.shortcutPlatform);
+        if (documentCommand) {
+            event.preventDefault(); event.stopImmediatePropagation();
+            if (!event.repeat) navigateWorkspaceDocument(this, documentCommand);
+            return;
+        }
         const commandId = commandIdForEvent(event, this.shortcutPlatform);
         const navigation = commandId ? null : viewportNavigationForEvent(event);
         if (!commandId && !navigation) return;

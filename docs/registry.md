@@ -1,9 +1,32 @@
 # Registry maps and rigid translation
 
 Explore lateral alignment between a known selected fragment and its host.
-Open **Analysis > Rigid Translation**. A map
+Open **Analyze → Registry map** for mapping or **Build → Rigid translation** for movement. A map
 samples translations; rigid relaxation searches translations without changing
 internal fragment geometry.
+
+## Translate coordinates without relaxation
+
+In **Edit**, open **Build → Rigid translation → Translate coordinates**.
+**Build → Transform cell → Translate coordinates…** opens the same controls.
+Choose **All atoms** or **Selected atoms**, **Cartesian / Å** or **Fractional / a,b,c**,
+and **Current frame** or **All frames**, enter three offsets, then click
+**Translate coordinates**. Fractional offsets are multiplied by each frame's
+own full cell matrix; no unit cell is required for Cartesian offsets.
+
+This is a physical rigid shift. It retains the cell, arrays, labels and stored
+constraints, but deliberately does not project the offset through those
+constraints or start an optimizer. Use constrained `G` movement or the optional
+workflow below when motion must obey individual positional constraints.
+Undo/Redo covers the chosen frames. For composition only, use **Style → Cell →
+Translate atoms**, which leaves ASE coordinates unchanged.
+
+## Optional constrained translation and relaxation
+
+Under **Build → Rigid translation**, expand **Optional constrained translation &
+relaxation** for the existing planar/Cartesian registry workflow. Maps live
+under **Analyze → Registry map**. Ordinary coordinate translation above never
+activates this optimizer.
 
 ## Registry maps
 

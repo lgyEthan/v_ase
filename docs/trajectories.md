@@ -122,3 +122,13 @@ is hidden rather than reusing stale data.
 Cached and streamed browser coordinates retain the original double precision.
 Visiting a frame and then editing or exporting it does not replace its scientific
 coordinates with the GPU’s lower-precision vertex data.
+
+## Delete atoms across frames
+
+For a multi-frame source trajectory in Edit, choose **Current frame only** or
+**All frames · same indices** in the deletion dialog. All frames removes those
+zero-based indices regardless of element names; shorter frames skip indices
+they do not contain. Remaining arrays, labels and supported constraints are
+remapped per frame. Playback pauses before the choice. **Cancel** or Escape
+leaves every frame unchanged; Undo restores the full operation, not just the
+displayed frame. View-mode hiding remains a visual action.

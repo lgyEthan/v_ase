@@ -8,7 +8,7 @@ A cloud agent still needs the documented MCP/tunnel setup; its own localhost
 cannot reach a person's desktop app.
 
 For desktop installation, use the [step-by-step user guide](https://v-ase.readthedocs.io/en/latest/desktop.html).
-The 0.4.11 downloads are Mac DMGs (Apple silicon or Intel, macOS 15+) and a
+The 0.4.12 downloads are Mac DMGs (Apple silicon or Intel, macOS 15+) and a
 Windows x64 EXE installer (Windows 10/11). Mac users copy the app to Applications;
 Windows users complete the installer and launch from Start. ZIPs require full
 extraction; the Windows ZIP does not install file associations. Check the
@@ -20,8 +20,9 @@ credentials check alone does not mean an app has been notarized.
 
 `.vase` is declared in the app/installer, but existing OS defaults may remain.
 The user can choose v_ase through Mac Get Info → Open with → Change All or
-Windows Open with / Default apps. `.vasp` and other supported extensions can
-also be assigned manually; `.vasp` is not predeclared by this installer.
+Windows Open with / Default apps. `.vasp` and other supported extensions are
+secondary Open With candidates and can be assigned manually; their existing
+defaults are retained.
 Extensionless POSCAR/CONTCAR should use File → Open (All files if filtered),
 with Reader → POSCAR / CONTCAR if auto-detection is ambiguous. OS opening
 shows the normal import dialog; it does not silently replace the active
@@ -42,13 +43,13 @@ separately for VASP. Setting a default app does not convert file contents.
 Install the tested release into the active Python environment:
 
 ```bash
-python -m pip install "v_ase-gui==0.4.11"
+python -m pip install "v_ase-gui==0.4.12"
 ```
 
 Optional Rhino export:
 
 ```bash
-python -m pip install "v_ase-gui[rhino]==0.4.11"
+python -m pip install "v_ase-gui[rhino]==0.4.12"
 ```
 
 Runtime dependencies are ASE, matscipy, FastAPI, Uvicorn, NumPy, SciPy,
@@ -65,7 +66,7 @@ the complete environment with the same interpreter instead of replacing NumPy
 alone:
 
 ```bash
-python -m pip install --upgrade --force-reinstall "v_ase-gui==0.4.11"
+python -m pip install --upgrade --force-reinstall "v_ase-gui==0.4.12"
 ```
 
 v_ase uses the `AGPL-3.0-or-later` license. Preserve the license and source
@@ -424,7 +425,7 @@ to an untrusted network.
 Install the tested release:
 
 ```bash
-python -m pip install "v_ase-gui==0.4.11"
+python -m pip install "v_ase-gui==0.4.12"
 ```
 
 Start the terminal-oriented API session yourself:
@@ -519,3 +520,12 @@ group and never replaces an existing tab. Cancellation finishes any in-flight
 upload before cleanup. Unconfirmed group dialogs absorb late OS file events.
 A .vase opened by itself still needs no import dialog.
 This is a GUI workflow; semantic load-file/append-file contracts are unchanged.
+
+Internal desktop tabs use Command+Option+Left/Right (Mac) or Ctrl+Alt+Left/Right
+(Windows); Command/Ctrl+1–8 selects a positional tab and 9 the last. These are
+distinct from Alt/Option-only frame stepping. Browser reservation can limit
+internal tab chords. GUI deletion in Edit asks current/all frame scope;
+semantic `delete-selection` defaults to current and must explicitly use
+`frameScope:"all"` for identical-index deletion across every frame. Missing
+indices in shorter frames are skipped, even when elements change. Undo restores
+the whole chosen scope, including labels, arrays and constraints.

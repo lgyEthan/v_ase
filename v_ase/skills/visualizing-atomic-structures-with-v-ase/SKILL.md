@@ -41,7 +41,16 @@ its orientation without masking atoms. Both Viewport and Renderer expose 2D/3D;
 materials and lighting controls are disabled in flat mode. Flat bonds are unlit,
 with crisp side outlines and no false seam between color halves.
 GUI A/B/C views use the actual unit-cell vectors with repeated-key reversal;
-X/Y/Z remains Cartesian. Command/Ctrl+A selects all. For semantic camera control,
+X/Y/Z remains Cartesian. GUI cell views project global Z for screen up (Y/X
+fallback at a pole), rather than introducing roll from other cell vectors.
+Desktop tab navigation uses Command+Option+Left/Right on Mac, Ctrl+Alt+Left/Right
+on Windows and Command/Ctrl+1–8 / 9 (last). Alt/Option alone still steps frames.
+Build → Rigid translation exposes ordinary Cartesian/fractional movement first,
+without relaxation. `translate-all` accepts `frameScope:"current"|"all"` (default
+all); Edit `delete-selection` accepts the same field (default current). The GUI
+asks deletion scope for trajectories. All-frame deletion uses identical base
+indices even across element/count changes, skips absent indices and is one
+complete undo action. Inspect structure identity before choosing all frames. Command/Ctrl+A selects all. For semantic camera control,
 use the existing compose-view cell-direction contract, not synthetic key events.
 Objects visibility is shared by viewport and rendering. `display.showConstraints`
 controls scientific marks independently of `applyConstraints` enforcement; hidden

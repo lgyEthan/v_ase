@@ -43,6 +43,15 @@ selected visual references and their bonds. In Edit it physically deletes the
 deduplicated base atoms and remaps supported constraints.
 :::
 
+For a multi-frame source trajectory in Edit, choose **Current frame only** or
+**All frames · same indices** in the deletion dialog. All frames removes those
+zero-based indices regardless of element names; shorter frames skip indices
+they do not contain. Remaining arrays, labels and supported constraints are
+remapped per frame. Playback pauses before the choice. **Cancel** or Escape
+leaves every frame unchanged; Undo restores the full operation, not just the
+displayed frame. View-mode hiding remains a visual action.
+
+
 
 ## Example: measure ethane
 

@@ -64,6 +64,25 @@ module.exports = async ({ app, win, js, active, appRef, wait, key, output, openQ
     await js(`${active}.document.querySelector('#open-batch-confirm').click()`);
     await wait(`${ws}.tabs.size === ${count+4}`);
     assert.equal(BrowserWindow.getAllWindows().length, windows);
+    // Native mouse input exercises the same hit testing and drag capture as a human.
+    const orderedIds = await js(`[...${ws}.tabs.keys()]`);
+    async function clickTab(id) {
+        const point = await js(`(()=>{const n=${ws}.tabs.get('${id}').select;
+            n.scrollIntoView({block:'nearest',inline:'nearest'});const r=n.getBoundingClientRect();
+            return {x:Math.round(r.left+r.width/2),y:Math.round(r.top+r.height/2)};})()`);
+        win.webContents.sendInputEvent({type:'mouseDown',button:'left',clickCount:1,...point});
+        win.webContents.sendInputEvent({type:'mouseUp',button:'left',clickCount:1,...point});
+        await wait(`${ws}.activeSessionId === '${id}' && ${appRef}?.workspaceRecoveryAcknowledged`);
+    }
+    await clickTab(orderedIds[0]);
+    await clickTab(orderedIds[1]);
+    await key('1'); await wait(`${ws}.activeSessionId === '${orderedIds[0]}'`);
+    await key('Right',false,true); await wait(`${ws}.activeSessionId === '${orderedIds[1]}'`);
+    await key('Left',false,true); await wait(`${ws}.activeSessionId === '${orderedIds[0]}'`);
+    await key('2'); await wait(`${ws}.activeSessionId === '${orderedIds[1]}'`);
+    await key('9'); await wait(`${ws}.activeSessionId === '${orderedIds.at(-1)}'`);
+    await wait(`${appRef}?.workspaceRecoveryAcknowledged`);
+    await fs.writeFile(path.join(output,'document-navigation.png'),(await win.webContents.capturePage()).toPNG());
     // Dispose only fixtures; preserve the existing workflow's source document.
     const imported = await js(`[...${ws}.tabs.keys()].filter(id=>!${JSON.stringify(originalIds)}.includes(id))`);
     for (const id of imported) {
@@ -76,5 +95,6 @@ module.exports = async ({ app, win, js, active, appRef, wait, key, output, openQ
     }
     await js(`${ws}.activateDocument('${originalId}')`);
     await wait(`${appRef}?.workspaceRecoveryAcknowledged`);
-    return { multiFileOpen:true, osOpenBatch:true, cellAxisShortcuts:true };
+    return { multiFileOpen:true, osOpenBatch:true, cellAxisShortcuts:true,
+        nativeTabClicks:true, documentNavigationShortcuts:true };
 };

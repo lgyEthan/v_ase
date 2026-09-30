@@ -158,7 +158,7 @@ and region semantics.
 
 ## Rigid-translation relaxation
 
-**Analysis > Rigid Translation** has a separate optimizer mode for moving one
+**Build → Rigid translation → Optional constrained translation & relaxation** has a separate optimizer mode for moving one
 selected component without changing its internal geometry. It can use two
 coordinates in a periodic `(hkl)` plane or three bounded Cartesian
 coordinates. Host atoms and cell vectors remain fixed. Its registry timeline,

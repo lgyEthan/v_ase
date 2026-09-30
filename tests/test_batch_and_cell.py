@@ -1,5 +1,6 @@
 """Real multi-file imports and lattice-direction shortcuts across workspace shells."""
 import numpy as np
+from pathlib import Path
 import pytest
 from ase import Atoms
 from ase.io import write
@@ -15,6 +16,7 @@ def batch_page(request, tmp_path):
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         page = browser.new_page(viewport={'width':1440,'height':960})
+        page.add_init_script("Object.defineProperty(navigator,'platform',{get:()=> 'Win32'});Object.defineProperty(navigator,'userAgentData',{value:{platform:'Windows'}});")
         page.goto(f'http://127.0.0.1:{editor.port}/workspace?workspace_id={ws.workspace_id}' if ws else editor.url)
         page.wait_for_function("window.__ASE_APP__?.collaborationReady || document.querySelector('iframe')?.contentWindow?.__ASE_APP__?.workspaceRecoveryAcknowledged")
         frame = page.frames[1] if ws else page.main_frame
@@ -46,6 +48,39 @@ def test_files_open_separate_tabs_without_overwriting(batch_page):
     children = [sessions[d['session_id']] for d in state['documents'] if d['session_id'] != original]
     assert [s.working_atoms.positions[0,0] for s in children] == pytest.approx([.1,.2,1])
     assert len(page.context.pages) == 1
+
+    # Native drag adapter must not swallow a real click on the child button.
+    source = (Path(__file__).parents[1] / 'desktop/host-adapter.js').read_text()
+    handlers = source[source.index('    // Pointer capture keeps the gesture'):source.index('    native.onCommand')]
+    page.evaluate('()=>{const host={detach:async()=>{}};const report=()=>{};const workspace=()=>window.__V_ASE_WORKSPACE__;'+handlers+'}')
+    selector = '.document-select, .direct-document-select'
+    buttons = page.locator(selector)
+    buttons.nth(0).click()
+    assert page.evaluate('window.__V_ASE_WORKSPACE__.activeSessionId') == original
+    buttons.nth(1).click()
+    child = page.evaluate('window.__V_ASE_WORKSPACE__.activeSessionId')
+    assert child != original
+    page.wait_for_function('''()=>{const w=window.__V_ASE_WORKSPACE__;return w.tabs.get(w.activeSessionId).pane.contentWindow.__ASE_APP__?.workspaceRecoveryAcknowledged;}''')
+    # The command family is separate from Alt-only trajectory stepping.
+    for key, expected in [('Control+1', original), ('Control+Alt+ArrowRight', child),
+                          ('Control+Alt+ArrowLeft', original)]:
+        page.keyboard.press(key)
+        page.wait_for_function('window.__V_ASE_WORKSPACE__.activeSessionId === '+repr(expected))
+    page.keyboard.press('Control+9')
+    assert page.evaluate('(()=>{const w=window.__V_ASE_WORKSPACE__;return w.activeSessionId === [...w.tabs.keys()].at(-1);})()')
+
+
+def test_cell_view_does_not_inherit_other_lattice_vector_roll(batch_page):
+    page, frame, files, editor = batch_page
+    frame.evaluate('''()=>{const a=window.__ASE_APP__;a.state.atoms.cell=[[11.60882634,0,0],[-1.93480439,10.05353852,0],[0,-2.23411967,10.11592505]];
+        a.alignViewToCellAxis('a');}''')
+    pose = frame.evaluate('window.__ASE_APP__.cameraViewBasis().up.toArray()')
+    assert pose == pytest.approx([0, 0, 1], abs=1e-7)
+    assert frame.evaluate('window.__ASE_APP__.cameraViewBasis().offset.normalize().toArray()') == pytest.approx([1, 0, 0])
+    frame.evaluate("window.__ASE_APP__.alignViewToCellAxis('a')")
+    assert frame.evaluate('window.__ASE_APP__.cameraViewBasis().offset.normalize().toArray()') == pytest.approx([-1, 0, 0])
+    frame.evaluate('''()=>{const a=window.__ASE_APP__;a.state.atoms.cell=[[4,0,0],[0,5,0],[0,0,6]];a.alignViewToCellAxis('c');}''')
+    assert frame.evaluate('window.__ASE_APP__.cameraViewBasis().up.toArray()') == pytest.approx([0, 1, 0], abs=1e-7)
 
 
 def test_files_form_ordered_unsaved_trajectory_and_cancel_is_safe(batch_page):

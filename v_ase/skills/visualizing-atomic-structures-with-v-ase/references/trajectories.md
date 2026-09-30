@@ -1,5 +1,12 @@
 # Trajectories
 
+## Contents
+
+- Frames and properties
+- Scalar coloring and vectors
+- Movies and scientific fidelity
+- Coordinate fidelity
+
 ## Frames and properties
 
 Pause playback before an exact frame read, edit or render. Frames are zero-based;
@@ -97,3 +104,12 @@ A single-frame structure or frame 0 in previous-frame mode has no displacement
 comparison: the GUI reports availability, clears old arrows and completes scene
 readiness. This is not stale data. Actual failed requests still block readiness
 and report the error. Stored force vectors refresh after physical edits.
+
+Internal desktop tabs use Command+Option+Left/Right (Mac) or Ctrl+Alt+Left/Right
+(Windows); Command/Ctrl+1–8 selects a positional tab and 9 the last. These are
+distinct from Alt/Option-only frame stepping. Browser reservation can limit
+internal tab chords. GUI deletion in Edit asks current/all frame scope;
+semantic `delete-selection` defaults to current and must explicitly use
+`frameScope:"all"` for identical-index deletion across every frame. Missing
+indices in shorter frames are skipped, even when elements change. Undo restores
+the whole chosen scope, including labels, arrays and constraints.

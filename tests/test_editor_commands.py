@@ -74,7 +74,7 @@ def test_shared_command_registry_matches_ten_exact_platform_chords():
             assert result['linux'] == 'linux'
             assert set(result['lockCodes']) == {'KeyW', 'KeyN', 'KeyS', 'KeyB',
                                                 'KeyP', 'KeyA', 'KeyE', 'KeyO',
-                                                'ArrowLeft', 'ArrowRight'}
+                                                'ArrowLeft', 'ArrowRight', *(f'Digit{i}' for i in range(1, 10))}
             assert result['navigation'] == {
                 'left': {'kind': 'camera', 'direction': 'left'},
                 'right': {'kind': 'camera', 'direction': 'right'},

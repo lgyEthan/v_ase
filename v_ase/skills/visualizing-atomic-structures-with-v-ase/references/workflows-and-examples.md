@@ -1474,6 +1474,13 @@ references carried by the bounded-search implementation.
 
 ### Rigid Translation
 
+Ordinary physical translation needs no registry mode or optimizer:
+`operation:{name:"translate-all",vector:[0.1,0,0],coordinateMode:"fractional",frameScope:"current"}`.
+Omit `frameScope` only when all frames are intended. The GUI additionally offers
+selected-atom targets. For selected Cartesian movement obeying positional
+constraints, use `move-selection`. For constrained registry movement use the
+workflow below.
+
 Run this after selecting the component that should move together. Choose a
 nonzero integer `(hkl)` whose plane contains two translations allowed by the
 current PBC. The optional map samples one primitive plane-lattice period while
