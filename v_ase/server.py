@@ -1449,7 +1449,7 @@ def materialize_host_guest_atoms(
 
 def edit_frame_scope(payload, default="current"):
     scope = payload.get("frame_scope", default)
-    if scope not in {"current", "all"}:
+    if not isinstance(scope, str) or scope not in {"current", "all"}:
         raise HTTPException(status_code=400, detail="frame_scope must be 'current' or 'all'.")
     return scope
 

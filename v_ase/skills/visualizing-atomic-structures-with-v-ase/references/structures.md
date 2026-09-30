@@ -30,6 +30,10 @@ ASE/backend coordinates after the edit are authoritative; do not infer positions
 from the rendered spheres. Use operation schemas for supported constraint and
 metadata transformations rather than assuming every arbitrary tensor is handled.
 
+Rigid translation retains constraints but bypasses their per-atom projection,
+including when the compatibility `applyConstraints` field is true. Use
+`move-selection` when motion must obey FixAtoms, FixedLine or FixedPlane.
+
 ## Bulk structures
 
 Use `vase_bulk_catalog` and `vase_bulk_preview`, choose a supported ASE crystal convention and

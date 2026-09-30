@@ -351,7 +351,8 @@ def open_panels(page, panels):
             const openSet = new Set(panels);
             document.querySelectorAll('#inspector details').forEach((details) => {
                 const key = details.dataset.panel || details.id;
-                details.open = openSet.has(key);
+                details.open = openSet.has(key)
+                    || (key === 'rigid-translation-optional' && openSet.has('registry-map'));
             });
         }""",
         panels,

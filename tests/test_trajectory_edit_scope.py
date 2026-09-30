@@ -95,3 +95,23 @@ def test_invalid_delete_is_not_an_undo_action(trajectory, indices):
     with pytest.raises(HTTPException):
         asyncio.run(delete_atoms(session.session_id, {'indices': indices, 'frame_scope': 'all'}))
     assert not session.history and len(session.working_atoms) == len(original[0])
+
+
+@pytest.mark.parametrize('scope', [[], {}, True, 'selected'])
+def test_invalid_edit_scope_is_reported_without_mutation(trajectory, scope):
+    session, original = trajectory
+    for operation, payload in [(delete_atoms, {'indices': [0]}),
+                               (apply_translation, {'vector': [1, 0, 0]})]:
+        with pytest.raises(HTTPException) as error:
+            asyncio.run(operation(session.session_id, {**payload, 'frame_scope': scope}))
+        assert error.value.status_code == 400
+    assert not session.history
+    assert np.array_equal(session.working_atoms.positions, original[0].positions)
+
+
+def test_delete_every_atom_can_leave_empty_frames_and_undo(trajectory):
+    session, original = trajectory
+    asyncio.run(delete_atoms(session.session_id, {'indices': [0, 1, 2], 'frame_scope': 'all'}))
+    assert [len(a) for a in session.trajectory_frames] == [0, 0, 0]
+    asyncio.run(undo(session.session_id))
+    assert [len(a) for a in session.trajectory_frames] == [3, 3, 1]

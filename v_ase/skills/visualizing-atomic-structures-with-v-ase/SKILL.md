@@ -46,7 +46,9 @@ fallback at a pole), rather than introducing roll from other cell vectors.
 Desktop tab navigation uses Command+Option+Left/Right on Mac, Ctrl+Alt+Left/Right
 on Windows and Command/Ctrl+1–8 / 9 (last). Alt/Option alone still steps frames.
 Build → Rigid translation exposes ordinary Cartesian/fractional movement first,
-without relaxation. `translate-all` accepts `frameScope:"current"|"all"` (default
+without relaxation. A rigid shift retains constraints but bypasses their
+per-atom projection; use `move-selection` for constraint-enforced motion.
+`translate-all` accepts `frameScope:"current"|"all"` (default
 all); Edit `delete-selection` accepts the same field (default current). The GUI
 asks deletion scope for trajectories. All-frame deletion uses identical base
 indices even across element/count changes, skips absent indices and is one
