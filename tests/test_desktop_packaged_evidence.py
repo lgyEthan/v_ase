@@ -7,7 +7,8 @@ from types import SimpleNamespace
 import pytest
 
 
-@pytest.mark.parametrize("evidence", ["", "{", "{}", "wrong-version", "missing-pixels", "clipped-action", "complete"])
+@pytest.mark.parametrize("evidence", ["", "{", "{}", "wrong-version", "missing-pixels", "clipped-action",
+                                     "missing-axis", "clipped-axis", "changed-camera", "complete"])
 def test_packaged_runner_requires_complete_evidence(tmp_path, monkeypatch, evidence):
     root = Path(__file__).resolve().parents[1] / "desktop"
     executable = tmp_path / "v_ase.exe"
@@ -24,6 +25,8 @@ def test_packaged_runner_requires_complete_evidence(tmp_path, monkeypatch, evide
                         "emptyLastWindowRequestsQuit", "multiFileOpen", "osOpenBatch", "cellAxisShortcuts"), True),
     }
     report["visualParity"] = {
+        "axisChecks": [{"mode": mode, "bluePixels": 10, "cameraPreserved": True}
+                       for mode in ("2d", "3d")],
         "pixelChecks": [{"mode": mode, "outlinePixels": 250, "constraintPixels": 300}
                         for mode in ("2d", "3d")],
         "layoutChecks": [{"zoom": zoom, "scroll": ["inspector-content"],
@@ -36,7 +39,14 @@ def test_packaged_runner_requires_complete_evidence(tmp_path, monkeypatch, evide
         report["visualParity"]["layoutChecks"][2]["reachable"] = False
     if evidence == "wrong-version":
         report["version"] = "0.0.0"
-    contents = json.dumps(report) if evidence in {"wrong-version", "missing-pixels", "clipped-action", "complete"} else evidence
+    if evidence == "missing-axis":
+        report["visualParity"]["axisChecks"] = []
+    if evidence == "clipped-axis":
+        report["visualParity"]["axisChecks"][1]["bluePixels"] = 0
+    if evidence == "changed-camera":
+        report["visualParity"]["axisChecks"][0]["cameraPreserved"] = False
+    contents = json.dumps(report) if evidence in {"wrong-version", "missing-pixels", "clipped-action",
+                                                "missing-axis", "clipped-axis", "changed-camera", "complete"} else evidence
 
     def process_exit_zero(*_args, **_kwargs):
         # Model the exact observed failure: exit zero, but an empty result file.
@@ -50,5 +60,5 @@ def test_packaged_runner_requires_complete_evidence(tmp_path, monkeypatch, evide
     if evidence == "complete":
         runpy.run_path(str(root / "scripts/test_packaged.py"), run_name="__main__")
     else:
-        with pytest.raises(SystemExit, match="evidence|required regression check|native selection/constraint"):
+        with pytest.raises(SystemExit, match="evidence|required regression check|native selection/constraint|canvas Z shaft"):
             runpy.run_path(str(root / "scripts/test_packaged.py"), run_name="__main__")

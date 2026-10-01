@@ -2,6 +2,11 @@
 
 ## Commensurate cells
 
+For `vase_rotate_to_commensurate`, select a nonempty proper subset representing
+the layer to rotate. At least one unselected host atom must remain in the same
+document; selecting all atoms is rejected. Load a separate guest with
+`vase_load_commensurate_guest` when the host and guest start in different files.
+
 Inspect both cells, periodic directions and intended host/guest planes. Discover
 the commensurate search parameters instead of guessing integer matrices. This is
 a bounded coincidence-lattice search, not a proof of the unrestricted global

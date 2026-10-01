@@ -311,7 +311,7 @@ revision. See [connection and recovery](ai-tools.md#read-edit-verify).
 * - Tool
   - Purpose
 * - `vase_rotate_to_commensurate`
-  - Finds the nearest validated periodic 2D lattice match, rotates the selected layer to that exact angle, and opens the common-cell proposal. The default is cells-only; showAtoms=true adds the opaque core and muted one-primitive-cell…
+  - Finds the nearest validated periodic 2D lattice match, rotates the selected layer to that exact angle, and opens the common-cell proposal. Select a nonempty proper subset: at least one unselected host atom must remain in the same…
 * - `vase_load_commensurate_guest`
   - Loads a separate guest structure from inside the GUI launch directory. gap is guest minimum z minus host maximum z in angstrom and defaults to 3. Absolute paths and parent-directory traversal are rejected.
 * - `vase_remove_commensurate_guest`

@@ -1766,6 +1766,8 @@ AI_OPERATION_PARAMETERS = {
         "notes": (
             "Finds the nearest validated periodic 2D lattice match, rotates the "
             "selected layer to that exact angle, and opens the common-cell proposal. "
+            "Select a nonempty proper subset: at least one unselected host atom "
+            "must remain in the same document. Selecting all atoms is rejected. "
             "The default is cells-only; showAtoms=true adds the opaque core and muted "
             "one-primitive-cell boundary shell. axis is strictly Z; maxAreaRatio "
             "defaults to 16 and is explicitly limited to 128. No proposal is made "

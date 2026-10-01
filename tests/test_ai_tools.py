@@ -18,6 +18,19 @@ from v_ase.ai_tools import FunctionTools, ToolError, tool_catalog, _flatten, INT
 URL = 'http://127.0.0.1:9/api/ai/command/session/test'
 
 
+def test_focused_commensurate_contract_explains_that_host_atoms_must_remain():
+    # An independent agent selected every atom because the focused tool only
+    # listed selection-or-indices, hiding a prerequisite in a legacy guide.
+    description = tool_catalog()['vase_rotate_to_commensurate'].description
+    assert 'nonempty proper subset' in description
+    assert 'unselected host atom' in description
+    assert 'Selecting all atoms is rejected' in description
+    guide = (Path(__file__).resolve().parents[1] / 'v_ase/skills/'
+             'visualizing-atomic-structures-with-v-ase/references/interfaces.md').read_text()
+    assert 'nonempty proper subset' in guide
+    assert 'unselected host atom' in guide
+
+
 def test_catalog_covers_every_operation_control_and_export_with_typed_parameters():
     catalog = tool_catalog()
     for name, contract in AI_OPERATION_PARAMETERS.items():
