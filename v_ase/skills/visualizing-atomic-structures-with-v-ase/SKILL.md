@@ -43,6 +43,9 @@ with crisp side outlines and no false seam between color halves.
 GUI A/B/C views use the actual unit-cell vectors with repeated-key reversal;
 X/Y/Z remains Cartesian. GUI cell views project global Z for screen up (Y/X
 fallback at a pole), rather than introducing roll from other cell vectors.
+Orthographic drawing includes the visible canvas axis guides in its temporary
+depth range; guide extents never alter saved camera optics or bypass atom
+occlusion. Verify the actual canvas shaft in an oblique C view, not the gizmo.
 Desktop tab navigation uses Command+Option+Left/Right on Mac, Ctrl+Alt+Left/Right
 on Windows and Command/Ctrl+1–8 / 9 (last). Alt/Option alone still steps frames.
 Build → Rigid translation exposes ordinary Cartesian/fractional movement first,

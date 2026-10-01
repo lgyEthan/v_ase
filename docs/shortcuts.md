@@ -107,6 +107,10 @@ A/B/C changes only the camera and never selects atoms. Command/Ctrl+A selects al
 Shift+A inverts and Alt+A clears selection. Cell views project global Z into the
 screen-up plane, with global Y then X as pole fallbacks. Other cell vectors do
 not introduce roll; an a vector along global X therefore matches the X view.
+In orthographic views the canvas axes include their full guide depth, so an
+oblique C view does not clip the positive Z line at the nominal camera eye.
+Atoms still occlude guides normally. A truly end-on Z view projects the Z axis
+to a point; it does not create a false line direction.
 They preserve the
 view target, magnification and world-locked render camera; an active viewport
 camera lock follows the view as for X/Y/Z. They do not fire while typing, holding

@@ -9075,6 +9075,26 @@ export class ASERenderer {
         camera.near = camera.isOrthographicCamera ? Math.min(near, depth - radius * 2 - 10)
             : Math.max(0.001, Math.min(near, depth - radius * 2));
         camera.far = Math.max(far, depth + radius * 2 + 100);
+        // Orthographic axis guides can extend behind the nominal camera eye.
+        // Fit their real endpoints too: a skew-cell C view must not clip the
+        // positive Z shaft merely because atoms occupy a much smaller box.
+        // Perspective views retain their positive near plane; this does not
+        // change any saved camera setting or force guides on top of atoms.
+        if (camera.isOrthographicCamera && this.axesHelper?.visible) {
+            this.axesHelper.updateWorldMatrix(true, true);
+            const point = new THREE.Vector3();
+            for (const line of this.axesHelper.children) {
+                if (!line.visible) continue;
+                const positions = line.geometry?.attributes?.position;
+                if (!positions) continue;
+                for (let index = 0; index < positions.count; index++) {
+                    point.fromBufferAttribute(positions, index).applyMatrix4(line.matrixWorld);
+                    const guideDepth = point.sub(camera.position).dot(direction);
+                    camera.near = Math.min(camera.near, guideDepth - 1);
+                    camera.far = Math.max(camera.far, guideDepth + 1);
+                }
+            }
+        }
         camera.updateProjectionMatrix();
         const restoreQuality = this.prepareQualityDraw(camera);
         try { if(!restoreQuality.skip) this.renderer.render(this.scene, camera); }

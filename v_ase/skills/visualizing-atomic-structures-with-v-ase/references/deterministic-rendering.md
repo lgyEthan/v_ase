@@ -30,6 +30,13 @@ only when explicitly replacing those overrides.
 
 ## Camera and crop
 
+Orthographic canvas axes use their full visible guide depth during drawing,
+including points behind the nominal eye. This does not modify saved camera
+position, near/far values or framing, and atoms retain normal depth occlusion.
+Regression checks must inspect canvas pixels in oblique cell-axis views, not
+just camera state or the separate XYZ gizmo. Exact PNG/HTML rendering uses the
+same renderer and respects axis visibility and `includeAxes`.
+
 Use the snapshot's `render.source`, camera and output dimensions. The viewport,
 stored Render Area and image-export profile can have different cameras. Preserve
 the actual export source for an accepted figure. `camera_source="explicit"` on

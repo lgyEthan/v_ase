@@ -313,6 +313,8 @@ several files to open **separate tabs** or **one trajectory** in the same window
 Use **A/B/C** to view along the unit-cell vectors (press again to reverse);
 **X/Y/Z** uses Cartesian axes. [Opening files](https://v-ase.readthedocs.io/en/latest/data-input.html) ·
 [Shortcuts](https://v-ase.readthedocs.io/en/latest/shortcuts.html).
+Canvas axis guides remain visible in oblique orthographic cell views, with
+normal atom occlusion and unchanged saved camera framing.
 [Installation help and updates](https://v-ase.readthedocs.io/en/latest/desktop.html).
 
 ### Python and Jupyter
