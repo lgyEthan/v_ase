@@ -23593,6 +23593,7 @@ class VAseApp {
         try {
         this.atomRadiusRuntime.fitToken += 1;
         const source = settings.settings || settings;
+        const commensurateWasEnabled = this.state.display.commensurateGuide;
         if (Object.keys(source.display || source).some(key => key.startsWith('video'))) {
             // Reopened projects and history restores own their export settings;
             // a canceled draft from the previous document must not mask them.
@@ -23659,6 +23660,17 @@ class VAseApp {
                     this.state.exportPreviewCamera
                 );
             }
+        }
+        // A document swap may have built a primitive preview using the previous
+        // document's display controls. Cancel that work and restore base groups
+        // before rebuilding the new scene; otherwise the old preview hides its
+        // atoms even though the restored project has commensurate guides off.
+        if (!this.state.display.commensurateGuide && (
+            commensurateWasEnabled || this.renderer.commensurateSupercellPreview
+            || this.state.commensurateJobId
+        )) {
+            this.clearCommensurateRotation({ keepStatus: true, clearSearch: true });
+            this.clearCommensurateSupercellProposal({ keepStatus: true, preserveCamera: true });
         }
         this.syncDesignControls();
         this.syncRenderAreaControls();

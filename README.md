@@ -294,7 +294,8 @@ additional geometry exports; ASE structure formats keep the scientific data usab
 | Share a browser view that can also reopen for editing | In **Project save settings**, enable **Include interactive rendered view** and save as HTML. |
 | Publish a figure or animation | Export an image, movie or GIF from **Render**. |
 
-[Saving projects](https://v-ase.readthedocs.io/en/latest/save-projects.html)
+Projects restore their saved appearance, including when replacing a
+commensurate-cell preview. [Saving projects](https://v-ase.readthedocs.io/en/latest/save-projects.html)
 
 ## Get v_ase
 

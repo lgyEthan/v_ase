@@ -215,7 +215,8 @@ External changes to an opened server project are conflicts, not implicit
 overwrite permission. Do not assume uploaded raw structures are writable
 project destinations. A direct/notebook editor adopts a multi-tab workspace in
 place so the original document and writable browser handle survive opening a
-new tab. A project opened in a new tab retains its `.vase` or editable-HTML
+new tab. Loading a project clears the previous document's commensurate preview
+and restores the saved atom/bond visibility. A project opened in a new tab retains its `.vase` or editable-HTML
 format and HTML output profile; a browser upload without write authority still
 saves a download copy in that original format. Browser-handle saves recheck the
 source after rendering/serialization and reject a detected external change.

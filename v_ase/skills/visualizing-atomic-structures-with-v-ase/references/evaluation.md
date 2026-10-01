@@ -951,3 +951,14 @@ camera state before and after rendering, and verify that atoms still obscure
 axis lines behind them. An exactly end-on Cartesian Z view remains a point;
 the orientation widget is unchanged. Automated coverage:
 `tests/test_browser_canvas_axes.py` and the packaged desktop visual smoke checks.
+
+### Project replacement after a commensurate preview (0.4.13)
+
+Save a flat 2D project with per-index appearance and a manual bond. Open a
+commensurate primitive-cell preview in the same document, then replace it with
+the saved project. Require its atoms and bonds to be visible, its old preview
+and visibility snapshot to be cleared, and pending preview searches to be
+invalidated. Compare exact-size rendered pixels before save and after reopen;
+positions, appearance and camera must all match. Repeat with standalone and
+embedded HTML projects through native `load-structure`. Automated coverage:
+`tests/test_browser_camera_project_reopen.py`.

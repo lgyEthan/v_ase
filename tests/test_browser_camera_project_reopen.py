@@ -220,3 +220,40 @@ def test_collaboration_flush_waits_for_an_already_publishing_event(page):
     }''')
     assert not result['premature']
     assert result['revisions'] == [result['current'], result['current']]
+
+
+def test_replacing_commensurate_preview_with_flat_project_restores_atoms(page):
+    result = page.evaluate('''async () => {
+        const a=window.__ASE_APP__,r=a.renderer;
+        await a.switchRuntimeMode(false);
+        await a.aiApply({operation:{name:'set-unit-cell',cell:[[8,0,0],[0,8,0],[0,0,12]],pbc:[true,true,false]}});
+        a.applyDesignSettings({display:{...a.state.display,atomDisplayMode:'2d',commensurateGuide:false,
+            atomColors:{0:'#3366aa',1:'#3366aa'},atomOpacities:{0:.7,1:.7},
+            atomRadiusScales:{0:1.1,1:1.1},bondMode:'manual',manualBondPairs:[[0,1]]}});
+        a.applyCameraSettings({position:[2,-8,16],target:[2,0,0],up:[0,0,1],projection:'orthographic',ortho_scale:9});
+        const settings=a.designSettingsSnapshot();
+        const options={camera:settings.camera,includeGrid:false,includeAxes:false,includeCell:true};
+        const before=r.exportPNG(400,300,options);
+        const project=await a.aiExport({format:'project'});
+        const blob=await (await fetch(project.dataUrl)).blob();
+        a.applyDesignSettings({display:{...a.state.display,atomDisplayMode:'3d',commensurateGuide:true,
+            commensurateShowAtoms:true}});
+        a.renderPrimitiveCommensurateCells();
+        const preview={active:!!r.commensurateSupercellPreview,atoms:r.atomMeshes.visible};
+        const requestToken=a.state.commensurateRequestToken;
+        await a.loadStructureFile(new File([blob],'flat.vase'),'vase',':',null,{confirmedIntent:true,throwErrors:true});
+        await new Promise(resolve=>requestAnimationFrame(resolve));
+        return {before,after:r.exportPNG(400,300,options),preview,
+            atoms:r.atomMeshes.visible,bonds:r.bondGroup.visible,
+            previewActive:!!r.commensurateSupercellPreview,visibilitySnapshot:!!r.commensurateBaseVisibility,
+            requestCanceled:a.state.commensurateRequestToken>requestToken,
+            mode:a.state.display.atomDisplayMode,settings:a.designSettingsSnapshot()};
+    }''')
+    assert result['preview'] == {'active': True, 'atoms': False}
+    assert result['atoms'] and result['bonds']
+    assert not result['previewActive'] and not result['visibilitySnapshot']
+    assert result['requestCanceled'] and result['mode'] == '2d'
+    def pixels(data):
+        return np.array(Image.open(io.BytesIO(base64.b64decode(data.split(',')[1]))).convert('RGB'))
+    np.testing.assert_array_equal(pixels(result['before']), pixels(result['after']))
+    assert result['settings']['display']['atomColors'] == {'0': '#3366aa', '1': '#3366aa'}

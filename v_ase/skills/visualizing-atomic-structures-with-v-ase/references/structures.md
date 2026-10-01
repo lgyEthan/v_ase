@@ -6,7 +6,9 @@ Discover `files`, `load-structure` and `append-structure` with bounded tool sear
 Use returned paths below the GUI launch directory. Load replaces the document;
 use a new workspace tab or explicit replacement intent. Append adds frames/fields
 and does not import an appended project's appearance. Project files restore the
-human-editable scene. Labels such as O_1 remain distinct from chemical symbols.
+human-editable scene and clear the previous document's commensurate preview;
+prior preview visibility must not hide the restored atoms or bonds.
+Labels such as O_1 remain distinct from chemical symbols.
 `load-settings` restores a saved visual preset without replacing coordinates.
 
 Read focused structure state for counts, identities, cell, PBC and constraints.

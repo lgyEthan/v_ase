@@ -7,6 +7,8 @@
   behind the camera. This applies to 3D, flat 2D and image output.
 - Camera direction, framing and saved camera settings are preserved. Atoms still
   correctly obscure axis lines behind them; hidden axes remain hidden.
+- Opening a saved project after a commensurate-cell preview restores its atoms,
+  bonds and saved appearance in both 3D and flat 2D.
 
 ## 0.4.12
 
