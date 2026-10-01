@@ -10,11 +10,11 @@ authors:
     affiliation: "The University of Sydney"
     email: "giyeok.lee@sydney.edu.au"
 repository-code: "https://github.com/lgyEthan/v_ase"
-repository-artifact: "https://pypi.org/project/v-ase-gui/0.4.12/"
+repository-artifact: "https://pypi.org/project/v-ase-gui/0.4.13/"
 url: "https://github.com/lgyEthan/v_ase"
 license: AGPL-3.0-or-later
-version: 0.4.12
-date-released: 2026-09-30
+version: 0.4.13
+date-released: 2026-10-01
 abstract: >-
   v_ase is an ASE-native local browser workspace for interactive atomistic
   structure editing, trajectories, volumetric fields, periodic-interface

@@ -939,3 +939,15 @@ current must preserve other frames, all must remap each frame's arrays and
 constraints. Verify snapshot/skill/schema expose `frameScope` consistently and
 stale requests cannot mutate the structure. Keep text-field native Undo distinct
 from structure Undo after clicking a button.
+
+### Canvas axis clipping in oblique orthographic views (0.4.13)
+
+Load a structure whose c vector is `[0, -2.2341196708, 10.1159250533]` and
+align the camera along +c with Cartesian screen-up. With axes enabled, inspect
+both 3D and flat 2D: the positive Z shaft must continue beyond the nominal eye,
+not stop at the canvas center. Render an exact-size PNG with `include_axes`
+enabled and disabled; only the enabled image contains the shaft. Compare the
+camera state before and after rendering, and verify that atoms still obscure
+axis lines behind them. An exactly end-on Cartesian Z view remains a point;
+the orientation widget is unchanged. Automated coverage:
+`tests/test_browser_canvas_axes.py` and the packaged desktop visual smoke checks.

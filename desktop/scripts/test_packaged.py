@@ -63,6 +63,10 @@ if (report.get("version") != expected_version or report.get("geometryRoutes") !=
         or any(report.get(key) is not True for key in required)):
     raise SystemExit("The packaged application did not complete every required regression check")
 parity = report.get("visualParity", {})
+axes = parity.get("axisChecks", [])
+if (set(p.get("mode") for p in axes) != {"2d", "3d"}
+        or any(p.get("bluePixels", 0) < 3 or not p.get("cameraPreserved") for p in axes)):
+    raise SystemExit("The packaged application did not show the canvas Z shaft while preserving the camera")
 pixels, layouts = parity.get("pixelChecks", []), parity.get("layoutChecks", [])
 if (set(p.get("mode") for p in pixels) != {"2d", "3d"}
         or any(p.get("outlinePixels", 0) <= 100 or p.get("constraintPixels", 0) <= 100 for p in pixels)

@@ -12,7 +12,7 @@ data, available as a desktop app, in your browser and in Jupyter.
 [![Documentation](https://readthedocs.org/projects/v-ase/badge/?version=latest)](https://v-ase.readthedocs.io/en/latest/)
 [![License: AGPL v3+](https://img.shields.io/badge/license-AGPL--3.0--or--later-2f855a.svg)](LICENSE)
 
-[Download for Mac or Windows](https://github.com/lgyEthan/v_ase/releases/tag/v0.4.12) ·
+[Download for Mac or Windows](https://github.com/lgyEthan/v_ase/releases/tag/v0.4.13) ·
 [Install with Python](#get-v_ase) ·
 [User guide](https://v-ase.readthedocs.io/en/latest/) ·
 [Example files](https://v-ase.readthedocs.io/en/latest/example-inputs.html)
@@ -304,9 +304,9 @@ Python is included. Download the installer for your computer:
 
 | Computer | Download | Install |
 | --- | --- | --- |
-| Mac with Apple silicon, macOS 15+ | [Apple silicon DMG](https://github.com/lgyEthan/v_ase/releases/download/v0.4.12/v_ase-0.4.12-mac-arm64.dmg) | Open the DMG and drag **v_ase** into **Applications**. |
-| Mac with Intel, macOS 15+ | [Intel DMG](https://github.com/lgyEthan/v_ase/releases/download/v0.4.12/v_ase-0.4.12-mac-x64.dmg) | Open the DMG and drag **v_ase** into **Applications**. |
-| Windows 10/11, Intel or AMD 64-bit | [Windows installer](https://github.com/lgyEthan/v_ase/releases/download/v0.4.12/v_ase-0.4.12-win-x64.exe) | Run the installer, then open **v_ase** from Start. |
+| Mac with Apple silicon, macOS 15+ | [Apple silicon DMG](https://github.com/lgyEthan/v_ase/releases/download/v0.4.13/v_ase-0.4.13-mac-arm64.dmg) | Open the DMG and drag **v_ase** into **Applications**. |
+| Mac with Intel, macOS 15+ | [Intel DMG](https://github.com/lgyEthan/v_ase/releases/download/v0.4.13/v_ase-0.4.13-mac-x64.dmg) | Open the DMG and drag **v_ase** into **Applications**. |
+| Windows 10/11, Intel or AMD 64-bit | [Windows installer](https://github.com/lgyEthan/v_ase/releases/download/v0.4.13/v_ase-0.4.13-win-x64.exe) | Run the installer, then open **v_ase** from Start. |
 
 Open files with **File → Open**, Finder/Explorer, or drag-and-drop. Select
 several files to open **separate tabs** or **one trajectory** in the same window.

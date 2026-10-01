@@ -1,5 +1,13 @@
 # What is new
 
+## 0.4.13
+
+- Cartesian axis lines remain visible across the canvas in orthographic views
+  along skewed unit-cell vectors. The depth range no longer cuts off the Z axis
+  behind the camera. This applies to 3D, flat 2D and image output.
+- Camera direction, framing and saved camera settings are preserved. Atoms still
+  correctly obscure axis lines behind them; hidden axes remain hidden.
+
 ## 0.4.12
 
 - Switch document tabs reliably with the mouse, Command+Option+Left/Right

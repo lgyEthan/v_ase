@@ -1,6 +1,6 @@
 # Tools by feature
 
-This reference describes the v_ase 0.4.12 tool catalog.
+This reference describes the v_ase 0.4.13 tool catalog.
 See [scene workflows](ai-scene.md) for compact inspection and visual edits.
 
 The catalog below is generated from the same schemas used by MCP and native
