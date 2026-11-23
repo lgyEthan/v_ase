@@ -4,8 +4,10 @@ import { captureDocumentRecovery, restoreDocumentRecovery } from './workspace_re
 import { createWorkspaceAIBridge, handleWorkspaceAICommand } from './workspace_ai.js?v=0.4.13';
 import { installShortcutCapture } from './shortcut_capture.js?v=0.4.13';
 import { navigateWorkspaceDocument } from './workspace_navigation.js?v=0.4.13';
+import { installInterfaceControls } from './interface.js?v=0.4.13&ui=20261111.1';
+import { renderSceneNavigator } from './scene_navigator.js?v=0.4.13&ui=20261111.1';
 import { commandIdForEvent, editorAriaShortcut, editorShortcutLabel, resolveShortcutPlatform,
-    viewportNavigationForEvent, documentCommandIdForEvent } from './editor_commands.js?v=0.4.13';
+    viewportNavigationForEvent, documentCommandIdForEvent } from './editor_commands.js?v=0.4.13&ui=20261111.1';
 
 class VAseWorkspace {
     constructor() {
@@ -35,6 +37,8 @@ class VAseWorkspace {
     }
 
     async init() {
+        installInterfaceControls();
+        this.setupNavigator();
         if (!this.workspaceId) {
             this.showError('The workspace URL has no workspace identifier.');
             return;
@@ -97,6 +101,67 @@ class VAseWorkspace {
         this.activateDocument(initial);
     }
 
+    setupNavigator() {
+        this.navigatorPreference = null;
+        try {
+            const saved = localStorage.getItem('v_ase.navigator.collapsed');
+            if (saved !== null) this.navigatorPreference = saved === '1';
+        } catch {}
+        const media = matchMedia('(max-width: 1100px)');
+        this.setNavigatorCollapsed(this.navigatorPreference ?? media.matches, false);
+        media.addEventListener('change', () => {
+            if (this.navigatorPreference === null) this.setNavigatorCollapsed(media.matches, false);
+        });
+        document.getElementById('workspace-sidebar-close')?.addEventListener('click', () => this.setNavigatorCollapsed(true));
+        document.getElementById('workspace-open-document')?.addEventListener('click', () => {
+            const app = this.tabs.get(this.activeSessionId)?.pane.contentWindow?.__ASE_APP__;
+            if (app?.collaborationReady && app.workspaceRecoveryAcknowledged) app.executeEditorCommand('open');
+        });
+    }
+
+    setNavigatorCollapsed(collapsed, persist = true) {
+        const next = Boolean(collapsed);
+        document.body.classList.toggle('workspace-nav-collapsed', next);
+        const nav = document.getElementById('workspace-scene-navigator');
+        if (nav) nav.inert = next || Boolean(this.tabs.get(this.activeSessionId)?.modalOpen);
+        if (persist) {
+            this.navigatorPreference = next;
+            try { localStorage.setItem('v_ase.navigator.collapsed', next ? '1' : '0'); } catch {}
+        }
+        for (const entry of this.tabs.values()) {
+            entry.pane.contentWindow?.postMessage({ type: 'v_ase:workspace-navigator', collapsed: next }, location.origin);
+        }
+    }
+
+    syncNavigatorIsolation() {
+        const entry=this.tabs.get(this.activeSessionId);
+        const open = Boolean(entry?.modalOpen);
+        document.body.classList.toggle('workspace-modal-open', open);
+        document.body.classList.toggle('workspace-scrim-visible',Boolean(entry?.modalVisible));
+        document.getElementById('document-bar').inert = open;
+        document.getElementById('workspace-scene-navigator').inert = open
+            || document.body.classList.contains('workspace-nav-collapsed');
+    }
+
+    renderActiveScene() {
+        const entry = this.tabs.get(this.activeSessionId);
+        const root = document.getElementById('workspace-scene-list');
+        if (!root || !entry) return;
+        root.querySelector('.navigator-loading')?.remove();
+        renderSceneNavigator(root, entry.sceneEntries || [], (id, action, checked) => {
+            // Bind every action to the active document and its current generation.
+            // A stale row can never edit a newly selected or reloaded document.
+            if (this.activeSessionId !== entry.sessionId) return;
+            entry.pane.contentWindow?.postMessage({
+                type: 'v_ase:workspace-scene-action', sessionId: entry.sessionId,
+                generation: entry.childGeneration, id, action, checked,
+            }, location.origin);
+            if (action === 'inspect' && matchMedia('(max-width: 760px)').matches) this.setNavigatorCollapsed(true);
+        });
+        const count = document.getElementById('workspace-scene-count');
+        if (count) count.textContent = entry.sceneCaption || '';
+    }
+
     async request(path, options = {}) {
         const response = await fetch(path, options);
         if (!response.ok) {
@@ -156,12 +221,14 @@ class VAseWorkspace {
         const tab = document.createElement('div');
         tab.className = 'document-tab';
         tab.dataset.sessionId = sessionId;
-        tab.setAttribute('role', 'tab');
+        tab.setAttribute('role', 'presentation');
         tab.setAttribute('aria-selected', 'false');
 
         const select = document.createElement('button');
         select.className = 'document-select';
         select.type = 'button';
+        select.setAttribute('role','tab');
+        select.setAttribute('aria-selected','false');
         select.title = documentState.title || 'Untitled';
         select.innerHTML = `
             <span class="document-symbol" aria-hidden="true"></span>
@@ -196,7 +263,7 @@ class VAseWorkspace {
         pane.hidden = true;
         pane.setAttribute('allow', 'clipboard-read; clipboard-write');
 
-        this.tabRoot.insertBefore(tab, this.newButton);
+        this.tabRoot.appendChild(tab);
         this.paneRoot.appendChild(pane);
         const entry = {
             sessionId,
@@ -225,7 +292,7 @@ class VAseWorkspace {
         const previous = this.tabs.get(this.activeSessionId);
         if (previous) {
             previous.tab.classList.remove('active');
-            previous.tab.setAttribute('aria-selected', 'false');
+            previous.select.setAttribute('aria-selected', 'false');
             previous.pane.hidden = true;
             previous.pane.contentWindow?.postMessage({
                 type: 'v_ase:workspace-active',
@@ -235,10 +302,12 @@ class VAseWorkspace {
 
         const next = this.tabs.get(sessionId);
         this.activeSessionId = sessionId;
+        this.syncNavigatorIsolation();
         next.tab.classList.add('active');
-        next.tab.setAttribute('aria-selected', 'true');
+        next.select.setAttribute('aria-selected', 'true');
         next.pane.hidden = false;
         this.loadDocument(next);
+        this.renderActiveScene();
         next.select.scrollIntoView({ block: 'nearest', inline: 'nearest' });
         next.pane.contentWindow?.postMessage({
             type: 'v_ase:workspace-active',
@@ -263,7 +332,7 @@ class VAseWorkspace {
         const entry = this.tabs.get(this.activeSessionId);
         const child = entry?.pane?.contentWindow;
         if (child?.document?.getElementById('modal-container')
-            ?.classList.contains('hidden') === false) return;
+            ?.classList.contains('hidden') === false || child?.document?.body?.dataset.busy) return;
         const app = child?.__ASE_APP__;
         if (app?.collaborationReady && app.workspaceRecoveryAcknowledged
             && app.sessionId === this.activeSessionId) {
@@ -503,15 +572,17 @@ class VAseWorkspace {
         });
     }
 
-    applyWorkspaceTheme(preference, { persist = true } = {}) {
-        const result = window.v_aseTheme?.apply?.(preference, { persist })
-            || { preference };
-        this.tabs.forEach(entry => {
-            entry.pane.contentWindow?.postMessage({
-                type: 'v_ase:workspace-theme',
-                preference: result.preference
-            }, window.location.origin);
-        });
+    applyWorkspaceTheme(preference, {persist=true,palette=window.v_aseTheme.info().palette}={}) {
+        const result=window.v_aseTheme.applyPresentation({preference,palette},{persist});
+        for(const entry of this.tabs.values()) {
+            const target=entry.host ? window : entry.pane.contentWindow;
+            if(target?.v_aseTheme?.applyPresentation) {
+                if(target!==window) target.v_aseTheme.applyPresentation(result,{persist:false,announce:false});
+                const app=entry.host ? this.app : target.__ASE_APP__;
+                app?.syncThemeControl();app?.refreshActiveAnalysisTheme();
+            } else target?.postMessage({type:'v_ase:workspace-theme',preference:result.preference,palette:result.palette},location.origin);
+        }
+        return result;
     }
 
     broadcastVisualDefaults(message) {
@@ -545,6 +616,33 @@ class VAseWorkspace {
             && message.generation !== entry.childGeneration) return;
         if (recoveryMessage && entry.childGeneration
             && Number(message.recoveryRevision) < entry.recoveryRevision) return;
+        if (message.type === 'v_ase:document-navigator-toggle') {
+            if (message.sessionId === this.activeSessionId) {
+                this.setNavigatorCollapsed(message.show === true ? false
+                    : !document.body.classList.contains('workspace-nav-collapsed'));
+            }
+            return;
+        }
+        if (message.type === 'v_ase:document-scene') {
+            if (!currentApp || message.generation !== currentApp.recoveryGeneration) return;
+            entry.sceneEntries = Array.isArray(message.entries) ? message.entries : [];
+            entry.sceneCaption = message.caption || '';
+            let detail = entry.select.querySelector('.document-detail');
+            if (!detail) {
+                detail = document.createElement('span'); detail.className = 'document-detail';
+                entry.select.appendChild(detail);
+            }
+            detail.textContent = message.detail || '';
+            if (message.sessionId === this.activeSessionId) this.renderActiveScene();
+            return;
+        }
+        if (message.type === 'v_ase:document-modal') {
+            if (message.generation !== currentApp?.recoveryGeneration) return;
+            entry.modalOpen = Boolean(message.open);
+            entry.modalVisible = Boolean(message.visible ?? message.open);
+            if (message.sessionId === this.activeSessionId) this.syncNavigatorIsolation();
+            return;
+        }
         if (message.type === 'v_ase:document-close-result') {
             const pending = this.pendingCloseRequests.get(message.requestId);
             if (pending?.sessionId === message.sessionId && pending.source === event.source) {
@@ -554,7 +652,7 @@ class VAseWorkspace {
             return;
         }
         if (message.type === 'v_ase:document-theme') {
-            this.applyWorkspaceTheme(message.preference, { persist: message.persist !== false });
+            this.applyWorkspaceTheme(message.preference, { persist: message.persist !== false, palette:message.palette });
             return;
         }
         if (message.type === 'v_ase:document-visual-defaults') {
@@ -609,6 +707,11 @@ class VAseWorkspace {
                 active: this.activeSessionId === message.sessionId,
                 recoveryReady: true,
             }, window.location.origin);
+            entry.pane.contentWindow?.postMessage({
+                type: 'v_ase:workspace-navigator',
+                collapsed: document.body.classList.contains('workspace-nav-collapsed'),
+            }, window.location.origin);
+            app?.publishSceneNavigator?.();
         }
     }
 

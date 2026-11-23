@@ -17,6 +17,60 @@ data, available as a desktop app, in your browser and in Jupyter.
 [User guide](https://v-ase.readthedocs.io/en/latest/) ·
 [Example files](https://v-ase.readthedocs.io/en/latest/example-inputs.html)
 
+The `main` branch includes changes after published **0.4.13**. Desktop downloads
+and PyPI still provide that release; use the [source setup](https://v-ase.readthedocs.io/en/latest/agent-setup.html)
+for the current GitHub code and its matching Skill.
+
+The desktop workspace has **document tabs across the top**, the v_ase logo, a
+Scene sidebar, a framed scientific canvas and a precise inspector. Choose
+**Style**, **Build**, **Analyze** or **Render** directly above the inspector.
+Its title's disclosure lists only that category. **Find tools…** (**⌘F / Ctrl+F**)
+searches every category, including Water, Isosurfaces and project settings.
+**View only** and **Edit structure** form an explicit mode selector at the stage's left.
+The desktop uses its native menu bar; browsers retain one compact command menu.
+
+Opening a file defaults to **Open in new tab** when a structure is already open.
+Choose several files to open one new tab per file or combine all their frames
+into **One trajectory** in one new tab. Existing documents stay open; check the
+listed order before confirming. An empty tab opens the first file directly.
+
+Choose **Graphite** (neutral default), **Slate**, **Stone** or **Moss** in
+**Style → Display & guides → Palette**, independently of System/Light/Dark.
+Interface colors never change scientific backgrounds, atom colors or image output.
+The sidebar and inspector have distinct open/closed icons and Show/Hide labels;
+document tabs stay accessible when Scene is hidden.
+Property fields share aligned columns and row spacing. Camera and lighting controls occupy
+a separate area from the axis gizmo; the work-plane grid remains continuous
+even when the camera's far clip is large.
+
+Atom labels have compact rows for color, label, count, visibility and selection.
+Expand a row for element, radius, opacity and material. Background refreshes retain
+unfinished labels and their caret while their atom binding is unchanged.
+Selection/visibility controls keep focus in the form, so editing keys cannot
+accidentally delete scientific atoms. Add atoms exposes XYZ coordinates; constraint
+editing shows the selection scope and the controls relevant to that selection.
+
+**Render → Image** exposes exact dimensions, framing, background and format.
+**Preview framing** shows the existing render area; **Advanced render settings**
+contains shared lighting and quality. Export leaves the real image thumbnail and
+**Save a copy**, which reuses the completed image bytes.
+
+Panels use brief surface motion and commit canvas geometry once per toggle. Resize handles, sliders and the
+trajectory scrubber follow direct input. Panels preserve coordinates, camera
+direction and viewing scale; opening them does not invoke Fit. Reduced motion
+removes travel. Dialogs take keyboard focus immediately, before the entry
+animation; menus and dialogs restore focus to visible launchers. Dropdown
+values and disclosure arrows keep separate space, including narrow panels.
+A compact **Camera** menu contains camera directions, rotation steps, grid and
+lighting controls. The timeline appears for multi-frame documents.
+While a blocking operation runs, keyboard, pointer and document actions wait
+alongside it. Overlapping operations retain their own progress and release the
+workspace only when all of them have finished.
+
+[Workspace controls](docs/workspace.md) ·
+[Design and interaction contract](docs/interface-design.md) ·
+[Reference research: 12 applications](docs/interface-references.md).
+
 **Shape a structure directly in the viewport.** Select successive parts of a
 phosphorene ribbon and rotate them into a twist. These are coordinate edits,
 with the camera kept in place.
@@ -66,6 +120,9 @@ fragment about its center, an active atom or a chosen pivot; undo an edit when
 trying another arrangement. **Build → Rigid translation** also moves coordinates
 in Cartesian Å or fractional cell units without running relaxation, for selected
 or all atoms in the current frame or every frame.
+Background structure reads and appearance updates preserve an active rotation
+preview. Enter commits its coordinates; Escape restores its starting positions.
+Older reads cannot overwrite a newer committed edit.
 
 ![A selected ferrocene ring rotates about an explicit pivot and axis](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_ferrocene_pivot.gif)
 
@@ -128,8 +185,6 @@ strain. Here, graphene and MoS₂ are matched as separate host and guest structu
 
 ![Graphene and MoS2 host and guest lattices are searched for a common periodic cell](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_commensurate_host_guest.gif)
 
-Rigid translation relaxation keeps its progress and completion state synchronized.
-
 [Host/guest matching](https://v-ase.readthedocs.io/en/latest/commensurate.html)
 
 ### Explore interfacial registry
@@ -137,6 +192,11 @@ Rigid translation relaxation keeps its progress and completion state synchronize
 Scan lateral alignments or relax a whole selected fragment as one rigid body.
 Registry maps compare geometric contact or bond-strain scores while preserving
 the fragment's internal structure; they are not potential-energy maps.
+Rigid translation relaxation keeps completion visible even when an older
+structure read or start response arrives late. Running it again starts a new
+optimization in the same mode; Finish and Cancel remain explicit actions.
+Notifications stay with their server's event loop when several local viewers
+are open or viewers are closed and reopened.
 
 ![A selected layer translates rigidly over its host without deforming its internal structure](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_registry_relax.gif)
 
@@ -162,6 +222,14 @@ choose which atom pairs form visible bonds.
 [Pair-specific bonds](https://v-ase.readthedocs.io/en/latest/bonds.html)
 
 ### Reveal coordination polyhedra
+
+Open CIF directly or choose **CIF crystal structure** in the reader list.
+Explicit symmetry operations are honored even for expanded group spellings such
+as `C 1 c 1`. Under **Style → Polyhedra**, turn on **Show polyhedra** to create
+editable initial distance rules. The circled **!** explains the radii criterion;
+each rule lists its cutoff and resulting coordination counts. Bond lines are
+optional; **Use bonded neighbors only** is an additional, initially off filter.
+For vermiculite this resolves both SiO₄ tetrahedra and MgO₆ octahedra.
 
 Show local coordination as faces, edges and ligand connectors. Give different
 center groups their own colors and transparency, in both 3D and flat 2D views.
@@ -197,7 +265,8 @@ for editing groups without creating unintended measurements.
 ### Compare local structure with pair distributions
 
 Plot total and label-resolved radial distributions for periodic systems, or
-pair-distance distributions for finite structures. Export the curves as CSV.
+pair-distance distributions for finite structures. Axes retain their quantity and
+Å units in compact results. Export the curves as CSV.
 
 ![Total and label-resolved Cu-Zr radial distribution curves beside the atomic structure](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_rdf.png)
 
@@ -211,6 +280,8 @@ Keep atoms fixed, restrict motion to a line or plane, or constrain selected
 Cartesian or fractional directions. Visible guides make the allowed motion clear.
 
 **Along a line:** the selected atoms move only in their permitted direction.
+The guide's length and thickness follow atom-size mappings immediately,
+including animated trajectories and saved projects.
 
 ![FixedLine keeps selected atom motion on a visible guide line](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_fixedline.gif)
 
@@ -239,6 +310,8 @@ spring guide shows the relationship as the structure changes.
 Remove close contacts with built-in repulsion, or optimize using a configured
 ASE calculator. Play the relaxation trajectory, keep a chosen frame, or restore
 the starting structure. The example shows repulsive overlap removal.
+Clearing a movie keeps the chosen geometry even if updates from the discarded
+run arrive late. The same mode can then start a fresh optimization timeline.
 
 ![A crowded atomic cluster separates during repulsive relaxation](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_relaxation.gif)
 
@@ -248,8 +321,21 @@ the starting structure. The example shows repulsive overlap removal.
 
 Ask an MCP-capable agent to prepare a structure or figure in the same document
 you have open. Watch its edits, inspect the result, and continue refining it by hand.
-The same bundled Skill works across compatible clients; install it in your
-client's documented local Skill directory.
+Install the scientific Skill for Claude Code, Codex and Cursor:
+
+```bash
+npx skills@latest add lgyEthan/v_ase \
+  --skill visualizing-atomic-structures-with-v-ase \
+  -a claude-code codex cursor -g -y
+```
+
+This installs the guide and its references. Connect the MCP server separately
+to enable actual tools. Choose only the clients you use; omit `-g` for a
+project installation. For published **0.4.13**, use `lgyEthan/v_ase@v0.4.13` so
+the Skill matches the runtime. [Skill and MCP setup](https://v-ase.readthedocs.io/en/latest/agent-setup.html).
+
+You can also ask an agent to set up v_ase by reading
+[`llms.txt`](https://raw.githubusercontent.com/lgyEthan/v_ase/main/llms.txt).
 
 ![A user and an AI agent exchange requests and refine one shared live v_ase document](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_ai_collaboration.gif)
 
@@ -267,6 +353,15 @@ so its preview remains available while adjusting appearance or the camera.
 
 ## Render and export
 
+Generated structures can be composed as editable paper-style figures. The
+[model-output workflow](docs/model-output-figures.md) and
+[portable example](examples/model_output_figures/README.md) include three
+CrystaLLM AuO2 and three ALM Edit Li4Fe5CoO12 samples, pinned generated inputs,
+and explicit source-to-display mappings. Saved coordinates and project reopens
+are checked; incomplete, altered or stale render receipts are rejected.
+
+![Materials-model outputs rendered in v_ase](docs/assets/github/model_output_figures.png)
+
 Stored force vectors stay synchronized after edits and trajectory frame changes.
 Missing displacement comparisons do not block image rendering.
 
@@ -280,6 +375,9 @@ scale for figures, or export a selected trajectory range as a movie or GIF.
 Continue working in **Blender** with editable atoms, bonds and water-surface
 meshes, including trajectory animation. **OBJ/MTL** and **Rhino 3DM** provide
 additional geometry exports; ASE structure formats keep the scientific data usable elsewhere.
+
+CSV exports preserve UTF-8 bytes and report stable semantic media types even
+when the HTTP server includes a charset parameter.
 
 [Camera and image output](https://v-ase.readthedocs.io/en/latest/render-images.html) ·
 [Movies and GIFs](https://v-ase.readthedocs.io/en/latest/export-video.html) ·
@@ -351,3 +449,6 @@ view(molecule("H2O"))
 [Contributing](https://v-ase.readthedocs.io/en/latest/development.html) ·
 [Cite v_ase](CITATION.cff) · [AGPL-3.0-or-later](LICENSE) ·
 [Third-party license](v_ase/static/vendor/THREE_LICENSE)
+
+Command/Ctrl+F opens command search across all workspaces. Escape returns to
+the actual search opener.

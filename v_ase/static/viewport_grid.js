@@ -30,10 +30,6 @@ export function createViewportGrid(light = true) {
             uniform vec3 eye, gridColor;
             uniform float spacing, fadeDistance;
             varying vec2 screen;
-            vec3 unproject(float z) {
-                vec4 point = inverseView * inverseProjection * vec4(screen, z, 1.0);
-                return point.xyz / point.w;
-            }
             float lines(vec2 point, float stepSize) {
                 vec2 coord = point / stepSize;
                 vec2 derivative = max(fwidth(coord), vec2(0.00001));
@@ -42,8 +38,15 @@ export function createViewportGrid(light = true) {
                 return antialias * (1.0 - smoothstep(0.2, 1.0, max(derivative.x, derivative.y)));
             }
             void main() {
-                vec3 start = perspective ? eye : unproject(-1.0), finish = unproject(1.0);
-                vec3 ray = finish - start;
+                // Construct the ray in the camera basis. Subtracting near/far
+                // world points loses the work-plane intersection at large far
+                // distances (and on lower-precision GPU backends). Orthographic
+                // XY and the near-plane perspective direction do not use far Z.
+                vec4 nearPoint = inverseProjection * vec4(screen, -1.0, 1.0);
+                vec3 local = nearPoint.xyz / nearPoint.w;
+                mat3 basis = mat3(inverseView);
+                vec3 start = eye + (perspective ? vec3(0.0) : basis * vec3(local.xy, 0.0));
+                vec3 ray = basis * (perspective ? normalize(local) : vec3(0.0, 0.0, -1.0));
                 if (abs(ray.z) < 0.000001) discard;
                 float t = -start.z / ray.z;
                 if (perspective && t < 0.0) discard;

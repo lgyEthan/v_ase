@@ -9,6 +9,9 @@ Use the live document's structured state. MCP is the primary interface;
 CLI and native function adapters share the same scientific backend.
 Install the complete Skill in the client's documented local directory; keep
 personal client configuration outside shared projects and release artifacts.
+The optional `npx skills` installer is documented in
+`references/agent-setup.md`. Match the Skill's Git ref to its runtime; `main`
+contains changes after published 0.4.13. Installing a Skill does not register MCP.
 The optional macOS/Windows desktop host uses the same GUI and API. To attach
 to an existing desktop document, use Help → Copy agent connection URL and the
 normal CLI/HTTP contract. Keep the app open; do not start another viewer or
@@ -51,6 +54,12 @@ on Windows and Command/Ctrl+1–8 / 9 (last). Alt/Option alone still steps frame
 Build → Rigid translation exposes ordinary Cartesian/fractional movement first,
 without relaxation. A rigid shift retains constraints but bypasses their
 per-atom projection; use `move-selection` for constraint-enforced motion.
+Background structure reads and appearance rebuilds preserve active physical
+transform previews. Older reads cannot override newer edits or optimizer events.
+Registry run completion survives late start
+responses; a completed mode can be run again before explicit Finish or Cancel.
+Optimizer and collaboration notifications retain their order within each
+server, including when other local viewers open or close.
 `translate-all` accepts `frameScope:"current"|"all"` (default
 all); Edit `delete-selection` accepts the same field (default current). The GUI
 asks deletion scope for trajectories. All-frame deletion uses identical base
@@ -59,7 +68,10 @@ complete undo action. Inspect structure identity before choosing all frames. Com
 use the existing compose-view cell-direction contract, not synthetic key events.
 Objects visibility is shared by viewport and rendering. `display.showConstraints`
 controls scientific marks independently of `applyConstraints` enforcement; hidden
-marks stay hidden in images/video. FixedPlane fills the local plane between
+marks stay hidden in images/video. FixedLine length and thickness track live mapped
+radii, including interpolated trajectory samples, without requiring a reload.
+Near-zero marks shrink with the atom rather than leaving a floating line.
+FixedPlane fills the local plane between
 the atom and its outer ring, with a pale cyan face at 30% opacity and narrow,
 opaque darker rims. Selection expands both ring radii by 0.18 atom radii, preserving face width
 and thickness around the yellow outline. Actual depth and alpha blending
@@ -72,9 +84,13 @@ The first view accounts for the right panel,
 but panel toggles never recenter user/saved views.
 `.vase` opens without import/mode prompts, restoring saved Edit/View mode,
 frame, cameras, appearance, selection and panel presentation in a new tab when
-another document is open. Multi-file GUI opening offers separate tabs or one new
+another document is open. Ordinary GUI File → Open and drops also default to a
+new tab when a document contains work; replacement/append require an explicit
+choice. An empty tab opens one file directly. Multi-file GUI opening offers separate tabs or one new
 trajectory; the latter imports structures only, has no source save authority,
 and starts unsaved. See the grouped-import safeguards in `references/cli-and-environments.md`.
+For a `newDocument` readiness timeout in a controlled browser, use the
+document-preserving GUI fallback in `references/collaboration.md`.
 Desktop Command/Ctrl+W closes the last tab's window
 and quits only after the last window, with normal dirty-document guards.
 For rotation/scaling, the GUI label “Selection COM” currently denotes an
@@ -189,20 +205,93 @@ The first split and gesture are one Undo action; an existing label requires a
 merge confirmation and then inherits its settings. Per-label rows mirror the
 resulting actual radius, color, opacity and material. Native explicit per-index
 overrides remain supported; they do not implicitly use this GUI auto-label rule.
-For human refinement, the editor has a wide viewport and a single right
-Style / Build / Analyze / Render workbench. Each workbench has a unique icon
-bookmark for every section, with hover/focus names and the active section heading
-below. Style includes Atoms, Bonds, Cell, Polyhedra and View & guides. Both the
-Objects drawer and resizable right workbench overlay the viewport at desktop
-sizes, without changing its camera or projection. The left icon toolbar groups
-selection/measurement, selected-object transforms, orbit and creation. The Orbit
+For human refinement, the desktop has horizontal document tabs across the top,
+the v_ase logo, a Scene-only sidebar, one toolbar, a framed stage and a 320 px
+inspector. Style / Build / Analyze / Render are labeled workspaces. Find tools
+(Command+F / Ctrl+F) searches every route and command regardless of category;
+the inspector title opens only the current category's tool list. Global search includes Water, Isosurfaces
+and project/default settings. View only (lock) and Edit
+structure (pencil) are exclusive access modes, separate from Camera navigation
+and Display & guides. The desktop uses native menus without a duplicate in-app
+ellipsis menu; browser/notebook hosts have one bounded opaque command menu.
+Documents and scene rows are presentation controls; native semantic tools remain
+the primary agent interface. The direct/notebook workspace retains its original
+app and file handles when additional documents are opened.
+Categories sit above the inspector; access modes sit at stage left. Camera
+popups use measured bounds beside a stationary axis gizmo. Grid rays avoid
+far-clip precision loss; scientific guide settings still control exact output.
+
+CIF is available explicitly and by filename inference. Unknown expanded H-M
+names with supplied symmetry operations use that table; names without operations
+still fail rather than becoming P1. `cif_site_label` retains original site labels;
+O-H1 does not imply an added hydrogen. For polyhedra initial discovery,
+`automatic=true` replaces rules with editable element-pair distance rules,
+not ideal shapes. `bonded_only` is off by default and filters periodic sites
+through bond definitions independently of drawn lines. Verify counts and hulls;
+read the Polyhedra reference below for the criterion and limits.
+Each tool has a name and purpose. Keyboard focus reveals toolbar tooltips;
+pointer hover is delayed. Hints stay within the window without a second native
+bubble.
+Interface appearance and palettes belong to chrome. Use
+`vase_set_interface_theme(theme="system", palette="graphite")`, or the semantic
+`set-interface-theme` operation with required `theme` (system/light/dark) and
+optional `palette` (graphite/slate/stone/moss). Graphite is the neutral default;
+Moss retains the optional green palette. Both preferences persist locally and
+update parent/child surfaces together. They never set the scientific viewport
+background, camera, atoms, lighting or image output. Existing saved backgrounds
+remain intact; use display/render controls to change them explicitly. Offline
+HTML preserves the selected interface appearance independently of its image
+background. Reduced-motion settings remove presentation travel.
+Sliders keep exact number fields
+and native step constraints. Compact dropdowns shorten long selected values
+before their arrow; open the native list for complete option text. Expandable
+titles wrap beside their disclosure arrow. Style includes Atoms, Bonds, Cell, Polyhedra and Display & guides. Both the
+scene navigator and inspector occupy separate desktop areas. The canvas gains
+real space when panels close, while coordinates, camera direction and pixels per
+Å remain unchanged. The canvas Camera menu retains direction, rotation, grid and
+lighting controls. Escape in the color list closes only that list and restores
+its trigger. The Cell panel reads the loaded cell/PBC. Image exposes exact size,
+framing preview, format, background and transparency; Advanced render settings
+contains shared lighting, quality and camera controls. Open Renderer directly
+for the common settings.
+The image result offers Save a copy of the completed image. Analysis charts retain
+quantity/unit titles in compact layouts; RDF uses distance in Å and g(r) or finite
+pair probability. These presentation labels do not change calculations or CSV data.
+The inspector, result drawer and bond-column separators accept arrow keys,
+Shift for larger steps, Home/End and double-click reset. Keyboard steps commit
+immediately. Escape, pointer cancellation or focus loss restores the starting
+size only during a pointer/touch drag. After a committed key step, Escape keeps
+the size and closes the inspector as usual. These presentation
+gestures are not coordinate edits. Dialogs isolate background controls, take
+keyboard focus before the first entry frame and restore focus on close. Blocking
+work also isolates keyboard, pointer and parent
+document actions, including before a delayed progress surface appears. Each
+operation owns its progress and cleanup; overlapping tasks keep the workspace
+isolated until all finish. See [human refinement](references/collaboration.md#human-interface-refinement).
+Appearance labels use expandable groups for element/radius/opacity/material;
+multiple groups may remain expanded across refreshes. Summary selection and
+visibility do not expand the group. Appearance selection/visibility checkboxes retain form focus, including `.click()`
+activation. Delete/Backspace there do not edit scientific atoms. A background
+appearance refresh preserves an unfinished label and caret only while its atom
+binding and stored value are unchanged; Enter commits it. Authoritative edits
+or membership changes replace obsolete drafts. Read semantic state for committed
+labels; a visible unfinished draft is not an authoritative structure edit.
+The viewport icon toolbar groups
+selection/measurement, selected-object transforms, orbit and creation. The
+toolbar becomes a horizontal strip below the structure in narrow windows;
+Fit view stays above. Scroll overflowing tools to reach either end. Expanded
+camera rotation controls stay inside the viewport; closed controls remain inert.
+Command search supports Up/Down from its query through visible results, Home/End,
+Enter to open and Escape to return to its opener. The inactive Add atoms form
+uses the inspector's heading; an active insertion session retains its badge
+and exit controls. The Orbit
 tool uses primary-button drag to rotate and Shift-drag to pan, without requiring
 an atom selection. Transform
 buttons require an editable selection, then drag to apply; switching tools or
 Cancel/Escape cancels a provisional transform. Keyboard G/R/S is still modal. For semantic commensurate rotation, `axis` is the
 string `"Z"` (the default), not a three-number vector; explicit indices also
 select the guest layer so subsequent styling preserves its preview.
-Search and File/Edit/View/Preferences/Help/Reset menus sit above the canvas.
+Search and the document-menu launcher above the canvas expose File/Edit/View/Preferences/Help/Reset.
 Bonds defaults to editable pair specifications; reset restores suggested cutoffs.
 The legacy automatic bonding mode remains readable through the semantic API,
 while the GUI converts its suggestions to explicit editable pairs. Do not confuse
@@ -250,12 +339,20 @@ effective mapping and readiness before rendering. For example, apply
 `{"operation":{"name":"set-atom-radius-mapping","field":"array::fraction::scalar","rangeMode":"current","minMultiplier":0,"maxMultiplier":1}}`.
 
 `vase_render` returns an artifact URI plus exact camera/options/dimensions.
+One-off render arguments do not commit the full image profile to a project.
+For a deliverable that must reproduce on reopening, commit the output profile
+through the GUI Renderer or `load-settings`, then export the project and render
+again with omitted options. A fixed Studio profile uses raw
+`imageExportProfile.options.renderModeSelection="studio"`; `current` follows
+the viewport. See the [rendering guide](references/deterministic-rendering.md#model-output-figures).
 Use `vase_inspect_image(uri=...)` for final visual QA: MCP returns image content.
 Native-function hosts embed validated artifact bytes as image input. Never print
 Base64 or count a file path as image inspection. Use one final render when the
 state establishes the result; add a draft only when visual composition needs it.
 
-For same-document human lighting refinement, see the toolbar controls in the
+For same-document human lighting refinement, open Camera, then its lighting
+sphere; the popup preserves the axis target and uses a scrollable compact form
+in short windows. See the controls in the
 [scene guide](references/scene-workflow.md#human-lighting-controls).
 
 ## Collaboration and retry
@@ -322,3 +419,8 @@ Clear optimization movies with `retain:"initial"` to restore their first frame,
 keeps the active mode and any atoms placed before that run. It is not Cancel
 placement or Exit Relaxation. The GUI exposes optional relaxation directly in
 Build → Add atoms; ordinary relaxation shares the same controls/calculator.
+Queued steps or completion from a cleared run cannot recreate its movie or
+overwrite the retained geometry. Starting again creates a fresh timeline.
+
+Command/Ctrl+F opens command search across all workspaces. Escape returns to
+the actual search opener.

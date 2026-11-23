@@ -1,6 +1,6 @@
 """Status bar, scene visibility and flat-mode controls share the rendered state."""
 from tests.test_browser_camera_property_persistence import page
-from tests.ui_navigation import open_editor_route
+from tests.ui_navigation import open_editor_route, set_scene_navigator_open
 
 
 def test_single_atom_properties_live_in_footer(page):
@@ -17,13 +17,13 @@ def test_single_atom_properties_live_in_footer(page):
 def test_constraint_visibility_and_flat_controls(page):
     page.evaluate('''async()=>{const a=window.__ASE_APP__;await a.aiApply({mode:'edit'});
         const data=await a.api.updateConstraints([0],{fix_atoms:true});a.setAtomsData(data);a.updateUI();}''')
-    page.click('#btn-objects')
+    set_scene_navigator_open(page)
     page.get_by_role('checkbox', name='Show Constraints', exact=True).uncheck()
     assert not page.evaluate('window.__ASE_APP__.renderer.fixedAtomDisplayEnabled()')
     assert page.evaluate('window.__ASE_APP__.state.atoms.constraints.fixed_indices') == [0]
     page.get_by_role('checkbox', name='Show Constraints', exact=True).check()
     assert page.evaluate('window.__ASE_APP__.renderer.fixedAtomDisplayEnabled()')
-    page.click('#btn-objects')
+    set_scene_navigator_open(page, False)
     open_editor_route(page, 'export')
     page.select_option('#renderer-atom-display-mode','2d')
     assert page.locator('#renderer-lighting-mode').is_disabled()

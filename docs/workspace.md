@@ -1,29 +1,75 @@
 # Find your way around
 
-The atomic structure stays in the canvas. Use the top menus for files, the left
-toolbar for direct interaction, and the right panel for the current task.
+The structure stays in a framed canvas. Open documents appear in horizontal
+tabs at the top; Scene occupies the left sidebar and the selected tool the right.
 
 ## Workspace and documents
 
-Each tab is a separate document with its own structure, trajectory, selection,
-camera, appearance and undo history. Use **+** for a new document or
-**File → Open** to load a file. In the desktop app, drag a tab below the tab bar
-to move it to its own window.
+Each document has its own structure, trajectory, selection, camera, appearance
+and undo history. Use **+** beside the tabs for a new document. Open files with
+**File → Open** in the native desktop menu bar, or **… → File → Open** in a
+browser. Native desktop tabs reorder horizontally; drag below the strip to move
+a document into a new window. A destination preview appears before release;
+Escape/pointer cancellation commits neither action.
+
+When a document contains work, **Open in new tab** is the default for File → Open
+and drag-and-drop. Replacing it or adding frames to its trajectory requires an
+explicit selection. An empty tab opens a single file directly. Selecting several
+files offers **Separate tabs** (one new tab per file) or **One trajectory** (all
+files' frames in one new tab); existing documents stay open in either case.
+
+The Scene toolbar button shows/hides the sidebar; it collapses by default at
+1100 px or below. The independent inspector toggle controls the right panel.
+Both buttons change their glyph and Show/Hide description with state. Hiding
+Scene leaves the top tabs and v_ase logo available.
 
 | Area | Use it for |
 | --- | --- |
-| **File** | Open, Save, Save As and structure export. |
-| Left toolbar | Select and measure atoms; move, rotate or scale a selection; orbit the view. |
-| **Objects** | Show or hide atoms, bonds, cell, guides, constraints and camera. |
-| **Style** | Atom appearance, bonds, supercells, polyhedra, water, isosurfaces and stored forces. |
-| **Build** | Add atoms/molecules, transform, edit the cell, add constraints and relax. |
-| **Analyze** | Inspect measurements, trajectories, distributions, fields and interfaces. |
-| **Render** | Configure lighting, quality and output; export images, animations and 3D scenes. |
+| Document tabs | Switch, close, reorder and create documents; inspect unsaved state. |
+| Native menu / browser **…** | File, Edit, View, Preferences and Help commands; the desktop avoids a duplicate in-app menu. |
+| Canvas palette | Select, measure, move, rotate, scale, orbit and add. |
+| Scene sidebar | Actual scene objects, visibility, guides and optional overlays. |
+| **Style** | Atoms, bonds, cell, polyhedra, water, isosurfaces, forces and Display & guides. |
+| **Build** | Add atoms/molecules, transform, edit cells, constrain and relax. |
+| **Analyze** | Measurements, distributions, displacements, fields and interfaces. |
+| **Render** | Renderer, Image, Video, Interactive HTML and Geometry. |
 
-Panel icons are section shortcuts: hover or focus one to see its name.
-The header search finds controls across panels. Drag the right panel's edge to
-resize it; opening the panel does not move your view of the structure.
-On a narrow window the panel sits below the canvas.
+**View only** and **Edit structure** are mutually exclusive access modes in the
+outlined toolbar segment. Search and camera navigation never silently enable
+physical edits. **Find tools…** (**⌘F / Ctrl+F**) searches every category and
+command, even from Render. Clicking the inspector title lists only the current
+category's tools. The category tabs sit above the inspector; the access-mode
+segment belongs to the left side of the stage toolbar.
+Results identify their category. **Camera** on the canvas groups presets,
+rotation steps, grid and lighting; **Fit view** stays separate.
+
+**Style → Display & guides** offers **Graphite** (neutral default), **Slate**,
+**Stone** and **Moss**, independently of **System / Light / Dark**. Preferences
+persist locally and update the entire workspace together. They change interface
+surfaces and controls without altering the scientific background, atom colors,
+lighting, camera or image export profile. Set the canvas background separately.
+
+Expand an atom-label row for element, radius, opacity and material. Visibility
+and selection remain independently usable without expanding it. Add atoms shows
+XYZ coordinates. Constraints show the current selection scope and relevant
+parameters. **Render → Image** exposes exact dimensions and framing immediately;
+**Advanced render settings** contains shared lighting, quality and camera options.
+
+Panel toggles commit canvas size once and animate only the panel surface. Resizing preserves coordinates, camera direction
+and viewing scale, while the canvas gains real space. Narrow portrait windows
+stack the inspector below the canvas; short landscape windows keep them beside
+each other. Tool palettes remain scrollable and exact numerical input is retained.
+Motion respects the system reduced-motion preference. The colormap list chooses
+the side with room; Escape returns to its button and leaves the inspector open.
+[Design and interaction contract](interface-design.md) · [Reference study](interface-references.md).
+
+The inspector and analysis separators also support keyboard resizing: focus an
+edge and use the arrow keys, or hold Shift for larger steps. Home/End chooses
+the size bounds; double-click restores the default. Keyboard steps commit
+immediately. Escape during a pointer/touch drag or an interrupted drag restores
+its starting size. After a committed key step, Escape keeps that size and closes
+the inspector. Resizing does not enter the structure's Undo
+history. The bond label-column separator follows the same cancellation model.
 
 Analysis results open below the canvas. Drag the top edge to resize that area.
 On short windows, use **Back to viewport** to return from a plot to the structure.
@@ -84,3 +130,17 @@ Closing an unsaved document offers **Save**, **Discard** or **Cancel**.
 In the desktop app, closing the last tab closes its window, and closing the last
 window exits the app. A browser workspace keeps an empty tab instead.
 [Opening files](data-input.md) · [Saving projects](save-projects.md).
+
+## Agent-created tabs in a controlled browser
+
+Creating a document through the agent API waits for its editor to become ready.
+In one extension-controlled Chrome profile, the new child stayed at
+`about:blank` and reported a readiness timeout even though its HTML request
+succeeded. The same external command worked in a clean Chrome profile and the
+in-app browser. If this occurs, return to the last ready tab, use the visible
+**+** button, then query readiness and the active document ID before resuming
+agent control. Keep existing documents; do not repeatedly create empty tabs or
+change browser security settings. The visible New control remains available.
+
+Command/Ctrl+F opens command search across all workspaces. Escape returns to
+the actual search opener.

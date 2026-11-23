@@ -1,5 +1,8 @@
+import { installInterfaceControls } from './interface.js?v=0.4.13&ui=20261111.1';
 // Shared editor chrome. Scientific state and mutations remain in ASEApp.
 const paths = {
+    grid: '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18M15 3v18M3 9h18M3 15h18"/>',
+    axes: '<path d="M5 19h15M5 19V4m0 15L17 7m0 0h-5m5 0v5M5 4l-3 3m3-3 3 3M20 19l-3-3m3 3-3 3"/>',
     water: '<path d="M12 2C9 7 4 11 4 15a8 8 0 0 0 16 0c0-4-5-8-8-13Z"/><path d="M7 15c0 3 2 4 4 4"/>',
     select: '<path d="m5 3 14 9-7 1-3 7z"/>',
     move: '<path d="M12 3v18M3 12h18m-12-6 3-3 3 3m-6 12 3 3 3-3M6 9l-3 3 3 3m12-6 3 3-3 3"/>',
@@ -40,6 +43,7 @@ export function editorIcon(name) {
 }
 
 export function installEditorInteractions(app) {
+    installInterfaceControls();
     // Ctrl+A is also a supported text-editing chord on Mac. Native number
     // controls select only a numeric segment on some Chromium/macOS versions.
     document.addEventListener('keydown', event => {
@@ -82,16 +86,61 @@ export function installEditorInteractions(app) {
     document.getElementById('tool-add').removeAttribute('aria-pressed');
     document.getElementById('viewport-transform-apply')?.addEventListener('click', () => app.commitTransform());
     document.getElementById('viewport-transform-cancel')?.addEventListener('click', () => app.cancelTransform());
-    document.getElementById('editor-search-toggle').innerHTML = editorIcon('search');
+    document.getElementById('editor-search-toggle').insertAdjacentHTML('afterbegin',editorIcon('search'));
+    const cameraPaths = [
+        '<path d="m6 13 6-6 6 6M12 7v12"/>',
+        '<path d="m6 11 6 6 6-6M12 5v12"/>',
+        '<path d="m11 6-6 6 6 6M5 12h14"/>',
+        '<path d="m13 6 6 6-6 6M5 12h14"/>',
+        '<path d="M5 9a7 7 0 1 1 0 6M5 4v5h5"/>',
+        '<path d="M19 9a7 7 0 1 0 0 6M19 4v5h-5"/>'
+    ];
+    document.querySelectorAll('#view-toolbar button').forEach((button, index) => {
+        if (!cameraPaths[index]) return;
+        button.innerHTML = `<svg class="interface-camera-icon" viewBox="0 0 24 24" aria-hidden="true">${cameraPaths[index]}</svg>`;
+        button.dataset.tooltip = button.getAttribute('aria-label') || button.title;
+    });
+    document.querySelectorAll('#viewport-tools button, #editor-search-toggle').forEach(button => {
+        button.dataset.tooltip = button.getAttribute('aria-label') || button.title;
+    });
     const menus = [...document.querySelectorAll('#editor-menu-bar > details')];
+    const menuAnchor = document.querySelector('.document-menu-anchor');
+    const menuToggle = document.getElementById('editor-menu-toggle');
+    const setMenuSurface = open => {
+        menuAnchor?.classList.toggle('document-menu-open', open);
+        menuToggle?.setAttribute('aria-expanded', String(open));
+        if (!open) menus.forEach(menu => { menu.open = false; });
+    };
+    menuToggle?.addEventListener('click', () => {
+        setMenuSurface(!menuAnchor.classList.contains('document-menu-open'));
+        if (menuAnchor.classList.contains('document-menu-open')) menus[0]?.querySelector('summary')?.focus();
+    });
+    menuAnchor?.addEventListener('click', event => {
+        if (event.target.closest('.editor-menu-popover button')) setMenuSurface(false);
+    });
+    menuAnchor?.addEventListener('click', event => {
+        // A dialog opened from the transient menu returns to its persistent
+        // launcher, even after the menu has disappeared.
+        if (event.target.closest('.editor-menu-popover button')) menuToggle?.focus({ preventScroll: true });
+    }, true);
+    menuAnchor?.addEventListener('keydown', event => {
+        if (event.key !== 'Escape') return;
+        event.preventDefault(); event.stopPropagation();
+        setMenuSurface(false); menuToggle.focus();
+    }, true);
+    document.addEventListener('pointerdown', event => {
+        if (!menuAnchor?.contains(event.target)) setMenuSurface(false);
+    });
     const closeSearch = () => {
-        document.body.classList.remove('editor-search-open');
-        document.getElementById('editor-search-toggle')?.setAttribute('aria-expanded', 'false');
+        if(document.body.classList.contains('editor-search-open'))app.setToolSearchOpen?.(false,{restoreFocus:false});
     };
     const closeMenus = () => menus.forEach(menu => { menu.open = false; });
     const showMenu = (menu, focus = false) => {
         closeSearch(); menus.forEach(other => { other.open = other === menu; });
-        if (focus) menu.querySelector('button:not(:disabled)')?.focus();
+        if (focus) {
+            menu.querySelector('summary')?.focus({ preventScroll: true });
+            menu.querySelector('button:not(:disabled)')?.focus({ preventScroll: true });
+        }
     };
     menus.forEach((menu, index) => {
         const summary = menu.querySelector('summary');
@@ -101,9 +150,6 @@ export function installEditorInteractions(app) {
         summary.addEventListener('click', event => {
             event.preventDefault();
             if (menu.open) closeMenus(); else showMenu(menu);
-        });
-        summary.addEventListener('pointerenter', event => {
-            if (event.pointerType !== 'touch' && menus.some(other => other.open)) showMenu(menu);
         });
         menu.addEventListener('keydown', event => {
             if (!['ArrowLeft', 'ArrowRight', 'Home', 'End', 'Tab'].includes(event.key)) return;
@@ -115,9 +161,9 @@ export function installEditorInteractions(app) {
             } else showMenu(menus[(index + (event.key === 'ArrowRight' ? 1 : menus.length - 1)) % menus.length], true);
         });
     });
-    document.getElementById('editor-search-toggle')?.addEventListener('click', closeMenus);
+    document.getElementById('editor-search-toggle')?.addEventListener('click', () => { closeMenus(); setMenuSurface(false); });
     document.addEventListener('pointerdown', event => {
-        if (!event.target.closest?.('#editor-navigator, #editor-search-toggle')) closeSearch();
+        if (!event.target.closest?.('#editor-navigator, #editor-search-toggle, #inspector-tool-trigger')) closeSearch();
     });
     // A dropped document always goes through the same explicit destination UI.
     let dragDepth = 0;

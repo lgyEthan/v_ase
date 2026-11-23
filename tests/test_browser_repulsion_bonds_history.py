@@ -1,6 +1,7 @@
 """Focused browser regressions for repulsion, bond appearance, and history."""
 
 from __future__ import annotations
+from tests.ui_navigation import click_view_control
 
 import pytest
 from ase import Atoms
@@ -16,7 +17,7 @@ def _expand_inspector(page):
     if page.locator("body").evaluate(
         "element => element.classList.contains('inspector-collapsed')"
     ):
-        page.click("#btn-inspector-collapse")
+        page.click("#editor-inspector-toggle")
         page.wait_for_function(
             "!document.body.classList.contains('inspector-collapsed')"
         )
@@ -113,8 +114,8 @@ def test_repulsion_bond_theme_toolbar_and_add_atoms_history_are_independent():
             page.select_option("#ui-theme", "dark")
             page.wait_for_function(
                 "document.documentElement.dataset.uiTheme === 'dark'"
-                " && document.body.dataset.viewportBackground === 'dark'"
-                " && document.querySelector('#app-viewport canvas')?.dataset.viewportBackground === 'dark'"
+                " && document.body.dataset.viewportBackground === 'white'"
+                " && document.querySelector('#app-viewport canvas')?.dataset.viewportBackground === 'white'"
             )
             page.select_option("#ui-theme", "system")
             page.wait_for_function(
@@ -123,12 +124,14 @@ def test_repulsion_bond_theme_toolbar_and_add_atoms_history_are_independent():
             )
 
             grid_before = page.get_attribute("#btn-grid-toggle", "aria-pressed")
-            page.click("#btn-grid-toggle")
+            click_view_control(page, '#btn-grid-toggle')
             assert page.get_attribute("#btn-grid-toggle", "aria-pressed") != grid_before
-            page.click("#btn-lighting-toggle")
+            click_view_control(page, '#btn-lighting-toggle')
             assert page.get_attribute("#btn-lighting-toggle", "aria-expanded") == "true"
             assert "hidden" not in (page.get_attribute("#lighting-card", "class") or "")
             page.click('#btn-lighting-close')
+            assert page.get_attribute('#camera-rotation-toggle', 'aria-expanded') == 'true'
+            assert page.locator('#btn-lighting-toggle').evaluate('e=>e===document.activeElement')
             page.hover("#btn-grid-toggle")
             page.wait_for_timeout(650)
             assert page.locator("#toolbar-tooltip").is_visible()

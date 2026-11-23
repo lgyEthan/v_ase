@@ -1,4 +1,5 @@
 """Notebook/direct editors adopt tabs without reloading the first document."""
+from tests.ui_navigation import open_document_menu
 
 import os
 import base64
@@ -30,7 +31,8 @@ def test_direct_editor_adopts_tabs_in_place_and_preserves_host_file_handle():
                 window.__hostHandle={name:'retained.vase'};
                 window.__hostApp.projectFile.handle=window.__hostHandle;
             }""")
-            page.locator('#editor-menu-bar details').first.locator('summary').click()
+            page.locator('#editor-menu-toggle').click()
+            open_document_menu(page)
             page.click('[data-editor-menu-action="new"]')
             page.wait_for_function("""() => window.__V_ASE_WORKSPACE__?.tabs?.size===2
                 && window.__V_ASE_WORKSPACE__.activeSessionId!==window.__hostApp.sessionId""")
@@ -105,7 +107,8 @@ def test_direct_editor_dirty_child_close_cancel_then_discard():
             page = browser.new_page()
             page.goto(editor.url)
             page.wait_for_function("window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 1")
-            page.locator('#editor-menu-bar details').first.locator('summary').click()
+            page.locator('#editor-menu-toggle').click()
+            open_document_menu(page)
             page.click('[data-editor-menu-action="new"]')
             page.wait_for_function("window.__V_ASE_WORKSPACE__?.tabs?.size === 2")
             child = page.frame_locator('.direct-document-pane:not([hidden])')

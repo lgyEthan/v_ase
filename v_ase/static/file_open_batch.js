@@ -85,44 +85,68 @@ function showBatchChoice(group) {
             <fieldset class="open-file-modes">
                 <legend>Open as</legend>
                 <label class="open-file-mode"><input type="radio" name="open-batch-mode" value="tabs" checked>
-                    <span><strong>Separate tabs</strong><small>One tab per file. Projects keep their saved mode and appearance.</small></span></label>
+                    <span><strong>Separate tabs</strong><small>One new tab per file, keeping each file’s frames. Projects restore their saved mode and appearance.</small></span></label>
                 <label class="open-file-mode"><input type="radio" name="open-batch-mode" value="trajectory">
-                    <span><strong>One trajectory</strong><small>All frames, in the order below, in one new tab. Imports structures only; save as a new project.</small></span></label>
+                    <span><strong>One trajectory</strong><small>Combine all files’ frames in one new tab for movie playback, in the order below. Imports structures only; save as a new project.</small></span></label>
             </fieldset>
-            <div class="open-batch-heading"><strong id="open-batch-count"></strong><span>Use arrows to change frame order</span></div>
+            <div class="open-batch-heading"><strong id="open-batch-count"></strong><span id="open-batch-order-hint"></span></div>
+            <p id="open-batch-announcement" role="status" aria-live="polite" aria-atomic="true"></p>
             <ol id="open-batch-files" class="open-batch-files" aria-label="Files in frame order"></ol>`,
             '<button id="open-batch-cancel" class="btn">Cancel</button><button id="open-batch-confirm" class="btn primary">Open separate tabs</button>');
         const confirm = doc.getElementById('open-batch-confirm');
+        const list = doc.getElementById('open-batch-files');
+        const rowEntries = new WeakMap();
+        const focusMoveButton = (entry, direction) => {
+            const row = [...list.children].find(row => rowEntries.get(row) === entry);
+            if (!row) return;
+            const buttons = [...row.querySelectorAll('button')];
+            const preferred = buttons[Number(direction) < 0 ? 0 : 1];
+            (preferred.disabled ? buttons.find(button => !button.disabled) : preferred)?.focus();
+        };
+        const syncChoice = () => {
+            const trajectory = doc.querySelector('[name="open-batch-mode"]:checked').value === 'trajectory';
+            confirm.textContent = trajectory ? 'Open trajectory' : `Open ${group.entries.length} tabs`;
+            doc.getElementById('open-batch-order-hint').textContent = trajectory
+                ? 'File order in trajectory · Use arrows to reorder'
+                : 'Tab order · Use arrows to reorder';
+            doc.getElementById('open-batch-files').setAttribute('aria-label', trajectory ? 'Files in trajectory order' : 'Files in tab order');
+        };
         group.refresh = () => {
+            const focused = doc.activeElement;
+            const focusedEntry = rowEntries.get(focused?.closest('#open-batch-files li'));
+            const focusedDirection = focused?.dataset.orderDirection;
             doc.getElementById('open-batch-count').textContent = `${group.entries.length} files`;
-            const list = doc.getElementById('open-batch-files');
             list.replaceChildren();
             group.entries.forEach((entry, index) => {
                 const row = doc.createElement('li');
+                rowEntries.set(row, entry);
                 const name = doc.createElement('span'); name.textContent = nameOf(entry); name.title = name.textContent;
                 row.append(name);
                 for (const [direction, label, symbol] of [[-1, 'Move up', '↑'], [1, 'Move down', '↓']]) {
                     const button = doc.createElement('button'); button.type = 'button'; button.className = 'btn';
                     button.textContent = symbol; button.title = `${label}: ${nameOf(entry)}`;
+                    button.dataset.orderDirection = String(direction);
                     button.setAttribute('aria-label', button.title);
                     button.disabled = index + direction < 0 || index + direction >= group.entries.length;
                     button.onclick = () => {
                         const next = index + direction;
                         [group.entries[index], group.entries[next]] = [group.entries[next], group.entries[index]];
+                        group.orderEdited = true;
                         group.refresh();
-                        list.children[next]?.querySelector(`button:nth-of-type(${direction < 0 ? 1 : 2})`)?.focus();
+                        focusMoveButton(entry, direction);
+                        doc.getElementById('open-batch-announcement').textContent = `${nameOf(entry)}, position ${next + 1} of ${group.entries.length}`;
                     };
                     row.append(button);
                 }
                 list.append(row);
             });
+            syncChoice();
+            if (focusedEntry) focusMoveButton(focusedEntry, focusedDirection);
         };
         group.refresh();
         app.modalDismiss = () => { group.mergeable = false; group.refresh = null; resolve(null); };
         doc.getElementById('open-batch-cancel').onclick = () => app.closeModal();
-        doc.querySelectorAll('[name="open-batch-mode"]').forEach(input => input.onchange = () => {
-            confirm.textContent = input.value === 'trajectory' ? 'Open trajectory' : 'Open separate tabs';
-        });
+        doc.querySelectorAll('[name="open-batch-mode"]').forEach(input => input.onchange = syncChoice);
         confirm.onclick = () => {
             const mode = doc.querySelector('[name="open-batch-mode"]:checked').value;
             app.modalDismiss = null; group.mergeable = false; group.refresh = null; app.closeModal(); resolve(mode);
@@ -176,7 +200,10 @@ export function queueFileOpen(app, input, options = {}) {
         if (queue.active?.mergeable) {
             // Explorer may deliver late processes after the first burst. Extend
             // the unconfirmed chooser, never overwrite it or lose those files.
-            queue.active.entries.push(...entries); queue.active.resolvers.push(resolve);
+            const active = queue.active;
+            active.entries.push(...entries);
+            if (!active.orderEdited) active.entries = ordered(active.entries);
+            active.resolvers.push(resolve);
             queue.active.refresh?.(); return;
         }
         const group = { app, entries, options, resolvers: [resolve], refresh: null, mergeable: true };

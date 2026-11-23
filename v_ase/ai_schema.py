@@ -1043,6 +1043,7 @@ AI_CONTROL_SCHEMA = {
                                 "required": ["theme"],
                                 "properties": {
                                     "theme": {"enum": ["system", "light", "dark"]},
+                                    "palette": {"enum": ["graphite", "slate", "stone", "moss"]},
                                 },
                             },
                         },
@@ -1513,10 +1514,12 @@ AI_OPERATION_PARAMETERS = {
     "set-interface-theme": {
         "mode": "view-or-edit",
         "required": ["theme"],
-        "optional": [],
+        "optional": ["palette"],
         "notes": (
             "theme is system, light, or dark. system follows the browser/OS "
-            "color-scheme preference and is the built-in default."
+            "color-scheme preference and is the built-in default. Optional palette "
+            "is graphite (default), slate, stone, or moss. Both affect interface "
+            "chrome only; scientific backgrounds, atom colors and image profiles stay unchanged."
         ),
     },
     "set-personal-visual-default": {
@@ -2417,7 +2420,7 @@ def _ai_apply_method_schema() -> Dict[str, Any]:
     # parameters through the focused configure-polyhedra tool/schema.
     properties['display']['properties']['polyhedraRules'] = {
         'type': 'array', 'maxItems': 32, 'items': {'type': 'object'},
-        'description': 'Replacement list; fields: configure-polyhedra schema.'}
+        'description': 'Rules: configure-polyhedra schema.'}
     properties['display']['properties']['atomRadiusMapping'] = {
         'type': 'object',
         'description': 'Fields: set-atom-radius-mapping schema.'}
@@ -2609,6 +2612,8 @@ def ai_schema_payload(options: Dict[str, Any] | None = None) -> Dict[str, Any]:
 
 from .polyhedra import RULES_SCHEMA as _POLYHEDRA_RULES
 _polyhedra_properties = {
+    "automatic": {"type": "boolean", "description": "Replace rules with editable radii-based pair cutoffs; inspect counts. No ideal shapes."},
+    "bondedOnly": {"type": "boolean", "description": "Filter periodic sites by bond definitions, independently of drawn lines. Default false."},
     "rules": _POLYHEDRA_RULES,
     "enabled": {"type": "boolean"},
     "atomMode": {"enum": ["all", "coordination", "centers", "ligands", "none"]},

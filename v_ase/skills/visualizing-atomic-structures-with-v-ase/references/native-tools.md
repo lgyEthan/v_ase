@@ -10,7 +10,9 @@
 
 ## Current source and connection
 
-Install `v_ase-gui[mcp]==0.4.13` for the scene transaction and discovery tools.
+Choose matching runtime and Skill refs using
+[installation](cli-and-environments.md#installation). The Skill from `main`
+requires the current Python source; published 0.4.13 uses the Skill's v0.4.13 tag.
 Restart the GUI and adapter together after upgrading; their contracts must match.
 No model or model API key is required by v_ase itself.
 

@@ -163,7 +163,8 @@ def test_default_gif_uses_saved_camera_after_editor_zoom(page):
     # Resize/capture may rebase orthographic frustum/zoom without changing its physical span.
     for key in result['viewport']:
         if key != 'zoom' or result['viewport']['projection'] == 'perspective':
-            assert result['after'][key] == result['viewport'][key]
+            assert result['after'][key] == (pytest.approx(result['viewport'][key], rel=1e-12, abs=1e-12)
+                if isinstance(result['viewport'][key], (int, float, list)) else result['viewport'][key])
     with Image.open(io.BytesIO(base64.b64decode(result['gif']['dataUrl'].split(',')[1]))) as gif:
         assert gif.n_frames == 3
         gif.seek(2)

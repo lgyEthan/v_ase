@@ -1,4 +1,5 @@
 """Observable editor interactions: no layout/camera drift, real keys and menus."""
+from tests.ui_navigation import open_editor_route
 import pytest
 from ase import Atoms
 from playwright.sync_api import sync_playwright
@@ -20,7 +21,7 @@ def editor_page():
 
 def test_bond_defaults_ctrl_a_and_vertical_tab(editor_page):
     p = editor_page
-    p.click('#workbench-route-bonding')
+    open_editor_route(p, 'bonding')
     assert p.input_value('#bond-mode') == 'pairwise'
     assert p.locator('#bond-mode option[value="auto"]').count() == 0
     fields = p.locator('.pairwise-bond-max')
@@ -37,22 +38,28 @@ def test_bond_defaults_ctrl_a_and_vertical_tab(editor_page):
     p.wait_for_function('window.__ASE_APP__.state.display.pairwiseBondRanges["H-O"].max === 2.5')
 
 
-def test_menu_hover_search_exclusion_and_reset(editor_page):
+def test_click_menu_groups_search_exclusion_and_reset(editor_page):
     p = editor_page
     menus=p.locator('#editor-menu-bar > details')
+    p.click('#editor-menu-toggle')
     menus.nth(0).locator('summary').click()
     menus.nth(1).locator('summary').hover()
+    assert menus.nth(0).get_attribute('open') is not None
+    assert menus.nth(1).get_attribute('open') is None
+    menus.nth(1).locator('summary').click()
     assert menus.nth(1).get_attribute('open') is not None
     assert menus.nth(0).get_attribute('open') is None
     p.click('#editor-search-toggle')
     assert p.locator('#editor-navigator').is_visible()
     assert p.locator('#editor-menu-bar > details[open]').count() == 0
+    p.click('#editor-menu-toggle')
     menus.nth(0).locator('summary').click()
     assert p.locator('#editor-navigator').is_hidden()
     p.keyboard.press('ArrowDown'); p.keyboard.press('ArrowRight')
     assert menus.nth(1).get_attribute('open') is not None
     p.keyboard.press('Escape')
     assert p.locator('#editor-menu-bar > details[open]').count() == 0
+    p.click('#editor-menu-toggle')
     p.click('#editor-reset-menu summary')
     assert p.locator('#editor-reset-menu [data-editor-menu-action="reset-coordinates"]').is_visible()
     assert p.locator('#editor-reset-menu [data-editor-menu-action="reset-all"]').is_visible()
@@ -68,9 +75,14 @@ def test_floating_panel_keeps_projection_and_can_expand(editor_page):
         p.evaluate('(width) => window.__ASE_APP__.setInspectorWidth(width)',width)
         p.evaluate('window.__ASE_APP__.setInspectorCollapsed(true)')
         p.evaluate('window.__ASE_APP__.setInspectorCollapsed(false)')
-        assert p.evaluate(snapshot) == before
+        after = p.evaluate(snapshot)
+        assert after['camera'] == before['camera']
+        # The stage gains real space; points keep their scale and offset from
+        # the stage center rather than staying underneath the inspector.
+        assert after['point'][0] - after['rect']['width'] / 2 == pytest.approx(before['point'][0] - before['rect']['width'] / 2)
+        assert after['point'][1] == pytest.approx(before['point'][1])
         assert p.locator('#inspector').bounding_box()['width'] == width
-    p.click('#workbench-route-bonding')
+    open_editor_route(p, 'bonding')
     assert p.locator('#pairwise-bond-panel').evaluate('(el)=>el.scrollWidth <= el.clientWidth+1')
 
 
@@ -115,19 +127,29 @@ def test_open_chord_and_file_drop_offer_destinations(editor_page):
     p.wait_for_function('window.__ASE_APP__.timelineFrameCount("loaded") === 2')
 
 
-def test_bookmarks_have_unique_icons_labels_and_precede_section_title(editor_page):
+def test_global_tool_chooser_has_complete_names_categories_and_distinct_viewport_icons(editor_page):
     p=editor_page
-    nav=p.locator('#workbench-tools')
-    assert nav.bounding_box()['y'] < p.locator('.inspector-head').bounding_box()['y']
-    icons=p.locator('#workbench-tools [data-editor-route] svg').evaluate_all('(els)=>els.map(el=>el.innerHTML)')
-    assert len(icons)==25 and len(set(icons))==25
-    for button in p.locator('#workbench-tools [data-editor-route]').all():
-        assert button.get_attribute('aria-label')
-        assert button.inner_text()==''
-    p.locator('#workbench-route-bonding').hover()
-    assert p.locator('#workbench-route-bonding').get_attribute('data-tooltip')=='Bonds'
-    p.locator('#workbench-route-bonding').click()
-    assert p.locator('#inspector-context').inner_text()=='Bonds'
+    nav=p.locator('#editor-navigator')
+    assert nav.is_hidden()
+    p.click('#editor-search-toggle')
+    assert nav.is_visible()
+    launcher=p.locator('#editor-search-toggle').bounding_box()
+    assert nav.bounding_box()['y'] >= launcher['y']+launcher['height']
+    buttons=nav.locator('[data-editor-route]')
+    assert buttons.count()==31
+    routes=[]
+    for button in buttons.all():
+        routes.append(button.get_attribute('data-editor-route'))
+        assert button.inner_text().strip() and 'undefined' not in button.inner_text()
+        assert button.locator('.command-result-path').inner_text().strip()
+    assert len(routes)==len(set(routes))
+    for route in ['water','isosurfaces','project','settings','save-guide']:
+        assert route in routes
+    p.locator('#editor-command-search').fill('bonds')
+    nav.locator('[data-editor-route="bonding"]').click()
+    assert p.locator('#inspector-tool-label').inner_text()=='Bonds'
+    icons=p.locator('.viewport-tools button svg').evaluate_all('(es)=>es.filter(e=>e.checkVisibility()).map(e=>e.innerHTML)')
+    assert len(icons)>=7 and len(icons)==len(set(icons))
     p.evaluate('window.__ASE_APP__.clearAtomSelection(); window.__ASE_APP__.updateSelectionVisuals()')
     assert p.locator('#tool-move').is_disabled()
     assert p.locator('#tool-rotate').is_disabled()

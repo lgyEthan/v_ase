@@ -31,7 +31,7 @@ def test_modified_editor_routes_do_not_change_selection_or_transform():
                 pytest.skip(f"Playwright Chromium unavailable: {error}")
             page = windows_page(browser)
             page.goto(editor.url)
-            page.wait_for_function("window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 2")
+            page.wait_for_function("window.__ASE_APP__?.collaborationReady && window.__ASE_APP__.renderer.atomMeshByIndex?.size === 2")
             page.evaluate("window.__ASE_APP__.applySelectionAction({references:[0],origin:'semantic'})")
             cases = [
                 ("Control+Shift+b", "structure", "cell-replication"),
@@ -164,7 +164,7 @@ def test_renderer_route_controls_committed_physical_scale_without_viewport_zoom_
             browser = playwright.chromium.launch(headless=True)
             page = windows_page(browser)
             page.goto(editor.url)
-            page.wait_for_function('window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 1')
+            page.wait_for_function('window.__ASE_APP__?.collaborationReady && window.__ASE_APP__.renderer.atomMeshByIndex?.size === 1')
             before = page.evaluate('''() => ({
                 zoom:window.__ASE_APP__.renderer.currentPixelsPerAngstrom(),
                 radius:window.__ASE_APP__.renderer.atomVisualRadius(0)
@@ -296,7 +296,7 @@ def test_command_search_reveals_exact_control_and_empty_state():
             browser = playwright.chromium.launch(headless=True)
             page = windows_page(browser)
             page.goto(editor.url)
-            page.wait_for_function('window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 1')
+            page.wait_for_function('window.__ASE_APP__?.collaborationReady && window.__ASE_APP__.renderer.atomMeshByIndex?.size === 1')
             page.locator('#editor-search-toggle').click()
             search = page.locator('#editor-command-search')
             search.fill('pixels per angstrom')
@@ -320,7 +320,7 @@ def test_build_and_analyze_routes_expose_distinct_property_bodies():
             browser = playwright.chromium.launch(headless=True)
             page = windows_page(browser)
             page.goto(editor.url)
-            page.wait_for_function('window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 2')
+            page.wait_for_function('window.__ASE_APP__?.collaborationReady && window.__ASE_APP__.renderer.atomMeshByIndex?.size === 2')
             page.evaluate("window.__ASE_APP__.openEditorRoute('transform')")
             assert page.locator('#rotate-pivot').is_visible()
             assert not page.locator('#chk-commensurate-guide').is_visible()
@@ -373,7 +373,7 @@ def test_required_shortcuts_commit_valid_fields_discard_invalid_drafts_and_block
             browser = playwright.chromium.launch(headless=True)
             page = windows_page(browser)
             page.goto(editor.url)
-            page.wait_for_function('window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 1')
+            page.wait_for_function('window.__ASE_APP__?.collaborationReady && window.__ASE_APP__.renderer.atomMeshByIndex?.size === 1')
             page.keyboard.press('Control+Shift+b')
             repeat = page.locator('#super-x')
             repeat.fill('0')
@@ -421,7 +421,7 @@ def test_escape_settles_confirmation_instead_of_hiding_pending_dialog():
                 pytest.skip(f"Playwright Chromium unavailable: {error}")
             page = windows_page(browser)
             page.goto(editor.url)
-            page.wait_for_function("window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 1")
+            page.wait_for_function("window.__ASE_APP__?.collaborationReady && window.__ASE_APP__.renderer.atomMeshByIndex?.size === 1")
             page.evaluate("""() => {
                 window.__confirmResult = 'pending';
                 window.__ASE_APP__.showConfirmModal({title:'Close?', intro:'Test', items:[]})
@@ -444,7 +444,7 @@ def test_modal_owns_keyboard_and_blocks_background_edit_and_document_commands():
             browser = playwright.chromium.launch(headless=True)
             page = windows_page(browser)
             page.goto(editor.url)
-            page.wait_for_function("window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 1")
+            page.wait_for_function("window.__ASE_APP__?.collaborationReady && window.__ASE_APP__.renderer.atomMeshByIndex?.size === 1")
             page.evaluate("""() => {
                 const app = window.__ASE_APP__;
                 app.applySelectionAction({references:[0],origin:'semantic'});
@@ -479,7 +479,7 @@ def test_shortcut_help_matches_the_editor_command_registry_without_old_inversion
             browser = playwright.chromium.launch(headless=True)
             page = windows_page(browser)
             page.goto(editor.url)
-            page.wait_for_function("window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 1")
+            page.wait_for_function("window.__ASE_APP__?.collaborationReady && window.__ASE_APP__.renderer.atomMeshByIndex?.size === 1")
             page.evaluate("window.__ASE_APP__.showShortcutsModal()")
             shortcuts = page.locator('#modal-container .shortcut-grid > span').all_inner_texts()
             for chord in ("Ctrl+Shift+B", "Ctrl+Shift+P", "Ctrl+B", "Ctrl+Shift+A",
@@ -504,7 +504,7 @@ def test_output_pixels_per_angstrom_is_independent_of_live_viewport_scale():
                 pytest.skip(f"Playwright Chromium unavailable: {error}")
             page = windows_page(browser)
             page.goto(editor.url)
-            page.wait_for_function("window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 1")
+            page.wait_for_function("window.__ASE_APP__?.collaborationReady && window.__ASE_APP__.renderer.atomMeshByIndex?.size === 1")
             result = page.evaluate("""() => {
                 const app = window.__ASE_APP__;
                 const viewport = app.renderer.currentPixelsPerAngstrom();
@@ -540,7 +540,7 @@ def test_save_reuses_writable_target_and_save_as_adopts_new_target():
                 pytest.skip(f"Playwright Chromium unavailable: {error}")
             page = windows_page(browser)
             page.goto(editor.url)
-            page.wait_for_function("window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 1")
+            page.wait_for_function("window.__ASE_APP__?.collaborationReady && window.__ASE_APP__.renderer.atomMeshByIndex?.size === 1")
             result = page.evaluate("""async () => {
                     const app = window.__ASE_APP__;
                     const writes = [];
@@ -590,7 +590,7 @@ def test_reused_browser_handle_rechecks_external_version_after_deferred_build():
             browser = playwright.chromium.launch(headless=True)
             page = windows_page(browser)
             page.goto(editor.url)
-            page.wait_for_function("window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 1")
+            page.wait_for_function("window.__ASE_APP__?.collaborationReady && window.__ASE_APP__.renderer.atomMeshByIndex?.size === 1")
             result = page.evaluate("""async () => {
                 const app = window.__ASE_APP__;
                 app.markProjectSavedContent();

@@ -52,9 +52,28 @@ Do not load every reference into context when only one is relevant.
 
 ## Native Skill Loaders
 
-Copy the complete skill directory to the installation location documented by
-your client. Keep client-specific configuration on your own computer; it is
-not part of a shared v_ase project.
+The optional installer accepts the canonical directory directly from GitHub:
+
+```bash
+npx skills@latest add lgyEthan/v_ase \
+  --skill visualizing-atomic-structures-with-v-ase \
+  -a claude-code codex cursor -g -y
+```
+
+Choose only clients the user wants, and omit `-g` for a project-scoped install.
+Use `--list` to inspect without installing. This installs the complete Skill
+and references; registering an MCP server is a separate step. Node.js 22.20+
+is needed only for this optional installer, not for running v_ase.
+
+Match the source channel: this Skill from `main` describes current GitHub Python
+source; a published 0.4.13 runtime should use `lgyEthan/v_ase@v0.4.13` instead.
+See [installation](cli-and-environments.md#installation) for matching runtime
+commands, and [the user setup guide](https://v-ase.readthedocs.io/en/latest/agent-setup.html)
+for desktop-only MCP executable paths.
+
+Alternatively copy the complete skill directory to the documented client
+location. Keep client-specific configuration on your own computer; it is not
+part of a shared v_ase project.
 
 For Claude Code in a project:
 
@@ -100,10 +119,11 @@ plan, but a local agent must execute it.
 
 ## Starting A Live Session
 
-The user installs v_ase once:
+Use the matching runtime from `references/cli-and-environments.md`. In a fresh
+environment for this GitHub source guide:
 
 ```bash
-python -m pip install v_ase-gui
+python -m pip install "v_ase-gui[mcp] @ git+https://github.com/lgyEthan/v_ase.git@main"
 ```
 
 The agent then launches the machine-readable session itself:

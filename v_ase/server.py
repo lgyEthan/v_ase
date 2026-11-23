@@ -520,6 +520,7 @@ def session_atoms_to_json(session: EditorSession, include_inline_trajectory: boo
     data["metadata"]["relaxation"] = {
         "active": bool(session.relaxation_mode_active),
         "is_relaxing": bool(session.is_relaxing),
+        "run_id": session.relax_run_id,
     }
     if addition and addition["temporary_fixed_indices"]:
         fixed = set(data["constraints"].get("fixed_indices") or [])
@@ -6077,7 +6078,7 @@ if FASTAPI_AVAILABLE:
 
 def _calculate_session_polyhedra(session, payload):
     import hashlib
-    from .polyhedra import calculate_polyhedra, normalize_rules
+    from .polyhedra import automatic_rules, calculate_polyhedra, normalize_rules
     rules = normalize_rules(payload.get('rules', []))
     with session.mode_transition_lock:
         frame = payload.get('frame_index', session.current_frame)
@@ -6102,19 +6103,31 @@ def _calculate_session_polyhedra(session, payload):
         if not isinstance(pbc, list) or len(pbc) != 3 or any(type(x) is not bool for x in pbc):
             raise ValueError('Polyhedra pbc must contain three booleans.')
         atoms.pbc = pbc
+    if payload.get('automatic') is True:
+        rules = normalize_rules(automatic_rules(atoms))
+    bonded_only = payload.get('bondedOnly', False)
+    if type(bonded_only) is not bool:
+        raise ValueError('Polyhedra bondedOnly must be a boolean.')
+    bond_settings = payload.get('bondSettings', {}) if bonded_only else None
+    if bond_settings is not None and not isinstance(bond_settings, dict):
+        raise ValueError('Polyhedra bondSettings must be an object.')
     digest = hashlib.blake2b(digest_size=20)
     for value in (atoms.positions, atoms.cell.array, atoms.pbc, atoms.numbers):
         digest.update(np.ascontiguousarray(value).tobytes())
     style_fields = {'name','color','opacity','showFaces','showEdges','edgeColor','edgeRadius'}
     geometry_rules = [{k:v for k,v in rule.items() if k not in style_fields} for rule in rules]
-    digest.update(json.dumps([geometry_rules, labels], sort_keys=True, allow_nan=False).encode())
+    constraint_state=[constraint.todict() for constraint in atoms.constraints] if bonded_only else None
+    digest.update(json.dumps([geometry_rules, labels, bond_settings, constraint_state], sort_keys=True, allow_nan=False,default=lambda x:np.asarray(x).tolist()).encode())
     key = digest.hexdigest()
     cached = getattr(session, '_polyhedra_cached', None)
     if cached and cached[0] == key:
         styles = {rule['id']:{k:rule[k] for k in style_fields if k in rule} for rule in rules}
-        return {**cached[1], 'frame':frame, 'polyhedra':[{**poly, 'style':{**poly['style'], **styles[poly['ruleId']]}}
+        names = {rule['id']:rule.get('name') or rule['id'] for rule in rules}
+        return {**cached[1], 'frame':frame, 'rules':rules,
+                'ruleSummaries':[{**item,'name':names[item['ruleId']]} for item in cached[1].get('ruleSummaries',[])],
+                'polyhedra':[{**poly, 'style':{**poly['style'], **styles[poly['ruleId']]}}
                                        for poly in cached[1]['polyhedra']]}
-    result = calculate_polyhedra(atoms, rules, labels=labels)
+    result = calculate_polyhedra(atoms, rules, labels=labels, bond_settings=bond_settings)
     result.update(frame=frame, fingerprint=key)
     session._polyhedra_cached = (key, result)
     return result

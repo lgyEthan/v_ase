@@ -1,0 +1,2228 @@
+{
+  "schema": "v_ase.model_output_figures.v1",
+  "tested_v_ase_version": "0.4.13",
+  "generation_date": "2026-09",
+  "references": {
+    "CrystaLLM": {
+      "url": "https://doi.org/10.1038/s41467-024-54639-7",
+      "figure": "3d",
+      "license": "CC BY 4.0"
+    },
+    "ALM Edit": {
+      "url": "https://arxiv.org/abs/2606.21395v1",
+      "figure": "26",
+      "printed_formula": "Li4Fe5CoO2",
+      "released_formula": "Li4Fe5CoO12",
+      "license": "arXiv non-exclusive distribution"
+    }
+  },
+  "generation": {
+    "CrystaLLM": {
+      "code_commit": "8e81a86f9e064f219f09312f29ecbfc867211784",
+      "checkpoint_sha256": "eeaa5ccb6597da856dfd5007bccea83d40f3bfad10c8837931307fd70a9a0163",
+      "model": "v1-small",
+      "prompt": "Au2O4; P4_2/mnm",
+      "temperature": 0.8,
+      "top_k": 10,
+      "max_new_tokens": 3000
+    },
+    "ALM Edit": {
+      "code_commit": "a7cb7f67708ce321b4d2127a81ab58f84cb7bab4",
+      "checkpoint": "LearningMatter/AtomisticLanguageModels",
+      "checkpoint_revision": "2400b987372f50c2d61c3cc88a48cadda4e622b7",
+      "dataset_revision": "91454f0d6044401bbd8e9d7712df3fa5a73b8d9d",
+      "dataset_row": "doping_strain-mp-mp-1177537-to-mp-756756-Ni_to_Co-dV_-10.02pct-sg_1-n_uniq_4",
+      "prompt": "Dope this material by replacing all Ni atoms with Co.",
+      "K": 4,
+      "guidance": 0.5,
+      "diffusion_seed": 1337,
+      "extra_relaxation": false
+    }
+  },
+  "samples": [
+    {
+      "id": "auo2_1337",
+      "model": "CrystaLLM",
+      "group": "auo2",
+      "source": "sources/auo2_seed1337.cif",
+      "source_sha256": "de72a9e918c3dd8f3a089b67ec76f257ede8c333be713c3fe91555bc8dfa8de7",
+      "composition": {
+        "Au": 2,
+        "O": 4
+      },
+      "source_atoms": 6,
+      "display_atoms": 49,
+      "basis_matrix": [
+        [
+          0,
+          -1,
+          0
+        ],
+        [
+          1,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          -1
+        ]
+      ],
+      "fractional_translation": [
+        0.49999999999999994,
+        0.5,
+        0.5
+      ],
+      "display_cell": [
+        [
+          4.76,
+          0.0,
+          2.9146593819707006e-16
+        ],
+        [
+          -2.9146593819707006e-16,
+          4.76,
+          2.9146593819707006e-16
+        ],
+        [
+          0.0,
+          0.0,
+          3.4474
+        ]
+      ],
+      "sites": [
+        {
+          "source_index": 1,
+          "cell_offset": [
+            0,
+            -1,
+            0
+          ]
+        },
+        {
+          "source_index": 0,
+          "cell_offset": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "source_index": 1,
+          "cell_offset": [
+            0,
+            -1,
+            1
+          ]
+        },
+        {
+          "source_index": 1,
+          "cell_offset": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "source_index": 1,
+          "cell_offset": [
+            0,
+            0,
+            1
+          ]
+        },
+        {
+          "source_index": 1,
+          "cell_offset": [
+            1,
+            -1,
+            0
+          ]
+        },
+        {
+          "source_index": 1,
+          "cell_offset": [
+            1,
+            -1,
+            1
+          ]
+        },
+        {
+          "source_index": 1,
+          "cell_offset": [
+            1,
+            0,
+            0
+          ]
+        },
+        {
+          "source_index": 1,
+          "cell_offset": [
+            1,
+            0,
+            1
+          ]
+        },
+        {
+          "source_index": 2,
+          "cell_offset": [
+            0,
+            -1,
+            0
+          ]
+        },
+        {
+          "source_index": 2,
+          "cell_offset": [
+            0,
+            -1,
+            1
+          ]
+        },
+        {
+          "source_index": 3,
+          "cell_offset": [
+            0,
+            -1,
+            -1
+          ]
+        },
+        {
+          "source_index": 3,
+          "cell_offset": [
+            0,
+            -1,
+            0
+          ]
+        },
+        {
+          "source_index": 2,
+          "cell_offset": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "source_index": 3,
+          "cell_offset": [
+            0,
+            -1,
+            1
+          ]
+        },
+        {
+          "source_index": 2,
+          "cell_offset": [
+            0,
+            0,
+            1
+          ]
+        },
+        {
+          "source_index": 3,
+          "cell_offset": [
+            0,
+            0,
+            -1
+          ]
+        },
+        {
+          "source_index": 3,
+          "cell_offset": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "source_index": 3,
+          "cell_offset": [
+            0,
+            0,
+            1
+          ]
+        },
+        {
+          "source_index": 4,
+          "cell_offset": [
+            0,
+            -1,
+            -1
+          ]
+        },
+        {
+          "source_index": 4,
+          "cell_offset": [
+            0,
+            -1,
+            0
+          ]
+        },
+        {
+          "source_index": 2,
+          "cell_offset": [
+            1,
+            -1,
+            0
+          ]
+        },
+        {
+          "source_index": 4,
+          "cell_offset": [
+            0,
+            -1,
+            1
+          ]
+        },
+        {
+          "source_index": 2,
+          "cell_offset": [
+            1,
+            -1,
+            1
+          ]
+        },
+        {
+          "source_index": 4,
+          "cell_offset": [
+            0,
+            0,
+            -1
+          ]
+        },
+        {
+          "source_index": 3,
+          "cell_offset": [
+            1,
+            -1,
+            -1
+          ]
+        },
+        {
+          "source_index": 4,
+          "cell_offset": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "source_index": 3,
+          "cell_offset": [
+            1,
+            -1,
+            0
+          ]
+        },
+        {
+          "source_index": 2,
+          "cell_offset": [
+            1,
+            0,
+            0
+          ]
+        },
+        {
+          "source_index": 5,
+          "cell_offset": [
+            0,
+            -1,
+            0
+          ]
+        },
+        {
+          "source_index": 4,
+          "cell_offset": [
+            0,
+            0,
+            1
+          ]
+        },
+        {
+          "source_index": 3,
+          "cell_offset": [
+            1,
+            -1,
+            1
+          ]
+        },
+        {
+          "source_index": 2,
+          "cell_offset": [
+            1,
+            0,
+            1
+          ]
+        },
+        {
+          "source_index": 5,
+          "cell_offset": [
+            0,
+            -1,
+            1
+          ]
+        },
+        {
+          "source_index": 3,
+          "cell_offset": [
+            1,
+            0,
+            -1
+          ]
+        },
+        {
+          "source_index": 3,
+          "cell_offset": [
+            1,
+            0,
+            0
+          ]
+        },
+        {
+          "source_index": 5,
+          "cell_offset": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "source_index": 3,
+          "cell_offset": [
+            1,
+            0,
+            1
+          ]
+        },
+        {
+          "source_index": 5,
+          "cell_offset": [
+            0,
+            0,
+            1
+          ]
+        },
+        {
+          "source_index": 4,
+          "cell_offset": [
+            1,
+            -1,
+            -1
+          ]
+        },
+        {
+          "source_index": 4,
+          "cell_offset": [
+            1,
+            -1,
+            0
+          ]
+        },
+        {
+          "source_index": 4,
+          "cell_offset": [
+            1,
+            -1,
+            1
+          ]
+        },
+        {
+          "source_index": 4,
+          "cell_offset": [
+            1,
+            0,
+            -1
+          ]
+        },
+        {
+          "source_index": 4,
+          "cell_offset": [
+            1,
+            0,
+            0
+          ]
+        },
+        {
+          "source_index": 5,
+          "cell_offset": [
+            1,
+            -1,
+            0
+          ]
+        },
+        {
+          "source_index": 4,
+          "cell_offset": [
+            1,
+            0,
+            1
+          ]
+        },
+        {
+          "source_index": 5,
+          "cell_offset": [
+            1,
+            -1,
+            1
+          ]
+        },
+        {
+          "source_index": 5,
+          "cell_offset": [
+            1,
+            0,
+            0
+          ]
+        },
+        {
+          "source_index": 5,
+          "cell_offset": [
+            1,
+            0,
+            1
+          ]
+        }
+      ],
+      "style": {
+        "colors": {
+          "Au": "#e7b42b",
+          "O": "#e52525"
+        },
+        "radii": {
+          "Au": 0.49,
+          "O": 0.255
+        },
+        "direction": [
+          0.18,
+          -1,
+          0.13
+        ],
+        "mode": "3d",
+        "bonds": true,
+        "thickness": 0.13,
+        "pixels": 216,
+        "height": 2200
+      },
+      "selection": "first three preserved candidates matching the published rutile prototype",
+      "seed": 1337,
+      "raw_source": "sources/auo2_seed1337.raw.cif",
+      "raw_sha256": "f4ee6d763a288b2abd28cfccd7942d6bc2c24237cfae56892c8b8e7e76803c2a"
+    },
+    {
+      "id": "auo2_1338",
+      "model": "CrystaLLM",
+      "group": "auo2",
+      "source": "sources/auo2_seed1338.cif",
+      "source_sha256": "3dbce9f3c5b8efcb570a925c01bf30527c67aa4faee4b36e3138e13c7738a1ed",
+      "composition": {
+        "Au": 2,
+        "O": 4
+      },
+      "source_atoms": 6,
+      "display_atoms": 49,
+      "basis_matrix": [
+        [
+          -1,
+          0,
+          0
+        ],
+        [
+          0,
+          1,
+          0
+        ],
+        [
+          0,
+          0,
+          -1
+        ]
+      ],
+      "fractional_translation": [
+        0.5,
+        0.5,
+        0.5
+      ],
+      "display_cell": [
+        [
+          4.7561,
+          0.0,
+          2.912271320712363e-16
+        ],
+        [
+          -2.912271320712363e-16,
+          4.7561,
+          2.912271320712363e-16
+        ],
+        [
+          0.0,
+          0.0,
+          3.3921
+        ]
+      ],
+      "sites": [
+        {
+          "source_index": 1,
+          "cell_offset": [
+            0,
+            -1,
+            0
+          ]
+        },
+        {
+          "source_index": 0,
+          "cell_offset": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "source_index": 1,
+          "cell_offset": [
+            0,
+            -1,
+            1
+          ]
+        },
+        {
+          "source_index": 1,
+          "cell_offset": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "source_index": 1,
+          "cell_offset": [
+            0,
+            0,
+            1
+          ]
+        },
+        {
+          "source_index": 1,
+          "cell_offset": [
+            1,
+            -1,
+            0
+          ]
+        },
+        {
+          "source_index": 1,
+          "cell_offset": [
+            1,
+            -1,
+            1
+          ]
+        },
+        {
+          "source_index": 1,
+          "cell_offset": [
+            1,
+            0,
+            0
+          ]
+        },
+        {
+          "source_index": 1,
+          "cell_offset": [
+            1,
+            0,
+            1
+          ]
+        },
+        {
+          "source_index": 5,
+          "cell_offset": [
+            0,
+            -1,
+            0
+          ]
+        },
+        {
+          "source_index": 5,
+          "cell_offset": [
+            0,
+            -1,
+            1
+          ]
+        },
+        {
+          "source_index": 3,
+          "cell_offset": [
+            0,
+            -1,
+            -1
+          ]
+        },
+        {
+          "source_index": 3,
+          "cell_offset": [
+            0,
+            -1,
+            0
+          ]
+        },
+        {
+          "source_index": 5,
+          "cell_offset": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "source_index": 3,
+          "cell_offset": [
+            0,
+            -1,
+            1
+          ]
+        },
+        {
+          "source_index": 5,
+          "cell_offset": [
+            0,
+            0,
+            1
+          ]
+        },
+        {
+          "source_index": 3,
+          "cell_offset": [
+            0,
+            0,
+            -1
+          ]
+        },
+        {
+          "source_index": 3,
+          "cell_offset": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "source_index": 3,
+          "cell_offset": [
+            0,
+            0,
+            1
+          ]
+        },
+        {
+          "source_index": 4,
+          "cell_offset": [
+            0,
+            -1,
+            -1
+          ]
+        },
+        {
+          "source_index": 4,
+          "cell_offset": [
+            0,
+            -1,
+            0
+          ]
+        },
+        {
+          "source_index": 5,
+          "cell_offset": [
+            1,
+            -1,
+            0
+          ]
+        },
+        {
+          "source_index": 4,
+          "cell_offset": [
+            0,
+            -1,
+            1
+          ]
+        },
+        {
+          "source_index": 5,
+          "cell_offset": [
+            1,
+            -1,
+            1
+          ]
+        },
+        {
+          "source_index": 4,
+          "cell_offset": [
+            0,
+            0,
+            -1
+          ]
+        },
+        {
+          "source_index": 3,
+          "cell_offset": [
+            1,
+            -1,
+            -1
+          ]
+        },
+        {
+          "source_index": 4,
+          "cell_offset": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "source_index": 3,
+          "cell_offset": [
+            1,
+            -1,
+            0
+          ]
+        },
+        {
+          "source_index": 5,
+          "cell_offset": [
+            1,
+            0,
+            0
+          ]
+        },
+        {
+          "source_index": 2,
+          "cell_offset": [
+            0,
+            -1,
+            0
+          ]
+        },
+        {
+          "source_index": 4,
+          "cell_offset": [
+            0,
+            0,
+            1
+          ]
+        },
+        {
+          "source_index": 3,
+          "cell_offset": [
+            1,
+            -1,
+            1
+          ]
+        },
+        {
+          "source_index": 5,
+          "cell_offset": [
+            1,
+            0,
+            1
+          ]
+        },
+        {
+          "source_index": 2,
+          "cell_offset": [
+            0,
+            -1,
+            1
+          ]
+        },
+        {
+          "source_index": 3,
+          "cell_offset": [
+            1,
+            0,
+            -1
+          ]
+        },
+        {
+          "source_index": 3,
+          "cell_offset": [
+            1,
+            0,
+            0
+          ]
+        },
+        {
+          "source_index": 2,
+          "cell_offset": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "source_index": 3,
+          "cell_offset": [
+            1,
+            0,
+            1
+          ]
+        },
+        {
+          "source_index": 2,
+          "cell_offset": [
+            0,
+            0,
+            1
+          ]
+        },
+        {
+          "source_index": 4,
+          "cell_offset": [
+            1,
+            -1,
+            -1
+          ]
+        },
+        {
+          "source_index": 4,
+          "cell_offset": [
+            1,
+            -1,
+            0
+          ]
+        },
+        {
+          "source_index": 4,
+          "cell_offset": [
+            1,
+            -1,
+            1
+          ]
+        },
+        {
+          "source_index": 4,
+          "cell_offset": [
+            1,
+            0,
+            -1
+          ]
+        },
+        {
+          "source_index": 4,
+          "cell_offset": [
+            1,
+            0,
+            0
+          ]
+        },
+        {
+          "source_index": 2,
+          "cell_offset": [
+            1,
+            -1,
+            0
+          ]
+        },
+        {
+          "source_index": 4,
+          "cell_offset": [
+            1,
+            0,
+            1
+          ]
+        },
+        {
+          "source_index": 2,
+          "cell_offset": [
+            1,
+            -1,
+            1
+          ]
+        },
+        {
+          "source_index": 2,
+          "cell_offset": [
+            1,
+            0,
+            0
+          ]
+        },
+        {
+          "source_index": 2,
+          "cell_offset": [
+            1,
+            0,
+            1
+          ]
+        }
+      ],
+      "style": {
+        "colors": {
+          "Au": "#e7b42b",
+          "O": "#e52525"
+        },
+        "radii": {
+          "Au": 0.49,
+          "O": 0.255
+        },
+        "direction": [
+          0.18,
+          -1,
+          0.13
+        ],
+        "mode": "3d",
+        "bonds": true,
+        "thickness": 0.13,
+        "pixels": 216,
+        "height": 2200
+      },
+      "selection": "first three preserved candidates matching the published rutile prototype",
+      "seed": 1338,
+      "raw_source": "sources/auo2_seed1338.raw.cif",
+      "raw_sha256": "4ac3f0034deb086248537d4a70c8ecb88164cf358384e398a299a459c8f015ba"
+    },
+    {
+      "id": "auo2_1339",
+      "model": "CrystaLLM",
+      "group": "auo2",
+      "source": "sources/auo2_seed1339.cif",
+      "source_sha256": "76a0aa1fe70952dbfd34b4d67bcec8b988906ec327816a9e19caa176a0fdfeeb",
+      "composition": {
+        "Au": 2,
+        "O": 4
+      },
+      "source_atoms": 6,
+      "display_atoms": 49,
+      "basis_matrix": [
+        [
+          -1,
+          0,
+          0
+        ],
+        [
+          0,
+          1,
+          0
+        ],
+        [
+          0,
+          0,
+          -1
+        ]
+      ],
+      "fractional_translation": [
+        0.5,
+        0.5,
+        0.5
+      ],
+      "display_cell": [
+        [
+          4.6014,
+          0.0,
+          2.8175448907983154e-16
+        ],
+        [
+          -2.8175448907983154e-16,
+          4.6014,
+          2.8175448907983154e-16
+        ],
+        [
+          0.0,
+          0.0,
+          3.3037
+        ]
+      ],
+      "sites": [
+        {
+          "source_index": 1,
+          "cell_offset": [
+            0,
+            -1,
+            0
+          ]
+        },
+        {
+          "source_index": 0,
+          "cell_offset": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "source_index": 1,
+          "cell_offset": [
+            0,
+            -1,
+            1
+          ]
+        },
+        {
+          "source_index": 1,
+          "cell_offset": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "source_index": 1,
+          "cell_offset": [
+            0,
+            0,
+            1
+          ]
+        },
+        {
+          "source_index": 1,
+          "cell_offset": [
+            1,
+            -1,
+            0
+          ]
+        },
+        {
+          "source_index": 1,
+          "cell_offset": [
+            1,
+            -1,
+            1
+          ]
+        },
+        {
+          "source_index": 1,
+          "cell_offset": [
+            1,
+            0,
+            0
+          ]
+        },
+        {
+          "source_index": 1,
+          "cell_offset": [
+            1,
+            0,
+            1
+          ]
+        },
+        {
+          "source_index": 5,
+          "cell_offset": [
+            0,
+            -1,
+            0
+          ]
+        },
+        {
+          "source_index": 5,
+          "cell_offset": [
+            0,
+            -1,
+            1
+          ]
+        },
+        {
+          "source_index": 3,
+          "cell_offset": [
+            0,
+            -1,
+            -1
+          ]
+        },
+        {
+          "source_index": 3,
+          "cell_offset": [
+            0,
+            -1,
+            0
+          ]
+        },
+        {
+          "source_index": 5,
+          "cell_offset": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "source_index": 3,
+          "cell_offset": [
+            0,
+            -1,
+            1
+          ]
+        },
+        {
+          "source_index": 5,
+          "cell_offset": [
+            0,
+            0,
+            1
+          ]
+        },
+        {
+          "source_index": 3,
+          "cell_offset": [
+            0,
+            0,
+            -1
+          ]
+        },
+        {
+          "source_index": 3,
+          "cell_offset": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "source_index": 3,
+          "cell_offset": [
+            0,
+            0,
+            1
+          ]
+        },
+        {
+          "source_index": 4,
+          "cell_offset": [
+            0,
+            -1,
+            -1
+          ]
+        },
+        {
+          "source_index": 4,
+          "cell_offset": [
+            0,
+            -1,
+            0
+          ]
+        },
+        {
+          "source_index": 5,
+          "cell_offset": [
+            1,
+            -1,
+            0
+          ]
+        },
+        {
+          "source_index": 4,
+          "cell_offset": [
+            0,
+            -1,
+            1
+          ]
+        },
+        {
+          "source_index": 5,
+          "cell_offset": [
+            1,
+            -1,
+            1
+          ]
+        },
+        {
+          "source_index": 4,
+          "cell_offset": [
+            0,
+            0,
+            -1
+          ]
+        },
+        {
+          "source_index": 3,
+          "cell_offset": [
+            1,
+            -1,
+            -1
+          ]
+        },
+        {
+          "source_index": 4,
+          "cell_offset": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "source_index": 3,
+          "cell_offset": [
+            1,
+            -1,
+            0
+          ]
+        },
+        {
+          "source_index": 5,
+          "cell_offset": [
+            1,
+            0,
+            0
+          ]
+        },
+        {
+          "source_index": 2,
+          "cell_offset": [
+            0,
+            -1,
+            0
+          ]
+        },
+        {
+          "source_index": 4,
+          "cell_offset": [
+            0,
+            0,
+            1
+          ]
+        },
+        {
+          "source_index": 3,
+          "cell_offset": [
+            1,
+            -1,
+            1
+          ]
+        },
+        {
+          "source_index": 5,
+          "cell_offset": [
+            1,
+            0,
+            1
+          ]
+        },
+        {
+          "source_index": 2,
+          "cell_offset": [
+            0,
+            -1,
+            1
+          ]
+        },
+        {
+          "source_index": 3,
+          "cell_offset": [
+            1,
+            0,
+            -1
+          ]
+        },
+        {
+          "source_index": 3,
+          "cell_offset": [
+            1,
+            0,
+            0
+          ]
+        },
+        {
+          "source_index": 2,
+          "cell_offset": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "source_index": 3,
+          "cell_offset": [
+            1,
+            0,
+            1
+          ]
+        },
+        {
+          "source_index": 2,
+          "cell_offset": [
+            0,
+            0,
+            1
+          ]
+        },
+        {
+          "source_index": 4,
+          "cell_offset": [
+            1,
+            -1,
+            -1
+          ]
+        },
+        {
+          "source_index": 4,
+          "cell_offset": [
+            1,
+            -1,
+            0
+          ]
+        },
+        {
+          "source_index": 4,
+          "cell_offset": [
+            1,
+            -1,
+            1
+          ]
+        },
+        {
+          "source_index": 4,
+          "cell_offset": [
+            1,
+            0,
+            -1
+          ]
+        },
+        {
+          "source_index": 4,
+          "cell_offset": [
+            1,
+            0,
+            0
+          ]
+        },
+        {
+          "source_index": 2,
+          "cell_offset": [
+            1,
+            -1,
+            0
+          ]
+        },
+        {
+          "source_index": 4,
+          "cell_offset": [
+            1,
+            0,
+            1
+          ]
+        },
+        {
+          "source_index": 2,
+          "cell_offset": [
+            1,
+            -1,
+            1
+          ]
+        },
+        {
+          "source_index": 2,
+          "cell_offset": [
+            1,
+            0,
+            0
+          ]
+        },
+        {
+          "source_index": 2,
+          "cell_offset": [
+            1,
+            0,
+            1
+          ]
+        }
+      ],
+      "style": {
+        "colors": {
+          "Au": "#e7b42b",
+          "O": "#e52525"
+        },
+        "radii": {
+          "Au": 0.49,
+          "O": 0.255
+        },
+        "direction": [
+          0.18,
+          -1,
+          0.13
+        ],
+        "mode": "3d",
+        "bonds": true,
+        "thickness": 0.13,
+        "pixels": 216,
+        "height": 2200
+      },
+      "selection": "first three preserved candidates matching the published rutile prototype",
+      "seed": 1339,
+      "raw_source": "sources/auo2_seed1339.raw.cif",
+      "raw_sha256": "80ddd4ad958a70758a413a0db24f75bf6bd8960bc81cddfc08e1dd0e4e3728d0"
+    },
+    {
+      "id": "alm_co_1",
+      "model": "ALM Edit",
+      "group": "alm_co",
+      "source": "sources/alm_co_sample1.cif",
+      "source_sha256": "d4473367731e05a96f06ca2a4be1d1cb1ef4799269da92281fa74facc62b2831",
+      "composition": {
+        "Co": 1,
+        "Fe": 5,
+        "Li": 4,
+        "O": 12
+      },
+      "source_atoms": 22,
+      "display_atoms": 22,
+      "basis_matrix": [
+        [
+          1,
+          0,
+          0
+        ],
+        [
+          0,
+          1,
+          0
+        ],
+        [
+          0,
+          0,
+          1
+        ]
+      ],
+      "fractional_translation": [
+        0.07429400000000003,
+        0.19693213999999998,
+        0.26491275000000003
+      ],
+      "display_cell": [
+        [
+          4.7652168264766726,
+          0.0,
+          0.01790904251537761
+        ],
+        [
+          0.012711647039003826,
+          4.9769411127329155,
+          0.006507095586027748
+        ],
+        [
+          0.0,
+          0.0,
+          8.62882328
+        ]
+      ],
+      "sites": [
+        {
+          "source_index": 0,
+          "cell_offset": [
+            0,
+            -1,
+            0
+          ]
+        },
+        {
+          "source_index": 1,
+          "cell_offset": [
+            0,
+            -1,
+            0
+          ]
+        },
+        {
+          "source_index": 2,
+          "cell_offset": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "source_index": 3,
+          "cell_offset": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "source_index": 4,
+          "cell_offset": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "source_index": 5,
+          "cell_offset": [
+            0,
+            0,
+            -1
+          ]
+        },
+        {
+          "source_index": 6,
+          "cell_offset": [
+            -1,
+            0,
+            0
+          ]
+        },
+        {
+          "source_index": 7,
+          "cell_offset": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "source_index": 8,
+          "cell_offset": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "source_index": 9,
+          "cell_offset": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "source_index": 10,
+          "cell_offset": [
+            0,
+            0,
+            -1
+          ]
+        },
+        {
+          "source_index": 11,
+          "cell_offset": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "source_index": 12,
+          "cell_offset": [
+            0,
+            0,
+            -1
+          ]
+        },
+        {
+          "source_index": 13,
+          "cell_offset": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "source_index": 14,
+          "cell_offset": [
+            0,
+            -1,
+            0
+          ]
+        },
+        {
+          "source_index": 15,
+          "cell_offset": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "source_index": 16,
+          "cell_offset": [
+            0,
+            0,
+            -1
+          ]
+        },
+        {
+          "source_index": 17,
+          "cell_offset": [
+            0,
+            -1,
+            0
+          ]
+        },
+        {
+          "source_index": 18,
+          "cell_offset": [
+            0,
+            -1,
+            -1
+          ]
+        },
+        {
+          "source_index": 19,
+          "cell_offset": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "source_index": 20,
+          "cell_offset": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "source_index": 21,
+          "cell_offset": [
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "style": {
+        "colors": {
+          "Li": "#9875c9",
+          "Fe": "#d08b3f",
+          "Co": "#4e72b4",
+          "O": "#d55645"
+        },
+        "radii": {
+          "Li": 0.48,
+          "Fe": 0.52,
+          "Co": 0.56,
+          "O": 0.43
+        },
+        "direction": [
+          1.7,
+          -2.6,
+          1.4
+        ],
+        "mode": "2d",
+        "bonds": false,
+        "thickness": 0.08,
+        "pixels": 210,
+        "height": 2600
+      },
+      "selection": "first three candidates passing the released substitution checks",
+      "candidate": 1
+    },
+    {
+      "id": "alm_co_2",
+      "model": "ALM Edit",
+      "group": "alm_co",
+      "source": "sources/alm_co_sample2.cif",
+      "source_sha256": "31bc7e31691b2a2f60e332df18146b67080585cb3b7e6bef9941cbfd10aa450a",
+      "composition": {
+        "Co": 1,
+        "Fe": 5,
+        "Li": 4,
+        "O": 12
+      },
+      "source_atoms": 22,
+      "display_atoms": 22,
+      "basis_matrix": [
+        [
+          1,
+          0,
+          0
+        ],
+        [
+          0,
+          1,
+          0
+        ],
+        [
+          0,
+          0,
+          1
+        ]
+      ],
+      "fractional_translation": [
+        -0.31089246000000004,
+        -0.28302514999999995,
+        -0.08653127999999999
+      ],
+      "display_cell": [
+        [
+          2.8781521357780453,
+          0.0,
+          0.0026654377933053204
+        ],
+        [
+          -0.003233380147897901,
+          6.704401969077174,
+          0.31546655315905686
+        ],
+        [
+          0.0,
+          0.0,
+          12.0969677
+        ]
+      ],
+      "sites": [
+        {
+          "source_index": 0,
+          "cell_offset": [
+            0,
+            1,
+            0
+          ]
+        },
+        {
+          "source_index": 1,
+          "cell_offset": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "source_index": 2,
+          "cell_offset": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "source_index": 3,
+          "cell_offset": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "source_index": 4,
+          "cell_offset": [
+            1,
+            0,
+            0
+          ]
+        },
+        {
+          "source_index": 5,
+          "cell_offset": [
+            0,
+            1,
+            0
+          ]
+        },
+        {
+          "source_index": 6,
+          "cell_offset": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "source_index": 7,
+          "cell_offset": [
+            1,
+            1,
+            0
+          ]
+        },
+        {
+          "source_index": 8,
+          "cell_offset": [
+            0,
+            0,
+            1
+          ]
+        },
+        {
+          "source_index": 9,
+          "cell_offset": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "source_index": 10,
+          "cell_offset": [
+            0,
+            1,
+            0
+          ]
+        },
+        {
+          "source_index": 11,
+          "cell_offset": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "source_index": 12,
+          "cell_offset": [
+            1,
+            0,
+            0
+          ]
+        },
+        {
+          "source_index": 13,
+          "cell_offset": [
+            0,
+            1,
+            0
+          ]
+        },
+        {
+          "source_index": 14,
+          "cell_offset": [
+            0,
+            0,
+            1
+          ]
+        },
+        {
+          "source_index": 15,
+          "cell_offset": [
+            0,
+            1,
+            0
+          ]
+        },
+        {
+          "source_index": 16,
+          "cell_offset": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "source_index": 17,
+          "cell_offset": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "source_index": 18,
+          "cell_offset": [
+            0,
+            1,
+            1
+          ]
+        },
+        {
+          "source_index": 19,
+          "cell_offset": [
+            1,
+            0,
+            0
+          ]
+        },
+        {
+          "source_index": 20,
+          "cell_offset": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "source_index": 21,
+          "cell_offset": [
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "style": {
+        "colors": {
+          "Li": "#9875c9",
+          "Fe": "#d08b3f",
+          "Co": "#4e72b4",
+          "O": "#d55645"
+        },
+        "radii": {
+          "Li": 0.48,
+          "Fe": 0.52,
+          "Co": 0.56,
+          "O": 0.43
+        },
+        "direction": [
+          1.7,
+          -2.6,
+          1.4
+        ],
+        "mode": "2d",
+        "bonds": false,
+        "thickness": 0.08,
+        "pixels": 170,
+        "height": 2800
+      },
+      "selection": "first three candidates passing the released substitution checks",
+      "candidate": 2
+    },
+    {
+      "id": "alm_co_3",
+      "model": "ALM Edit",
+      "group": "alm_co",
+      "source": "sources/alm_co_sample3.cif",
+      "source_sha256": "7348c7f2358358a30367d61cb3ff4312acf5169b9812f9dfc33f166a6b144dbc",
+      "composition": {
+        "Co": 1,
+        "Fe": 5,
+        "Li": 4,
+        "O": 12
+      },
+      "source_atoms": 22,
+      "display_atoms": 22,
+      "basis_matrix": [
+        [
+          1,
+          0,
+          0
+        ],
+        [
+          0,
+          1,
+          0
+        ],
+        [
+          0,
+          0,
+          1
+        ]
+      ],
+      "fractional_translation": [
+        0.20040181,
+        -0.16854267999999994,
+        -0.23281174999999998
+      ],
+      "display_cell": [
+        [
+          5.177594182076326,
+          0.0,
+          0.46237203475032396
+        ],
+        [
+          2.2928605066834495,
+          7.78397798195348,
+          -0.02052254726910338
+        ],
+        [
+          0.0,
+          0.0,
+          6.38851309
+        ]
+      ],
+      "sites": [
+        {
+          "source_index": 0,
+          "cell_offset": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "source_index": 1,
+          "cell_offset": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "source_index": 2,
+          "cell_offset": [
+            0,
+            0,
+            1
+          ]
+        },
+        {
+          "source_index": 3,
+          "cell_offset": [
+            -1,
+            0,
+            0
+          ]
+        },
+        {
+          "source_index": 4,
+          "cell_offset": [
+            0,
+            1,
+            0
+          ]
+        },
+        {
+          "source_index": 5,
+          "cell_offset": [
+            0,
+            0,
+            1
+          ]
+        },
+        {
+          "source_index": 6,
+          "cell_offset": [
+            0,
+            1,
+            0
+          ]
+        },
+        {
+          "source_index": 7,
+          "cell_offset": [
+            -1,
+            0,
+            0
+          ]
+        },
+        {
+          "source_index": 8,
+          "cell_offset": [
+            -1,
+            0,
+            0
+          ]
+        },
+        {
+          "source_index": 9,
+          "cell_offset": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "source_index": 10,
+          "cell_offset": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "source_index": 11,
+          "cell_offset": [
+            -1,
+            0,
+            0
+          ]
+        },
+        {
+          "source_index": 12,
+          "cell_offset": [
+            0,
+            1,
+            0
+          ]
+        },
+        {
+          "source_index": 13,
+          "cell_offset": [
+            0,
+            0,
+            1
+          ]
+        },
+        {
+          "source_index": 14,
+          "cell_offset": [
+            -1,
+            1,
+            0
+          ]
+        },
+        {
+          "source_index": 15,
+          "cell_offset": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "source_index": 16,
+          "cell_offset": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "source_index": 17,
+          "cell_offset": [
+            0,
+            0,
+            1
+          ]
+        },
+        {
+          "source_index": 18,
+          "cell_offset": [
+            -1,
+            0,
+            1
+          ]
+        },
+        {
+          "source_index": 19,
+          "cell_offset": [
+            0,
+            1,
+            0
+          ]
+        },
+        {
+          "source_index": 20,
+          "cell_offset": [
+            0,
+            0,
+            1
+          ]
+        },
+        {
+          "source_index": 21,
+          "cell_offset": [
+            -1,
+            0,
+            0
+          ]
+        }
+      ],
+      "style": {
+        "colors": {
+          "Li": "#9875c9",
+          "Fe": "#d08b3f",
+          "Co": "#4e72b4",
+          "O": "#d55645"
+        },
+        "radii": {
+          "Li": 0.48,
+          "Fe": 0.52,
+          "Co": 0.56,
+          "O": 0.43
+        },
+        "direction": [
+          1.7,
+          -2.6,
+          1.4
+        ],
+        "mode": "2d",
+        "bonds": false,
+        "thickness": 0.08,
+        "pixels": 210,
+        "height": 2600
+      },
+      "selection": "first three candidates passing the released substitution checks",
+      "candidate": 3
+    }
+  ]
+}

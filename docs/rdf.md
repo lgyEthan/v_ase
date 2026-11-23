@@ -116,3 +116,7 @@ energy does not establish chemical order or physical stability.
 See [trajectories](trajectories.md) for frame synchronization and
 [scientific validation](scientific-validation.md) for the enumeration and
 normalization regressions.
+
+The graph labels the horizontal distance axis in Å and the vertical quantity
+as g(r) or finite-system pair probability. Axis titles remain visible in short
+windows and both interface appearances. CSV data and normalization are unchanged.

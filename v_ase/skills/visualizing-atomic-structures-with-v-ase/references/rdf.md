@@ -28,3 +28,7 @@ Use `vase_export_rdf_csv` after confirming the result/frame/filter. Preserve tot
 and partial curve definitions. An image can illustrate the curve; the CSV and
 scientific parameters are the reproducible data. Do not load the full plot payload
 just to confirm that calculation finished; focused analysis/readiness is enough.
+
+The human results drawer displays r/Å and the actual RDF/finite-pair quantity.
+Compact layouts retain visible axis units. Plotly titles use explicit text objects;
+this display compatibility does not alter normalization or exported CSV values.

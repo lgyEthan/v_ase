@@ -1865,6 +1865,7 @@ class AtomAdditionSession:
                 list(range(self.host_count)) if self.freeze_existing else []
             ),
             "is_relaxing": self.is_relaxing,
+            "run_id": self.run_id,
             "step": self.step,
             "max_steps": self.max_steps,
             "requested_device": self.requested_device,
@@ -2589,6 +2590,7 @@ def _publish_addition_positions(
                 "type": "add_atoms_relax_step",
                 "session_id": session.session_id,
                 "addition_id": addition.session_id,
+                "run_id": run_id,
                 "step": int(step),
                 "max_steps": int(max_steps),
                 "energy": float(energy),
@@ -2684,6 +2686,7 @@ def _run_addition_relaxation(
                     "type": "add_atoms_relax_finished",
                     "session_id": session.session_id,
                     "addition_id": addition.session_id,
+                    "run_id": run_id,
                     "status": status,
                     "step": int(optimizer.nsteps if optimizer is not None else addition.step),
                     "max_steps": int(steps),

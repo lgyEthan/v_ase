@@ -916,7 +916,8 @@ def export_html_response(session, payload: Dict[str, Any]):
         from .polyhedra import calculate_polyhedra
         for frame_data, frame_atoms in zip(frames, frame_objects):
             frame_data.setdefault("metadata", {})["polyhedra"] = calculate_polyhedra(
-                frame_atoms, display_settings.get("polyhedraRules", []), labels=frame_data["symbols"])
+                frame_atoms, display_settings.get("polyhedraRules", []), labels=frame_data["symbols"],
+                bond_settings=display_settings if display_settings.get('polyhedraBondedOnly') else None)
     color_scale_frames = _html_atom_color_scale_frames(
         frame_objects,
         settings,
@@ -966,10 +967,26 @@ def export_html_response(session, payload: Dict[str, Any]):
     ).strip()
     if not re.fullmatch(r"#[0-9A-Fa-f]{6}", export_background):
         export_background = "#ffffff"
+    presentation = settings.get("presentation")
+    interface = presentation.get("interfaceTheme") if isinstance(presentation, dict) else None
+    if not isinstance(interface, dict):
+        interface = {}
+    appearance = interface.get("preference", "dark")
+    if not isinstance(appearance, str) or appearance not in {"light", "dark", "system"}:
+        appearance = "dark"
+    palette = interface.get("palette", "graphite")
+    if not isinstance(palette, str) or palette not in {"graphite", "slate", "stone", "moss"}:
+        palette = "graphite"
     replacements = {
+        "{{UI_APPEARANCE}}": appearance,
+        "{{UI_PALETTE}}": palette,
+        "{{UI_THEME_SCRIPT}}": (static_dir / "ui_theme.js").read_text(encoding="utf-8"),
         "{{V_ASE_VERSION}}": html.escape(__version__, quote=True),
         "{{DOCUMENT_TITLE}}": html.escape(document_name, quote=True),
-        "{{STANDALONE_CSS}}": (static_dir / "standalone.css").read_text(encoding="utf-8"),
+        "{{STANDALONE_CSS}}": "\n".join(
+            (static_dir / name).read_text(encoding="utf-8")
+            for name in ("standalone.css", "interface.css", "ui_palettes.css")
+        ),
         "{{VIEWER_FRAME_STYLE}}": (
             f"aspect-ratio:{export_width}/{export_height};"
             f"width:min(100vw,calc(100vh*{export_aspect:.10f}));"
@@ -1375,7 +1392,8 @@ def _polyhedral_scene_meshes(atoms, display, *, labels=None):
     from .polyhedra import calculate_polyhedra
     data = atoms_to_json(atoms)
     if labels is None: labels = data["symbols"]
-    geometry = calculate_polyhedra(atoms, display.get("polyhedraRules", []), labels=labels)
+    geometry = calculate_polyhedra(atoms, display.get("polyhedraRules", []), labels=labels,
+                                  bond_settings=display if display.get('polyhedraBondedOnly') else None)
     repetitions, cell = _normalized_supercell(display, data)
     offsets = _cell_offsets(repetitions)
     if geometry["vertexCount"] * len(offsets) > 1000000:

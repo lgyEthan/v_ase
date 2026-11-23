@@ -190,6 +190,7 @@ from .polyhedra import RULES_SCHEMA
 DISPLAY_PROPERTIES.update({
     'showPolyhedra': {'type': 'boolean'},
     'polyhedraRules': RULES_SCHEMA,
+    'polyhedraBondedOnly': {'type': 'boolean'},
     'polyhedraAtomMode': {'enum': ['all', 'coordination', 'centers', 'ligands', 'none']},
     'polyhedraCompleteLigands': {'type': 'boolean'},
     'polyhedraShowCenterBonds': {'type': 'boolean'},

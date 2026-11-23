@@ -2,10 +2,12 @@
 (async () => {
     if (window.__vaseDesktopHost || !window.vaseDesktop) return;
     const native = window.vaseDesktop;
-    const { EDITOR_COMMANDS, DOCUMENT_COMMANDS, commandIdForEvent, documentCommandIdForEvent } = await import('/static/editor_commands.js?v=0.4.13');
+    document.documentElement.dataset.nativeMenus='true';
+    const { EDITOR_COMMANDS, DOCUMENT_COMMANDS, commandIdForEvent, documentCommandIdForEvent } = await import('/static/editor_commands.js?v=0.4.13&ui=20261111.1');
     const installed = new WeakSet();
     const { detachWorkspaceDocument, restoreWindowDocument } = await import('/static/workspace_windows.js?v=0.4.13');
     const { navigateWorkspaceDocument } = await import('/static/workspace_navigation.js?v=0.4.13');
+    const { documentDropDestination } = await import('/static/document_drag.js?v=0.4.13&ui=20261111.1');
     let transfer = null;
     const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     const workspace = () => window.__V_ASE_WORKSPACE__;
@@ -80,6 +82,7 @@
     function install(app) {
         if (!app || installed.has(app)) return;
         installed.add(app);
+        app.renderer.domElement.ownerDocument.documentElement.dataset.nativeMenus='true';
         const ws = workspace();
         if (ws) ws.closeLastDocument = () => native.closeWindow();
         app.droppedFileHandle = async file => {
@@ -121,6 +124,9 @@
             } catch (error) { app.workspaceOpenRequests.delete(requestId); report(error); }
         };
         const doc = app.renderer.domElement.ownerDocument;
+        // Focus may remain inside an editor iframe while a captured tab drag
+        // crosses it. Escape must cancel that drag in either document.
+        if(doc!==document)doc.addEventListener('keydown',cancelTabDrag,true);
         const showShortcuts = app.showShortcutsModal.bind(app);
         app.showShortcutsModal = () => {
             showShortcuts();
@@ -170,6 +176,7 @@
                 return host.detach(state.session_id);
             }
             if (id === 'shortcuts') return app.showShortcutsModal();
+            if (id === 'preferences') return app.openEditorRoute('view',{focus:'#ui-palette'});
             return app.executeEditorCommand(id);
         },
         async confirmQuit() {
@@ -213,6 +220,22 @@
     let tabDrag = null;
     let suppressDragClick = false;
     const tabSelector = '.document-tab, .direct-document-tab';
+    const dragPreview = document.createElement('div');
+    dragPreview.id = 'document-drag-preview'; dragPreview.hidden = true;
+    document.body.appendChild(dragPreview);
+    const dropDestination = event => {
+        const bar = document.querySelector('#document-bar, #direct-document-bar');
+        const vertical = document.querySelector('#document-tabs, #direct-document-bar')
+            ?.getAttribute('aria-orientation') === 'vertical';
+        const tabs = [...document.querySelectorAll(tabSelector)].map(tab => ({
+            id: tab.dataset.sessionId, ...tab.getBoundingClientRect().toJSON(),
+        }));
+        return documentDropDestination({x:event.clientX,y:event.clientY},bar.getBoundingClientRect(),tabs,
+            vertical,{width:innerWidth,height:innerHeight});
+    };
+    const clearDropMarkers = () => document.querySelectorAll(tabSelector).forEach(tab => {
+        tab.classList.remove('document-drop-before','document-drop-after');
+    });
     document.addEventListener('pointerdown', event => {
         const tab = event.target.closest(tabSelector);
         if (!tab || event.button !== 0 || event.target.closest('.document-close, .direct-document-close')) return;
@@ -226,27 +249,40 @@
         if (!tabDrag.moved) tabDrag.tab.setPointerCapture(event.pointerId);
         tabDrag.moved = true;
         tabDrag.tab.style.opacity = '0.5';
-        tabDrag.tab.title = 'Release below the tab strip to move this document into a new window';
+        const destination = dropDestination(event);
+        clearDropMarkers();
+        if (destination.action === 'reorder') {
+            document.querySelectorAll(tabSelector).forEach(tab => {
+                if (tab.dataset.sessionId === destination.id && tab !== tabDrag.tab) {
+                    tab.classList.add(destination.before ? 'document-drop-before' : 'document-drop-after');
+                }
+            });
+        }
+        dragPreview.textContent = destination.action === 'detach' ? 'Move to a new window'
+            : destination.action === 'reorder' ? 'Reorder document' : 'Drag to arrange documents';
+        dragPreview.style.left = `${Math.min(innerWidth-210,Math.max(8,event.clientX+16))}px`;
+        dragPreview.style.top = `${Math.min(innerHeight-50,Math.max(8,event.clientY+16))}px`;
+        dragPreview.hidden = false;
         event.preventDefault();
     });
     const finishTabDrag = event => {
         const drag = tabDrag; tabDrag = null;
         if (!drag) return;
+        dragPreview.hidden = true;
+        clearDropMarkers();
         drag.tab.style.opacity = '';
         drag.tab.title = drag.title;
         if (drag.tab.hasPointerCapture?.(drag.pointer)) drag.tab.releasePointerCapture(drag.pointer);
+        if (drag.moved) suppressDragClick = true;
         if (!drag.moved || event.type === 'pointercancel') return;
-        suppressDragClick = true;
-        const bar = document.querySelector('#document-bar, #direct-document-bar').getBoundingClientRect();
-        if (event.clientY > bar.bottom + 56 || event.clientY < -24 || event.clientX < -24 || event.clientX > innerWidth + 24) {
+        const destination = dropDestination(event);
+        if (destination.action === 'detach') {
             event.preventDefault();
             host.detach(drag.id, { x: Math.max(0, event.screenX-150), y: Math.max(0,event.screenY-24) }).catch(report);
         } else {
-            const target = [...document.querySelectorAll(tabSelector)].find(tab => {
-                const rect = tab.getBoundingClientRect(); return event.clientX >= rect.left && event.clientX <= rect.right;
-            });
+            const target = [...document.querySelectorAll(tabSelector)].find(tab => tab.dataset.sessionId === destination.id);
             if (target && target !== drag.tab) {
-                const before = event.clientX < target.getBoundingClientRect().left + target.clientWidth/2;
+                const before = destination.before;
                 target.parentNode.insertBefore(drag.tab, before ? target : target.nextSibling);
                 const ws = workspace();
                 ws.tabs = new Map([...document.querySelectorAll(tabSelector)]
@@ -256,11 +292,13 @@
     };
     document.addEventListener('pointerup', finishTabDrag);
     document.addEventListener('pointercancel', finishTabDrag);
-    document.addEventListener('keydown', event => {
+    function cancelTabDrag(event) {
         if (event.key !== 'Escape' || !tabDrag) return;
         event.preventDefault(); event.stopPropagation();
         finishTabDrag({ type: 'pointercancel' });
-    }, true);
+    }
+    document.addEventListener('keydown',cancelTabDrag,true);
+    window.addEventListener('blur',()=>{if(tabDrag)finishTabDrag({type:'pointercancel'});});
     document.addEventListener('click', event => {
         if (!suppressDragClick) return;
         suppressDragClick = false;

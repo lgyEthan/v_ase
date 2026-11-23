@@ -19,6 +19,10 @@ and rendered examples in sync.
    state profiles, and full capability parity. Verify default apply mutation
    paths and effective render cameras. If an AI failed because the skill or
    CLI contract was incomplete, update both and add a regression before release.
+   Run `python scripts/check_skill_distribution.py` to verify actual npx
+   discovery and complete project-scoped installation for Claude Code, Codex
+   and Cursor. After GitHub publication, repeat with `--source lgyEthan/v_ase`.
+   This check uses a disposable directory and leaves user clients unchanged.
 6. Build the documentation with the pinned dependencies and treat every Sphinx
    warning as a release failure:
 

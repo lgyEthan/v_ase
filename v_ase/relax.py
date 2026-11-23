@@ -102,14 +102,14 @@ async def start_relaxation(session, payload, background_tasks=None):
 
     if session.is_relaxing:
         request_relax_restart(session)
-        return {"status": "restarting"}
+        return {"status": "restarting", "run_id": session.relax_run_id}
 
     session.is_relaxing = True
     session.stop_relax = False
     session.relax_restart_requested = False
     session.relax_run_id += 1
     _launch_relax_thread(session, fmax, steps, session.relax_run_id)
-    return {"status": "started"}
+    return {"status": "started", "run_id": session.relax_run_id}
 
 
 def request_relax_restart(session):
@@ -131,6 +131,7 @@ def _publish_current_step(session, atoms, dyn, run_id):
     ws_manager.broadcast_sync(
         {
             "type": "relax_step",
+            "run_id": run_id,
             "session_id": session.session_id,
             "step": dyn.nsteps,
             "energy": float(energy),
@@ -178,6 +179,7 @@ def run_opt_thread(session, fmax, steps, run_id):
             ws_manager.broadcast_sync(
                 {
                     "type": "relax_finished",
+                    "run_id": run_id,
                     "status": "converged" if converged else "steps",
                     "step": dyn.nsteps,
                     "energy": float(energy),
@@ -192,13 +194,13 @@ def run_opt_thread(session, fmax, steps, run_id):
         if str(exc) == _STOP_SIGNAL:
             if not stopped_for_restart and run_id == session.relax_run_id:
                 ws_manager.broadcast_sync(
-                    {"type": "relax_finished", "status": "stopped"},
+                    {"type": "relax_finished", "status": "stopped", "run_id": run_id},
                     session.session_id,
                 )
         elif run_id == session.relax_run_id:
             error_msg = f"Calculator Failure: {exc}"
             ws_manager.broadcast_sync(
-                {"type": "relax_finished", "status": "error", "message": error_msg},
+                {"type": "relax_finished", "status": "error", "message": error_msg, "run_id": run_id},
                 session.session_id,
             )
             print(traceback.format_exc())

@@ -5,74 +5,90 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>v_ase</title>
     <script>
-        (() => {
-            const key = 'v_ase_ui_theme';
-            const media = window.matchMedia('(prefers-color-scheme: dark)');
-            const normalize = value => ['light', 'dark'].includes(String(value || '').toLowerCase())
-                ? String(value).toLowerCase()
-                : 'system';
-            const cookieValue = () => {
-                const match = document.cookie.match(new RegExp(`(?:^|;\\s*)${key}=([^;]+)`));
-                return match ? decodeURIComponent(match[1]) : '';
-            };
-            let localValue = '';
-            try { localValue = window.localStorage.getItem(key) || ''; } catch {}
-            const persistedValue = cookieValue() || localValue;
-            let hasPersisted = Boolean(persistedValue);
-            let preference = normalize(persistedValue);
-            const apply = (value, { persist = true, announce = true } = {}) => {
-                preference = normalize(value);
-                const resolved = preference === 'system' ? (media.matches ? 'dark' : 'light') : preference;
-                document.documentElement.dataset.uiTheme = resolved;
-                document.documentElement.dataset.themePreference = preference;
-                document.documentElement.style.colorScheme = resolved;
-                if (persist) {
-                    hasPersisted = true;
-                    document.cookie = `${key}=${encodeURIComponent(preference)}; Path=/; Max-Age=31536000; SameSite=Lax`;
-                    try { window.localStorage.setItem(key, preference); } catch {}
-                }
-                if (announce) {
-                    window.dispatchEvent(new CustomEvent('v_ase-theme-change', {
-                        detail: { preference, resolved }
-                    }));
-                }
-                return { preference, resolved };
-            };
-            window.v_aseTheme = {
-                apply,
-                info: () => ({
-                    preference,
-                    resolved: document.documentElement.dataset.uiTheme,
-                    persisted: hasPersisted
-                })
-            };
-            apply(preference, { persist: false, announce: false });
-            media.addEventListener?.('change', () => {
-                if (preference === 'system') apply('system', { persist: false });
-            });
-        })();
+// Shared, synchronous chrome bootstrap. Scientific colors and data never live here.
+(() => {
+    const root = document.documentElement;
+    const appearanceKey = 'v_ase_ui_theme', paletteKey = 'v_ase_ui_palette';
+    const palettes = ['graphite', 'slate', 'stone', 'moss'];
+    const media = matchMedia('(prefers-color-scheme: dark)');
+    const normalize = value => ['light', 'dark'].includes(String(value || '').toLowerCase()) ? String(value).toLowerCase() : 'system';
+    const normalizePalette = value => palettes.includes(String(value || '').toLowerCase()) ? String(value).toLowerCase() : 'graphite';
+    const read = key => {
+        try {
+            const cookie = document.cookie.split(';').map(s => s.trim()).find(s => s.startsWith(`${key}=`));
+            return cookie ? decodeURIComponent(cookie.slice(key.length + 1)) : localStorage.getItem(key) || '';
+        } catch { return ''; }
+    };
+    const write = (key, value) => {
+        try { document.cookie = `${key}=${encodeURIComponent(value)}; Path=/; Max-Age=31536000; SameSite=Lax`; } catch {}
+        try { localStorage.setItem(key, value); } catch {}
+    };
+    const savedAppearance = root.dataset.themePreference || read(appearanceKey), savedPalette = root.dataset.uiPalette || read(paletteKey);
+    let preference = normalize(savedAppearance), palette = normalizePalette(savedPalette);
+    let persisted = Boolean(savedAppearance), palettePersisted = Boolean(savedPalette);
+    const info = () => ({ preference, resolved: root.dataset.uiTheme, palette, persisted, palettePersisted });
+    const paint = announce => {
+        root.dataset.uiTheme = preference === 'system' ? (media.matches ? 'dark' : 'light') : preference;
+        root.dataset.themePreference = preference;
+        root.dataset.uiPalette = palette;
+        root.style.colorScheme = root.dataset.uiTheme;
+        if (announce) dispatchEvent(new CustomEvent('v_ase-theme-change', { detail: info() }));
+        return info();
+    };
+    const apply = (value, { persist = true, announce = true } = {}) => {
+        preference = normalize(value);
+        if (persist) { persisted = true; write(appearanceKey, preference); }
+        return paint(announce);
+    };
+    const applyPalette = (value, { persist = true, announce = true } = {}) => {
+        palette = normalizePalette(value);
+        if (persist) { palettePersisted = true; write(paletteKey, palette); }
+        return paint(announce);
+    };
+    const applyPresentation = (value, {persist=true,announce=true}={}) => {
+        preference=normalize(value.preference);palette=normalizePalette(value.palette);
+        if(persist){persisted=true;palettePersisted=true;write(appearanceKey,preference);write(paletteKey,palette);}
+        return paint(announce);
+    };
+    window.v_aseTheme = { apply, applyPalette, applyPresentation, info, palettes: [...palettes] };
+    paint(false);
+    media.addEventListener?.('change', () => { if (preference === 'system') paint(true); });
+    // The real desktop adapter marks its parent; child editors inherit only
+    // presentation metadata, never the privileged native IPC bridge.
+    try {
+        if (window.vaseDesktop || (parent !== window && parent.document.documentElement.dataset.nativeMenus === 'true')) root.dataset.nativeMenus = 'true';
+    } catch {}
+})();
     </script>
-    <link rel="icon" type="image/png" href="/static/v_ase-logo.png">
+    <link rel="icon" type="image/png" href="/static/v_ase-brand.png">
     <link rel="stylesheet" href="/static/workspace.css?v=0.4.13">
+    <link rel="stylesheet" href="/static/interface.css?v=0.4.13&ui=20261111.1">
+    <link rel="stylesheet" href="/static/workspace_layout.css?v=0.4.13&ui=20261111.1">
+    <link id="ui-palettes-style" rel="stylesheet" href="/static/ui_palettes.css?v=0.4.13&ui=20261111.1">
 </head>
-<body>
-    <header id="document-bar" class="document-bar">
-        <div id="document-tabs" class="document-tabs" role="tablist" aria-label="Open structures">
-            <button id="new-document" class="new-document" type="button"
-                    aria-label="New structure tab" title="New structure tab">
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                    <path d="M12 5v14M5 12h14"></path>
-                </svg>
-            </button>
+<body class="workspace-shell">
+    <header id="document-bar" class="document-strip" aria-label="Documents">
+        <div class="document-brand"><img src="/static/v_ase-brand.png" alt="v_ase" width="80" height="25"></div>
+        <div id="document-tabs" class="document-tabs" role="tablist" aria-label="Open structures" aria-orientation="horizontal">
         </div>
-        <button id="workspace-fullscreen-editing" type="button" aria-pressed="false">Fullscreen editing</button>
-        <span id="workspace-shortcut-status" role="status" class="workspace-shortcut-status"></span>
+        <button id="new-document" class="new-document" type="button" aria-label="New structure tab" title="New structure tab">+</button>
     </header>
+    <aside id="workspace-scene-navigator" class="workspace-scene-navigator" aria-label="Scene sidebar">
+        <div class="navigator-section-heading scene-sidebar-heading"><span>Scene</span><span id="workspace-scene-count"></span><button id="workspace-sidebar-close" class="navigator-icon-button" type="button" aria-label="Hide Scene sidebar" title="Hide Scene sidebar">‹</button></div>
+        <section class="workspace-scene-section" aria-label="Active document scene">
+            <div id="workspace-scene-list" class="objects-list"><p class="navigator-loading">Loading scene…</p></div>
+        </section>
+        <div class="navigator-footer">
+            <button id="workspace-open-document" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7h7l2-3h7v5M3 9h19l-3 11H3z"/></svg>Open structure…</button>
+            <button id="workspace-fullscreen-editing" type="button" aria-pressed="false">Fullscreen editing</button>
+            <span id="workspace-shortcut-status" role="status" class="workspace-shortcut-status"></span>
+        </div>
+    </aside>
     <main id="document-panes" class="document-panes"></main>
     <section id="workspace-error" class="workspace-error" hidden>
         <strong>Workspace unavailable</strong>
         <span id="workspace-error-message"></span>
     </section>
-    <script type="module" src="/static/workspace.js?v=0.4.13"></script>
+    <script type="module" src="/static/workspace.js?v=0.4.13&ui=20261111.1&ui=20261111.1"></script>
 </body>
 </html>

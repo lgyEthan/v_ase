@@ -8,13 +8,14 @@ standard file names, or choose a reader explicitly when needed.
 ## Open from the app or browser
 
 For a structure or trajectory, choose the reader, frames and View/Edit mode.
-If you already have a document open, choose where the new data should go:
+If you already have a document open, **Open in new tab** is selected by default.
+Choose another destination explicitly when needed:
 
 | Destination | Result |
 | --- | --- |
-| **Replace current** | Replace the current structure. Unsaved work offers Save, Discard or Cancel. |
-| **Add to trajectory** | Append frames and keep the receiving document's camera and appearance. |
-| **Open in new tab** | Keep both documents open independently. |
+| **Open in new tab** (default) | Keep both documents open independently, each with its own view and undo history. |
+| **Add to this trajectory** | Append frames and keep the receiving document's camera and appearance. |
+| **Replace this tab** | Replace the current structure. Unsaved work offers Save, Discard or Cancel. |
 | **Open in new window** (desktop) | Open a separate app window. |
 
 An empty document opens the file directly, without a destination choice.
@@ -26,13 +27,17 @@ tab if the current document contains work. [Saving and reopening projects](save-
 Select multiple files in **File → Open**, drop them together, or open the
 selection from Finder/Explorer. One chooser offers:
 
-- **Separate tabs** (default): each file keeps its own frames; projects restore
-  their saved mode and appearance.
+- **Separate tabs** (default): one new tab per file, each keeping its own frames;
+  projects restore their saved mode and appearance. The button shows the number
+  of new tabs, such as **Open 15 tabs**.
 - **One trajectory**: combine all structures into one new tab. Project files
   contribute structures, not appearance. Scalar-field files use separate tabs.
 
 Files start in natural filename order (`frame-2` before `frame-10`). Check the
-list and use its arrows to set the desired frame order. Existing tabs are kept.
+list and use its arrows to set the desired tab or trajectory order. Files sent
+by the operating system in several events are sorted together until you manually
+reorder them; later arrivals then join the end without undoing your order.
+Existing tabs are kept.
 Opening shows progress. Cancel waits for the current file to finish, then removes
 all temporary imports. A failed file is named and the batch creates no partial tabs.
 Save the combined trajectory as a new `.vase` project.

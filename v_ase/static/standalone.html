@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" data-v-ase-mode="view-only">
+<html lang="en" data-v-ase-mode="view-only" data-viewer-theme="dark" data-theme-preference="{{UI_APPEARANCE}}" data-ui-palette="{{UI_PALETTE}}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -10,9 +10,10 @@
     <meta http-equiv="Content-Security-Policy"
           content="default-src 'none'; script-src 'unsafe-inline' blob:; style-src 'unsafe-inline'; img-src data: blob:; connect-src 'none'; worker-src blob:">
     <title>{{DOCUMENT_TITLE}} - v_ase</title>
+    <script>{{UI_THEME_SCRIPT}}</script>
     <style>{{STANDALONE_CSS}}</style>
 </head>
-<body>
+<body class="standalone-shell">
     <main id="standalone-app" style="--v-ase-export-bg:{{EXPORT_BACKGROUND}}">
         <section class="viewer-stage">
             <div id="viewer-frame" style="{{VIEWER_FRAME_STYLE}}">
@@ -30,7 +31,7 @@
                         <path d="M4 4v4.7h4.7"></path>
                     </svg>
                 </button>
-                <button id="show-metadata" class="icon-button" type="button" title="Document metadata" aria-label="Document metadata">
+                <button id="show-metadata" class="icon-button" type="button" title="Document metadata" aria-label="Document metadata" aria-expanded="false" aria-controls="metadata-popover">
                     <svg viewBox="0 0 24 24" aria-hidden="true">
                         <circle cx="12" cy="12" r="9"></circle>
                         <path d="M12 10.7v6M12 7.2h.01"></path>
@@ -92,7 +93,7 @@
                 /from\s+['"]three['"]/,
                 `from '${threeUrl}'`
             ).replace(/from\s+['"]\.\/polyhedra_bsp\.js['"]/, `from '${bspUrl}'`)
-                .replace(/from\s+['"]\.\/viewport_grid\.js['"]/, `from '${gridUrl}'`).replace(/from\s+['"]\.\/water_layer\.js['"]/, `from '${waterLayerUrl}'`).replace(/from\s+['"]\.\/render_quality\.js['"]/, `from '${qualityUrl}'`);
+                .replace(/from\s+['"]\.\/viewport_grid\.js(?:\?[^'"]*)?['"]/, `from '${gridUrl}'`).replace(/from\s+['"]\.\/water_layer\.js['"]/, `from '${waterLayerUrl}'`).replace(/from\s+['"]\.\/render_quality\.js['"]/, `from '${qualityUrl}'`);
             const rendererUrl = moduleUrl(rendererSource);
             const viewerSource = decodeText(encoded('v-ase-viewer-source'))
                 .replace(/from\s+['"]three['"]/, `from '${threeUrl}'`)

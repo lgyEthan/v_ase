@@ -101,6 +101,6 @@ body.editor-shell.direct-workspace {
     pointer-events: auto;
 }
 .direct-document-pane[hidden] { display: none; }
-body.direct-host-closed > :not(#direct-document-bar):not(#direct-document-panes) {
+body.direct-host-closed > :not(#direct-document-bar):not(#direct-document-panes):not(#scene-navigator) {
     visibility: hidden;
 }

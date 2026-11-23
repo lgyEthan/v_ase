@@ -102,8 +102,18 @@ Desktop updates are described in [Update or uninstall](desktop.md#update-or-unin
 
 ## Source checkout
 
-To change v_ase itself, see [Contributing](development.md). A source checkout is
-not needed for normal use.
+The `main` documentation contains changes after published 0.4.13. To use that
+source snapshot in a fresh Python environment:
+
+```bash
+python -m pip install "v_ase-gui @ git+https://github.com/lgyEthan/v_ase.git@main"
+```
+
+The `mcp` extra adds the agent adapter; use [agent setup](agent-setup.md) to
+install the matching Skill. Existing desktop downloads and the normal PyPI
+command above still install published 0.4.13. For an existing environment with
+another 0.4.13 snapshot, use a fresh environment or add `--force-reinstall`.
+To change the code itself, see [Contributing](development.md).
 
 ## Next step
 

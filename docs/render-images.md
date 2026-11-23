@@ -1,8 +1,9 @@
 # Render images
 
 Export a figure at exact pixel dimensions, with a deliberate crop and
-background. Open **Render → Renderer** to set lighting, quality, dimensions,
-output px/Å and the Render Area, then choose **Render → Image**.
+background. Open **Render → Image** to set dimensions, framing, output px/Å, format and
+background. **Preview framing** shows the Render Area. Expand **Advanced render
+settings** for shared lighting, camera details and quality, or open **Render → Renderer**.
 The live viewport and saved image can have different aspect ratios.
 
 ## Example: export the styled Cu surface
@@ -26,8 +27,7 @@ Use this surface composition as the input; the exported image excludes the surro
 
 ## Render lighting
 
-1. Open **Render → Renderer** (or use `⌘Shift+A` on macOS, `Ctrl+Shift+A` on Windows/Linux). The sphere button beside
-   the canvas grid button opens the same lighting controls as a convenience.
+1. Open **Render → Renderer** (or use `⌘Shift+A` on macOS, `Ctrl+Shift+A` on Windows/Linux). The sphere button in the canvas **View** menu opens the same lighting controls.
 2. Choose **Modeling**, **Studio Sun**, or **Sun + Soft Shadow**.
 3. For the sun modes, adjust **Brightness**, source and target coordinates.
 4. Close with **×**, **Escape**, or a click outside the panel.
@@ -79,7 +79,12 @@ the underlying constraints.
 Set **2D flat / 3D spheres** under **Style → Viewport** or the Renderer quality
 controls. Lighting and materials apply to 3D spheres, not flat 2D drawing.
 
-The Image, Video and HTML export sections use the same frame settings.
+Image opens with exact dimensions, framing, background and format. Video and
+Interactive HTML expose their own format settings and export action. Expand **Advanced render settings** to change the same Render
+Area, scale, lighting and quality from any of those panels.
+After saving an image, its filename appears beside the canvas. Smaller raster
+outputs show a thumbnail. **Save a copy** writes the completed image to another
+destination. Use the close button to dismiss the result.
 Output scale is independent of atom size: changing px/Å magnifies the figure,
 while changing atom radius changes the spheres themselves.
 

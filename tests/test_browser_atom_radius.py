@@ -5,12 +5,96 @@ import os
 import numpy as np
 import pytest
 from ase import Atoms
+from ase.constraints import FixedLine, FixedPlane
 from playwright._impl._errors import Error as PlaywrightError
 from playwright.sync_api import sync_playwright
 
 from v_ase.viewer import find_free_port, view
 from tests.ui_navigation import open_editor_route
 from v_ase.atom_radius import normalize_atom_radius_mapping
+
+
+@pytest.mark.parametrize("mode", ["3d", "2d"])
+@pytest.mark.parametrize("count", [4, 256])
+def test_fixedline_tracks_live_radius_without_waiting_for_a_project_reload(mode, count):
+    atoms = Atoms("Cu" * count, positions=np.column_stack((
+        np.arange(count) * 4, np.zeros(count), np.zeros(count))))
+    atoms.set_constraint([FixedLine(0, [1, 1, 0]), FixedPlane(1, [0, 0, 1])])
+    editor = view(atoms, notebook=True, block=False, port=find_free_port(),
+                  open_browser=False, close_on_disconnect=False)
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            page = browser.new_page(viewport={"width": 1000, "height": 800})
+            page.goto(editor.url)
+            page.wait_for_function(f"window.__ASE_APP__?.collaborationReady && window.__ASE_APP__.renderer.atomMeshByIndex?.size === {count}")
+            result = page.evaluate("""({mode, count}) => {
+                const app = window.__ASE_APP__, r = app.renderer;
+                app.applyDesignSettings({display: {...app.state.display,
+                    atomDisplayMode: mode, atomRadiusScale: 1, labelRadii: {Cu: .8},
+                    showBonds: false, showGrid: false, showAxes: false}}, {render: true});
+                app.applySelectionAction({references: [0, 1], origin: 'semantic'});
+                const find = kind => r.constraintGuideGroup.children.find(g => g.userData.kind === kind);
+                const lineId = find('fixed_line').uuid, planeId = find('fixed_plane').uuid;
+                const planeGeometry = find('fixed_plane').children[0].geometry.uuid;
+                const snapshot = () => {
+                    const line = find('fixed_line'), center = line.children.find(c => c.userData.fixedLineAxis);
+                    center.geometry.computeBoundingBox();
+                    const box = center.geometry.boundingBox;
+                    return {radius: r.atomVisualRadius(0), halfLength: box.max.y,
+                        tubeRadius: box.max.x, scale: line.scale.x, visible: line.visible,
+                        position: line.position.toArray(), selected: line.userData.selected,
+                        sameLine: line.uuid === lineId, samePlane: find('fixed_plane').uuid === planeId,
+                        samePlaneGeometry: find('fixed_plane').children[0].geometry.uuid === planeGeometry};
+                };
+                const states = [];
+                let tinyPixelsEqual = false;
+                for (const factor of [.25, .5, 1, 0, .0001, 1e-8, .75]) {
+                    const factors = new Float32Array(count).fill(1); factors[0] = factor;
+                    r.setAtomRadiusFactors(factors);
+                    r.updatePositionsFlat(Float64Array.from(atomsPositions(factor)), 0, count);
+                    r.renderNow(); states.push({factor, ...snapshot()});
+                    if (factor === 1e-8) {
+                        const center = find('fixed_line').children.find(c => c.userData.fixedLineAxis);
+                        const before = r.exportPNG(640, 480, {backgroundColor: '#ffffff'});
+                        center.visible = false;
+                        const hidden = r.exportPNG(640, 480, {backgroundColor: '#ffffff'});
+                        center.visible = true;
+                        tinyPixelsEqual = before === hidden;
+                    }
+                }
+                function atomsPositions(offset) {
+                    return r.atomsData.positions.flatMap((p, i) => i === 0 ? [offset, 0, 0] : p);
+                }
+                r.setAtomRadiusFactors(null); r.renderNow();
+                const restored = snapshot();
+                const options = {selectionAppearance: 'publication', backgroundColor: '#ffffff',
+                    includeGrid: false, includeAxes: false, includeCell: false};
+                const before = r.exportPNG(640, 480, options);
+                r.constraintGuideSignature = '';
+                r.rebuildConstraintGuides(new Set([0, 1]));
+                r.syncConstraintGuides(); r.renderNow();
+                const after = r.exportPNG(640, 480, options);
+                return {states, restored, samePixels: before === after, tinyPixelsEqual};
+            }""", {"mode": mode, "count": count})
+            for state in result["states"]:
+                radius = .8 * state["factor"]
+                guide_radius = max(.12, radius or .55)
+                assert state["radius"] == pytest.approx(radius)
+                assert state["halfLength"] == pytest.approx(min(3.2, max(.46, guide_radius * 1.9)))
+                assert state["tubeRadius"] == pytest.approx(min(.075, max(.022, guide_radius * .09)) / 2)
+                assert state["visible"] == (state["factor"] > 0)
+                assert state["scale"] == pytest.approx(min(1, radius / .12))
+                assert state["position"] == pytest.approx([state["factor"], 0, 0])
+                assert state["selected"] and state["sameLine"]
+                assert state["samePlane"] and state["samePlaneGeometry"]
+            assert result["restored"]["radius"] == pytest.approx(.8)
+            assert result["restored"]["halfLength"] == pytest.approx(1.52)
+            assert result["samePixels"]
+            assert result["tinyPixelsEqual"]
+            browser.close()
+    finally:
+        editor.close()
 
 
 def test_optimizer_frames_use_displayed_coordinates_and_not_loaded_property_arrays():
@@ -23,7 +107,7 @@ def test_optimizer_frames_use_displayed_coordinates_and_not_loaded_property_arra
             browser = playwright.chromium.launch(headless=True)
             page = browser.new_page()
             page.goto(editor.url)
-            page.wait_for_function("window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 2")
+            page.wait_for_function("window.__ASE_APP__?.collaborationReady && window.__ASE_APP__.renderer.atomMeshByIndex?.size === 2")
             result = page.evaluate("""async () => {
                 const app=window.__ASE_APP__;
                 app.state.display.atomRadiusMapping={enabled:true,field:'array::fraction::scalar',
@@ -65,7 +149,7 @@ def test_live_radius_mapping_updates_exact_glyph_sizes_without_changing_bonds():
                 pytest.skip(f"Playwright Chromium unavailable: {error}")
             page = browser.new_page(viewport={"width": 1440, "height": 900})
             page.goto(editor.url)
-            page.wait_for_function("window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 4")
+            page.wait_for_function("window.__ASE_APP__?.collaborationReady && window.__ASE_APP__.renderer.atomMeshByIndex?.size === 4")
             before = page.evaluate("""() => {
                 const app = window.__ASE_APP__;
                 return {radii: [0,1,2,3].map(i => app.renderer.atomVisualRadius(i)),
@@ -119,7 +203,7 @@ def test_radius_mapping_can_be_enabled_from_a_fresh_visible_form():
                 pytest.skip(f"Playwright Chromium unavailable: {error}")
             page = browser.new_page(viewport={"width": 1440, "height": 900})
             page.goto(editor.url)
-            page.wait_for_function("window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 4")
+            page.wait_for_function("window.__ASE_APP__?.collaborationReady && window.__ASE_APP__.renderer.atomMeshByIndex?.size === 4")
             open_editor_route(page, 'appearance')
             page.check('#chk-atom-radius-mapping')
             assert page.locator('#atom-radius-mapping-field').is_visible()
@@ -152,7 +236,7 @@ def test_restored_display_settings_refresh_or_clear_effective_radius_factors():
                 pytest.skip(f"Playwright Chromium unavailable: {error}")
             page = browser.new_page()
             page.goto(editor.url)
-            page.wait_for_function("window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 4")
+            page.wait_for_function("window.__ASE_APP__?.collaborationReady && window.__ASE_APP__.renderer.atomMeshByIndex?.size === 4")
             page.evaluate("""() => {
                 const app = window.__ASE_APP__;
                 const snapshot = app.designSettingsSnapshot();
@@ -191,7 +275,7 @@ def test_box_selection_suppresses_geometry_but_ordered_selection_keeps_it():
                 pytest.skip(f"Playwright Chromium unavailable: {error}")
             page = browser.new_page(viewport={"width": 1440, "height": 900})
             page.goto(editor.url)
-            page.wait_for_function("window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 3")
+            page.wait_for_function("window.__ASE_APP__?.collaborationReady && window.__ASE_APP__.renderer.atomMeshByIndex?.size === 3")
             bulk = page.evaluate("""() => {
                 const app = window.__ASE_APP__;
                 app.applySelectionAction({references: [0,1,2], origin: 'pointer-box'});
@@ -235,7 +319,7 @@ def test_periodic_toggle_deduplicates_editable_identity_and_invalid_semantic_sel
                 pytest.skip(f"Playwright Chromium unavailable: {error}")
             page = browser.new_page()
             page.goto(editor.url)
-            page.wait_for_function("window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 2")
+            page.wait_for_function("window.__ASE_APP__?.collaborationReady && window.__ASE_APP__.renderer.atomMeshByIndex?.size === 2")
             result = page.evaluate("""async () => {
                 const app = window.__ASE_APP__;
                 app.state.display.supercell = [3, 1, 1];
@@ -272,7 +356,7 @@ def test_zero_radius_instanced_atom_reappears_after_visibility_refresh():
                 pytest.skip(f"Playwright Chromium unavailable: {error}")
             page = browser.new_page()
             page.goto(editor.url)
-            page.wait_for_function("window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 256")
+            page.wait_for_function("window.__ASE_APP__?.collaborationReady && window.__ASE_APP__.renderer.atomMeshByIndex?.size === 256")
             state = page.evaluate("""() => {
                 const renderer = window.__ASE_APP__.renderer;
                 const zeros = new Float32Array(256).fill(1);
@@ -307,7 +391,7 @@ def test_delayed_radius_fit_cannot_overwrite_newer_field_choice():
                 pytest.skip(f"Playwright Chromium unavailable: {error}")
             page = browser.new_page()
             page.goto(editor.url)
-            page.wait_for_function("window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 2")
+            page.wait_for_function("window.__ASE_APP__?.collaborationReady && window.__ASE_APP__.renderer.atomMeshByIndex?.size === 2")
             state = page.evaluate("""async () => {
                 const app = window.__ASE_APP__;
                 const original = app.atomScalarStore.values.bind(app.atomScalarStore);
@@ -392,7 +476,7 @@ def test_position_radius_follows_active_numeric_move_preview_and_cancel():
                 pytest.skip(f"Playwright Chromium unavailable: {error}")
             page = browser.new_page()
             page.goto(editor.url)
-            page.wait_for_function("window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 2")
+            page.wait_for_function("window.__ASE_APP__?.collaborationReady && window.__ASE_APP__.renderer.atomMeshByIndex?.size === 2")
             page.evaluate("""async () => {
                 const app = window.__ASE_APP__;
                 app.state.display.atomRadiusMapping = {
@@ -437,7 +521,7 @@ def test_long_global_radius_slider_gesture_is_one_visual_undo():
                 pytest.skip(f"Playwright Chromium unavailable: {error}")
             page = browser.new_page()
             page.goto(editor.url)
-            page.wait_for_function("window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 1")
+            page.wait_for_function("window.__ASE_APP__?.collaborationReady && !document.body.dataset.busy && window.__ASE_APP__.renderer.atomMeshByIndex.size === 1")
             count = page.evaluate("""async () => {
                 const app = window.__ASE_APP__;
                 const slider = document.getElementById('atom-radius-scale');
@@ -467,7 +551,7 @@ def test_final_radius_style_rejects_zero_mapping_without_partial_change():
                 pytest.skip(f"Playwright Chromium unavailable: {error}")
             page = browser.new_page()
             page.goto(editor.url)
-            page.wait_for_function("window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 2")
+            page.wait_for_function("window.__ASE_APP__?.collaborationReady && window.__ASE_APP__.renderer.atomMeshByIndex?.size === 2")
             result = page.evaluate("""async () => {
                 const app = window.__ASE_APP__;
                 app.state.display.atomRadiusMapping = {
@@ -506,7 +590,7 @@ def test_custom_radius_preset_fits_signed_values_and_rejects_empty_input():
                 pytest.skip(f"Playwright Chromium unavailable: {error}")
             page = browser.new_page()
             page.goto(editor.url)
-            page.wait_for_function("window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 2")
+            page.wait_for_function("window.__ASE_APP__?.collaborationReady && window.__ASE_APP__.renderer.atomMeshByIndex?.size === 2")
             open_editor_route(page, 'appearance')
             page.check('#chk-atom-radius-mapping')
             page.locator('#atom-radius-mapping-field option[value="array::signed::scalar"]').wait_for(state='attached')
@@ -586,7 +670,7 @@ def test_frozen_radius_scope_tracks_duplicate_delete_and_undo_identity():
                 pytest.skip(f"Playwright Chromium unavailable: {error}")
             page = browser.new_page()
             page.goto(editor.url)
-            page.wait_for_function("window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 3")
+            page.wait_for_function("window.__ASE_APP__?.collaborationReady && window.__ASE_APP__.renderer.atomMeshByIndex?.size === 3")
             result = page.evaluate("""async () => {
                 const app = window.__ASE_APP__;
                 app.state.display.atomRadiusMapping = {
@@ -628,7 +712,7 @@ def test_color_and_radius_share_one_scalar_request_and_bounded_cache():
                 pytest.skip(f"Playwright Chromium unavailable: {error}")
             page = browser.new_page()
             page.goto(editor.url)
-            page.wait_for_function("window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 4")
+            page.wait_for_function("window.__ASE_APP__?.collaborationReady && window.__ASE_APP__.renderer.atomMeshByIndex?.size === 4")
             result = page.evaluate("""async () => {
                 const app = window.__ASE_APP__;
                 const field = 'array::fraction::scalar';
@@ -684,7 +768,7 @@ def test_semantic_radius_operation_fits_and_reports_focused_effective_state():
                 pytest.skip(f"Playwright Chromium unavailable: {error}")
             page = browser.new_page()
             page.goto(editor.url)
-            page.wait_for_function("window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 2")
+            page.wait_for_function("window.__ASE_APP__?.collaborationReady && window.__ASE_APP__.renderer.atomMeshByIndex?.size === 2")
             result = page.evaluate("""async () => {
                 const app = window.__ASE_APP__;
                 await window.v_aseAI.apply({operation: {

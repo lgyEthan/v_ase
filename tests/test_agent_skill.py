@@ -317,9 +317,31 @@ def test_skill_version_install_and_environment_contract_are_current():
     skill_text = SKILL.read_text(encoding="utf-8")
     cli_text = (REFERENCES / "cli-and-environments.md").read_text(encoding="utf-8")
     setup_text = (REFERENCES / "native-tools.md").read_text(encoding="utf-8")
-    assert 'unreleased source' not in setup_text
-    assert f'v_ase-gui[mcp]=={__version__}' in setup_text
-    assert f'v_ase-gui=={__version__}' in cli_text
+    # Main source and published wheels can share a version string before the
+    # next release. Parse actual install requirements so either channel cannot
+    # silently be documented as the other.
+    import shlex
+    from packaging.requirements import Requirement
+
+    requirements = []
+    for line in cli_text.splitlines():
+        if line.startswith("python -m pip install "):
+            requirements.extend(
+                Requirement(argument)
+                for argument in shlex.split(line)[4:]
+                if argument.startswith("v_ase-gui")
+            )
+    assert any(
+        requirement.url == "git+https://github.com/lgyEthan/v_ase.git@main"
+        and "mcp" in requirement.extras
+        for requirement in requirements
+    )
+    assert any(
+        requirement.url is None and str(requirement.specifier) == f"=={__version__}"
+        and "mcp" in requirement.extras
+        for requirement in requirements
+    )
+    assert "cli-and-environments.md#installation" in setup_text
     for required in (
         "v_ase gui STRUCTURE --cli",
         "v_ase gui STRUCTURE --interactive --cli",
@@ -446,6 +468,9 @@ def test_skill_documents_bidirectional_same_document_collaboration():
 
     assert "request_id" in collaboration
     assert "Scene snapshots expose `revision`" in collaboration
+    assert "about:blank" in collaboration
+    assert "visible New (+) control" in collaboration
+    assert "rediscover the active document ID" in collaboration
 
 
 def test_skill_documents_offline_html_handoff_contract():
@@ -848,7 +873,7 @@ def test_agent_endpoints_serve_the_canonical_skill_and_schema():
     assert schema["operation_parameters"]["set-interface-theme"] == {
         "mode": "view-or-edit",
         "required": ["theme"],
-        "optional": [],
+        "optional": ["palette"],
         "notes": schema["operation_parameters"]["set-interface-theme"]["notes"],
     }
     assert schema["operation_parameters"]["set-personal-visual-default"]["mode"] == (

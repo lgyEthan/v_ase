@@ -215,6 +215,89 @@ def test_workspace_browser_close_respects_disabled_autoclose():
         sessions.pop(host.session_id, None)
 
 
+@pytest.mark.parametrize("dirty", [False, True])
+def test_workspace_agent_can_create_a_ready_document_without_a_navigation_gesture(dirty):
+    from playwright.sync_api import sync_playwright
+    import requests
+
+    port = find_free_port()
+    editor = view(molecule("H2O"), notebook=True, block=False, port=port,
+                  close_on_disconnect=False, open_browser=False)
+    host = sessions[editor.session_id]
+    workspace = create_workspace(host)
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            page = browser.new_page()
+            page.goto(f"http://127.0.0.1:{port}/workspace?workspace_id={workspace.workspace_id}")
+            page.wait_for_function("window.v_aseAI && document.querySelector('iframe')?.contentWindow?.__ASE_APP__?.collaborationReady")
+            if dirty:
+                page.wait_for_function("document.querySelector('iframe').contentWindow.__ASE_APP__.workspaceBaselineSettled")
+                field = page.frame_locator('.document-pane:not([hidden])').locator('#atom-radius-scale-number')
+                field.fill('0.8')
+                field.press('Enter')
+                page.wait_for_function("document.querySelector('.document-tab.active.dirty')")
+            response = requests.post(
+                f"http://127.0.0.1:{port}/api/ai/command/workspace/{workspace.workspace_id}",
+                json={"method": "newDocument", "timeout_seconds": 20}, timeout=25)
+            assert response.status_code == 200, response.text
+            listing = page.evaluate("window.v_aseAI.documents()")
+            assert len(listing["documents"]) == 2
+            assert listing["activeSessionId"] != host.session_id
+            assert page.frame_locator('.document-pane:not([hidden])').locator('#app-viewport').is_visible()
+            browser.close()
+    finally:
+        editor.close()
+
+
+@pytest.mark.parametrize("theme", ["light", "dark"])
+def test_active_workspace_tab_retains_unsaved_saving_and_error_colors(theme):
+    from playwright.sync_api import sync_playwright
+
+    port = find_free_port()
+    editor = view(molecule("H2O"), notebook=True, block=False, port=port,
+                  close_on_disconnect=False, open_browser=False)
+    workspace = create_workspace(sessions[editor.session_id])
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            page = browser.new_page()
+            page.goto(f"http://127.0.0.1:{port}/workspace?workspace_id={workspace.workspace_id}")
+            page.locator('.document-tab.active').wait_for()
+            result = page.evaluate("""theme => {
+                window.v_aseTheme.apply(theme);
+                const tab = document.querySelector('.document-tab.active');
+                const dot = tab.querySelector('.document-symbol');
+                const original = tab.className;
+                const palette = {};
+                const probe = document.createElement('span');
+                document.body.append(probe);
+                for (const key of ['accent', 'warning', 'danger']) {
+                    probe.style.color = `var(--ui-${key})`;
+                    palette[key] = getComputedStyle(probe).color;
+                }
+                probe.remove();
+                const states = {};
+                for (const state of ['clean', 'dirty', 'dirty saving', 'dirty saving error']) {
+                    tab.classList.remove('dirty', 'saving', 'error');
+                    if (state !== 'clean') tab.classList.add(...state.split(' '));
+                    const style = getComputedStyle(dot);
+                    states[state] = {fill: style.backgroundColor, border: style.borderTopColor};
+                }
+                tab.className = original;
+                return {palette, states};
+            }""", theme)
+            colors, states = result['palette'], result['states']
+            assert states['clean'] == {'fill': colors['accent'], 'border': colors['accent']}
+            assert states['dirty'] == {'fill': colors['warning'], 'border': colors['warning']}
+            assert states['dirty saving'] == {'fill': 'rgba(0, 0, 0, 0)', 'border': colors['accent']}
+            assert states['dirty saving error'] == {'fill': colors['danger'], 'border': colors['danger']}
+            assert len(set(colors.values())) == 3
+            browser.close()
+    finally:
+        editor.close()
+
+
 def test_workspace_browser_tabs_suspend_inactive_renderers_and_keep_settings_separate(tmp_path):
     sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
     playwright_error = pytest.importorskip("playwright._impl._errors").Error
@@ -291,13 +374,13 @@ def test_workspace_browser_tabs_suspend_inactive_renderers_and_keep_settings_sep
                 const plus = add.getBoundingClientRect();
                 return {
                     parent: add.parentElement.id,
-                    followsLastTab: tabs[tabs.length - 1].nextElementSibling === add,
+                    followsTabList: document.getElementById('document-tabs').nextElementSibling === add,
                     gap: plus.left - last.right,
                     widths: tabs.map(tab => tab.getBoundingClientRect().width)
                 };
             }""")
-            assert tab_layout["parent"] == "document-tabs"
-            assert tab_layout["followsLastTab"] is True
+            assert tab_layout["parent"] == "document-bar"
+            assert tab_layout["followsTabList"] is True
             assert 0 <= tab_layout["gap"] <= 12
             assert all(96 <= width <= 232 for width in tab_layout["widths"])
 
@@ -329,7 +412,11 @@ def test_workspace_browser_tabs_suspend_inactive_renderers_and_keep_settings_sep
                         `iframe[data-session-id="${sessionId}"]`
                     );
                     const app = frame?.contentWindow?.__ASE_APP__;
-                    return app?.state?.atoms?.symbols?.join(',') === 'C_bulk,O_ads';
+                    // Atoms arrive before initialization publishes its ready
+                    // event. Suspension is meaningful after workspace recovery
+                    // has acknowledged activation, not at the data-read stage.
+                    return app?.collaborationReady && app.workspaceRecoveryAcknowledged
+                        && app.state.atoms?.symbols?.join(',') === 'C_bulk,O_ads';
                 }""",
                 arg=imported_id,
             )

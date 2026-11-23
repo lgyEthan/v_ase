@@ -1,4 +1,6 @@
 import base64
+from tests.ui_navigation import open_document_menu
+from tests.ui_navigation import click_view_control
 import io
 import math
 import hashlib
@@ -24,15 +26,17 @@ from examples.readme_scenes import make_ai_pyridinic_graphene_scene
 from v_ase.io import set_atom_labels
 from v_ase.session import sessions
 from v_ase.viewer import find_free_port, view
-from tests.ui_navigation import open_editor_route
+from tests.ui_navigation import open_editor_route, expand_appearance_rows
 from v_ase.volumetric import VolumetricData
 
 
 def _expand_inspector(page):
+    page.wait_for_function('window.__ASE_APP__?.collaborationReady && !document.body.dataset.busy')
     if page.locator('body').evaluate("element => element.classList.contains('inspector-collapsed')"):
-        page.click('#btn-inspector-collapse')
+        page.click('#editor-inspector-toggle')
         page.wait_for_function("!document.body.classList.contains('inspector-collapsed')")
-        page.wait_for_function("document.getElementById('inspector').getBoundingClientRect().width >= 336")
+        page.wait_for_function("document.getElementById('inspector').getBoundingClientRect().width >= 320")
+    page.wait_for_function("() => !document.body.getAnimations().some(a=>a.playState==='running' || a.pending)")
 
 
 def _open_panel(page, panel):
@@ -78,7 +82,7 @@ def test_help_dialog_stays_inside_viewport_and_scrolls_to_every_section():
             page = browser.new_page(viewport={"width": 980, "height": 620})
             page.goto(f"http://127.0.0.1:{port}/?session_id={editor.session_id}")
             page.wait_for_function("window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 1")
-            page.locator('#editor-menu-bar summary').filter(has_text='Help').click()
+            open_document_menu(page, 'Help')
             page.click('[data-editor-menu-action="shortcuts"]')
             metrics = page.evaluate("""() => {
                 const modal = document.querySelector('#modal-container .modal');
@@ -3051,12 +3055,12 @@ def test_empty_workspace_opens_a_complete_trajectory_from_the_browser(tmp_path):
                 }"""
             )
             assert empty_workspace_styles == {
-                "heading": "rgb(20, 33, 30)",
-                "supporting": "rgb(75, 92, 86)",
-                "buttonBackground": "rgb(20, 122, 105)",
+                "heading": "rgb(48, 50, 54)",
+                "supporting": "rgb(102, 105, 109)",
+                "buttonBackground": "rgb(49, 95, 190)",
                 "buttonColor": "rgb(255, 255, 255)",
-                "buttonWidth": 154,
-                "buttonHeight": 42,
+                "buttonWidth": pytest.approx(154, abs=0.1),
+                "buttonHeight": pytest.approx(42, abs=0.1),
             }
 
             with page.expect_file_chooser() as chooser_info:
@@ -3127,6 +3131,9 @@ def test_empty_workspace_opens_a_complete_trajectory_from_the_browser(tmp_path):
             # finishes; hidden markup from that reader is not the next dialog.
             expect(page.locator('#modal-container')).to_be_visible()
             expect(page.locator('#open-file-name')).to_have_text(replacement_source.name)
+            # Replacing an existing structure is an explicit choice; ordinary
+            # Open now defaults to an independent tab.
+            page.check('input[name="open-file-mode"][value="replace"]')
             page.locator('input[name="open-runtime-mode"][value="edit"]').check()
             page.click('#open-file-confirm')
             page.locator('#modal-discard-document').click()
@@ -3600,6 +3607,7 @@ def test_view_mode_visual_label_and_appearance_follow_stable_trajectory_indices(
                     && app.atomMaterialPreset(1) === 'metal';
             }""")
             page.locator('.label-color-input[data-atom-label="H_probe"]').fill("#2a78c4")
+            expand_appearance_rows(page)
             page.locator('.label-radius-input[data-atom-label="H_probe"]').fill("1.25")
             page.locator('.label-radius-input[data-atom-label="H_probe"]').press("Tab")
             page.wait_for_function(
@@ -4218,7 +4226,7 @@ def test_coordinate_reset_preserves_visual_translation_and_display_supercell():
                 "window.__ASE_APP__.renderer.domElement.dataset.visualTranslation === '0.400000,-0.200000,0.100000'"
             )
 
-            page.locator('#editor-menu-bar details').nth(1).locator('summary').click()
+            open_document_menu(page, 'Edit')
             page.click('[data-editor-menu-action="reset-coordinates"]')
             page.wait_for_selector("#modal-confirm-action")
             assert "displayed replication" in page.locator("#modal-content").inner_text()
@@ -4246,7 +4254,7 @@ def test_coordinate_reset_preserves_visual_translation_and_display_supercell():
             assert preserved["inputs"] == [0.4, -0.2, 0.1]
             assert preserved["superInputs"] == [2, 2, 1]
 
-            page.locator('#editor-menu-bar details').nth(1).locator('summary').click()
+            open_document_menu(page, 'Edit')
             page.click('[data-editor-menu-action="reset-all"]')
             page.wait_for_selector("#modal-confirm-action")
             page.click("#modal-confirm-action")
@@ -4472,6 +4480,13 @@ def test_rotate_direction_commensurate_snap_and_panel_focus_workflow():
             assert '21.79 deg' in page.locator(
                 '#commensurate-candidates-values .commensurate-candidate-chip.active'
             ).inner_text()
+            # The snapped model/readout is immediate; its common-cell vectors
+            # are prepared asynchronously. Wait for that same angle's result.
+            page.wait_for_function("""() => {
+                const a=window.__ASE_APP__;
+                return Math.abs(Number(a.state.commensurateProposal?.context.displayAngleDeg)-21.7867893)<1e-5
+                    && document.getElementById('commensurate-status').textContent.startsWith('Snapped: 21.786789 deg');
+            }""")
             assert page.locator('#commensurate-status').inner_text().startswith('Snapped: 21.786789 deg')
 
             unsnapped = page.evaluate("""() => {
@@ -4511,7 +4526,7 @@ def test_rotate_direction_commensurate_snap_and_panel_focus_workflow():
             assert palette["offHighlight"] == "rgb(195, 204, 200)"
             assert palette["onLight"] == "rgb(138, 229, 211)"
             assert palette["onHighlight"] == "rgb(255, 240, 196)"
-            page.click('#btn-lighting-toggle')
+            click_view_control(page, '#btn-lighting-toggle')
             page.select_option('#lighting-mode', 'studio-shadow')
             page.wait_for_function("document.getElementById('lighting-widget').dataset.mode === 'studio-shadow'")
             assert page.locator('.render-sphere-on').evaluate("element => getComputedStyle(element).display") == 'block'
@@ -5063,6 +5078,8 @@ def test_host_guest_commensurate_and_registry_map_complete_in_one_live_document(
             assert paper_projection["yTitle"] == "atoms in common cell"
             assert paper_projection["x"] >= 0
             assert paper_projection["y"] == 4
+            assert page.locator("#commensurate-plot .xtitle").text_content() == "mean |strain| / %"
+            assert page.locator("#commensurate-plot .ytitle").text_content() == "atoms in common cell"
 
             atom_preview = page.evaluate("""async () => {
                 await window.v_aseAI.apply({
@@ -5150,6 +5167,9 @@ def test_host_guest_commensurate_and_registry_map_complete_in_one_live_document(
             assert registry["selectedIndices"] == [2, 3]
             assert registry["periodicAxes"] == [0, 1]
             assert analyzed["plotReady"] is True
+            assert page.locator("#registry-plot .xtitle").text_content() == "plane x / Å"
+            assert page.locator("#registry-plot .ytitle").text_content() == "plane y / Å"
+            assert page.locator("#registry-plot .cbtitle").text_content() == page.evaluate("window.__ASE_APP__.state.registryResult.metric_label")
             assert analyzed["activePlot"] == "registry"
             assert analyzed["plotDomain"]["xRange"][1] > analyzed["plotDomain"]["xRange"][0]
             assert analyzed["plotDomain"]["yRange"][1] > analyzed["plotDomain"]["yRange"][0]
@@ -5944,9 +5964,12 @@ def test_render_area_keeps_an_independent_camera_and_maps_selection_to_its_gate(
             assert left <= pointer_x <= left + width
             assert top <= pointer_y <= top + height
 
-            page.click('#btn-render-area-from-view')  # deactivate the visible camera
-            page.click('#btn-render-area-from-view')  # return to its saved view
+            click_view_control(page, '#btn-render-area-from-view')  # deactivate the visible camera
+            click_view_control(page, '#btn-render-area-from-view')  # return to its saved view
+            page.locator('#camera-rotation-toggle').click()
             page.evaluate("window.__ASE_APP__.setInspectorCollapsed(true)")
+            page.wait_for_function("() => !document.body.getAnimations().some(a=>a.playState==='running' || a.pending)")
+            page.evaluate('window.__ASE_APP__.renderer.onResize()')
             point = page.evaluate("""() => {const r=window.__ASE_APP__.renderer;
                 const p=r.projectWorldToClient(r.atomMeshByIndex.get(0).position);return [p.x,p.y];}""")
             pointer_x, pointer_y = point
@@ -6056,7 +6079,7 @@ def test_narrow_editor_menus_and_drawers_remain_accessible_without_overlap():
             assert layout['mode'][2] <= layout['render'][0] + 1
             assert layout['render'][2] <= layout['top'][2] + 1
             assert layout['tools'][1] >= layout['top'][3]
-            page.locator('#editor-menu-bar details').first.locator('summary').click()
+            open_document_menu(page)
             assert page.locator('[data-editor-menu-action="save-as"]').is_visible()
             page.keyboard.press('Escape')
             page.click('#editor-search-toggle')
@@ -6368,6 +6391,17 @@ def test_image_export_modal_is_the_authoritative_retina_preview(tmp_path):
 
             exported = Image.open(output).convert('RGBA')
             assert exported.size == (640, 640)
+            result = page.locator('#image-export-result')
+            result.wait_for()
+            page.wait_for_function("document.getElementById('image-export-thumbnail').naturalWidth === 640")
+            assert result.locator('#image-export-filename').inner_text() == download.suggested_filename
+            with page.expect_download() as copy_info:
+                result.get_by_role('button', name='Save a copy').click()
+            copy_path = tmp_path / 'copy.png'
+            copy_info.value.save_as(copy_path)
+            assert copy_path.read_bytes() == output.read_bytes()
+            result.get_by_role('button', name='Dismiss image result').click()
+            assert result.is_hidden()
             contract = page.evaluate("""() => {
                 const app = window.__ASE_APP__;
                 app.renderer.renderNow();
@@ -6794,34 +6828,26 @@ def test_sidebar_sun_renderer_export_and_periodic_bond_contract():
             }
 
             assert not page.locator('body').evaluate("element => element.classList.contains('inspector-collapsed')")
-            assert page.locator('#inspector').evaluate("element => element.getBoundingClientRect().width") >= 336
-            page.click('#btn-inspector-collapse')
-            assert page.locator('#btn-inspector-collapse').get_attribute('aria-expanded') == 'false'
-            assert page.locator('#btn-inspector-collapse').get_attribute('title') == 'Expand control panel'
-            assert page.locator('#btn-inspector-collapse .inspector-edge-chevron').count() == 1
-            page.wait_for_function("document.getElementById('inspector').getBoundingClientRect().width <= 1")
-            assert page.locator('#inspector').evaluate("element => Math.round(element.getBoundingClientRect().width)") == 0
+            assert page.locator('#inspector').evaluate("element => element.getBoundingClientRect().width") == pytest.approx(320)
+            page.click('#editor-inspector-toggle')
+            assert page.locator('#editor-inspector-toggle').get_attribute('aria-expanded') == 'false'
+            assert page.locator('#editor-inspector-toggle').get_attribute('aria-label') == 'Show inspector'
+            assert page.locator('#editor-inspector-toggle svg').evaluate_all('es=>es.filter(e=>e.checkVisibility()).length') == 1
+            page.wait_for_function("document.getElementById('inspector').getBoundingClientRect().left >= innerWidth - 1")
+            assert page.locator('#inspector-pane').evaluate("element => element.inert")
 
             page.locator('#app-viewport canvas').focus()
             page.keyboard.press('Tab')
             page.wait_for_function("!document.body.classList.contains('inspector-collapsed')")
-            page.wait_for_function("document.getElementById('inspector').getBoundingClientRect().width >= 336")
-            assert page.locator('#btn-inspector-collapse').get_attribute('aria-expanded') == 'true'
-            assert page.locator('#btn-inspector-collapse').get_attribute('title') == 'Collapse control panel'
-            edge_geometry = page.evaluate("""() => {
-                const button = document.getElementById('btn-inspector-collapse').getBoundingClientRect();
-                const panel = document.getElementById('inspector').getBoundingClientRect();
-                return {
-                    buttonRight: button.right,
-                    panelLeft: panel.left,
-                    verticalCenterDelta: Math.abs(
-                        (button.top + button.height / 2) -
-                        (panel.top + panel.height / 2)
-                    )
-                };
+            page.wait_for_function("document.getElementById('inspector').getBoundingClientRect().right <= innerWidth + 1")
+            assert page.locator('#editor-inspector-toggle').get_attribute('aria-expanded') == 'true'
+            assert page.locator('#editor-inspector-toggle').get_attribute('aria-label') == 'Hide inspector'
+            header_geometry = page.evaluate("""() => {
+                const button=document.getElementById('editor-inspector-toggle').getBoundingClientRect();
+                const header=document.getElementById('top-bar').getBoundingClientRect();
+                return {top:button.top,bottom:button.bottom,headerTop:header.top,headerBottom:header.bottom};
             }""")
-            assert edge_geometry['buttonRight'] == pytest.approx(edge_geometry['panelLeft'], abs=1.5)
-            assert edge_geometry['verticalCenterDelta'] <= 1.5
+            assert header_geometry['headerTop'] <= header_geometry['top'] < header_geometry['bottom'] <= header_geometry['headerBottom']
 
             open_editor_route(page, 'view')
             assert page.locator('[data-panel="view"]').is_visible()
@@ -6834,12 +6860,12 @@ def test_sidebar_sun_renderer_export_and_periodic_bond_contract():
             assert page.locator('[data-panel="bonding"]').is_visible()
             open_editor_route(page, 'displacement')
             assert page.locator('[data-panel="displacement"]').is_visible()
-            page.locator('#editor-menu-bar summary').filter(has_text='File').click()
+            open_document_menu(page, 'File')
             page.click('[data-editor-menu-route="project"]')
             assert page.locator('[data-panel="project"]').is_visible()
             assert not page.locator('[data-panel="settings"]').is_visible()
             assert 'complete editable structure' in page.locator('[data-panel="project"] .panel-note').inner_text()
-            page.locator('#editor-menu-bar summary').filter(has_text='Preferences').click()
+            open_document_menu(page, 'Preferences')
             page.locator('#editor-menu-bar details[open] [data-editor-menu-route="settings"]').click()
             assert page.locator('[data-panel="settings"]').is_visible()
             assert 'coordinates' in page.locator('[data-panel="settings"] .panel-note').inner_text()
@@ -6847,7 +6873,7 @@ def test_sidebar_sun_renderer_export_and_periodic_bond_contract():
             page.locator('#app-viewport canvas').focus()
             page.keyboard.press('Escape')
             page.wait_for_function("document.body.classList.contains('inspector-collapsed')")
-            page.wait_for_function("document.getElementById('inspector').getBoundingClientRect().width <= 1")
+            page.wait_for_function("document.getElementById('inspector').getBoundingClientRect().left >= innerWidth - 1")
             page.keyboard.press('Tab')
             page.wait_for_function("!document.body.classList.contains('inspector-collapsed')")
 
@@ -6857,6 +6883,7 @@ def test_sidebar_sun_renderer_export_and_periodic_bond_contract():
             page.wait_for_function("window.__ASE_APP__.renderer.bondPairs.length === 1")
             assert page.locator('#app-viewport canvas').get_attribute('data-periodic-bonds') == 'true'
 
+            page.locator('#camera-rotation-toggle').click()
             lighting_icon = page.locator('#btn-lighting-toggle .render-light-icon')
             assert lighting_icon.is_visible()
             icon_box = lighting_icon.bounding_box()
@@ -6864,9 +6891,11 @@ def test_sidebar_sun_renderer_export_and_periodic_bond_contract():
             assert icon_box['width'] == pytest.approx(31, abs=1)
             assert icon_box['height'] == pytest.approx(29, abs=1)
             open_editor_route(page, 'scientific-tools')
+            if page.locator('#camera-rotation-toggle').get_attribute('aria-expanded') != 'true':
+                page.locator('#camera-rotation-toggle').click()
             viewport_tools = page.evaluate("""() => {
                 const trigger = document.getElementById('btn-lighting-toggle').getBoundingClientRect();
-                const cameraTools = document.getElementById('viewport-camera-tools').getBoundingClientRect();
+                const cameraTools = document.getElementById('camera-more-content').getBoundingClientRect();
                 const calculator = document.getElementById('calc-controls').getBoundingClientRect();
                 const scientificPanel = document.querySelector(
                     '[data-panel="scientific-tools"]'
@@ -6874,10 +6903,7 @@ def test_sidebar_sun_renderer_export_and_periodic_bond_contract():
                 return {
                     triggerLeft: trigger.left,
                     contained: trigger.left >= cameraTools.left && trigger.right <= cameraTools.right,
-                    headerCenterDelta: Math.abs(
-                        (trigger.top + trigger.height / 2) -
-                        (cameraTools.top + cameraTools.height / 2)
-                    ),
+                    verticallyContained: trigger.top >= cameraTools.top && trigger.bottom <= cameraTools.bottom,
                     calculatorInTopBar: calculator.top < document.getElementById(
                         'top-bar'
                     ).getBoundingClientRect().bottom,
@@ -6887,10 +6913,13 @@ def test_sidebar_sun_renderer_export_and_periodic_bond_contract():
                 };
             }""")
             assert viewport_tools['contained'] is True
-            assert viewport_tools['headerCenterDelta'] <= 2
+            assert viewport_tools['verticallyContained'] is True
             assert viewport_tools['calculatorInTopBar'] is False
             assert viewport_tools['calculatorInsideRelaxation'] is True
-            page.click('#btn-lighting-toggle')
+            click_view_control(page, '#btn-lighting-toggle')
+            page.locator('#lighting-card').evaluate("""async card => {
+                await Promise.all(card.getAnimations().map(animation => animation.finished));
+            }""")
             lighting_panel_geometry = page.evaluate("""() => {
                 const trigger = document.getElementById('btn-lighting-toggle').getBoundingClientRect();
                 const card = document.getElementById('lighting-card').getBoundingClientRect();
@@ -7222,7 +7251,7 @@ def test_sidebar_sun_renderer_export_and_periodic_bond_contract():
             assert '48 sphere segments' in page.locator('#export-smoothness-note').inner_text()
             page.click('#modal-close')
 
-            page.click('#btn-lighting-toggle')
+            click_view_control(page, '#btn-lighting-toggle')
             page.select_option('#lighting-mode', 'modeling')
             page.wait_for_function("!window.__ASE_APP__.renderer.renderer.shadowMap.enabled")
             page.wait_for_timeout(100)
@@ -7232,13 +7261,13 @@ def test_sidebar_sun_renderer_export_and_periodic_bond_contract():
             assert end == start
 
             page.click('#btn-lighting-close')
-            page.click('#btn-inspector-collapse')
+            page.click('#editor-inspector-toggle')
             page.wait_for_function("document.body.classList.contains('inspector-collapsed')")
             page.set_viewport_size({"width": 390, "height": 844})
             # Narrow screens place the complete workbench below the viewport.
             # Its desktop collapse handle is intentionally absent.
             page.wait_for_function("document.getElementById('inspector').getBoundingClientRect().width === innerWidth")
-            assert not page.locator('#btn-inspector-collapse').is_visible()
+            assert not page.locator('#editor-inspector-toggle').is_visible()
             mobile = page.evaluate("""() => {
                 const panel = document.getElementById('inspector').getBoundingClientRect();
                 const viewport = document.getElementById('app-viewport').getBoundingClientRect();
@@ -7248,7 +7277,7 @@ def test_sidebar_sun_renderer_export_and_periodic_bond_contract():
             }""")
             assert mobile['panelTop'] >= mobile['viewportBottom'] - 1
             assert 0 <= mobile['lightLeft'] < mobile['lightRight'] <= mobile['width']
-            page.click('#btn-lighting-toggle')
+            click_view_control(page, '#btn-lighting-toggle')
             assert page.locator('#lighting-mode').is_visible()
             page.click('#btn-lighting-close')
 
@@ -7307,7 +7336,7 @@ def test_grid_button_and_ordered_distance_angle_torsion_measurements():
                 "pressed": "true",
                 "buttonVisible": True,
             }
-            page.click("#btn-grid-toggle")
+            click_view_control(page, '#btn-grid-toggle')
             page.wait_for_function("window.__ASE_APP__.renderer.gridGroup.visible === false")
             assert page.evaluate("""() => ({
                 state: window.__ASE_APP__.state.display.showGrid,
@@ -7320,7 +7349,7 @@ def test_grid_button_and_ordered_distance_angle_torsion_measurements():
                 "pressed": "false",
                 "label": "Show viewport grid",
             }
-            page.click("#btn-grid-toggle")
+            click_view_control(page, '#btn-grid-toggle')
             page.wait_for_function("window.__ASE_APP__.renderer.gridGroup.visible === true")
 
             points = page.evaluate("""() => {
@@ -8213,14 +8242,15 @@ def test_label_opacity_updates_instanced_atoms_supercell_2d_and_visual_history()
             _expand_inspector(page)
             _select_structure_section(page, "appearance")
             page.evaluate("window.__ASE_APP__.resetHistoryTimeline()")
-            # Per-label properties stay in one row, with intentional horizontal scrolling.
+            # Expanded properties fit the panel; compact summaries keep their
+            # alignment and row height at every inspector width.
             for width in (352, 520, 760):
                 page.evaluate("width => window.__ASE_APP__.setInspectorWidth(width)", width)
                 metrics = page.locator("#appearance-table").evaluate(
                     "element => ({ client: element.clientWidth, scroll: element.scrollWidth })"
                 )
-                assert metrics["scroll"] >= metrics["client"]
-                assert page.locator("#appearance-table-body .appearance-row").first.bounding_box()["height"] <= 42
+                assert metrics["scroll"] <= metrics["client"] + 1
+                assert page.locator("#appearance-table-body .appearance-row > summary").first.bounding_box()["height"] <= 42
                 for selector in ('.atom-label-input', '.chemical-type-select', '.label-opacity-input'):
                     assert page.locator(f'{selector}[data-atom-label="C_faded"]').is_visible()
 
@@ -9117,26 +9147,18 @@ def test_camera_toolbar_white_background_and_flat_2d_display():
                     arrowText: arrows.map(button => button.textContent.trim()),
                     arrowDirections: arrows.map(button => button.dataset.viewRotate),
                     arrowGeometry: arrows.map(button => {
-                            const icon = button.querySelector('.view-orbit-icon');
-                            const bounds = icon.getBBox();
+                        const icon = button.querySelector('.interface-camera-icon');
+                        const bounds = icon.getBBox();
+                        const style = getComputedStyle(icon);
                         return {
                             width: bounds.width,
                             height: bounds.height,
-                            faceCount: button.querySelectorAll(
-                                '.view-arrow-front-surface, .view-arrow-orbit-surface'
-                            ).length,
-                            depthCount: button.querySelectorAll(
-                                '.view-arrow-front-depth, .view-arrow-orbit-depth'
-                            ).length,
-                            rimCount: button.querySelectorAll(
-                                '.view-arrow-front-rim, .view-arrow-orbit-rim'
-                            ).length,
-                            orbitCount: button.querySelectorAll('.view-arrow-orbit-surface').length,
-                            seamCount: button.querySelectorAll('.view-arrow-orbit-seam').length,
-                            specularCount: button.querySelectorAll('.view-arrow-orbit-highlight').length,
-                            volumeTransform: button.querySelector('.view-orbit-volume')
-                                ?.getAttribute('transform') || '',
-                            filter: getComputedStyle(button.querySelector('.view-orbit-icon')).filter
+                            path: icon.querySelector('path')?.getAttribute('d'),
+                            svgWidth: icon.getBoundingClientRect().width,
+                            svgHeight: icon.getBoundingClientRect().height,
+                            fill: style.fill,
+                            stroke: style.stroke,
+                            filter: style.filter
                         };
                     }),
                     popupExists: Boolean(
@@ -9159,31 +9181,18 @@ def test_camera_toolbar_white_background_and_flat_2d_display():
                 "roll-ccw",
                 "roll-cw",
             ]
+            # The interface uses original flat line glyphs; camera direction
+            # and rendering behavior below remain the scientific contract.
             assert all(
-                min(arrow["width"], arrow["height"]) >= 18
-                and max(arrow["width"], arrow["height"]) >= 22
-                and arrow["faceCount"] == 1
-                and arrow["depthCount"] == 1
-                and arrow["rimCount"] == 1
-                and arrow["filter"] != "none"
+                min(arrow["width"], arrow["height"]) >= 10
+                and arrow["svgWidth"] == 18
+                and arrow["svgHeight"] == 18
+                and arrow["fill"] == "none"
+                and arrow["stroke"] != "none"
+                and arrow["filter"] == "none"
                 for arrow in toolbar_geometry["arrowGeometry"]
             )
-            assert [
-                (
-                    arrow["orbitCount"],
-                    arrow["seamCount"],
-                    arrow["specularCount"],
-                    arrow["volumeTransform"],
-                )
-                for arrow in toolbar_geometry["arrowGeometry"]
-            ] == [
-                (1, 1, 1, ""),
-                (1, 1, 1, "translate(0 48) scale(1 -1)"),
-                (1, 1, 1, "matrix(0 1 1 0 0 0)"),
-                (1, 1, 1, "matrix(0 1 -1 0 48 0)"),
-                (0, 0, 0, ""),
-                (0, 0, 0, ""),
-            ]
+            assert len({arrow["path"] for arrow in toolbar_geometry["arrowGeometry"]}) == 6
             assert toolbar_geometry["popupExists"] is False
 
             _expand_inspector(page)

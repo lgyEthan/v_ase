@@ -7,7 +7,7 @@ from ase import Atoms
 from ase.constraints import FixAtoms, FixedLine, FixedPlane
 from playwright.sync_api import sync_playwright
 from v_ase.viewer import view, find_free_port
-from tests.ui_navigation import open_editor_route
+from tests.ui_navigation import open_editor_route, set_scene_navigator_open
 
 @pytest.fixture
 def page():
@@ -59,7 +59,8 @@ def test_drag_and_panel_selection_and_constraints_draw_pixels(page,mode,backgrou
     box.uncheck()
     # Each constraint type must change real pixels; physical constraints stay intact.
     visible=canvas_pixels(page)
-    page.click('#btn-objects');page.get_by_role('checkbox',name='Show Constraints',exact=True).uncheck();page.click('#btn-objects')
+    set_scene_navigator_open(page)
+    page.get_by_role('checkbox',name='Show Constraints',exact=True).uncheck()
     hidden=canvas_pixels(page)
     difference=np.abs(visible-hidden).sum(axis=2)
     assert (difference>20).sum()>150

@@ -70,6 +70,7 @@ class RegistryRelaxationSession:
                 "session_id": self.session_id,
                 "status": self.status,
                 "is_relaxing": self.is_relaxing,
+                "run_id": self.run_id,
                 "selected_indices": list(self.selected_indices),
                 "hkl": list(self.hkl),
                 "periodic_axes": list(self.periodic_axes),

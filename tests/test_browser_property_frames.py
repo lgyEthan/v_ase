@@ -56,10 +56,11 @@ def test_color_targets_are_frozen_until_explicit_reapply(property_page):
     page.click('#btn-atom-colorscale-use-selection')
     page.wait_for_function('window.__ASE_APP__.renderer.atomColorScaleColors?.[0] === null')
     assert page.evaluate('window.__ASE_APP__.state.display.atomColorScaleIndices') == [1]
-    # One row regardless of panel width, with deliberate horizontal overflow.
+    # Expandable rows keep label fields inside the panel without horizontal
+    # scrolling; the compact summary remains aligned above the open fields.
     geometry = page.locator('#appearance-table').evaluate('''el => ({width:el.clientWidth,scroll:el.scrollWidth,
-        heights:[...el.querySelectorAll('#appearance-table-body .appearance-row')].map(x=>x.getBoundingClientRect().height)})''')
-    assert geometry['scroll'] > geometry['width']
+        heights:[...el.querySelectorAll('#appearance-table-body .appearance-row > summary')].map(x=>x.getBoundingClientRect().height)})''')
+    assert geometry['scroll'] <= geometry['width'] + 1
     assert all(height <= 42 for height in geometry['heights'])
 
 
@@ -125,14 +126,16 @@ def test_output_guide_does_not_render_or_pick_a_second_view(property_page):
         const rect=r.lastExportPreview.frameRect;
         const box=r.domElement.getBoundingClientRect();
         const context=r.interactionProjectionContext(box.left+box.width/2,box.top+box.height/2);
-        const before={...rect};document.body.classList.toggle('inspector-collapsed');
+        const before={...rect},camera=JSON.stringify(a.cameraSettingsSnapshot()),profile=JSON.stringify(a.currentImageExportProfile());document.body.classList.toggle('inspector-collapsed');
         r.renderNow();
-        return {renders,context:context.kind,guide:r.lastExportPreview.guideOnly,before,after:r.lastExportPreview.frameRect};
+        return {renders,context:context.kind,guide:r.lastExportPreview.guideOnly,before,after:r.lastExportPreview.frameRect,cameraPreserved:camera===JSON.stringify(a.cameraSettingsSnapshot()),profilePreserved:profile===JSON.stringify(a.currentImageExportProfile())};
     }''')
     assert result['renders'] == 2
     assert result['context'] == 'viewport'
     assert result['guide'] is True
-    assert result['before'] == result['after']
+    assert result['cameraPreserved'] and result['profilePreserved']
+    for edge in ['left','width']:
+        assert result['before'][edge]/result['before']['canvasWidth']==pytest.approx(result['after'][edge]/result['after']['canvasWidth'])
 
 
 @pytest.mark.parametrize('late_old_cache', [False, True])

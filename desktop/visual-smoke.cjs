@@ -5,7 +5,8 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const waitForVisualFrame = require('./visual-frame.cjs');
-module.exports = async function visualSmoke({js, active, appRef, win, output, wait}) {
+const { capturePage, ensureFocus } = require('./smoke-support.cjs');
+module.exports = async function visualSmoke({js, active, appRef, win, output, wait, diagnostics}) {
     const prior = await js(`({settings:${appRef}.designSettingsSnapshot(),vizOnly:${appRef}.state.vizOnly})`);
     await js(`(async()=>{const a=${appRef};await a.aiApply({mode:'edit'});
         a.setAtomsData(await a.api.updateConstraints([0],{fix_atoms:true}));
@@ -17,7 +18,7 @@ module.exports = async function visualSmoke({js, active, appRef, win, output, wa
     const captureImage=async name=>{
         await js(`new Promise(r=>${active}.requestAnimationFrame(()=>${active}.requestAnimationFrame(r)))`);
         const rect=await js(`(()=>{const w=window.__V_ASE_WORKSPACE__,tab=w.tabs.get(w.activeSessionId),r=${appRef}.renderer.domElement.getBoundingClientRect(),p=tab.pane.getBoundingClientRect();return {x:Math.round(r.x+p.x),y:Math.round(r.y+p.y),width:Math.floor(r.width),height:Math.floor(r.height)};})()`);
-        const image=await win.webContents.capturePage(rect);
+        const image=await capturePage(win.webContents,rect,`native ${name} capture`);
         await fs.writeFile(path.join(output,name+'.png'),image.toPNG());
         return image;
     };
@@ -36,13 +37,19 @@ module.exports = async function visualSmoke({js, active, appRef, win, output, wa
         assert.ok(Math.abs(ring.opacity-.3)<1e-8,JSON.stringify(ring));
     };
     const pixelChecks=[];
+    const scientific=()=>js(`({positions:${appRef}.state.atoms.positions,
+        symbols:${appRef}.state.atoms.symbols,constraints:${appRef}.state.atoms.constraints})`);
+    const fixture=await scientific();
+    const assertFixture=async stage=>assert.deepEqual(await scientific(),fixture,`${stage} changed scientific geometry or constraints`);
     for(const mode of ['3d','2d']) {
+        await diagnostics?.stage(`${mode}:begin`);
         await js(`(()=>{const a=${appRef};a.applyDesignSettings({display:{atomDisplayMode:'${mode}',showConstraints:true}});a.clearAtomSelection();a.updateSelectionVisuals();})()`);
         const before=await capture(`selection-${mode}-before`);
         const unselectedRing=await planeRing();expectRing(unselectedRing,false);
         const bounds=await js(`(()=>{const w=window.__V_ASE_WORKSPACE__,p=w.tabs.get(w.activeSessionId).pane.getBoundingClientRect(),r=${appRef}.renderer;
             const v=[...r.atomMeshByIndex.values()].map(a=>r.projectWorldToClient(a.position));return {x1:Math.round(p.x+Math.min(...v.map(v=>v.x))-28),x2:Math.round(p.x+Math.max(...v.map(v=>v.x))+28),y1:Math.round(p.y+Math.min(...v.map(v=>v.y))-28),y2:Math.round(p.y+Math.max(...v.map(v=>v.y))+28)};})()`);
-        win.show();win.focus();win.webContents.focus();
+        await ensureFocus(win);
+        await diagnostics?.stage(`${mode}:drag`);
         win.webContents.sendInputEvent({type:'mouseDown',x:bounds.x1,y:bounds.y1,button:'left',clickCount:1});
         for(let i=1;i<=8;i++)win.webContents.sendInputEvent({type:'mouseMove',x:Math.round(bounds.x1+(bounds.x2-bounds.x1)*i/8),y:Math.round(bounds.y1+(bounds.y2-bounds.y1)*i/8),button:'left',buttons:['left']});
         win.webContents.sendInputEvent({type:'mouseUp',x:bounds.x2,y:bounds.y2,button:'left',clickCount:1});
@@ -51,16 +58,46 @@ module.exports = async function visualSmoke({js, active, appRef, win, output, wa
             () => capture(`selection-${mode}-drag`),
             bitmap => yellow(bitmap)-yellow(before)>100);
         const selectedRing=await planeRing();expectRing(selectedRing,true);
+        await assertFixture(`${mode}:native drag`);
         const outlinePixels=yellow(selected)-yellow(before);
         assert.ok(outlinePixels>100,`Invisible ${mode} drag selection: ${outlinePixels} yellow pixels`);
+        await diagnostics?.stage(`${mode}:panel-select`);
         await js(`(()=>{const a=${appRef};a.clearAtomSelection();a.updateSelectionVisuals();a.updateUI();a.openEditorRoute('appearance');const b=${active}.document.querySelector('[data-appearance-field="select"][data-atom-label="H"]');b.click();})()`);
         await wait(`${appRef}.state.selected.size===2`);
+        assert.equal(await js(`${active}.document.activeElement?.dataset.appearanceField`),'select',
+            'Selecting a label must leave keyboard focus in the checkbox, not the canvas');
+        // Reproduce the exact dangerous follow-up deterministically. A control
+        // with focus must consume editing keys; do not remove this stimulus or
+        // weaken the atom/constraint/pixel assertions to make a retry pass.
+        win.webContents.sendInputEvent({type:'keyDown',keyCode:'Backspace'});
+        win.webContents.sendInputEvent({type:'keyUp',keyCode:'Backspace'});
+        await js(`new Promise(resolve=>${active}.setTimeout(resolve,30))`);
+        await assertFixture(`${mode}:Backspace after label selection`);
+        const clickLabel=async()=>{
+            const point=await js(`(()=>{const d=${active}.document,e=d.querySelector('[data-appearance-field="select"][data-atom-label="H"]');
+                e.scrollIntoView({block:'nearest',inline:'nearest'});const r=e.getBoundingClientRect(),p=window.__V_ASE_WORKSPACE__.tabs.get(window.__V_ASE_WORKSPACE__.activeSessionId).pane.getBoundingClientRect();
+                if(d.elementFromPoint(r.x+r.width/2,r.y+r.height/2)!==e)throw new Error('Label checkbox is occluded');
+                return {x:Math.round(p.x+r.x+r.width/2),y:Math.round(p.y+r.y+r.height/2)};})()`);
+            await ensureFocus(win);
+            win.webContents.sendInputEvent({type:'mouseMove',...point});
+            win.webContents.sendInputEvent({type:'mouseDown',...point,button:'left',clickCount:1});
+            win.webContents.sendInputEvent({type:'mouseUp',...point,button:'left',clickCount:1});
+        };
+        await clickLabel();await wait(`${appRef}.state.selected.size===0`);
+        await clickLabel();await wait(`${appRef}.state.selected.size===2`);
+        assert.equal(await js(`${active}.document.activeElement?.dataset.appearanceField`),'select');
+        win.webContents.sendInputEvent({type:'keyDown',keyCode:'Delete'});
+        win.webContents.sendInputEvent({type:'keyUp',keyCode:'Delete'});
+        await js(`new Promise(resolve=>${active}.setTimeout(resolve,30))`);
+        await assertFixture(`${mode}:Delete after native checkbox click`);
         const panelSelected=await waitForVisualFrame(
             () => capture(`selection-${mode}-panel`),
             bitmap => yellow(bitmap)-yellow(before)>50);
         assert.ok(yellow(panelSelected)-yellow(before)>50,`Invisible ${mode} panel selection`);
+        await diagnostics?.stage(`${mode}:clear-and-constraints`);
         await js(`(()=>{const a=${appRef};a.clearAtomSelection();a.updateSelectionVisuals();a.updateUI();})()`);
         const constraints=await capture(`constraints-${mode}-visible`);
+        await assertFixture(`${mode}:clear selection and capture`);
         expectRing(await planeRing(),false);
         await js(`(()=>{const a=${appRef};a.applyDesignSettings({display:{showConstraints:false}});})()`);
         const hidden=await capture(`constraints-${mode}-hidden`);
@@ -70,6 +107,7 @@ module.exports = async function visualSmoke({js, active, appRef, win, output, wa
     }
     const axisChecks=[];
     for(const mode of ['3d','2d']) {
+        await diagnostics?.stage(`${mode}:axes`);
         const state=await js(`(()=>{const a=${appRef},r=a.renderer;
             a.applyDesignSettings({display:{atomDisplayMode:'${mode}',showAxes:true,showGrid:false,
                 showConstraints:false,viewportBackground:'white'}});
@@ -100,6 +138,7 @@ module.exports = async function visualSmoke({js, active, appRef, win, output, wa
     }
     const layoutChecks=[];
     for(const [width,height,zoom] of [[1280,720,1],[1024,600,1.25],[1024,768,1.5]]) {
+        await diagnostics?.stage(`layout:${width}:${zoom}`);
         win.setContentSize(width,height);win.webContents.setZoomFactor(zoom);
         await js(`new Promise(r=>${active}.requestAnimationFrame(()=>${active}.requestAnimationFrame(r)))`);
         const result=await js(`(async()=>{const a=${appRef},d=${active}.document;a.openEditorRoute('add-atoms');d.getElementById('add-atoms-tab-batch').click();d.getElementById('add-atoms-content-molecules').click();
@@ -111,12 +150,12 @@ module.exports = async function visualSmoke({js, active, appRef, win, output, wa
           const r=el.getBoundingClientRect(),hit=d.elementFromPoint(r.x+r.width/2,r.y+r.height/2);
           return {scroll,reachable:hit===el||el.contains(hit),hit:hit?.id||hit?.className,windowSize:[${active}.innerWidth,${active}.innerHeight],buttonRect:{x:r.x,y:r.y,width:r.width,height:r.height},relaxHost:d.getElementById('add-atoms-relax-host').contains(d.getElementById('btn-relax'))};})()`);
         assert.deepEqual(result.scroll,['inspector-content']);assert.ok(result.reachable&&result.relaxHost,JSON.stringify(result));
-        await fs.writeFile(path.join(output,`placement-${width}-${zoom}.png`),(await win.webContents.capturePage()).toPNG());
+        await fs.writeFile(path.join(output,`placement-${width}-${zoom}.png`),(await capturePage(win.webContents)).toPNG());
         layoutChecks.push({width,height,zoom,...result});
     }
     win.webContents.setZoomFactor(1);win.setContentSize(1440,960);
     await js(`(async()=>{const a=${appRef};a.setAtomsData(await a.api.updateConstraints([0,1,2],{fix_atoms:false,directional_kind:'none'}));
         a.applyDesignSettings(${JSON.stringify(prior.settings)});await a.aiApply({mode:${JSON.stringify(prior.vizOnly?'view':'edit')}});a.clearAtomSelection();a.updateSelectionVisuals();a.updateUI();})()`);
-    const result={pixelChecks,axisChecks,layoutChecks};await fs.writeFile(path.join(output,'visual-parity.json'),JSON.stringify(result,null,2));
+    const result={pixelChecks,axisChecks,layoutChecks,scientificFixturePreserved:true,checkboxBackspaceGuard:true};await fs.writeFile(path.join(output,'visual-parity.json'),JSON.stringify(result,null,2));
     return result;
 };

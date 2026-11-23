@@ -1,5 +1,12 @@
 # Exports
 
+## Contents
+
+1. Image and scene artifacts
+2. Editable data and geometry
+3. Movies and tables
+4. Coordination polyhedra
+
 ## Image and scene artifacts
 
 `vase_render` and image export return exact camera, options, dimensions and a
@@ -43,10 +50,13 @@ The parent workspace also restores an unsaved child visual snapshot and its
 separate saved baseline after an internal-tab reload.
 Adding, combining or removing a field changes the persisted scientific identity
 even when that dataset is not visible.
-The GUI Image, Video, and Interactive HTML routes expose format-specific
-draft controls beside the shared Renderer properties. Video shows container,
-FPS, interpolation/MIC and an output-duration estimate; HTML's optional
-embedded-project choice affects only that export, not the Save destination.
+The GUI Image, Video and Interactive HTML routes put their format-specific
+draft controls and export action above the Advanced render settings disclosure.
+Expand it for the Render Area, scale, lighting, quality and overlay controls.
+The Renderer route exposes these settings directly. Video shows container,
+FPS, interpolation/MIC and an output-duration estimate. HTML's optional
+embedded-project choice affects that export. After a GUI image export,
+Save a copy in the result card writes the completed bytes to another destination.
 Browser-handle Save checks the accepted file version again immediately before
 writing, but ordinary browser handles are not an atomic compare-and-swap against
 an arbitrary writer racing after that check.
@@ -63,6 +73,9 @@ Video uses loaded trajectory frames and requested interpolation/FPS; interpolate
 frames are not new physical simulation samples. Choose supported even dimensions
 and opaque background. RDF, commensurate and registry CSV exports retain scientific
 parameters and conventions. Read the focused export schema for exact options.
+Semantic export results report the bare media type, such as `text/csv`.
+The HTTP response and data URL may retain charset parameters; CSV bytes remain
+UTF-8. Do not mistake those transport parameters for a different artifact format.
 
 Produced artifact paths are unique. Only artifacts created by this connection
 can be read through it, with content integrity checks. Preserve the user's
@@ -96,3 +109,15 @@ capture. Scientific constraint visuals instead follow Objects → Constraints.
 Enabled stored-force layers refresh after physical edits and on project reload.
 Wait for scene readiness before capture; missing data yields no arrows rather than
 a permanently stale layer, and visualization never triggers force calculation.
+
+The human Image inspector exposes the same committed size/framing profile used
+by exact rendering, including px units, format, transparency and framing preview.
+Its output summary updates with those dimensions. The actual scientific stage
+excludes the inspector, so preview centering must not subtract that width again.
+Orthographic cameras report `zoom: 1`; effective scale is already in `ortho_scale`.
+Perspective zoom retains its normal meaning.
+
+Offline HTML retains the selected Graphite/Slate/Stone/Moss interface palette and
+System/Light/Dark appearance. Scientific background and export composition remain
+independent. Legacy or malformed presentation metadata falls back to Dark and
+Graphite; no arbitrary palette or attribute text is interpolated into the template.

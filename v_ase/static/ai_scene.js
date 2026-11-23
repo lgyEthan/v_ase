@@ -290,6 +290,7 @@ export function installAIScene(App) {
             display: {atomMode: r.atomDisplayMode(), atomRadiusScale: d.atomRadiusScale,
                 atomRadiusMapping: copy(d.atomRadiusMapping),
                 showPolyhedra: Boolean(d.showPolyhedra), polyhedraAtomMode: d.polyhedraAtomMode || 'all',
+                polyhedraBondedOnly: Boolean(d.polyhedraBondedOnly),
                 polyhedraBaseCount: r.polyhedraDataValid ? (r.polyhedraData?.polyhedronCount || 0) : 0,
                 polyhedraDisplayedCount: r.polyhedraGroup?.visible ? (r.polyhedraRendered?.length || 0) : 0,
                 polyhedraLigandImageCount: r.polyhedraGroup?.visible ? (r.polyhedraExtraAtoms?.length || 0) : 0,

@@ -47,13 +47,16 @@ projects. [Supported formats](formats.md).
 
 A `.vase` project restores its saved view, appearance, frame and Edit/View mode.
 It opens in a new tab when you are already working on another document.
-For structure files, you can choose a new tab, replace the current structure,
-or add frames to its trajectory. An empty document needs no destination choice.
+Structure files also default to **Open in new tab** when a document is open.
+Replacing the current structure or adding frames to its trajectory requires an
+explicit choice. An empty document needs no destination choice.
 
 Select several files in Finder and press **Command+O**, or in Windows Explorer
 and press **Enter** (after choosing v_ase as their opener). v_ase uses one window
 and asks once: **Separate tabs** or **One trajectory**. File → Open also accepts
-multiple files. Check the listed frame order; use the arrows to rearrange it.
+multiple files. The confirmation names the number of new tabs, for example
+**Open 15 tabs**. One trajectory combines every file's frames into one new tab.
+Check the listed tab or trajectory order; use the arrows to rearrange it.
 A combined trajectory is a new unsaved document, never a replacement for a source file.
 
 Use **Save** (`Command/Ctrl+S`) to save a project and **Save As**
@@ -154,3 +157,12 @@ If a log is requested, `backend.log` is in:
 - Windows: `%APPDATA%\v_ase\`
 
 Check logs for private paths before sharing them.
+
+## Workspace appearance and navigation
+
+Documents use top tabs with the v_ase logo; Scene is a separate sidebar. The native
+menu bar supplies File/Edit/View and Preferences (⌘, on Mac), so the desktop has
+no duplicate in-app command menu. Find tools (⌘F/Ctrl+F) searches all workspaces.
+View only/Edit structure visibly select exclusive access modes. Graphite is the
+neutral default; Slate, Stone and Moss are optional palettes, independent of
+System/Light/Dark and the scientific canvas background.

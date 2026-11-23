@@ -3,19 +3,23 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const { Menu, nativeImage, BrowserWindow } = require('electron');
+const { withDeadline, capturePage, ensureFocus } = require('./smoke-support.cjs');
 
 async function runSmoke({ app, win, handshake, vault, sendCommand, openQueue }) {
+    let diagnostics;
+    try {
     const output = process.env.V_ASE_SMOKE_DIR || path.join(__dirname, 'smoke-output');
     await fs.mkdir(output, { recursive: true });
+    await fs.writeFile(path.join(output, 'session.json'), JSON.stringify(handshake, null, 2));
     const js = async code => {
-        try { return await win.webContents.executeJavaScript(code); }
+        try { return await withDeadline(win.webContents.executeJavaScript(code), 'renderer command', process.env.V_ASE_SOFTWARE_GL === '1' ? 60000 : 20000); }
         catch (error) { throw new Error(`${error.message}\nExpression: ${code}`); }
     };
     const active = 'window.__V_ASE_WORKSPACE__.tabs.get(window.__V_ASE_WORKSPACE__.activeSessionId).pane.contentWindow';
     const appRef = `${active}.__ASE_APP__`;
     const modifier = process.platform === 'darwin' ? 'meta' : 'control';
     async function key(keyCode, shift = false, alt = false) {
-        win.show(); win.focus(); win.webContents.focus();
+        await ensureFocus(win);
         const modifiers = [modifier, ...(shift ? ['shift'] : []), ...(alt ? ['alt'] : [])];
         win.webContents.sendInputEvent({ type: 'keyDown', keyCode, modifiers });
         win.webContents.sendInputEvent({ type: 'keyUp', keyCode, modifiers });
@@ -103,7 +107,18 @@ async function runSmoke({ app, win, handshake, vault, sendCommand, openQueue }) 
     } finally { win.webContents.debugger.detach(); await js("document.getElementById('smoke-drop-file').remove()"); }
     await open(fixture);
     assert.equal(await js(`${appRef}.state.atoms.positions.length`), 3);
-    const visualParity = await require('./visual-smoke.cjs')({js,active,appRef,win,output,wait});
+    diagnostics = await require('./smoke-diagnostics.cjs')({js,active,appRef,win,output});
+    let visualParity;
+    const repetitions = Number(process.env.V_ASE_SMOKE_VISUAL_REPEATS || 1);
+    assert.ok(Number.isInteger(repetitions) && repetitions >= 1 && repetitions <= 100);
+    const repeatedVisuals = [];
+    try {
+        for (let cycle = 0; cycle < repetitions; cycle++) {
+            visualParity = await require('./visual-smoke.cjs')({js,active,appRef,win,output,wait,diagnostics});
+            repeatedVisuals.push({cycle:cycle+1,...visualParity});
+            await fs.writeFile(path.join(output,'repeated-visuals.json'),JSON.stringify({requested:repetitions,completed:repeatedVisuals.length,cycles:repeatedVisuals},null,2));
+        }
+    } finally { await diagnostics.save(); }
     const multiOpen = await require('./multi-open-smoke.cjs')({app,win,js,active,appRef,wait,key,output,openQueue});
     const routes = { supercell: 'cell-replication', appearance: 'appearance', bonding: 'bonding', renderer: 'export', 'cell-transform': 'cell-transform' };
     for (const [command, route] of Object.entries(routes)) {
@@ -258,10 +273,10 @@ async function runSmoke({ app, win, handshake, vault, sendCommand, openQueue }) 
         assert.equal(geometry.routes, 25, `All tools must remain visible at ${width}px`);
         assert.deepEqual(geometry.issues, [], `Clipped controls/units at ${width}px`);
         geometryRoutes += geometry.routes;
-        await fs.writeFile(path.join(output, `workspace-${width}.png`), (await win.webContents.capturePage()).toPNG());
+        await fs.writeFile(path.join(output, `workspace-${width}.png`), (await capturePage(win.webContents)).toPNG());
     }
     win.setContentSize(1440,960);
-    await fs.writeFile(path.join(output, 'workspace.png'), (await win.webContents.capturePage()).toPNG());
+    await fs.writeFile(path.join(output, 'workspace.png'), (await capturePage(win.webContents)).toPNG());
     // Real native Ctrl+A (also on macOS) and one-Tab cutoff editing.
     await js(`${appRef}.openEditorRoute('bonding')`);
     win.show(); win.focus(); win.webContents.focus();
@@ -312,7 +327,7 @@ async function runSmoke({ app, win, handshake, vault, sendCommand, openQueue }) 
     const detachedReadyMs = Date.now() - detachStartedAt;
     const detached = BrowserWindow.getAllWindows().find(candidate => candidate !== win);
     assert.ok(detached, 'Dragging a tab creates a second native window');
-    const detachedJS = code => detached.webContents.executeJavaScript(code);
+    const detachedJS = code => withDeadline(detached.webContents.executeJavaScript(code), 'detached renderer command');
     const detachedWorkspaceId = new URL(detached.webContents.getURL()).searchParams.get('workspace_id');
     const afterMove = await detachedJS(documentState);
     const afterHistory = await detachedJS(`({undo:${appRef}.undoTimeline, pending:${appRef}.visualHistoryPending})`);
@@ -333,9 +348,17 @@ async function runSmoke({ app, win, handshake, vault, sendCommand, openQueue }) 
     assert.deepEqual(comparable(afterMove), comparable(beforeMove), 'Detach preserves visual state, history, dirty state and the save format');
     assert.deepEqual(afterHistory.undo, beforeHistory.undo, 'Detach preserves every committed undo action exactly');
     assert.ok(await detachedJS(`${appRef}.projectFile.handle?.desktopToken`), 'Native file grant moves with the tab');
-    await detachedJS(`${appRef}.saveDocument()`);
+    const saveResult = await detachedJS(`${appRef}.saveDocument()`);
+    const savedState = await detachedJS(`({result:${JSON.stringify(saveResult)},error:${appRef}.projectFile.error,
+        pending:${appRef}.pendingScientificRequests.size,inFlight:${appRef}.pendingApplyInFlight,
+        scientific:${appRef}.projectScientificSignature(),savedScientific:${appRef}.projectFile.savedScientificSignature,
+        visual:${appRef}.projectVisualSignature(),savedVisual:${appRef}.projectFile.savedVisualSignature,
+        draft:${appRef}.invalidDraftInput?.id,focus:${active}.document.activeElement?.id,
+        filename:${appRef}.projectFile.filename,format:${appRef}.projectFile.format})`);
+    await fs.writeFile(path.join(output,'detached-save.json'),JSON.stringify(savedState,null,2));
+    assert.equal(saveResult,true,`Native detached save failed: ${savedState.error}`);
     assert.equal(await detachedJS(`${appRef}.updateProjectDirtyState()`), false);
-    await fs.writeFile(path.join(output, 'detached-window.png'), (await detached.webContents.capturePage()).toPNG());
+    await fs.writeFile(path.join(output, 'detached-window.png'), (await capturePage(detached.webContents)).toPNG());
     const quittingOther = new Promise(resolve => detached.once('closed', resolve));
     detached.show(); detached.focus(); detached.webContents.focus();
     detached.webContents.sendInputEvent({type:'keyDown', keyCode:'W', modifiers:[modifier]});
@@ -406,5 +429,6 @@ async function runSmoke({ app, win, handshake, vault, sendCommand, openQueue }) 
     result.emptyLastWindowRequestsQuit=true;
     await fs.writeFile(path.join(output, 'result.json'), JSON.stringify(result, null, 2));
     console.log(JSON.stringify(result));
+    } finally { await diagnostics?.save('complete-input-trace.json'); }
 }
 module.exports = { runSmoke };

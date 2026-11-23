@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { PolyhedraBSP } from './polyhedra_bsp.js';
-import { createViewportGrid } from './viewport_grid.js';
+import { createViewportGrid } from './viewport_grid.js?ui=20261111.1';
 import { installWaterRenderer } from './water_layer.js';
 import { installRenderQuality, normalizeSegments } from './render_quality.js';
 
@@ -2155,7 +2155,13 @@ export class ASERenderer {
         }
     }
 
-    rebuildAtoms(atoms, customColors) {
+    rebuildAtoms(atoms, customColors, { preservePositions = false } = {}) {
+        if (preservePositions && atoms === this.atomsData) {
+            // Physical previews live in the atom proxies until confirmation.
+            // Rebuilding appearance must retain them without mutating the
+            // committed structure shared with the editor's cancel baseline.
+            atoms = { ...atoms, positions: this.currentPositions() };
+        }
         this.invalidateSunShadowBounds();
         const commensuratePreviewToRestore = this.commensurateSupercellPreview;
         this.clearCommensurateSupercellPreview();
@@ -4175,7 +4181,7 @@ export class ASERenderer {
             || opacityChanged
         ) {
             if (this.atomsData) {
-                this.rebuildAtoms(this.atomsData, this.customColors);
+                this.rebuildAtoms(this.atomsData, this.customColors, { preservePositions: true });
             }
             if (this.addAtomsRegionConfiguration) {
                 this.setAddAtomsRegions(this.addAtomsRegionConfiguration);
@@ -4320,7 +4326,7 @@ export class ASERenderer {
             };
         }
         if (this.useInstancedAtoms) {
-            this.rebuildAtoms(this.atomsData, this.customColors);
+            this.rebuildAtoms(this.atomsData, this.customColors, { preservePositions: true });
             return;
         }
         this.refreshAtomAppearance(indices);
@@ -8085,7 +8091,7 @@ export class ASERenderer {
 
     constraintGuideVisible(group) {
         const indices = this.constraintGuideIndices(group);
-        return indices.some(idx => group.userData.kind === 'fixed_plane'
+        return indices.some(idx => ['fixed_line', 'fixed_plane'].includes(group.userData.kind)
             ? this.atomGlyphVisible(idx) : this.atomReferenceVisible(idx));
     }
 
@@ -8126,11 +8132,9 @@ export class ASERenderer {
         const signature = JSON.stringify(constrainedIndices.map(idx => ({
             index: idx,
             line: fixedLine[idx] || fixedLine[String(idx)] || null,
-            plane: fixedPlane[idx] || fixedPlane[String(idx)] || null,
-            // FixedPlane is a unit mesh scaled with the same radius as the
-            // selection shell; radius animation must not recreate its mesh.
-            radius: (fixedLine[idx] || fixedLine[String(idx)])
-                ? Number(this.atomVisualRadius?.(idx) || 0).toFixed(5) : undefined
+            // Both guides update their radius in place during animation.
+            // Their identity only depends on the constraint definition.
+            plane: fixedPlane[idx] || fixedPlane[String(idx)] || null
         })));
         const expectedGuideCount = constrainedIndices.reduce((count, idx) => (
             count
@@ -8184,7 +8188,6 @@ export class ASERenderer {
         const atom = this.atomMeshByIndex.get(index);
         if (!atom) return;
         const direction = this.normalizedVector(directionValues);
-        const metrics = this.constraintGuideMetrics(index);
         const group = new THREE.Group();
         group.userData = {
             constraintGuideFor: index,
@@ -8199,13 +8202,9 @@ export class ASERenderer {
             lineGuideSegment: true,
             fixedLineAxis: true
         };
-        this.setLinePoints(center, [
-            new THREE.Vector3(0, -metrics.lineHalfLength, 0),
-            new THREE.Vector3(0, metrics.lineHalfLength, 0)
-        ], 'lineGuideCenter', metrics.tubeRadius);
         group.add(center);
 
-        group.position.copy(atom.position);
+        this.updateFixedLineGuideMotion(group, atom);
         this.orientYAxis(group, direction);
         group.renderOrder = 20;
         this.constraintGuideGroup.add(group);
@@ -8762,6 +8761,8 @@ export class ASERenderer {
             }
             if (group.userData.kind === 'fixed_plane') {
                 this.updateFixedPlaneGuideMotion(group, atom);
+            } else if (group.userData.kind === 'fixed_line') {
+                this.updateFixedLineGuideMotion(group, atom);
             } else {
                 group.position.copy(atom.position);
             }
@@ -8769,6 +8770,21 @@ export class ASERenderer {
             // atom at zero radius, so it reappears without stale geometry.
             group.visible = this.constraintGuideVisible(group);
         });
+    }
+
+    updateFixedLineGuideMotion(group, atom) {
+        group.position.copy(atom.position);
+        // Keep the normal minimum readable size, but let nearly vanished
+        // property-mapped atoms take their guide with them. Float32 scalars
+        // can leave a tiny positive radius at a manually entered zero bound.
+        group.scale.setScalar(Math.min(1, this.atomVisualRadius(group.userData.constraintGuideFor) / 0.12));
+        const center = group.children.find(child => child.userData.fixedLineAxis);
+        if (!center) return;
+        const metrics = this.constraintGuideMetrics(group.userData.constraintGuideFor);
+        this.setLinePoints(center, [
+            new THREE.Vector3(0, -metrics.lineHalfLength, 0),
+            new THREE.Vector3(0, metrics.lineHalfLength, 0)
+        ], 'lineGuideCenter', metrics.tubeRadius);
     }
 
     updateFixedPlaneGuideMotion(group, atom) {
@@ -8975,13 +8991,26 @@ export class ASERenderer {
         this.domElement.style.height = `${height}px`;
         // Assigning canvas.width/height clears its drawing buffer, even when
         // the dimensions are unchanged (e.g. an overlay panel opened).
-        if (current.x === width && current.y === height) { this.requestRender(); return; }
+        if (current.x === width && current.y === height) return;
         this.renderer.setSize(width, height);
-        this.updateCameraProjection();
-        this.setPixelsPerAngstrom(pixelsPerAngstrom, {
-            requestRender: false,
-            notify: false
-        });
+        if (this.camera.isOrthographicCamera && current.y === height) {
+            // A moving inspector changes horizontal space only. Keep the
+            // vertical frustum and zoom exact instead of resetting them and
+            // compensating on every animation frame (which accumulates drift).
+            const halfWidth = Math.abs(this.camera.top - this.camera.bottom) * .5 * width / height;
+            const center = (this.camera.left + this.camera.right) * .5;
+            this.camera.left = center - halfWidth;
+            this.camera.right = center + halfWidth;
+            this.camera.updateProjectionMatrix();
+            this.perspectiveCamera.aspect = width / height;
+            this.perspectiveCamera.updateProjectionMatrix();
+        } else {
+            this.updateCameraProjection();
+            this.setPixelsPerAngstrom(pixelsPerAngstrom, {
+                requestRender: false,
+                notify: false
+            });
+        }
         this.onCameraChange?.({ source: 'resize' });
         // ResizeObserver runs after RAF. Redraw before the browser presents
         // the cleared buffer, including footer changes after deselection.

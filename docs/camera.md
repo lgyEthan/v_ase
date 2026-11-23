@@ -48,7 +48,17 @@ Viewport quality controls include antialiasing and atom smoothness. Lighting
 supports the current modeling/studio choices, a user-controlled Sun, and
 shadowed rendering where available. For output composition and physical scale, see [Render area](render-images.md#render-area).
 
-The **System** interface theme follows the browser/OS preference. Explicit
-Light or Dark persists in that browser. Interface theme and viewport background
-are distinct settings, although explicit Dark selects a matching dark viewport
-for a coherent starting point.
+The **System** appearance follows the browser/OS preference; explicit Light or
+Dark persists locally. The independent palette offers Graphite (default), Slate,
+Stone and Moss. These change interface colors only, preserving any saved
+scientific background and export profile. Set the viewport background separately
+in **Style → Display & guides**.
+
+## Panel geometry and orthographic scale
+
+The renderer occupies the visible stage. Opening/resizing the inspector changes
+horizontal space without invoking Fit, translating atoms or changing camera
+direction, target or pixels per Å. Width-only orthographic resizes keep the
+vertical frustum and internal zoom exact. The semantic/export camera reports
+`zoom: 1` for orthographic views because `ortho_scale` already contains the
+effective world height; perspective zoom remains explicit.

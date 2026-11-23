@@ -71,7 +71,7 @@ def test_milestone_2_proof():
         # proof compatible with a narrow viewport that starts collapsed.
         page.wait_for_function("window.__ASE_APP__?.renderer?.atomMeshByIndex?.size === 3")
         if page.locator('body').evaluate("element => element.classList.contains('inspector-collapsed')"):
-            page.click("#btn-inspector-collapse")
+            page.click("#editor-inspector-toggle")
         page.wait_for_function("!document.body.classList.contains('inspector-collapsed')")
         open_editor_route(page, "structure-info")
         page.wait_for_selector("#prop-natoms:text-is('3')")

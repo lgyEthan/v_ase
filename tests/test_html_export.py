@@ -2,6 +2,7 @@ import base64
 import asyncio
 import io
 import json
+import os
 from pathlib import Path
 import re
 
@@ -42,7 +43,7 @@ class _BodyRequest:
 
 def _html_export_fixture(
     *, embed_project=True, atom_colorscale=False, custom_colormap=False,
-    view_identity=False, atom_radius_mapping=False,
+    view_identity=False, atom_radius_mapping=False, presentation=None,
 ):
     first = Atoms(
         "CuO",
@@ -194,6 +195,8 @@ def _html_export_fixture(
         "data:image/png;base64,"
         + base64.b64encode(poster_buffer.getvalue()).decode("ascii")
     )
+    if presentation is not None:
+        settings["presentation"] = presentation
     response = export_html_response(
         session,
         {
@@ -457,6 +460,42 @@ def test_html_export_preserves_view_labels_without_changing_ase_elements(tmp_pat
     assert project.frames[0].get_chemical_symbols() == ["Cu", "O"]
 
 
+def test_offline_controls_match_the_interface_and_keep_native_button_keys(tmp_path):
+    response, _, _ = _html_export_fixture()
+    document = tmp_path / 'interface_view.html'
+    document.write_bytes(response.body)
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch(headless=True)
+        page = browser.new_page(viewport={'width': 1280, 'height': 800})
+        page.goto(document.as_uri())
+        page.locator('html[data-v-ase-ready="true"]').wait_for()
+        page.mouse.move(640, 400)
+        metadata = page.locator('#show-metadata')
+        metadata.click()
+        assert metadata.get_attribute('aria-expanded') == 'true'
+        assert page.locator('#metadata-popover').is_visible()
+        assert page.locator('#metadata-popover').bounding_box()['y'] >= page.locator('.viewer-toolbar').bounding_box()['y'] + page.locator('.viewer-toolbar').bounding_box()['height']
+        page.keyboard.press('Escape')
+        assert metadata.get_attribute('aria-expanded') == 'false'
+        assert metadata.evaluate('e=>e===document.activeElement')
+        page.locator('#reset-view').focus()
+        page.keyboard.press('Space')
+        assert page.locator('#play-frame').get_attribute('aria-label') == 'Play trajectory'
+        assert page.locator('#frame-label').inner_text() == '2 / 2'
+        slider = page.locator('#frame-slider')
+        assert slider.bounding_box()['height'] >= 24
+        page.click('#previous-frame')
+        assert slider.get_attribute('aria-valuetext') == 'Frame 1 of 2'
+        assert slider.evaluate('e=>parseFloat(e.style.getPropertyValue("--range-fill"))') == 0
+        metadata.click()
+        if directory := os.environ.get('V_ASE_UI_QA_DIR'):
+            Path(directory).mkdir(parents=True, exist_ok=True)
+            page.screenshot(path=str(Path(directory) / 'offline-controls.png'), animations='disabled')
+        page.locator('#viewer-frame canvas').click(position={'x': 30, 'y': 30})
+        assert page.locator('#metadata-popover').is_hidden()
+        browser.close()
+
+
 def test_exported_html_opens_offline_as_view_only_interactive_trajectory(tmp_path):
     response, _, _ = _html_export_fixture()
     document = tmp_path / "offline_view.html"
@@ -642,7 +681,7 @@ def test_html_export_button_downloads_an_offline_document_that_reopens(tmp_path)
             if page.locator("body").evaluate(
                 "element => element.classList.contains('inspector-collapsed')"
             ):
-                page.click("#btn-inspector-collapse")
+                page.click("#editor-inspector-toggle")
                 page.wait_for_function(
                     "!document.body.classList.contains('inspector-collapsed')"
                 )
@@ -651,6 +690,7 @@ def test_html_export_button_downloads_an_offline_document_that_reopens(tmp_path)
             page.wait_for_function(
                 "document.querySelector('#btn-export-html')?.getBoundingClientRect().height > 0"
             )
+            page.locator("#render-shared-settings > summary").click()
             page.fill("#image-width", "900")
             page.fill("#image-height", "900")
             page.click("#btn-preview-image")
@@ -874,3 +914,33 @@ def test_static_html_poster_is_the_only_visible_preview_surface_without_javascri
             assert np.array_equal(border[0, 0], border[360, 640])
         context.close()
         browser.close()
+
+
+@pytest.mark.parametrize('presentation', [None,[], 'invalid', {'interfaceTheme': []},
+    {'interfaceTheme': {'preference': ['dark'], 'palette': {'x':1}}},
+    {'interfaceTheme': {'preference': '\"><script>bad()</script>', 'palette': 'unknown'}}])
+def test_html_interface_preferences_are_whitelisted_and_tolerate_legacy_metadata(presentation):
+    response,_,_=_html_export_fixture(presentation=presentation)
+    html=response.body.decode()
+    assert 'data-theme-preference="dark"' in html
+    assert 'data-ui-palette="graphite"' in html
+    assert '{{UI_' not in html
+
+
+def test_offline_html_roundtrips_all_palettes_without_changing_scientific_background(tmp_path):
+    with sync_playwright() as pw:
+        browser=pw.chromium.launch(headless=True)
+        try:
+            for palette in ['graphite','slate','stone','moss']:
+                for appearance in ['light','dark']:
+                    response,_,_=_html_export_fixture(presentation={'interfaceTheme':{'preference':appearance,'palette':palette}})
+                    path=tmp_path/f'{palette}-{appearance}.html';path.write_bytes(response.body)
+                    context=browser.new_context()
+                    page=context.new_page();page.goto(path.as_uri())
+                    page.wait_for_function('()=>Boolean(window.v_aseStandalone?.renderer)')
+                    assert page.locator('html').get_attribute('data-ui-palette')==palette
+                    assert page.locator('html').get_attribute('data-ui-theme')==appearance
+                    assert page.evaluate('window.v_aseStandalone.renderer.scene.background.getHexString()')=='ffffff'
+                    assert page.locator('#viewer-frame canvas').is_visible()
+                    context.close()
+        finally:browser.close()

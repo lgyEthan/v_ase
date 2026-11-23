@@ -28,6 +28,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from tests.ui_navigation import click_view_control
 from tests.manual_showcase import make_frames
 from v_ase import view
 from v_ase.ai import ai_handshake
@@ -350,6 +351,9 @@ def open_panels(page, panels):
         """(panels) => {
             const openSet = new Set(panels);
             document.querySelectorAll('#inspector details').forEach((details) => {
+                // This nested disclosure belongs to the Renderer route, not
+                // the legacy top-level panel list. Keep its shipped default.
+                if (details.id === 'render-shared-settings') return;
                 const key = details.dataset.panel || details.id;
                 details.open = openSet.has(key)
                     || (key === 'rigid-translation-optional' && openSet.has('registry-map'));
@@ -361,31 +365,13 @@ def open_panels(page, panels):
 
 def open_editor_route(page, route: str):
     """Use the shipped workbench when capturing a human-facing workflow."""
-    handle = page.locator('#btn-inspector-collapse')
-    if handle.is_visible() and handle.get_attribute('aria-expanded') == 'false':
-        handle.click()
-    if route in {'appearance', 'bonding', 'cell-replication', 'polyhedra', 'water', 'isosurfaces', 'forces', 'view'}:
-        page.locator('#workbench-tabs [data-workbench="style"]').click()
-        page.locator(f'#workbench-tools [data-editor-route="{route}"]').click()
-    elif route in {'add-atoms', 'transform', 'cell-transform', 'constraints',
-                   'build-match', 'scientific-tools', 'build-rigid'}:
-        page.locator('#workbench-tabs [data-workbench="build"]').click()
-        page.locator(f'#workbench-tools [data-editor-route="{route}"]').click()
-    elif route in {'selection', 'rdf', 'displacement', 'volumetric', 'registry-map'}:
-        page.locator('#workbench-tabs [data-workbench="analyze"]').click()
-        page.locator(f'#workbench-tools [data-editor-route="{route}"]').click()
-    elif route in {'export', 'render-image', 'render-video', 'render-html', 'render-geometry'}:
-        page.locator('#workbench-tabs [data-workbench="render"]').click()
-        page.locator(f'#workbench-tools [data-editor-route="{route}"]').click()
-    else:
-        page.locator('#editor-search-toggle').click()
-        page.locator('#editor-command-search').fill(route)
-        page.locator(f'#editor-navigator [data-editor-route="{route}"]').click()
+    from tests.ui_navigation import open_editor_route as navigate
+    navigate(page, route, expand_appearance=False)
 
 
-def configure_inspector(page, group: str, panels, width=352):
+def configure_inspector(page, group: str, panels, width=320):
     # README figures represent the approved default, not a manually widened panel.
-    width = min(width, 352)
+    width = min(width, 320)
     page.evaluate(
         """({ group, width, route }) => {
             const app = window.__V_ASE_APP__;
@@ -607,6 +593,12 @@ def capture_logo(browser):
         if not output_override:
             static_logo = ROOT / "v_ase" / "static" / "v_ase-logo.png"
             static_logo.write_bytes(logo_output.read_bytes())
+            # A small, lossless derived asset avoids decoding the full 6K logo in every toolbar.
+            from PIL import Image
+            with Image.open(logo_output) as logo_image:
+                logo_image.resize((320, round(logo_image.height * 320 / logo_image.width)), Image.Resampling.LANCZOS).save(
+                    ROOT / "v_ase/static/v_ase-brand.png", optimize=True
+                )
     finally:
         page.close()
         editor.close()
@@ -819,6 +811,13 @@ def append_hold(frames: list[Image.Image], page, count: int) -> None:
 
 
 def projected_atom_points(page) -> list[dict[str, float | int]]:
+    # Selection coordinates are meaningful only after a moving panel has
+    # finished changing the real stage. Earlier class changes start travel.
+    page.wait_for_function("""() => !document.body.getAnimations().some(
+        animation => animation.playState === 'running' || animation.pending)""")
+    page.evaluate("""() => new Promise(resolve => requestAnimationFrame(() => {
+        window.__V_ASE_APP__.renderer.onResize(); resolve();
+    }))""")
     return page.evaluate(
         """() => {
             const app = window.__V_ASE_APP__;
@@ -1049,6 +1048,8 @@ def capture_animation(
 def open_scene(browser, atoms_or_frames, *, show_bonds=False, viz_only=False):
     editor = view(
         atoms_or_frames,
+        notebook=True,
+        open_browser=False,
         block=False,
         viz_only=viz_only,
         show_cell=True,
@@ -1063,7 +1064,7 @@ def open_scene(browser, atoms_or_frames, *, show_bonds=False, viz_only=False):
         device_scale_factor=1,
     )
     page.goto(url)
-    page.wait_for_function("window.__V_ASE_APP__ && window.__V_ASE_APP__.state.atoms")
+    page.wait_for_function("window.__V_ASE_APP__?.collaborationReady && !document.body.dataset.busy")
     return editor, page
 
 
@@ -2555,6 +2556,8 @@ def capture_material_media(browser) -> None:
             app.renderAppearanceRows();
         }""")
         configure_inspector(page, "structure", ["appearance"], width=560)
+        from tests.ui_navigation import expand_appearance_rows
+        expand_appearance_rows(page)
         scene_center = np.mean(atoms.positions, axis=0)
         target = scene_center + np.array([2.8, 0.0, 0.0])
         settle_view(
@@ -2592,10 +2595,11 @@ def capture_lighting_controls_media(browser) -> None:
         center = atoms.positions.mean(axis=0)
         settle_view(page, target=center.tolist(),
                     position=(center + np.array([17., -23., 18.])).tolist(), fov=34)
-        page.evaluate("window.__V_ASE_APP__.renderer.fitCameraToStructure()")
-        set_atomic_scale(page, 34.0)
+        # Keep the explicit atom-centered composition: fitting the simulation
+        # cell here would include the slab's large empty vacuum region.
+        set_atomic_scale(page, 72.0)
         configure_inspector(page, "export", ["export"], width=470)
-        page.click("#btn-lighting-toggle")
+        click_view_control(page, '#btn-lighting-toggle')
         page.wait_for_function("document.getElementById('lighting-widget').classList.contains('open')")
         page.wait_for_timeout(150)
         page.screenshot(path=ASSET_DIR / "render-lighting-controls.png")
@@ -2760,13 +2764,13 @@ def capture_cu5o4_view_appearance_media(browser) -> None:
             "Object.values(window.__V_ASE_APP__.state.display.atomMaterials).every(value => value === 'metal')"
         )
         append_hold(frames, page, 5)
-        page.evaluate("""() => {
-            const table = document.getElementById('appearance-table');
-            table.scrollLeft = table.scrollWidth;
-        }""")
         radius_input = page.locator(
             '.label-radius-input[data-atom-label="Cu_substrate"]'
         )
+        label_row = page.locator('#appearance-table details.appearance-row').filter(has=radius_input)
+        if label_row.get_attribute('open') is None:
+            label_row.locator(':scope > summary').focus()
+            label_row.locator(':scope > summary').press('Enter')
         radius_input.fill("2.0")
         radius_input.blur()
         color_input = page.locator(
@@ -5374,6 +5378,7 @@ def capture_html_media(browser) -> None:
         }''')
         configure_inspector(page,"export",["export"],width=470)
         open_editor_route(page, 'render-html')
+        page.locator('#render-shared-settings > summary').click()
         page.fill('#image-width','1280');page.fill('#image-height','720')
         page.click('#btn-export-html');page.locator('#html-export-confirm').wait_for(state='visible')
         page.check('#html-embed-project')
@@ -5491,6 +5496,7 @@ def main() -> int:
                 for name, capture in captures.items():
                     if name == "analysis":
                         continue
+                    print(f"Capturing {name}…", flush=True)
                     capture(browser)
         finally:
             browser.close()

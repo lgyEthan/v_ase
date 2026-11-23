@@ -10,8 +10,7 @@ over HTTP or stdin. Natural language belongs between the researcher and the
 external agent; v_ase accepts deterministic JSON.
 
 :::{important}
-The scene workflow below is included in 0.3.3 alongside the existing CLI
-compatibility contract. At runtime, the installed live
+The scene workflow and CLI share the same semantic backend. At runtime, the installed live
 schema and `capabilities` response are authoritative. Do not copy a command
 name or parameter from an older document when the live release does not
 advertise it.
@@ -95,15 +94,18 @@ The controlling agent needs:
   `references/agent-setup.md`, and the references needed for the task; and
 - the same tested v_ase release for Python, backend assets, and browser code.
 
-Install the current release:
+Install a matching runtime in a fresh environment. This GitHub source guide uses:
 
 ```bash
-python -m pip install "v_ase-gui==0.3.3"
+python -m pip install "v_ase-gui[mcp] @ git+https://github.com/lgyEthan/v_ase.git@main"
 ```
 
 No API key or external service is required. A hosted model without local shell
 and browser access can propose a command plan, but a local agent must execute
 and verify it.
+
+For published desktop/PyPI 0.4.13, use its matching Skill tag instead. See
+[Skill and runtime setup](agent-setup.md).
 
 ## Start a live session
 

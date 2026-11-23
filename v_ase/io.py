@@ -24,6 +24,7 @@ ATOM_LABEL_ARRAY = "v_ase_atom_type"
 ATOM_TYPE_ARRAY = ATOM_LABEL_ARRAY
 
 INPUT_FORMAT_ALIASES = {
+    "cif": "cif",
     "poscar": "vasp",
     "contcar": "vasp",
     "vasp": "vasp",
@@ -90,6 +91,8 @@ def infer_input_format(
         return None
 
     basename = Path(filename).name.casefold()
+    if basename.endswith('.cif'):
+        return 'cif'
 
     def matches_stem(stem: str) -> bool:
         return basename == stem or basename.startswith(
@@ -1372,6 +1375,54 @@ def read_custom_extxyz(path: str | Path, index: str | int | slice | None = ":") 
     return _select_frames(frames, index)
 
 
+def read_cif_frames(path, index=":"):
+    """Keep an explicitly supplied CIF symmetry table authoritative.
+
+    ASE's database does not recognize every expanded H-M spelling (for example
+    C 1 c 1). When lookup fails, the file's complete operation table can still
+    expand the supplied sites without guessing a group or changing the cell.
+    """
+    from ase.io.cif import CIFBlock, parse_cif
+    from ase.spacegroup.spacegroup import SpacegroupNotFoundError
+
+    frames = []
+    for block in parse_cif(str(path)):
+        if not block.has_structure():
+            continue
+        symbol = block._get_spacegroup_name()
+        operations = block._get_sitesym()
+        try:
+            atoms = block.get_atoms()
+        except SpacegroupNotFoundError:
+            if not operations:
+                raise
+            # P1 is only an ASE construction seed. The explicit operation list
+            # replaces its rotations/translations; do not report P1 as the
+            # crystal's space group in the resulting scientific metadata.
+            tags = dict(block.items())
+            for key in ('_symmetry_space_group_name_h-m', '_space_group_name_h-m_alt',
+                        '_space_group_name_h-m', '_space_group_it_number',
+                        '_symmetry_int_tables_number', '_space_group_it_coordinate_system_code',
+                        '_symmetry_space_group_setting', '_space_group_crystal_system',
+                        '_symmetry_cell_setting'):
+                tags.pop(key, None)
+            tags['_space_group_it_number'] = 1
+            atoms = CIFBlock(block.name, tags).get_atoms()
+            atoms.info.pop('spacegroup', None)
+            atoms.info['cif_symmetry_source'] = 'explicit-operations'
+            atoms.info['cif_symmetry_operations'] = list(operations)
+            if symbol:
+                atoms.info['cif_spacegroup_symbol'] = symbol
+        labels = block.get('_atom_site_label')
+        kinds = atoms.arrays.get('spacegroup_kinds')
+        if labels is not None and kinds is not None:
+            atoms.set_array('cif_site_label', np.asarray([str(labels[k]) for k in kinds]))
+        frames.append(atoms)
+    if not frames:
+        raise ValueError('CIF contains no atomic structure with coordinates.')
+    return _select_frames(frames, index)
+
+
 def read_structure_frames(
     path: str | Path,
     index: str | int | slice | None = ":",
@@ -1381,6 +1432,8 @@ def read_structure_frames(
     source = Path(path)
     resolved_format = infer_input_format(source, fmt)
     suffix = source.suffix.lower()
+    if resolved_format == 'cif' or (fmt is None and suffix == '.cif'):
+        return read_cif_frames(source, index)
 
     if resolved_format == "lammps-dump-text" or (
         fmt is None and suffix in {".lammpstrj", ".dump"}

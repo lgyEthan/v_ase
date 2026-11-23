@@ -1,6 +1,6 @@
 # Supported formats
 
-v_ase 0.3.3 uses one input pipeline for the terminal, Python path API, and
+v_ase uses one input pipeline for the terminal, Python path API, and
 browser file picker. It adds project, volumetric, indexed-trajectory, and
 LAMMPS handling around ASE's readers. An explicit reader always takes priority
 over filename inference.
@@ -22,7 +22,7 @@ over filename inference.
 | ASE trajectory | `.traj` | Native ASE frames and metadata | View mode uses the trajectory container's random access |
 | LAMMPS dump | `.lammpstrj`, `.dump` | Frames, box/PBC, ids, types, positions and supported numeric columns | Compatible numeric dumps use a byte-indexed, memory-mapped View path |
 | LAMMPS data | `.data` | Structure, box, atom ids/types, masses and supported topology fields | Atom style is detected when possible; `--format data` removes ambiguity |
-| CIF | `.cif` | ASE-readable crystallographic structures | CIF interpretation follows the installed ASE release |
+| CIF | `.cif` | Crystallographic structures with cell, PBC, symmetry expansion and source site labels | Auto detect or choose CIF explicitly; explicit symmetry tables support expanded H-M spellings such as `C 1 c 1` |
 | v_ase project | `.vase` | Complete editable document | Restores frames, scientific metadata, visual state, analysis and export settings |
 | v_ase project HTML | `.html`, `.htm` | Embedded `.vase`, when present | A lightweight view-only HTML has no editable project to restore |
 | VASP scalar fields | `CHG`, `CHGCAR`, `PARCHG`, `LOCPOT`, `ELFCAR` | Structure plus scalar datasets | Standard stems may use `.`, `_`, or `-` suffixes |
@@ -53,6 +53,13 @@ following standard VASP stems are recognized with an optional `.`, `_`, or
 
 For example, `POSCAR.relaxed`, `XDATCAR_2`, and `LOCPOT-spin` retain the
 intended reader. `vasprun.xml` is recognized by its complete basename.
+`.cif` is recognized case-insensitively, including browser uploads. The explicit
+**CIF crystal structure** reader is available in Open File. When ASE does not
+recognize a space-group name but the file supplies symmetry operations, those
+operations expand the sites without guessing a different group or cell setting.
+The original symbol, operations and `cif_site_label` array remain available.
+Unknown groups without operations still report an error. A label such as `O-H1`
+names an oxygen site; it does not supply a hydrogen coordinate.
 
 Use `--format` to override inference:
 

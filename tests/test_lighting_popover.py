@@ -4,7 +4,7 @@ from ase import Atoms
 from playwright.sync_api import sync_playwright
 from v_ase.viewer import view, find_free_port
 
-@pytest.mark.parametrize('width,height', [(2308,1190), (1280,800), (390,844), (640,300)])
+@pytest.mark.parametrize('width,height', [(2308,1190), (1280,800), (390,844), (640,300), (540,300), (340,300)])
 def test_lighting_popover_is_clickable_outside_scrolling_toolbar(width, height):
     port=find_free_port()
     editor=view(Atoms('CuO',positions=[[0,0,0],[2,0,0]],cell=[8,8,8]),notebook=True,block=False,port=port,viz_only=False,close_on_disconnect=False)
@@ -12,8 +12,11 @@ def test_lighting_popover_is_clickable_outside_scrolling_toolbar(width, height):
         with sync_playwright() as pw:
             browser=pw.chromium.launch(headless=True)
             page=browser.new_page(viewport={'width':width,'height':height})
+            errors=[]
+            page.on('pageerror',lambda error:errors.append(str(error)))
             page.goto(f'http://127.0.0.1:{port}/?session_id={editor.session_id}')
             page.wait_for_function('window.__ASE_APP__?.collaborationReady')
+            page.locator('#camera-rotation-toggle').click()
             trigger=page.locator('#btn-lighting-toggle')
             trigger.click()
             assert trigger.get_attribute('aria-expanded')=='true'
@@ -24,6 +27,8 @@ def test_lighting_popover_is_clickable_outside_scrolling_toolbar(width, height):
                 const r=el.getBoundingClientRect();
                 return el.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2));
             }'''), 'Lighting options are clipped or covered after opening'
+            assert page.evaluate('''()=>{const a=document.getElementById('lighting-card').getBoundingClientRect(),b=document.getElementById('orientation-widget').getBoundingClientRect();
+                return Math.min(a.right,b.right)<=Math.max(a.left,b.left)||Math.min(a.bottom,b.bottom)<=Math.max(a.top,b.top);}'''), 'Lighting card covers the axis target'
             mode.click(timeout=2000)
             mode.select_option('studio')
             page.wait_for_function("window.__ASE_APP__.state.display.lightingMode === 'studio'")
@@ -42,6 +47,7 @@ def test_lighting_popover_is_clickable_outside_scrolling_toolbar(width, height):
             trigger.click()
             page.mouse.click(8,height-12)
             assert trigger.get_attribute('aria-expanded')=='false'
+            assert not errors,errors
             browser.close()
     finally:
         editor.close()

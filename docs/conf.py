@@ -53,6 +53,7 @@ html_title = f"v_ase {release} documentation"
 html_logo = "assets/v_ase-logo.png"
 html_favicon = "assets/v_ase-logo.png"
 html_static_path = ["_static"]
+templates_path = ["_templates"]
 html_css_files = ["custom.css"]
 html_js_files = ["copy-code.js"]
 html_theme_options = {
@@ -63,6 +64,7 @@ html_theme_options = {
     "titles_only": True,
 }
 html_context = {
+    "vase_unreleased_source": os.environ.get("READTHEDOCS_VERSION_TYPE", "branch") != "tag",
     "display_github": True,
     "github_user": "lgyEthan",
     "github_repo": "v_ase",

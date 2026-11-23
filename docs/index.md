@@ -30,12 +30,14 @@ Start with the desktop app or use v_ase from Python and Jupyter.
 | Explore volumetric data | [Isosurfaces](isosurfaces.md) · [Cross-sections](field-planes.md) |
 | Save a project or share a figure | [Projects and HTML](save-projects.md) · [Images](render-images.md) · [Movies and GIFs](export-video.md) |
 | Continue a scene in Blender | [3D export](export-structures.md#blender) |
-| Connect an AI agent | [MCP setup](ai-tools.md) · [ChatGPT](chatgpt-local.md) |
+| Connect an AI agent | [Install the Skill](agent-setup.md) · [MCP setup](ai-tools.md) · [ChatGPT](chatgpt-local.md) |
 
 Each guide includes the controls and examples for that task. If something does
 not work, start with [Troubleshooting](troubleshooting.md).
 
-This manual describes **v_ase 0.4.13**. [What's new](whats-new.md).
+This `main` manual includes **unreleased changes after v_ase 0.4.13**.
+Published desktop installers and PyPI remain 0.4.13. For the current code and
+matching Skill, follow [source setup](agent-setup.md). [What's new](whats-new.md).
 
 ```{toctree}
 :caption: Get started
@@ -46,6 +48,8 @@ installation
 desktop
 quickstart
 workspace
+interface-design
+interface-references
 data-input
 example-inputs
 worked-examples
@@ -112,6 +116,7 @@ field-processing
 
 render-images
 save-projects
+model-output-figures
 export-video
 export-structures
 ```
@@ -122,6 +127,7 @@ export-structures
 :hidden:
 
 chatgpt-local
+agent-setup
 ai-agents
 ai-scene
 python-api

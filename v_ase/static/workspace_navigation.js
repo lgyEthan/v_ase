@@ -14,6 +14,7 @@ export function navigateWorkspaceDocument(workspace, commandId) {
     const entry = workspace.tabs.get(workspace.activeSessionId);
     const app = entry?.host ? workspace.app : entry?.pane?.contentWindow?.__ASE_APP__;
     const doc = app?.renderer?.domElement?.ownerDocument;
+    if (doc?.body?.dataset.busy) return true;
     if (doc?.getElementById('modal-container')?.classList.contains('hidden') === false) return true;
     if (app?.transform?.mode && app.transform.mode !== 'IDLE') {
         app.toast('Finish or cancel the transform before switching documents.', 'warning');

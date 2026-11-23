@@ -14,6 +14,13 @@ projects and window lifecycles. These are validation files, never distributable
 installers. The normal three-platform packaging workflow below still installs
 and verifies the exact published wheel before any public desktop promotion.
 
+The current `main` scientific source includes changes after published 0.4.13.
+To develop against it, install that checkout in a Python environment and run
+the host with `VASE_DEV_PYTHON` pointing to that environment. Running the normal
+runtime preparation helper still installs the published wheel; it does not
+turn a host build into a new scientific release. Do not label a source test or
+an ad-hoc local app as a new published/notarized desktop installer.
+
 ## Build on the target platform
 
 Use Node.js 22, npm, Python 3.12+ **for the build helper**, and Git. The app bundles
@@ -64,7 +71,21 @@ The packaged test launches outside the repository to catch dependencies on the
 developer's checkout or Python installation. The desktop icon is a transparent
 derivative of the maintainer's atomic-bead castle and Pinocchio render. Its
 approved master and reproducible PNG/ICNS/ICO encoding are documented in
-[assets/README.md](assets/README.md). The editor header retains the GitHub logo.
+[assets/README.md](assets/README.md). The editor header uses a compact v_ase
+wordmark; the atomistic artwork remains the application icon.
+
+For local source UI validation, point the development host at a prepared Python
+environment and give the smoke test its own output/profile directory:
+
+```sh
+VASE_DEV_PYTHON=/absolute/path/to/.venv/bin/python \
+V_ASE_SMOKE_DIR=/absolute/path/to/review/desktop-smoke \
+npm run smoke
+```
+
+The development host imports this checkout explicitly. This does not replace an
+installed desktop app or publish a package. The shared interface system is in
+the Python static assets, including browser, notebook and offline HTML controls.
 
 ## Host contract
 
@@ -133,6 +154,29 @@ system ANSI code page.
 
 Pixel checks allow up to 15 seconds for the native compositor to present a new
 selection frame; their required visible-pixel thresholds remain unchanged.
+
+For stability review, set `V_ASE_SMOKE_VISUAL_REPEATS=10` and use a fresh
+`V_ASE_SMOKE_DIR` for each process. Each cycle checks both 2D and 3D, exact
+FixedPlane ring geometry/opacity, visible constraint and selection pixels,
+axes, native checkbox hit testing and scientific state invariance. It explicitly
+sends Backspace/Delete after checkbox activation. The first failed cycle aborts;
+`repeated-visuals.json` retains requested/completed counts. A rerun does not erase
+or satisfy an earlier failure.
+
+Smoke windows temporarily receive native focus. `smoke-input.cjs` records and
+blocks input that the harness did not send, before it reaches desktop shortcuts
+or scientific editing. Tested input still uses Electron's `sendInputEvent` and
+the normal host/editor handlers. Missing test key presses or mouse presses and
+releases fail the run; consecutive mouse moves may be coalesced. macOS consumes
+Command shortcut releases in AppKit, so their keyDown delivery and resulting
+command are mandatory while those releases are optional. Ordinary key releases
+remain mandatory. `native-input-isolation.json` includes all windows, even closed
+ones. `input-trace.json`, `complete-input-trace.json`, `failure-state.json` and
+`detached-save.json` retain input provenance and model/save state for diagnosis.
+This isolation is installed only with `--smoke-test`; normal user input is unchanged.
+Native captures/renderer calls have deadlines, and smoke prevents display sleep
+and background animation throttling while running, so an unresponsive compositor
+fails with evidence instead of waiting indefinitely.
 
 `.github/workflows/desktop.yml` tests Apple silicon, Intel Mac and Windows
 independently, then repeats tests against each packaged app. It retains build
@@ -276,3 +320,15 @@ users should install the native arm64 build.
    and the checksum file, extract the Mac ZIPs, verify signatures/tickets and
    Gatekeeper assessment, and inspect the DMG's Applications shortcut. Confirm
    the source/evidence links and the online installation guide match delivery.
+
+### Document tabs and gestures
+
+Desktop documents appear in the top horizontal tab strip beside the v_ase logo.
+Drag across tabs to reorder; a marker previews the destination. Drag below the
+strip to move a document into another window. Escape/pointer cancellation commits
+neither action. Scene is a separate collapsible sidebar. The desktop uses the
+native menu bar, including Preferences (⌘,) and global Find tools (⌘F/Ctrl+F);
+there is no redundant in-app ellipsis menu. View only/Edit structure are access
+modes. Preferences selects Graphite/Slate/Stone/Moss and System/Light/Dark without
+changing scientific rendering. Geometry checks run under Node and browser-scoped
+input; OS-input smoke tests require an idle or dedicated host.

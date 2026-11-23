@@ -304,7 +304,9 @@ Constraint rendering:
 
 - `FixAtoms`: element color is retained with a distinct fixed material surface.
 - `FixedLine`: each constrained atom receives one short, radius-scaled axis
-  through its center that remains visible without selection. During `G`, a
+  through its center that remains visible without selection. Its length and
+  thickness follow live and interpolated atom radii, including after reopening
+  a saved project. Zero-radius atoms hide their guides. During `G`, a
   longer line anchored at the original position shows the full permitted
   direction. It never uses a ring or plane disc.
 - `FixedPlane`: each atom receives its own radius-scaled ring, crosshair, and
@@ -745,8 +747,9 @@ the View/Edit visual translation saved in display settings.
   new structures and tabs. Coordinates, cell contents, trajectory data,
   absolute camera placement, and per-atom overrides are excluded.
 - Interface theme: System follows the local browser/OS preference; explicit
-  Light and Dark choices persist in that browser and remain separate from the
-  3D viewport background.
+  Light and Dark choices persist locally. Graphite (default), Slate, Stone and
+  Moss palettes independently color the entire interface. Neither preference
+  changes the scientific background, atoms, camera or export profile.
 - `.vase`: complete validated project archive.
 - `.vase` volumetric state: validated compressed NPZ members with bounded
   expected arrays; no executable pickle payload.

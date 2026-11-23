@@ -1,0 +1,36 @@
+# v_ase
+
+> An ASE-native workspace for building, inspecting and rendering atomic structures, trajectories and scalar fields. An external agent and the researcher share the same live document.
+
+## Agent setup
+
+This branch contains source changes after the published 0.4.13 release. Match the runtime, MCP adapter and Skill to the same source channel. Publishing this guide does not update PyPI or the desktop installers.
+
+- Setup guide: https://v-ase.readthedocs.io/en/latest/agent-setup.html
+- Scientific Skill: https://github.com/lgyEthan/v_ase/tree/main/v_ase/skills/visualizing-atomic-structures-with-v-ase
+- MCP connection guide: https://v-ase.readthedocs.io/en/latest/ai-tools.html
+- CLI and HTTP bridge: https://v-ase.readthedocs.io/en/latest/ai-cli.html
+
+Install the current source Skill for the coding clients the user selects:
+
+```bash
+npx skills@latest add lgyEthan/v_ase --skill visualizing-atomic-structures-with-v-ase -a claude-code codex cursor -g -y
+```
+
+The command installs instructions and their references. Install/configure the v_ase runtime and MCP connection separately. Use only the clients and project/global scope requested by the user; preserve unrelated MCP servers and existing environment configuration.
+
+For the published 0.4.13 runtime, select the matching Skill with `lgyEthan/v_ase@v0.4.13` instead. For current GitHub source in a Python environment:
+
+```bash
+python -m pip install "v_ase-gui[mcp] @ git+https://github.com/lgyEthan/v_ase.git@main"
+```
+
+Reuse an existing GUI through its copied agent connection URL. If starting an owned GUI for the requested task, expose its human URL and keep it connected. Discover the live tools/schema, read the scientific Skill, and retain document/revision guards. Verify semantic state and final rendered output. No model API key is required by v_ase itself.
+
+## User documentation
+
+- Install: https://v-ase.readthedocs.io/en/latest/installation.html
+- First steps: https://v-ase.readthedocs.io/en/latest/quickstart.html
+- Workspace: https://v-ase.readthedocs.io/en/latest/workspace.html
+- Scientific validation: https://v-ase.readthedocs.io/en/latest/scientific-validation.html
+- Source and published releases: https://github.com/lgyEthan/v_ase

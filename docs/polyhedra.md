@@ -4,8 +4,35 @@ Show the coordination around chosen atoms as colored faces and edges. Use it
 for perovskites, oxides, mixed ligands or distorted local environments.
 **View mode is sufficient:** the feature changes no coordinates and runs no calculator.
 
-**Open:** **Objects → Polyhedra** (or header search). Add a rule, choose its centers
-and surrounding atoms, set a cutoff, then click **Apply polyhedra**.
+**Open:** **Style → Polyhedra** (or global Find tools). On first use, turn on
+**Show polyhedra** to find initial neighbors automatically. The resulting rules
+remain editable. To define your own neighborhood, choose **Add rule**, select
+centers and surrounding atoms, set a cutoff, then **Apply polyhedra**.
+
+The circled **!** beside **Find neighbors automatically** explains the method.
+It makes separate element-pair rules using O, N, F, S, Cl, Se, Br or I as ligands
+and other elements except H/noble gases as centers. Each cutoff is **1.25 times
+the sum of ASE covalent radii**. Periodic images count; only nonplanar 3D hulls
+with 4–32 neighbors appear initially. No regular tetrahedron/octahedron or
+oxidation state is imposed. Each row shows the actual cutoff, hull counts and
+coordination numbers. Existing rules stay intact unless you explicitly replace
+them with automatic rules. This is a starting estimate; custom rules support
+other or mixed ligands, exact vertices and different distances/count limits.
+
+**Use bonded neighbors only** is off by default. When enabled, each periodic
+ligand site is additionally filtered by the current automatic/pairwise/manual
+bond definitions. Hiding **Show bonds** only hides lines; it does not erase the
+filter's topology. For automatic/pairwise rules all eligible periodic images
+count independently; manual pairs use their direct/minimum-image connections.
+The existing **Center–ligand connectors** checkbox controls drawing, separately.
+Omitted-center status reports the atom, measured neighbor count and reason;
+adjust its cutoff, count range or bonded-neighbor filter rather than changing atoms.
+
+For the 76-site vermiculite CIF (`C 1 c 1`, four supplied symmetry operations),
+periodic **Si → O / 2.0 Å** and **Mg → O / 2.5 Å** rules yield **16 SiO₄
+tetrahedra and 12 MgO₆ octahedra**, 136 ligand incidences. The automatic radii
+rules also recover both layers. The file's hydroxyl oxygen labels do not provide
+hydrogen coordinates. Bond lines are unnecessary for these hulls.
 
 The same coordination geometry works in **2D** (flat colors and outlined atoms)
 and **3D** (lit surfaces and spheres). These are display styles: 2D does not
@@ -18,6 +45,7 @@ flatten atom coordinates or replace an octahedron with a planar polygon.
 | Centers by Element / Visual label / Atom index | Which atoms own a polyhedron |
 | Surrounding atoms by Element / Label / Index | Which atoms may become its vertices |
 | Minimum / maximum distance | Distances in Å from each center; independent of visible bonds |
+| Use bonded neighbors only | Additional bond-definition filter; off by default; independent of Show bonds |
 | Coordination range | Show only neighborhoods within the chosen count range |
 | Include periodic images | Honor the input PBC flags and include all qualifying images |
 | Face color / Use center atom color | A custom rule color or the resolved center's color |

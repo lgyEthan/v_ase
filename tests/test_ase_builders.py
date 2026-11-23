@@ -483,10 +483,10 @@ def test_browser_ase_bulk_builder_uses_unified_readable_design_tokens():
                 )
 
                 assert metrics["minTextSize"] >= 11
-                assert {item["height"] for item in metrics["inputs"]} == {36}
+                assert {item["height"] for item in metrics["inputs"]} == {28}
                 assert {item["fontSize"] for item in metrics["inputs"]} == {13}
-                assert {item["height"] for item in metrics["tabs"]} == {36}
-                assert {item["fontSize"] for item in metrics["tabs"]} == {13}
+                assert {item["height"] for item in metrics["tabs"]} == {29}
+                assert {item["fontSize"] for item in metrics["tabs"]} == {12}
                 assert metrics["panelLeft"] >= 0
                 assert metrics["panelRight"] <= 760
                 assert metrics["panelScrollWidth"] <= metrics["panelClientWidth"]

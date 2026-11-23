@@ -56,6 +56,9 @@ contract.
 Use **Finish** to commit the selected result. **Cancel** restores the exact
 pre-workflow structure. Stopping leaves the workspace and current result open
 for inspection.
+Completion remains visible if an older structure read or start response arrives
+late. Run again to optimize from the current translation in the same mode;
+completion does not implicitly Finish or Cancel the workflow.
 
 ![Registry map and rigid translation](assets/readme_registry_map.png)
 

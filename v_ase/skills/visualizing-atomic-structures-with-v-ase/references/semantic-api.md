@@ -1491,22 +1491,25 @@ v_ase api "$COMMAND_URL" export --save rdf.csv --params '{
 
 ## Interface Theme And Personal Defaults
 
-The System preference follows the browser/OS scheme for application chrome
-while retaining the default white scientific viewport. Explicit Light uses a
-light interface and viewport; explicit Dark uses a dark interface and dark
-viewport. A deliberately restored `display.viewportBackground` remains an
-independent visual-preset override:
+Appearance follows System, Light or Dark. Palette independently selects
+Graphite (neutral default), Slate, Stone or Moss. These preferences affect only
+interface surfaces and controls, preserving the scientific background, camera,
+atom appearance and image profile, including an existing saved dark background.
 
 ```javascript
 await ai.apply({operation: {
   name: "set-interface-theme",
-  theme: "system"
+  theme: "system",
+  palette: "graphite"
 }});
 ```
 
-`describe().preferences.interfaceTheme` reports the stored preference and the
-currently resolved theme. The operation is `set-interface-theme`; accepted
-values are `system`, `light`, and `dark`.
+`describe().preferences.interfaceTheme` reports the stored preference, resolved
+appearance, palette and persistence flags. `theme` is required; `palette` is
+optional and retains the current selection when omitted. The GUI offers the
+same choices under Style → Display & guides; native desktop Preferences focuses
+them. Parent/editor frames update synchronously. Offline HTML preserves these
+chrome choices independently of the scientific canvas background.
 
 To make the current reusable visual setup the OS user's starting style for new
 structures and tabs:

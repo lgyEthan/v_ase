@@ -40,16 +40,29 @@ separately for VASP. Setting a default app does not convert file contents.
 
 ## Installation
 
-Install the tested release into the active Python environment:
+Match the runtime, MCP adapter and Skill to the same source channel. This
+Skill from `main` describes changes after published 0.4.13. For current source,
+use a fresh Python environment:
 
 ```bash
-python -m pip install "v_ase-gui==0.4.13"
+python -m pip install "v_ase-gui[mcp] @ git+https://github.com/lgyEthan/v_ase.git@main"
 ```
 
-Optional Rhino export:
+If replacing an installed snapshot with the same version string, use a fresh
+environment or `--force-reinstall`. Inspect the live tool contract and source
+origin; a version string alone does not identify the source commit.
+
+For published 0.4.13 instead, install its runtime and select
+`lgyEthan/v_ase@v0.4.13` in the optional Skill installer:
 
 ```bash
-python -m pip install "v_ase-gui[rhino]==0.4.13"
+python -m pip install "v_ase-gui[mcp]==0.4.13"
+```
+
+Optional Rhino export for the current source:
+
+```bash
+python -m pip install "v_ase-gui[mcp,rhino] @ git+https://github.com/lgyEthan/v_ase.git@main"
 ```
 
 Runtime dependencies are ASE, matscipy, FastAPI, Uvicorn, NumPy, SciPy,
@@ -66,7 +79,7 @@ the complete environment with the same interpreter instead of replacing NumPy
 alone:
 
 ```bash
-python -m pip install --upgrade --force-reinstall "v_ase-gui==0.4.13"
+python -m pip install --upgrade --force-reinstall "v_ase-gui[mcp] @ git+https://github.com/lgyEthan/v_ase.git@main"
 ```
 
 v_ase uses the `AGPL-3.0-or-later` license. Preserve the license and source
@@ -93,9 +106,16 @@ v_ase gui
 
 This filename-free workspace starts in Edit so a cell and atoms can be created
 from scratch. A filename starts in View unless `--interactive` is supplied.
-When a human uses **Open File**, each load explicitly offers View or Edit; a
-new empty document replaces directly because there is no prior structure to
-append or preserve.
+When a human uses **Open File**, each structure load explicitly offers View or
+Edit. With existing content, **Open in new tab** is the GUI default, independent
+of file picker, native menu or drop entry. Replacement/append remain explicit;
+the guarded semantic `load-structure` command still replaces its target and is
+not changed by this GUI default. A new empty document opens directly because
+there is no prior structure to append or preserve. A multi-file chooser offers
+one new tab per file (e.g. **Open 15 tabs**) or every file's frames in one new
+trajectory tab. Natural filename sorting spans unconfirmed OS event bursts;
+manual ordering is preserved when later files arrive. The trajectory owns no
+source save handle and starts unsaved, leaving prior documents untouched.
 
 Open a structure or all trajectory frames:
 
@@ -422,10 +442,10 @@ to an untrusted network.
 
 ### Start the CLI bridge
 
-Install the tested release:
+Install the matching Python source channel described under Installation above:
 
 ```bash
-python -m pip install "v_ase-gui==0.4.13"
+python -m pip install "v_ase-gui[mcp] @ git+https://github.com/lgyEthan/v_ase.git@main"
 ```
 
 Start the terminal-oriented API session yourself:

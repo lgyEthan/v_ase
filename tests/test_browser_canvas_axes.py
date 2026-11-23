@@ -22,7 +22,7 @@ def page():
     try:
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
-            page = browser.new_page(viewport={'width': 1440, 'height': 960})
+            page = browser.new_page(viewport={'width': 1440, 'height': 960}, reduced_motion='reduce')
             page.goto(editor.url)
             page.wait_for_function('window.__ASE_APP__?.collaborationReady')
             yield page
@@ -43,7 +43,7 @@ def test_c_view_draws_z_shaft_behind_nominal_eye_and_preserves_saved_optics(page
         const a=window.__ASE_APP__,r=a.renderer;
         a.applyDesignSettings({display:{showAxes:true,showGrid:false,showCell:false,
             atomDisplayMode:mode,viewportBackground:background}});
-        a.setInspectorCollapsed(true);
+        a.setInspectorCollapsed(true);r.onResize();
         const direction=r.camera.position.clone().fromArray(a.state.atoms.cell[2]).normalize();
         a.applyCameraSettings({position:[30,0,0],
             target:[0,0,0],up:[0,0,1],projection:'orthographic',ortho_scale:40,near:1,far:1000});
@@ -84,7 +84,7 @@ def test_c_view_draws_z_shaft_behind_nominal_eye_and_preserves_saved_optics(page
 def test_axis_depth_fit_preserves_atom_occlusion_and_perspective_near_plane(page, projection):
     point = page.evaluate('''projection=>{
         const a=window.__ASE_APP__,r=a.renderer;
-        a.setInspectorCollapsed(true);
+        a.setInspectorCollapsed(true);r.onResize();
         a.applyDesignSettings({display:{showAxes:true,showGrid:false,showCell:false}});
         a.applyCameraSettings({position:[30,0,0],target:[0,0,0],up:[0,0,1],
             projection,ortho_scale:40,near:1,far:1000});

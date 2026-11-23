@@ -92,6 +92,9 @@ including atoms/molecules already placed before the run. It is distinct from
 **Cancel placement**, which removes the entire staged addition, and **Exit →
 Restore before relax**, which leaves ordinary relaxation mode. Clearing is one
 Undo action; physical constraints and source-frame identity remain intact.
+Updates already queued by the discarded optimizer run are ignored after this
+choice, so they cannot recreate the movie or replace the retained geometry.
+Starting again opens a fresh optimization timeline in the same mode.
 
 ### Exit relaxation mode
 

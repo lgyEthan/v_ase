@@ -53,7 +53,7 @@ body.editor-shell #inspector-content > .panel-section.editor-route-current { pad
 body.editor-shell #inspector-content .panel-section.editor-route-current > .section-header { display: none; }
 body.editor-shell #inspector-content .panel-section.editor-route-current > .section-header + * { margin-top: 0; }
 body.editor-shell #inspector-content .panel-section.editor-route-current .panel-subhead { border-bottom: 1px solid var(--line); margin-top: 18px; }
-body.editor-shell #inspector-content input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+body.editor-shell #inspector-content input:where(:not([type="checkbox"]):not([type="radio"]):not([type="range"])),
 body.editor-shell #inspector-content select { min-height: 30px; border-radius: 5px; }
 .workbench-tabs { flex: 0 0 51px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-bottom: 1px solid var(--line); }
 .workbench-tabs button { border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: transparent; color: var(--muted); font: 500 12px var(--font-ui); cursor: pointer; }
@@ -177,8 +177,7 @@ body.editor-shell #inspector-content .selected-appearance { border-radius: 0; bo
     grid-template-rows: 1fr; opacity: 1; pointer-events: auto; transform: translateY(0);
 }
 .camera-rotation-tools.compact .view-toolbar { background: var(--panel); }
-body.editor-shell #app-viewport .orientation-widget { translate: 0 0; transition: translate 200ms ease; }
-body.editor-shell #app-viewport:has(.camera-rotation-tools.compact.expanded) .orientation-widget { translate: 0 44px; }
+body.editor-shell #app-viewport .orientation-widget { translate:0 0; }
 @media (prefers-reduced-motion: reduce) {
     #camera-rotation-toggle svg, .camera-rotation-tools.compact #camera-more-content,
     body.editor-shell #app-viewport .orientation-widget { transition: none; }
@@ -299,10 +298,6 @@ body.editor-shell .atom-colorscale-legend .atom-colorscale-legend-scope { color:
     body.editor-shell #app-viewport .atom-colorscale-legend { top: 100px; }
 }
 
-@media (min-width: 761px) {
-    body.editor-shell.inspector-collapsed #inspector > :not(#btn-inspector-collapse):not(#inspector-resizer) { visibility: hidden; pointer-events: none; }
-}
-
 /* Floating properties never change the camera viewport or its projection. */
 @media (min-width: 761px) {
     body.editor-shell, body.editor-shell.inspector-collapsed {
@@ -314,12 +309,9 @@ body.editor-shell .atom-colorscale-legend .atom-colorscale-legend-scope { color:
         width: var(--inspector-width); max-width: calc(100vw - 100px);
         z-index: 340; transition: none; box-shadow: var(--shadow-control);
     }
-    body.editor-shell.inspector-collapsed #inspector { width: 0; overflow: visible; }
     body.editor-shell #app-viewport { grid-area: viewport; width: 100%; }
     body.editor-shell #inspector-content { container-type: inline-size; }
-    body.editor-shell:not(.inspector-collapsed) .viewport-camera-tools,
-    body.editor-shell:not(.inspector-collapsed) #app-viewport .orientation-widget { right: calc(var(--inspector-width) + 18px); }
-    body.editor-shell:not(.inspector-collapsed) #btn-fit-view { right: calc(var(--inspector-width) + 14px); }
+
 }
 /* Use the same optical text size for form labels, values and options. */
 body.editor-shell :is(button, input, select, textarea, option) { font-family: var(--font-ui); font-size: 13px; letter-spacing: normal; }
@@ -376,7 +368,7 @@ body.file-drag-over::after { content: 'Drop a structure or project to open'; pos
     body.editor-shell #app-viewport .atom-colorscale-legend { top: 100px; left: 76px; }
 }
 @media (max-width: 480px) {
-    body.editor-shell #top-bar #runtime-mode-switch { display: none; }
+    body.editor-shell #top-bar #runtime-mode-switch { display: flex; }
     body.editor-shell #editor-reset-menu > summary { padding-inline: 5px; }
 }
 

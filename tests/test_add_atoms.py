@@ -2074,7 +2074,8 @@ def test_browser_scratch_relaxation_lifecycle_and_physical_scale():
                 assert 6.0 <= scratch_camera["verticalSpan"] <= 12.0
             page.click("#btn-add-atoms-delete-region")
             assert page.locator("#empty-workspace").is_visible()
-            page.click("#btn-create-atom-close")
+            page.click("#editor-inspector-toggle")
+            assert page.locator('body').evaluate('e=>e.classList.contains("inspector-collapsed")')
 
             seed_positions = [
                 [0.02 * (index % 5), 0.02 * ((index // 5) % 4), 0.02 * (index // 20)]

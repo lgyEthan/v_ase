@@ -1,6 +1,8 @@
 include README.md
 include AGENTS.md
 include CHANGELOG.md
+include skills.sh.json
+include llms.txt
 include LICENSE
 include requirements.txt
 include .readthedocs.yaml
@@ -46,7 +48,7 @@ include docs/assets/render-lighting-controls.png
 recursive-include docs/assets/agent-evaluation *.png *.svg
 exclude docs/design/ai_collaboration_concepts.html
 exclude docs/design/ai_collaboration_recording.html
-recursive-include examples *.py *.traj *.extxyz *.json *.md
+recursive-include examples *.py *.traj *.extxyz *.cif *.json *.md *.txt
 recursive-include scripts *.py
 exclude scripts/capture_ai_collaboration_concepts.py
 exclude scripts/plot_agent_guidance_evaluation.py
@@ -80,3 +82,7 @@ include docs/assets/water-surface-experiment.png
 # Never package personal host integrations or environment configuration.
 global-exclude .env .env.* *.env
 global-exclude */.*-plugin/* */.agent-local/* */.agents/*
+
+include docs/model-output-figures.md
+include docs/assets/model_output_figures.png
+include docs/assets/github/model_output_figures.png

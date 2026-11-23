@@ -8,6 +8,29 @@ An empty selector object means all atoms; an empty values list selects none.
 Do not infer a step, oxidation state, coordination shell or active site for the
 user. Ask for or use supplied labels/indices and a scientifically intended cutoff.
 
+For user-requested automatic initial coordination, `automatic=true` replaces
+rules with editable element-pair rules. Ligands are present O/N/F/S/Cl/Se/Br/I;
+centers are other elements except H, noble gases and X. Each cutoff is 1.25
+times the sum of ASE covalent radii, includes allowed periodic images, and
+initially accepts 4–32 nonplanar neighbors. No ideal shape is fitted. This is
+a starting estimate, not a chemical assignment; custom rules handle other/mixed
+ligands and specific shells. The GUI's circled ! explains this; each rule shows
+its cutoff, hull count and coordination numbers. First enabling with no rules
+runs discovery. Saved nonempty rules are not automatically replaced.
+
+`bonded_only=false` is the default. True adds a filter from current automatic,
+pairwise or manual bond definitions, independently of `show_bonds`. Each image
+is tested separately. Automatic/pairwise rules retain every qualifying image;
+manual pairs use their direct/minimum-image connections. `show_center_bonds`
+only draws connectors. Bond-definition changes invalidate filtered geometry;
+projects, images, offline HTML and meshes use the same filter. Diagnostics report
+measured counts and `bonded-neighbors-outside-range` after filtering omissions.
+
+The regression vermiculite CIF expands to Mg12Si16O48 from four supplied
+operations. Si→O 2.0 Å and Mg→O 2.5 Å produce 16 tetrahedra and 12 octahedra;
+automatic rules also give 28 hulls and 136 incidences. Hydroxyl oxygen labels
+do not supply hydrogen coordinates; never invent them.
+
 `rules` replaces the full rule list. Omit it when only toggling the feature.
 Each rule has a unique `id`, `centers` and `max_distance` in Å. Optional ligands,
 minimum distance, periodicity and minimum/maximum coordination select its sites.

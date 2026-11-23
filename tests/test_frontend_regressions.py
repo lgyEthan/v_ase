@@ -366,7 +366,7 @@ def test_image_export_has_exact_preview_and_option_modal_controls():
     assert "const configured = this.cameraFromSettings(options.camera, outputAspect)" in renderer_js
     assert "interactionProjectionContext(clientX, clientY)" in renderer_js
     assert 'id="btn-camera-lock-viewport"' in index_html
-    assert index_html.count('data-render-camera-toggle') == 2
+    assert index_html.count('data-render-camera-toggle') == 3
     assert 'id="render-area-eye"' in index_html
     assert "camera.aspect = outputAspect" in renderer_js
     assert "const halfWidth = halfHeight * outputAspect" in renderer_js
@@ -472,7 +472,7 @@ def test_frontend_renders_constraint_guides_and_blender_export_button():
     assert "chk-constraints" in index_html
     assert "chk-overlays" in index_html
     assert "Scientific overlays" in index_html
-    assert "Apply constraints" in index_html
+    assert "Respect constraints" in index_html
     assert "apply_constraint</label>" not in index_html
     assert "btn-done" not in index_html
     assert "btn-cancel" not in index_html
@@ -1590,7 +1590,7 @@ def test_control_panel_uses_single_workbench_and_real_route_parity():
     assert 'data-panel="cell-transform" data-panel-group="structure"' in index_html
     assert 'id="btn-cell-transform-switch-edit"' in index_html
     assert 'data-panel="scientific-tools" data-panel-group="structure" data-edit-only' in index_html
-    assert "syncWorkbenchRoute(route, description.title)" in main_js
+    assert "syncWorkbenchRoute(route, description.title," in main_js
     assert "renderSceneNavigatorObjects()" in main_js
     assert "fitEditorView()" in main_js
     assert "v_ase.workbench.v1.width" in main_js

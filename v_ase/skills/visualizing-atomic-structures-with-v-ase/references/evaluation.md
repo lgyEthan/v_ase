@@ -514,6 +514,20 @@ Run all scenarios, not only static document checks:
      to the requested `(hkl)` plane;
    - verify both registry metrics are reported as geometry scores rather than
      energies and that the registry CSV matches every plotted grid point;
+   - delay a structure-read response until after physical rotation preview,
+     confirmation, cancellation and registry completion; verify it cannot roll
+     back coordinates or restore an obsolete running state;
+   - rebuild atom appearance during rotation (2D mode and opacity), then
+     confirm or cancel; compare both viewport and backend coordinates;
+   - repeat registry optimization in a completed mode, and delay its HTTP start
+     response until after the completion event; completion must stay terminal
+     and the next run must become active;
+   - close a server while its broadcaster is idle, then run a second viewer's
+     optimization; completion must arrive. With concurrent server event loops,
+     require ordered updates and correct document/workspace routing on both;
+   - buffer actual step/completion events until after clearing a general,
+     Add Atoms or registry trajectory; release them and require an empty movie
+     and unchanged retained coordinates, then verify a fresh run completes;
    - verify RDF, commensurate, and registry graphs each expose one adjacent
      icon-only CSV action with an accessible label; use real pointer clicks to
      download CSV and close the drawer, confirming the viewport canvas does not
@@ -686,6 +700,22 @@ Run all scenarios, not only static document checks:
       the human acceptance decision.
 
 ## Visual Assertions
+
+Interface checks must inspect clipped content and hit targets inside their
+scrolling parents, not only the outer inspector/window bounds. At 320/390 px
+and short-window sizes in both themes, start the tool strip at its scroll
+origin, then reveal every tool and probe its inset corners and center. Verify
+44 px touch targets, query-to-result command navigation and Escape focus return,
+distinct primary press/hover feedback, and a real Add atoms start/cancel cycle
+with status/exit controls visible. Keep atom coordinates unchanged during
+presentation-only checks. Use `tests/test_browser_reference_interactions.py`
+and retain fresh screenshots plus an actual motion recording.
+
+On an active researcher workstation, these checks must run in a new headless
+browser with input scoped to that browser. Do not focus native windows, attach
+to an existing browser or consume the researcher's inputs. Native OS-input
+checks require an idle/dedicated executor. Do not automatically open evidence
+files on the researcher's desktop.
 
 Every browser render test must check:
 
@@ -962,3 +992,12 @@ invalidated. Compare exact-size rendered pixels before save and after reopen;
 positions, appearance and camera must all match. Repeat with standalone and
 embedded HTML projects through native `load-structure`. Automated coverage:
 `tests/test_browser_camera_project_reopen.py`.
+
+## Model-output publication regression
+
+Rebuild accepted structures as traceable display scenes, retain source cell volumes
+and periodic distances, and match the paper's atom mode and bond visibility. Save
+the exact camera and image export profile, reopen the project and render with
+omitted arguments. Require equal dimensions and pixels in the same renderer,
+zero visible bonds for no-bond references, an unchanged scientific fingerprint,
+reversible style refinement and stale-revision rejection.

@@ -10,6 +10,19 @@ permissions:
   contents: read
 
 jobs:
+  skill-installation:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Verify isolated Skill installation for coding clients
+        run: python scripts/check_skill_distribution.py
+
   sphinx:
     runs-on: ubuntu-24.04
     steps:

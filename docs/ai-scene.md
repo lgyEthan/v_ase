@@ -1,7 +1,8 @@
 # Scene inspection and MCP workflows
 
-The scene interface is included in v_ase 0.3.3. Install `v_ase-gui[mcp]==0.3.3`
-and use the same version for the GUI and adapter.
+Use the same source channel for the GUI, MCP adapter and scientific Skill.
+Follow [agent setup](agent-setup.md) for current GitHub source or the published
+0.4.13 release; the live schema remains authoritative.
 
 ```{contents} On this page
 :local:

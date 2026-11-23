@@ -31,9 +31,7 @@ def test_all_tools_and_unit_fields_fit_desktop_narrow_and_mobile():
                 for group, routes in ROUTE_GROUPS.items():
                     page.locator(f'#workbench-tabs [data-workbench="{group}"]').click()
                     for route in routes:
-                        button = page.locator(f'#workbench-tools [data-editor-route="{route}"]')
-                        assert button.is_visible(), (width, group, route)
-                        button.click()
+                        open_editor_route(page, route)
                         assert page.locator('body').get_attribute('data-current-editor-route') == route
                         if route == 'appearance':
                             page.locator('#chk-atom-radius-mapping').check()
@@ -66,15 +64,6 @@ def test_all_tools_and_unit_fields_fit_desktop_narrow_and_mobile():
                             if (document.documentElement.scrollWidth > innerWidth + 1) issues.push('page overflow');
                             document.querySelectorAll('#inspector-content input, #inspector-content select, #inspector-content textarea, #inspector-content button').forEach(element => {
                                 if (!visible(element) || element.type === 'hidden') return;
-                                // The label table intentionally scrolls horizontally;
-                                // its own boundary, not each offscreen cell, must fit.
-                                const table=element.closest('#appearance-table');
-                                if (table) {
-                                    const t=table.getBoundingClientRect();
-                                    if (t.left<inspector.left-1 || t.right>inspector.right+1
-                                        || getComputedStyle(table).overflowX!=='auto') issues.push('label table overflow');
-                                    return;
-                                }
                                 const r = element.getBoundingClientRect();
                                 if (!r.width || !r.height) return;
                                 if (r.left < inspector.left - 1 || r.right > inspector.right + 1) {
@@ -115,8 +104,11 @@ def test_tool_keyboard_navigation_does_not_move_camera_and_view_mode_explains_ed
             page.goto(editor.url)
             page.wait_for_function('window.__ASE_APP__?.collaborationReady')
             camera = page.evaluate('window.__ASE_APP__.renderer.camera.position.toArray()')
-            page.locator('#workbench-route-appearance').focus()
-            page.keyboard.press('ArrowRight')
+            page.locator('#editor-search-toggle').click()
+            page.locator('#editor-command-search').fill('bond')
+            page.keyboard.press('ArrowDown')
+            assert page.locator('#editor-navigator [data-editor-route="bonding"]').evaluate('e=>e===document.activeElement')
+            page.keyboard.press('Enter')
             assert page.locator('body').get_attribute('data-current-editor-route') == 'bonding'
             assert page.evaluate('window.__ASE_APP__.renderer.camera.position.toArray()') == camera
             page.locator('#workbench-tabs [data-workbench="build"]').click()
@@ -141,12 +133,18 @@ def test_export_dialog_units_and_controls_fit_narrow_windows():
             page = browser.new_page()
             page.goto(editor.url)
             page.wait_for_function('window.__ASE_APP__?.collaborationReady')
-            for width, height in [(1440, 960), (1024, 768), (390, 844), (640, 360)]:
+            for width, height in [(1440, 960), (1024, 768), (390, 844), (640, 360), (640, 320)]:
                 page.set_viewport_size({'width': width, 'height': height})
                 for route, trigger, prefix in [('render-image', '#btn-export-image', 'export'),
                                                ('render-video', '#btn-export-video', 'video')]:
                     open_editor_route(page, route)
-                    page.locator(trigger).click()
+                    export_button = page.locator(trigger)
+                    export_button.click()
+                    assert export_button.evaluate("""button => {
+                        const box = button.getBoundingClientRect();
+                        const footer = document.getElementById('command-bar').getBoundingClientRect();
+                        return box.bottom <= footer.top + 1;
+                    }"""), (width, height, route)
                     field = page.locator(f'#{prefix}-pixels-per-angstrom')
                     field.fill('123.45')
                     assert field.evaluate('''input => {
@@ -186,7 +184,6 @@ def test_scrolled_table_headers_meet_the_top_border_without_row_bleed(tmp_path):
                 for route, selector, head in [
                     ('scientific-tools', '#repulsion-pair-panel', '.mini-table-head'),
                     ('bonding', '#pairwise-bond-panel', '.mini-table-head'),
-                    ('appearance', '#appearance-table', '.appearance-table-head'),
                 ]:
                     open_editor_route(page, route)
                     table = page.locator(selector)

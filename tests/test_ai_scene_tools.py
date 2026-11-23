@@ -348,3 +348,58 @@ def test_obsolete_displacement_failure_does_not_clear_new_frame_readiness(tmp_pa
         }''')
         assert client.call('vase_scene_readiness', {'timeout_ms':1000})['ready']
         assert page.evaluate('window.__V_ASE_APP__.state.displacementRenderedFrame') == 0
+
+
+def test_native_publication_profile_survives_project_reopen(tmp_path, monkeypatch):
+    """A saved no-bond figure must reproduce without one-off render arguments."""
+    import json
+    import shutil
+    import numpy as np
+    from PIL import Image
+
+    monkeypatch.chdir(tmp_path)
+    with live_scene(tmp_path) as (client, page, apply):
+        before = client.call('vase_describe', {'profile': 'structure', 'include_positions': True})
+        apply('vase_style_scene', atom_display_mode='2d', show_bonds=False, show_cell=True)
+        exported_settings = client.call('vase_export_settings', {})
+        settings = json.loads(Path(exported_settings['artifact']['path']).read_text())
+        profile = settings['settings']['imageExportProfile']
+        profile.update(width=480, height=420)
+        profile['options'].update(scaleMode='physical', pixelsPerAngstrom=25,
+                                  backgroundColor='#ffffff', includeAxes=False, includeGrid=False,
+                                  renderModeSelection='studio', renderMode='studio')
+        settings_path = tmp_path / 'publication_settings.json'
+        settings_path.write_text(json.dumps(settings))
+        apply('vase_load_settings', path=settings_path.name)
+        first = client.call('vase_render', {})
+        exported_project = client.call('vase_export_project', {})
+        project = tmp_path / 'publication.vase'
+        shutil.copyfile(exported_project['artifact']['path'], project)
+        apply('vase_style_scene', atom_display_mode='3d', show_bonds=True)
+        apply('vase_load_structure', path=project.name, confirm_replace=True)
+        reopened = client.call('vase_describe', {'profile': 'structure', 'include_positions': True})
+        scene = client.call('vase_scene_snapshot', {'sections': ['bonds'], 'limit': 1})
+        second = client.call('vase_render', {})
+        assert reopened['structureFingerprint'] == before['structureFingerprint']
+        assert scene['display']['showBonds'] is False
+        assert scene['display']['renderedBaseEdgeCount'] == 0
+        assert (second['width'], second['height']) == (480, 420)
+        assert second['options']['renderModeSelection'] == 'studio'
+        assert second['options']['pixelsPerAngstrom'] == 25
+        assert np.array_equal(np.asarray(Image.open(first['artifact']['path'])),
+                              np.asarray(Image.open(second['artifact']['path'])))
+
+
+def test_semantic_csv_export_keeps_utf8_bytes_and_returns_bare_media_type(tmp_path):
+    """HTTP charset parameters must not change the semantic MIME contract."""
+    import base64
+
+    payload = 'label,value\nμ,2\n'
+    with live_scene(tmp_path) as (client, page, apply):
+        page.evaluate('''text => {
+            window.__ASE_APP__.api.exportRdfCsv = async () =>
+                new Blob([text], {type:'text/csv; charset=utf-8'});
+        }''', payload)
+        result = page.evaluate("async () => await window.v_aseAI.export({format:'rdf-csv'})")
+        assert result['mimeType'] == 'text/csv'
+        assert base64.b64decode(result['dataUrl'].split(',', 1)[1]).decode('utf-8') == payload

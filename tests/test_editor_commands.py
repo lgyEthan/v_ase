@@ -6,7 +6,7 @@ from playwright.sync_api import sync_playwright
 from v_ase.viewer import find_free_port, view
 
 
-def test_shared_command_registry_matches_ten_exact_platform_chords():
+def test_shared_command_registry_matches_eleven_exact_platform_chords():
     editor = view(Atoms('H', positions=[[0, 0, 0]]), notebook=True,
                   block=False, port=find_free_port(), close_on_disconnect=False)
     try:
@@ -73,7 +73,7 @@ def test_shared_command_registry_matches_ten_exact_platform_chords():
             assert result['win'] == 'windows'
             assert result['linux'] == 'linux'
             assert set(result['lockCodes']) == {'KeyW', 'KeyN', 'KeyS', 'KeyB',
-                                                'KeyP', 'KeyA', 'KeyE', 'KeyO',
+                                                'KeyP', 'KeyA', 'KeyE', 'KeyO', 'KeyF',
                                                 'ArrowLeft', 'ArrowRight', *(f'Digit{i}' for i in range(1, 10))}
             assert result['navigation'] == {
                 'left': {'kind': 'camera', 'direction': 'left'},
@@ -87,7 +87,7 @@ def test_shared_command_registry_matches_ten_exact_platform_chords():
             }
             assert 'Command Shift P' in result['search']
             for platform, cases in result['matched'].items():
-                assert len(cases) == 10
+                assert len(cases) == 11
                 for case in cases:
                     assert case['positive'] == case['id']
                     assert case['wrongShift'] != case['id']

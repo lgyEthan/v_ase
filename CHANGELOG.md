@@ -1,5 +1,141 @@
 # Changelog
 
+## Unreleased
+
+- Publish the accumulated source/UI fixes on GitHub main with matching manuals,
+  canonical Skill, explicit npx discovery, and an agent-readable setup entry.
+  Distinguish main source from the unchanged published 0.4.13 installers/PyPI.
+
+- Default single-file Open to a new tab when a document contains work; keep
+  replacement and trajectory append explicit. Make multi-file destinations and
+  the number of new tabs clear, preserve manual order across late OS arrivals,
+  and retain keyboard focus when moving files to either end of the list.
+
+- Align category tabs above the inspector and access modes to stage left.
+  Restore category-only inspector menus while keeping global Find tools.
+- Normalize field columns, unit heights and row spacing; place Camera popups
+  beside the fixed axis gizmo using actual bounds, including short stages.
+- Construct grid rays in the camera basis to avoid far-clip precision
+  fragmentation without adding geometry or scientific redraws.
+- Add CIF to Open File and honor supplied symmetry tables when ASE cannot
+  resolve expanded group spellings such as `C 1 c 1`.
+- Create inspectable initial polyhedra distance rules, show cutoffs/counts and
+  explain Automatic via circled help. Add opt-in bonded-neighbor filtering
+  independent of drawn bonds, with matching saved exports.
+
+- Restore actual RDF, commensurate and registry axis/colorbar quantity labels
+  with the current Plotly title format; verify SVG units in short windows.
+
+- Move documents into a horizontal top tab strip with the v_ase logo; keep Scene
+  as an independent sidebar with visibly different open/closed toggle icons.
+- Add Graphite (neutral default), Slate, Stone and Moss full interface palettes,
+  independent of System/Light/Dark and all scientific backgrounds/exports.
+- Provide global Find tools (⌘F/Ctrl+F) across every category;
+  distinguish View only/Edit structure access modes from Camera and native menus.
+- Remove the duplicate desktop ellipsis menu and contain browser submenus inside
+  one opaque surface. Restore actual opener focus on dismissal.
+- Commit panel geometry once per toggle and animate only the panel surface;
+  eliminate repeated same-size scientific redraws while preserving exact scale.
+
+- Isolate keyboard, pointer and document commands throughout blocking work,
+  including its deferred progress state. Keep overlapping task progress and
+  cleanup independent, preserve open modal isolation and restore visible focus.
+- Align the initial ready signal with actual keyboard/pointer availability,
+  including delayed collaboration-event publication.
+
+- Recompose the desktop around top document tabs and a Scene navigator, one toolbar, a framed
+  stage and a named, searchable tool chooser. Apply the same navigation to
+  direct/notebook documents without reloading their original editor or handles.
+- Replace the nine-column atom appearance table with expandable label groups;
+  preserve field drafts, caret, selection/visibility actions and expansion.
+- Expose image dimensions, units, framing preview, format and transparency in
+  the image inspector; keep shared lighting/quality in advanced settings.
+- Align XYZ editors, show selection scope once and reveal relevant constraint
+  controls. Keep optional scene overlays separate from geometry and guides.
+- Fit the canvas and render-preview coordinates to the actual visible stage.
+  Width-only orthographic resizes retain the vertical frustum/zoom exactly;
+  semantic/export orthographic zoom is normalized because ortho_scale already
+  contains the effective scale. Coordinates and output profiles remain exact.
+- Keep scene actions bound to the active document generation, disable parent
+  navigation during child dialogs, and restore modal focus to a visible launcher.
+- Adapt native document reorder/detach gestures to horizontal top tabs, with
+  destination markers, a drag preview and cancellation before commitment.
+- Delay the visible blocker for short operations while preventing conflicting
+  input immediately, avoiding repeated full-workspace loading flashes.
+
+- Move the desktop inspector and nearby camera controls together, keep its
+  drag response direct, and animate the selected workbench background.
+- Present image, video and HTML options before the shared render settings.
+  Show compact image progress and retain the completed image for saving a copy.
+- Initialize the cell editor from the first loaded structure and let Escape
+  dismiss the colormap list independently of the inspector.
+
+- Fix unreachable viewport tools on short/narrow canvases: avoid centered
+  overflow, use a grouped horizontal strip on small screens, keep Fit view
+  separate, and retain 44 px touch targets with scrollable overflow.
+- Keep the expanded rotation popup inside the viewport instead of clipping
+  its first camera button at 320 px widths; closed controls stay inert.
+- Complete command-search keyboard navigation from the query through visible
+  results and back, including Home/End, Enter/Escape and visible key hints.
+- Remove the duplicate inactive Add atoms panel heading inside the inspector;
+  retain insertion-session status/exit controls. Make primary press feedback
+  distinct from hover without moving button targets.
+- Keep atom selection/visibility checkbox focus out of the scientific canvas,
+  including programmatic activation, so subsequent editing keys cannot delete atoms.
+- Preserve unfinished appearance labels and their caret through background form
+  refreshes. Ignore changes from retired rows, commit retained drafts normally,
+  and let authoritative label or atom-membership changes replace obsolete drafts.
+- Isolate disposable native smoke windows from unplanned keyboard/mouse input,
+  record every accepted/rejected event and require delivery of tested input.
+  Bound native capture/renderer waits and retain scientific state with failures.
+- Prevent dropdown arrows and selected values from sharing the same space,
+  including compact appearance cells, dialogs, lighting and timeline controls.
+  Keep one arrow, truncate long values before it and retain native option lists
+  and keyboard operation. Forced-colors mode keeps the system control.
+- Keep nested disclosure arrows inside their own column beside wrapping titles.
+  Check expanded tools for overlapping controls in both themes and narrow panels.
+- Let Space activate a focused disclosure instead of starting trajectory playback.
+- Redesign the editor, document tabs, notebook workspace and offline viewer
+  controls around shared light/dark surfaces, system typography, original line
+  icons, consistent field/button states and restrained accessible motion.
+- Add larger slider hit areas with accurate track fill, bounded keyboard
+  tooltips, task descriptions and modal isolation with focus restoration.
+- Use one tooltip surface, retaining updated control hints without overlapping
+  native browser title bubbles.
+- Keep the inspector's collapse tab centered during normal, hover and pressed
+  states instead of letting shared button feedback override its placement.
+- Preserve distinct unsaved, saving and error indicators on active document
+  tabs in both themes and notebook/browser workspaces.
+- Make inspector, analysis and bond-column separators keyboard accessible;
+  cancelled or interrupted drags restore their starting size, and double-click
+  restores defaults. Scientific coordinates and camera framing are preserved.
+- Record the official design references and interaction contract; add an
+  all-route screenshot gallery generator and browser interaction regressions.
+- Keep task navigation at the start of its form; explicit search results still
+  reveal their target. Offline metadata gains Escape/outside dismissal and
+  native button activation no longer also triggers trajectory shortcuts.
+- Refresh FixedLine guide length and thickness immediately when mapped atom
+  radii change, including trajectory samples, without losing guide selection.
+  Tiny and zero-radius atoms no longer leave floating guides. Saving and
+  reopening a project preserves the same constraint appearance.
+
+- Prevent delayed structure reads from discarding a physical rotation preview,
+  reverting a committed edit, or restoring an obsolete optimizer running state.
+- Preserve live atom coordinates when appearance changes rebuild their meshes,
+  so a queued display update cannot erase a molecule's rotation before Enter.
+- Adopt registry start responses only while their original mode state is current,
+  preserving early completion events and allowing a completed mode to run again.
+- Route ordered optimizer and collaboration notifications through each server's
+  event loop. Closing a server no longer leaves a blocked reader that can consume
+  another document's completion event.
+- Identify optimizer runs in snapshots and streamed updates, so clearing a
+  trajectory cannot be undone by queued steps or completion from its old run.
+- Add a portable, pinned materials-model figure example with source-to-display
+  mappings, lossless saved coordinates and checks for stale or incomplete output.
+- Document publication-profile saving and verification after project reopening.
+- Keep semantic CSV media types stable when HTTP responses carry UTF-8 charset
+  parameters, without changing the CSV bytes.
+
 ## 0.4.13
 
 - Cartesian axis lines remain visible across the canvas in orthographic views

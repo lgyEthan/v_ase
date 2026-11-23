@@ -2,6 +2,7 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const path = require('node:path');
+const { capturePage } = require('./smoke-support.cjs');
 const { dialog, BrowserWindow } = require('electron');
 module.exports = async ({ app, win, js, active, appRef, wait, key, output, openQueue }) => {
     const ws = 'window.__V_ASE_WORKSPACE__';
@@ -33,7 +34,7 @@ module.exports = async ({ app, win, js, active, appRef, wait, key, output, openQ
     }
     await choose();
     assert.deepEqual(await js(`[...${active}.document.querySelectorAll('#open-batch-files li > span')].map(n=>n.textContent)`), ['step-1.vasp','step-2.vasp','step-10.vasp']);
-    await fs.writeFile(path.join(output, 'multi-file-choice.png'), (await win.webContents.capturePage()).toPNG());
+    await fs.writeFile(path.join(output, 'multi-file-choice.png'), (await capturePage(win.webContents)).toPNG());
     await js(`${active}.document.querySelector('#open-batch-cancel').click()`);
     await wait('!window.__vaseFileOpenQueue.running');
     assert.equal(await js(`${ws}.tabs.size`), count);
@@ -82,7 +83,7 @@ module.exports = async ({ app, win, js, active, appRef, wait, key, output, openQ
     await key('2'); await wait(`${ws}.activeSessionId === '${orderedIds[1]}'`);
     await key('9'); await wait(`${ws}.activeSessionId === '${orderedIds.at(-1)}'`);
     await wait(`${appRef}?.workspaceRecoveryAcknowledged`);
-    await fs.writeFile(path.join(output,'document-navigation.png'),(await win.webContents.capturePage()).toPNG());
+    await fs.writeFile(path.join(output,'document-navigation.png'),(await capturePage(win.webContents)).toPNG());
     // Dispose only fixtures; preserve the existing workflow's source document.
     const imported = await js(`[...${ws}.tabs.keys()].filter(id=>!${JSON.stringify(originalIds)}.includes(id))`);
     for (const id of imported) {

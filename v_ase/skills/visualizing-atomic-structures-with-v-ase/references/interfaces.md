@@ -37,6 +37,20 @@ Atom indices and grid dimensions must be finite integers; fractional or Boolean
 indices are errors, never requests to round to another atom. Use integer hkl.
 
 Start/stop/finish/cancel registry relaxation are explicit lifecycle actions.
+Running a mode starts asynchronous optimization. Inspect `registryRelaxation`
+in the analysis state until `is_relaxing` is false; completion does not Finish
+the mode. A delayed structure read or start response cannot revive an older
+running state. The completed mode can be run again before Finish or Cancel.
+Server teardown cannot consume another viewer's completion notification; each
+server delivers ordered updates on the event loop that owns its sockets.
+Clearing a registry movie rejects queued updates from the discarded run while
+keeping the mode active and the chosen geometry intact.
 The current optimization can advance revisions; stop tools document their guard
 exception. Finish or cancel before applying unrelated physical operations.
 Export the candidate/registry CSV with the search/metric settings and references.
+
+In the desktop editor, the inspector and nearby camera tools move together.
+Opening or resizing the inspector preserves coordinates, camera direction and
+pixels per Å while the actual stage gains space.
+An open color map list handles Escape locally and restores its trigger.
+Native selects retain their platform option list and keyboard behavior.

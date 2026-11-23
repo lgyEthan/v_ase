@@ -1,5 +1,13 @@
 # Deterministic rendering
 
+## Contents
+
+1. Minimal display edits
+2. Exact bonds and appearance
+3. Camera and crop
+4. Selection and final rendering
+5. Model-output figures
+
 ## Minimal display edits
 
 Start with the compact scene snapshot. Preserve accepted orientation, framing,
@@ -71,3 +79,33 @@ and remove dummy scene objects as a selection workaround.
 Raw `apply.camera` accepts standalone `ortho_scale`, `fov`, `zoom`, `near` and
 `far` settings. If combined with `fit`, these explicit optical settings apply
 after fitting; an orthographic `ortho_scale` is the full vertical span in Å.
+
+## Model-output figures
+
+Preserve the generated structure, prompt, seed/candidate and checkpoint revision.
+Check source hashes and task-specific structural validity before selecting a
+figure. Label any finite display copy and record its periodic image offsets,
+source indices and equivalent origin/basis transformation. Verify periodic
+distances and volume; a render fingerprint alone compares only the loaded
+display copy. Do not replace model coordinates with the paper's reference.
+
+Follow the reference's atom mode and bond visibility. A no-bond panel needs
+`style-scene(show_bonds=false)`, then a snapshot check for `showBonds=false`
+and zero rendered base edges. Do not call `configure-bonds` merely to hide them.
+
+One-off `render` dimensions/options are not a saved-project output profile.
+Export settings, update the raw `settings.imageExportProfile` with dimensions
+and exact render options, and use guarded `load-settings` before project export.
+For fixed Studio lighting, set `options.renderModeSelection="studio"` instead
+of `current`. Keep a fixed Render Area camera. Check the scientific fingerprint
+again, reopen the project, and render with omitted arguments to exercise the
+saved profile. Compare dimensions and pixels in the same renderer environment;
+do not imply cross-driver bitwise determinism. A scene transaction returns a
+top-level `revision`; a legacy describe returns `collaboration.revision`.
+
+Original figure comparison and new-sample visualization are distinct claims.
+Identify samples and cite the reference, while keeping captions clear when
+the exact published coordinates or generation seed were unavailable. Preserve
+formula/structure discrepancies as provenance rather than editing atoms to
+fit a printed label. Curated successful examples do not establish a model's
+overall success rate or physical stability.

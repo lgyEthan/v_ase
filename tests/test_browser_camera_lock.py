@@ -1,5 +1,6 @@
 """Camera lock reference and render area remain coherent on every input frame."""
 import pytest
+from tests.ui_navigation import click_view_control
 from tests.test_browser_camera_property_persistence import page
 
 
@@ -45,9 +46,9 @@ def test_axis_immediately_preserves_frame_and_camera_button_state(page, projecti
     assert page.get_attribute('#btn-render-area-from-view', 'aria-pressed') == 'true'
     page.evaluate('window.__ASE_APP__.renderer.controls.rotate(80,30)')
     assert page.get_attribute('#btn-render-area-from-view', 'data-aligned') == 'false'
-    page.click('#btn-render-area-from-view')
+    click_view_control(page, '#btn-render-area-from-view')
     assert page.get_attribute('#btn-render-area-from-view', 'aria-pressed') == 'false'
-    page.click('#btn-render-area-from-view')
+    click_view_control(page, '#btn-render-area-from-view')
     assert page.get_attribute('#btn-render-area-from-view', 'aria-pressed') == 'true'
     assert not page.evaluate('window.__ASE_APP__.state.exportPreviewFollowViewport')
 

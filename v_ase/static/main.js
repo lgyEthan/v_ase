@@ -1,27 +1,29 @@
 import * as THREE from 'three';
 import { ASEApi } from './api.js?v=0.4.13';
-import { ASERenderer } from './renderer.js?v=0.4.13';
+import { ASERenderer } from './renderer.js?v=0.4.13&ui=20261111.1';
 import { ASESelection } from './selection.js?v=0.4.13';
 import { ASETransform } from './transform.js?v=0.4.13';
 import { SelectedAppearanceEditor } from './selected_appearance.js?v=0.4.13';
 import { installActivityIndicators } from './ui_activity.js?v=0.4.13';
 
-import { installPolyhedra } from './polyhedra.js?v=0.4.13';
+import { installPolyhedra } from './polyhedra.js?v=0.4.13&ui=20261111.1';
 import { installWaterUI } from './water_ui.js';
 import { installAIScene } from './ai_scene.js?v=0.4.13';
 import { AtomScalarStore } from './atom_properties.js?v=0.4.13';
-import { DirectWorkspace } from './direct_workspace.js?v=0.4.13';
+import { DirectWorkspace } from './direct_workspace.js?v=0.4.13&ui=20261111.1';
 import { navigateWorkspaceDocument } from './workspace_navigation.js?v=0.4.13';
 import { projectProvenanceFromLoad } from './project_provenance.js?v=0.4.13';
 import { installShortcutCapture } from './shortcut_capture.js?v=0.4.13';
 import { openFileInWindow } from './workspace_windows.js?v=0.4.13';
-import { installEditorInteractions } from './editor_interactions.js?v=0.4.13';
-import { WORKBENCH_ROUTES, mountWorkbenchTools, syncWorkbenchRoute } from './editor_ui.js?v=0.4.13';
+import { installEditorInteractions } from './editor_interactions.js?v=0.4.13&ui=20261111.1';
+import { WORKBENCH_ROUTES, WORKBENCH_LABELS, mountWorkbenchTools, syncWorkbenchRoute } from './editor_ui.js?v=0.4.13&ui=20261111.1';
+import { renderSceneNavigator } from './scene_navigator.js?v=0.4.13&ui=20261111.1';
+import { installResizeHandle, refreshRangeFills, updateRangeFill, syncModalIsolation, syncBusyIsolation, hideInterfaceTooltip, syncPanelToggle } from './interface.js?v=0.4.13&ui=20261111.1';
 import {
     EDITOR_COMMANDS, commandIdForEvent, resolveShortcutPlatform,
     editorShortcutLabel, editorAriaShortcut, editorShortcutSearchTerms,
     viewportNavigationForEvent, DOCUMENT_COMMANDS, documentCommandIdForEvent, documentShortcutLabel
-} from './editor_commands.js?v=0.4.13';
+} from './editor_commands.js?v=0.4.13&ui=20261111.1';
 import {
     DEFAULT_ATOM_RADIUS_MAPPING,
     atomRadiusFactors,
@@ -44,7 +46,7 @@ const EDITOR_ROUTES = Object.freeze({
     water: { group: 'structure', category: 'scene', title: 'Water surface' },
     'scene-fields': { group: 'analysis', category: 'scene', title: 'Scene fields', target: '#scene-field-list' },
     'scene-vectors': { group: 'analysis', category: 'scene', title: 'Vector layers', target: '#scene-displacement-visible' },
-    view: { group: 'view', category: 'scene', title: 'View & guides' },
+    view: { group: 'view', category: 'scene', title: 'Display & guides' },
     'add-atoms': { group: 'structure', category: 'build', title: 'Add atoms & molecules' },
     transform: { group: 'structure', category: 'build', title: 'Transform selection', target: '#rotate-pivot' },
     'cell-transform': { group: 'structure', category: 'build', title: 'Transform cell' },
@@ -68,8 +70,10 @@ const EDITOR_ROUTES = Object.freeze({
     'save-guide': { group: 'export', category: 'render', title: 'Format guide' }
 });
 const EDITOR_SEARCH = Object.freeze({
-    appearance: [['atom radius mapping property size scalar', '#atom-radius-mapping-field'],
-        ['color mapping material opacity atom size', '#atom-radius-scale-number']],
+    view: [['theme appearance palette graphite slate stone moss interface', '#ui-palette']],
+    appearance: [['atom radius size scale', '#atom-radius-scale-number'],
+        ['radius mapping property scalar color mapping', '#atom-radius-mapping-field'],
+        ['material opacity', '#atom-radius-scale-number']],
     bonding: [['periodic bridges manual pairwise cutoff topology', '#bond-mode']],
     'cell-replication': [['supercell repeat replication lattice abc', '#super-x']],
     'cell-transform': [['matrix determinant make supercell physical cell', '#matrix-00']],
@@ -146,6 +150,7 @@ class VAseApp {
         this.sessionId = urlParams.get('session_id');
         this.workspaceId = urlParams.get('workspace_id');
         this.workspaceChild = urlParams.get('workspace_child') === '1' && window.parent !== window;
+        document.body.classList.toggle('workspace-document', this.workspaceChild);
         this.workspaceRecoveryAcknowledged = !this.workspaceChild;
         this.workspaceRecoveryReady = this.workspaceChild
             ? new Promise(resolve => { this.resolveWorkspaceRecovery = resolve; })
@@ -195,6 +200,8 @@ class VAseApp {
         this.pendingScientificRequests = new Set();
         this.pendingApplyInFlight = false;
         this.pendingScientificError = null;
+        this.structureGeneration = 0;
+        this.structureRefreshSequence = 0;
         this.disposed = false;
         this.cleanupCallbacks = [];
         this.undoTimeline = [];
@@ -231,6 +238,7 @@ class VAseApp {
             });
         };
         this.api.onScientificRequestStart = () => {
+            this.invalidatePendingStructureReads();
             const token = {};
             token.promise = new Promise(resolve => { token.resolve = resolve; });
             this.pendingScientificRequests.add(token);
@@ -284,16 +292,6 @@ class VAseApp {
         this.renderer.onInitialCameraFit = () => {
             if (this.state.exportPreviewCamera) return;
             this.captureRenderAreaCamera({syncPreview: false});
-            if (!document.body.classList.contains('editor-shell') || document.body.classList.contains('inspector-collapsed')) return;
-            const width = document.getElementById('inspector')?.getBoundingClientRect().width || 0;
-            const r = this.renderer, camera = r.camera;
-            const shift = Math.min(width / 2, r.containerSize().width * 0.22) / Math.max(0.001, r.currentPixelsPerAngstrom());
-            camera.updateMatrixWorld(true);
-            const delta = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion).multiplyScalar(shift);
-            camera.position.add(delta); r.controls.target.add(delta);
-            camera.lookAt(r.controls.target); camera.updateMatrixWorld(true);
-            this.renderAreaPreviousView = this.currentCameraForExport();
-            r.requestRender();
         };
         this.renderer.controls.onGestureStart = () => this.flushVisualHistoryCommit();
         this.renderer.controls.onGestureEnd = () => {
@@ -329,6 +327,7 @@ class VAseApp {
                 waterSurface: {enabled:false},
                 showPolyhedra: false,
                 polyhedraRules: [],
+                polyhedraBondedOnly: false,
                 polyhedraAtomMode: 'all',
                 polyhedraCompleteLigands: true,
                 polyhedraShowCenterBonds: false,
@@ -694,11 +693,27 @@ class VAseApp {
         window.addEventListener('pagehide', this.handlePageTeardown, { once: true });
         window.addEventListener('beforeunload', this.handleBeforeUnload);
 
+        this.busyInputGuard = event => {
+            if (!document.body.dataset.busy) return;
+            // A completed operation may save its prepared blob while its
+            // progress surface still owns input. This is an internal action.
+            if (event.type === 'click' && !event.isTrusted
+                && event.target instanceof HTMLAnchorElement && event.target.dataset.preparedDownload) return;
+            if (event.target instanceof Element && event.target.closest('#busy-overlay [data-busy-allow]')) return;
+            event.preventDefault(); event.stopImmediatePropagation();
+            if (event.type === 'keydown' && event.key === 'Tab') document.getElementById('busy-overlay')?.focus({ preventScroll: true });
+        };
+        const blockedEvents = ['keydown', 'click', 'pointerdown', 'pointermove', 'pointerup', 'wheel'];
+        blockedEvents.forEach(type => window.addEventListener(type, this.busyInputGuard, { capture: true, passive: false }));
+        this.cleanupCallbacks.push(() => {
+            blockedEvents.forEach(type => window.removeEventListener(type, this.busyInputGuard, true));
+            clearTimeout(this.busyRevealTimer);
+        });
         this.ready = this.init().then(() => this.workspaceRecoveryReady);
     }
 
     async init() {
-        this.setBusy('Loading structure...');
+        const busyOwner = this.setBusy('Loading structure...');
         try {
             if (!this.sessionId) {
                 const active = await this.api.fetchActiveSession();
@@ -767,7 +782,7 @@ class VAseApp {
             }
             this.resetVisualHistoryBaseline();
             this.markProjectSavedContent();
-            this.collaborationReady = true;
+            this.renderSceneNavigatorObjects();
             this.collaborationSelectionSignature = this.collaborationSelectionKey();
             this.collaborationCameraSignature = this.collaborationCameraKey();
             this.collaborationFrame = Number(this.state.atoms?.metadata?.current_frame || 0);
@@ -778,12 +793,18 @@ class VAseApp {
                 changedPaths: [],
                 summary: 'The live v_ase document is ready for human and agent collaboration.'
             });
+            // Readiness includes input availability. Publishing the initial
+            // event can await the server; do not advertise a usable document
+            // while its initial busy surface still owns keyboard/pointer input.
+            this.clearBusy(busyOwner);
+            this.collaborationReady = true;
+            this.renderSceneNavigatorObjects();
             this.notifyWorkspaceDocument('v_ase:document-ready');
         } catch (err) {
             console.error("v_ase initialization failed:", err);
             this.toast(`Initialization failed: ${err.message}`, 'error');
         } finally {
-            this.clearBusy();
+            this.clearBusy(busyOwner);
         }
     }
 
@@ -1033,7 +1054,14 @@ class VAseApp {
     handleWorkspaceMessage(event) {
         if (event.origin !== window.location.origin || event.source !== window.parent) return;
         const message = event.data || {};
-        if (message.type === 'v_ase:workspace-active') {
+        if (message.type === 'v_ase:workspace-navigator') {
+            syncPanelToggle(document.getElementById('editor-sidebar-toggle'),!message.collapsed,'left','Scene sidebar');
+        } else if (message.type === 'v_ase:workspace-scene-action') {
+            if (message.sessionId !== this.sessionId || message.generation !== this.recoveryGeneration
+                || !this.workspaceActive || !this.collaborationReady || !this.workspaceRecoveryAcknowledged
+                || !document.getElementById('modal-container')?.classList.contains('hidden')) return;
+            this.performSceneNavigatorAction(message.id, message.action, message.checked);
+        } else if (message.type === 'v_ase:workspace-active') {
             if (message.recoveryReady) {
                 this.workspaceRecoveryAcknowledged = true;
                 document.body.inert = false;
@@ -1044,6 +1072,7 @@ class VAseApp {
             this.setWorkspaceActive(message.active).catch(err => {
                 console.error('Failed to activate workspace document:', err);
             });
+            if (message.active) this.publishSceneNavigator();
         } else if (message.type === 'v_ase:workspace-dispose') {
             this.stopPlayback();
             this.renderer.setSuspended(true);
@@ -1082,6 +1111,7 @@ class VAseApp {
                 }, window.location.origin);
             });
         } else if (message.type === 'v_ase:workspace-theme') {
+            window.v_aseTheme?.applyPalette?.(message.palette, {persist:false, announce:false});
             window.v_aseTheme?.apply(message.preference, {
                 persist: false,
                 announce: false
@@ -1426,6 +1456,7 @@ class VAseApp {
         menu.addEventListener('keydown', event => {
             if (event.key === 'Escape') {
                 event.preventDefault();
+                event.stopPropagation();
                 this.closeAtomColormapMenu({ restoreFocus: true });
                 return;
             }
@@ -1434,8 +1465,10 @@ class VAseApp {
             if (!options.length) return;
             event.preventDefault();
             const current = options.indexOf(document.activeElement);
-            const offset = event.key === 'ArrowDown' ? 1 : -1;
-            options[(current + offset + options.length) % options.length].focus();
+            const next = event.key === 'ArrowDown'
+                ? (current + 1) % options.length
+                : (current <= 0 ? options.length - 1 : current - 1);
+            options[next].focus();
         });
         this.atomColorScaleRuntime.colormapMenu = menu;
         return menu;
@@ -1524,32 +1557,39 @@ class VAseApp {
         const rect = trigger.getBoundingClientRect();
         const width = Math.min(360, window.innerWidth - 24);
         menu.style.width = `${width}px`;
-        const menuHeight = Math.min(menu.scrollHeight || 460, window.innerHeight - 24);
         const left = Math.max(12, Math.min(window.innerWidth - width - 12, rect.right - width));
-        const roomBelow = window.innerHeight - rect.bottom - 12;
-        const top = roomBelow >= Math.min(360, menuHeight)
-            ? rect.bottom + 6
-            : Math.max(12, rect.top - menuHeight - 6);
+        const roomBelow = Math.max(0, window.innerHeight - rect.bottom - 18);
+        const roomAbove = Math.max(0, rect.top - 18);
+        const below = roomBelow >= 280 || roomBelow >= roomAbove;
+        menu.style.maxHeight = `${Math.min(460, below ? roomBelow : roomAbove)}px`;
+        menu.style.setProperty('--ui-popover-shift', below ? '-3px' : '3px');
+        const top = below ? rect.bottom + 6 : rect.top - menu.offsetHeight - 6;
         menu.style.left = `${left}px`;
-        menu.style.top = `${top}px`;
+        menu.style.top = `${Math.max(12, Math.min(top, window.innerHeight - menu.offsetHeight - 12))}px`;
     }
 
     openAtomColormapMenu() {
         const menu = this.ensureAtomColormapMenu();
         this.renderAtomColormapMenu();
         menu.classList.remove('hidden');
+        menu.inert = false;
         const trigger = document.getElementById('atom-colormap-trigger');
         trigger?.setAttribute('aria-expanded', 'true');
         const search = menu.querySelector('#atom-colormap-menu-search');
         if (search) search.value = '';
         this.filterAtomColormapMenu('');
         this.positionAtomColormapMenu();
-        requestAnimationFrame(() => search?.focus());
+        requestAnimationFrame(() => {
+            if (!menu.classList.contains('hidden')) search?.focus({ preventScroll: true });
+        });
     }
 
     closeAtomColormapMenu({ restoreFocus = false } = {}) {
         const menu = this.atomColorScaleRuntime.colormapMenu;
-        menu?.classList.add('hidden');
+        if (menu) {
+            menu.inert = true;
+            menu.classList.add('hidden');
+        }
         const trigger = document.getElementById('atom-colormap-trigger');
         trigger?.setAttribute('aria-expanded', 'false');
         if (restoreFocus) trigger?.focus();
@@ -1563,6 +1603,12 @@ class VAseApp {
             else this.closeAtomColormapMenu();
         });
         trigger?.addEventListener('keydown', event => {
+            if (event.key === 'Escape' && trigger.getAttribute('aria-expanded') === 'true') {
+                event.preventDefault();
+                event.stopPropagation();
+                this.closeAtomColormapMenu({ restoreFocus: true });
+                return;
+            }
             if (!['Enter', ' ', 'ArrowDown'].includes(event.key)) return;
             event.preventDefault();
             this.openAtomColormapMenu();
@@ -1575,7 +1621,17 @@ class VAseApp {
         };
         const reposition = event => {
             const menu = this.atomColorScaleRuntime.colormapMenu;
-            if (!menu || menu.classList.contains('hidden') || menu.contains(event.target)) return;
+            if (!menu || menu.classList.contains('hidden')
+                || (event.target instanceof Node && menu.contains(event.target))) return;
+            const scroller = trigger?.closest('#inspector-content');
+            if (scroller) {
+                const visible = scroller.getBoundingClientRect();
+                const anchor = trigger.getBoundingClientRect();
+                if (!anchor.width || anchor.bottom <= visible.top || anchor.top >= visible.bottom) {
+                    this.closeAtomColormapMenu();
+                    return;
+                }
+            }
             this.positionAtomColormapMenu();
         };
         window.addEventListener('pointerdown', closeOutside, true);
@@ -2503,7 +2559,12 @@ class VAseApp {
             : (catalog.default || 'viridis');
         select.value = this.state.display.atomColorScaleMap;
         this.syncAtomColormapPicker();
-        if (this.atomColorScaleRuntime.colormapMenu) this.renderAtomColormapMenu();
+        const menu = this.atomColorScaleRuntime.colormapMenu;
+        if (menu && !menu.classList.contains('hidden')) {
+            this.renderAtomColormapMenu();
+            this.filterAtomColormapMenu(menu.querySelector('input')?.value);
+            this.positionAtomColormapMenu();
+        }
     }
 
     async ensureAtomScalarCatalog({ refresh = false } = {}) {
@@ -3427,7 +3488,7 @@ class VAseApp {
         try {
             const frameCount = this.loadedFrameCount();
             const message = vizOnly
-                ? 'Preparing optimized View mode...'
+                ? 'Preparing View only…'
                 : `Preparing editable ASE state${frameCount > 1 ? ` for ${frameCount} frames` : ''}...`;
             const data = await this.withBusy(
                 message,
@@ -3456,12 +3517,12 @@ class VAseApp {
             (data.mode_transition_warnings || []).forEach(message => {
                 this.toast(message, 'warning');
             });
-            this.toast(
-                vizOnly
-                    ? 'View mode enabled. Structure editing is disabled.'
-                    : 'Edit mode enabled. ASE-backed atom editing is ready.',
-                'success'
-            );
+            // The persistent segment shows the current mode. Avoid obsolete
+            // success toasts contradicting it after a quick second switch.
+            const modeStatus=document.getElementById('runtime-mode-status');
+            if(modeStatus)modeStatus.textContent=vizOnly
+                ? 'View only. Structure editing is disabled.'
+                : 'Edit structure. Structure editing is enabled.';
             this.scheduleCollaborationEvent({
                 source: this.currentCollaborationActor(),
                 categories: ['mode'],
@@ -4671,7 +4732,10 @@ class VAseApp {
                 && current.is_relaxing === false
                 && terminalStatuses.has(current.status)
             );
-            if (!completionArrivedFirst) {
+            const supersededRun = Number.isInteger(current?.run_id)
+                && Number.isInteger(summary.run_id)
+                && summary.run_id < current.run_id;
+            if (!completionArrivedFirst && !supersededRun) {
                 this.addAtomsUI.active = { ...summary };
                 this.setAddAtomsStatus('running', `Relaxing staged content · 0/${summary.max_steps || 0}`);
             }
@@ -5096,6 +5160,7 @@ class VAseApp {
         const clamped = this.clampInspectorWidth(width);
         document.documentElement.style.setProperty('--inspector-width', `${clamped}px`);
         document.body.classList.toggle('inspector-wide', clamped >= 520);
+        document.getElementById('inspector-resizer')?.setAttribute('aria-valuenow', String(clamped));
         if (persist) {
             try {
                 window.localStorage?.setItem('v_ase.workbench.v1.width', String(clamped));
@@ -5116,33 +5181,27 @@ class VAseApp {
             savedWidth = null;
         }
         this.inspectorWidthCustom = Number.isFinite(savedWidth) && savedWidth > 0;
-        this.setInspectorWidth(this.inspectorWidthCustom ? savedWidth
-            : (window.innerWidth <= 1050 ? 324 : 352));
+        this.setInspectorWidth(this.inspectorWidthCustom ? savedWidth : 320);
         window.addEventListener('resize', () => {
             this.setInspectorWidth(this.inspectorWidthCustom
                 ? parseFloat(document.documentElement.style.getPropertyValue('--inspector-width'))
-                : (window.innerWidth <= 1050 ? 324 : 352));
+                : 320);
         });
-        const onMove = event => {
-            this.setInspectorWidth(window.innerWidth - event.clientX, false);
-        };
-        const onUp = event => {
-            document.body.classList.remove('resizing-inspector');
-            this.setInspectorWidth(window.innerWidth - event.clientX, true);
-            window.removeEventListener('pointermove', onMove);
-            window.removeEventListener('pointerup', onUp);
-            window.removeEventListener('pointercancel', onUp);
-        };
-        resizer.addEventListener('pointerdown', event => {
-            if (document.body.classList.contains('inspector-collapsed')) return;
-            this.inspectorWidthCustom = true;
-            event.preventDefault();
-            event.stopPropagation();
-            document.body.classList.add('resizing-inspector');
-            resizer.setPointerCapture?.(event.pointerId);
-            window.addEventListener('pointermove', onMove);
-            window.addEventListener('pointerup', onUp);
-            window.addEventListener('pointercancel', onUp);
+        const desktop = window.matchMedia('(min-width: 761px)');
+        desktop.addEventListener('change', () => {
+            this.setInspectorCollapsed(document.body.classList.contains('inspector-collapsed'), false);
+        });
+        installResizeHandle(resizer, {
+            direction: -1,
+            getValue: () => parseFloat(document.documentElement.style.getPropertyValue('--inspector-width')),
+            setValue: (value, persist) => {
+                if (persist) this.inspectorWidthCustom = true;
+                this.setInspectorWidth(value, persist);
+            },
+            bounds: () => [320, Math.max(320, Math.min(900, window.innerWidth - 100))],
+            defaultValue: () => 320,
+            className: 'resizing-inspector',
+            enabled: () => !document.body.classList.contains('inspector-collapsed')
         });
     }
 
@@ -5153,12 +5212,25 @@ class VAseApp {
             document.getElementById('editor-navigator-toggle')?.setAttribute('aria-expanded', 'false');
         }
         document.body.classList.toggle('inspector-collapsed', next);
+        syncPanelToggle(document.getElementById('editor-inspector-toggle'),!next,'right','inspector');
+        const pane = document.getElementById('inspector-pane');
+        const desktop = window.matchMedia('(min-width: 761px)');
+        if (pane) {
+            pane.inert = next && desktop.matches;
+            const handle = document.getElementById('inspector-resizer');
+            if (handle) handle.inert = pane.inert;
+        }
+        if (next) {
+            this.closeAtomColormapMenu();
+            document.dispatchEvent(new Event('v_ase:close-category-tools'));
+        }
         this.rehomeLightingWidget?.();
+        this.scheduleCameraRotationLayout?.();
         const button = document.getElementById('btn-inspector-collapse');
         if (button) {
             button.setAttribute('aria-expanded', next ? 'false' : 'true');
-            button.setAttribute('aria-label', next ? 'Expand control panel' : 'Collapse control panel');
-            button.title = next ? 'Expand control panel' : 'Collapse control panel';
+            button.setAttribute('aria-label', next ? 'Show inspector' : 'Hide inspector');
+            button.title = next ? 'Show inspector' : 'Hide inspector';
         }
         if (persist) {
             try {
@@ -5390,6 +5462,7 @@ class VAseApp {
 
     setupEditorNavigator() {
         mountWorkbenchTools();
+        this.setupSceneNavigator();
         document.getElementById('workbench-switch-edit')?.addEventListener('click', () => {
             this.switchRuntimeMode(false).catch(error => this.toast(`Mode change failed: ${error.message}`, 'error'));
         });
@@ -5408,7 +5481,8 @@ class VAseApp {
             this.syncAppearanceScope();
         });
         document.querySelectorAll('#workbench-tabs [data-workbench]').forEach(tab => {
-            tab.addEventListener('click', () => this.openEditorRoute(WORKBENCH_ROUTES[tab.dataset.workbench][0]));
+            tab.addEventListener('click', () => this.openEditorRoute(
+                this.workbenchLastRoutes?.[tab.dataset.workbench] || WORKBENCH_ROUTES[tab.dataset.workbench][0]));
             tab.addEventListener('keydown', event => {
                 if (!['ArrowLeft', 'ArrowRight'].includes(event.key)) return;
                 event.preventDefault();
@@ -5427,20 +5501,19 @@ class VAseApp {
         document.getElementById('workbench-add-visualization')?.addEventListener('click', () =>
             this.openEditorRoute('polyhedra'));
         const objects = document.getElementById('objects-drawer');
-        const toggleObjects = open => {
-            objects?.classList.toggle('hidden', !open);
-            document.getElementById('btn-objects')?.setAttribute('aria-expanded', String(open));
-            if (open) this.renderSceneNavigatorObjects();
-        };
-        document.getElementById('btn-objects')?.addEventListener('click', () =>
-            toggleObjects(objects?.classList.contains('hidden')));
-        document.getElementById('btn-objects-close')?.addEventListener('click', () => toggleObjects(false));
+        const objectsTrigger = document.getElementById('btn-objects');
+        objectsTrigger?.addEventListener('click', () =>
+            this.setObjectsDrawerOpen(objects?.classList.contains('hidden')));
+        document.getElementById('btn-objects-close')?.addEventListener('click', () => {
+            this.setObjectsDrawerOpen(false);
+            objectsTrigger?.focus({ preventScroll: true });
+        });
         document.getElementById('btn-fit-view')?.addEventListener('click', () => this.fitEditorView());
         document.getElementById('editor-search-toggle')?.addEventListener('click', () => {
-            const open = document.body.classList.toggle('editor-search-open');
-            document.getElementById('editor-search-toggle')?.setAttribute('aria-expanded', String(open));
-            if (open) document.getElementById('editor-command-search')?.focus();
+            this.setToolSearchOpen?.(!document.body.classList.contains('editor-search-open'), {opener:document.getElementById('editor-search-toggle')});
         });
+        document.getElementById('editor-new-tab')?.addEventListener('click', () => this.executeEditorCommand('new'));
+        document.getElementById('editor-single-close')?.addEventListener('click', () => this.executeEditorCommand('close'));
         this.lastPropertiesRoute = 'structure-info';
         document.getElementById('inspector-selection-tab')?.addEventListener('click', () => {
             this.openEditorRoute('selection');
@@ -5498,6 +5571,8 @@ class VAseApp {
         const viewport = document.getElementById('app-viewport');
         const orientation = document.getElementById('orientation-widget');
         if (viewport && orientation) viewport.appendChild(orientation);
+        const welcome = document.getElementById('empty-workspace');
+        if (viewport && welcome) viewport.appendChild(welcome);
         const scalarLegend = document.getElementById('atom-colorscale-legend');
         if (viewport && scalarLegend) viewport.appendChild(scalarLegend);
         const widget = document.getElementById('create-atom-widget');
@@ -5510,8 +5585,28 @@ class VAseApp {
         const structureExports = document.querySelector('[data-panel="export"] .export-structure-data');
         const projectPanel = document.querySelector('[data-panel="project"]');
         if (structureExports && projectPanel) projectPanel.appendChild(structureExports);
+        // One complete index, derived from the routes that can actually open.
+        // The former hand-written list omitted Water, Isosurfaces and utilities.
+        const routeIndex=document.querySelector('#editor-navigator .editor-navigator-list');
+        routeIndex.replaceChildren();
+        const routeGroups=new Map();
+        for(const category of ['style','build','analyze','render','scene']) {
+            const group=document.createElement('details');group.dataset.editorCategory=category;group.open=true;
+            const title=document.createElement('summary');title.textContent=category[0].toUpperCase()+category.slice(1);
+            group.appendChild(title);routeGroups.set(category,group);routeIndex.appendChild(group);
+        }
+        for(const [route,definition] of Object.entries(EDITOR_ROUTES)) {
+            const category=Object.keys(WORKBENCH_ROUTES).find(group=>WORKBENCH_ROUTES[group].includes(route)) || definition.category;
+            const button=document.createElement('button');button.type='button';button.dataset.editorRoute=route;
+            button.textContent=definition.title;routeGroups.get(category).appendChild(button);
+        }
         document.querySelectorAll('[data-editor-route]').forEach(button => {
-            button.addEventListener('click', () => this.openEditorRoute(button.dataset.editorRoute));
+            button.addEventListener('click', () => {
+                const route=button.dataset.editorRoute;
+                const query=button.closest('#editor-navigator') ? document.getElementById('editor-command-search').value.trim().toLowerCase() : '';
+                const target=query ? (EDITOR_SEARCH[route] || []).find(([terms])=>query.split(/\s+/).every(word=>terms.includes(word)))?.[1] : null;
+                this.openEditorRoute(route,{focus:target,fromSearch:Boolean(button.closest('#editor-navigator'))});
+            });
         });
         document.getElementById('scene-field-import')?.addEventListener('click', () =>
             document.getElementById('btn-volume-add')?.click());
@@ -5525,17 +5620,45 @@ class VAseApp {
             });
         });
         const search = document.getElementById('editor-command-search');
+        document.getElementById('editor-search-toggle')?.querySelector('.search-entry-shortcut')?.replaceChildren(document.createTextNode(editorShortcutLabel('search',this.shortcutPlatform)));
+        for (const button of document.querySelectorAll('#editor-navigator [data-editor-route]')) {
+            const route=button.dataset.editorRoute, definition=EDITOR_ROUTES[route];
+            const category=Object.keys(WORKBENCH_ROUTES).find(group=>WORKBENCH_ROUTES[group].includes(route)) || definition?.category || 'Tools';
+            button.dataset.searchTerms=button.textContent.trim();
+            button.replaceChildren(document.createTextNode(WORKBENCH_LABELS[route] || definition?.title || button.dataset.searchTerms));
+            button.dataset.searchName=button.textContent.trim();
+            const path=document.createElement('small');path.className='command-result-path';path.textContent=category[0].toUpperCase()+category.slice(1);
+            button.appendChild(path);
+        }
+        const actionGroup=document.createElement('details');actionGroup.dataset.editorCategory='commands';actionGroup.open=true;
+        actionGroup.innerHTML='<summary>Commands</summary>';
+        for (const [action,label,terms] of [
+            ['new','New document','new tab structure'],['open','Open structure…','open file import'],['save','Save document','save file'],
+            ['save-as','Save as…','save project new file'],['shortcuts','Keyboard shortcuts','help keys formats'],['preferences','Interface appearance','theme palette preferences appearance graphite slate stone moss']
+        ]) {
+            const button=document.createElement('button');button.type='button';button.dataset.commandAction=action;
+            button.dataset.searchName=label;button.dataset.searchTerms=terms;button.textContent=label;
+            const path=document.createElement('small');path.className='command-result-path';path.textContent='Commands';button.appendChild(path);
+            button.addEventListener('click',()=>{closeCommandSearch();
+                if(action==='shortcuts')this.showShortcutsModal();
+                else if(action==='preferences')this.openEditorRoute('view',{focus:'#ui-palette'});
+                else this.executeEditorCommand(action);
+            });
+            actionGroup.appendChild(button);
+        }
+        document.querySelector('#editor-navigator .editor-navigator-list')?.appendChild(actionGroup);
+
         const filterRoutes = () => {
             const query = String(search?.value || '').trim().toLocaleLowerCase();
             let total = 0;
             document.querySelectorAll('#editor-navigator [data-editor-category]').forEach(category => {
                 let matched = 0;
-                category.querySelectorAll('[data-editor-route]').forEach(button => {
+                category.querySelectorAll('[data-editor-route],[data-command-action]').forEach(button => {
                     const route = button.dataset.editorRoute;
                     const shortcuts = Object.entries(EDITOR_COMMANDS)
                         .filter(([, command]) => command.section === route)
                         .map(([id]) => editorShortcutSearchTerms(id, this.shortcutPlatform));
-                    const terms = [button.textContent, route,
+                    const terms = [button.dataset.searchName, button.dataset.searchTerms || '', button.textContent, route || '',
                         ...(EDITOR_SEARCH[route] || []).map(item => item[0]), ...shortcuts]
                         .join(' ').toLocaleLowerCase();
                     const visible = !query || query.split(/\s+/).every(word => terms.includes(word));
@@ -5543,40 +5666,105 @@ class VAseApp {
                     if (visible) matched += 1;
                 });
                 category.hidden = Boolean(query && !matched);
-                if (query && matched) category.open = true;
+                category.open = true;
                 total += matched;
             });
             document.getElementById('editor-command-empty')?.classList.toggle('hidden', total > 0);
         };
         search?.addEventListener('input', filterRoutes);
+        const visibleSearchRoutes = () => [...document.querySelectorAll('#editor-navigator [data-editor-route],#editor-navigator [data-command-action]')]
+            .filter(button => !button.hidden && !button.closest('[data-editor-category]')?.hidden
+                && button.getClientRects().length > 0 && button.getBoundingClientRect().height > 0);
+        const closeCommandSearch = ({restoreFocus=true}={}) => {
+            search.value = '';
+            filterRoutes();
+            document.body.classList.remove('editor-search-open');
+            document.getElementById('editor-search-toggle')?.setAttribute('aria-expanded', 'false');
+            const candidate=this.commandSearchReturnFocus;
+            const target=candidate?.isConnected && candidate.checkVisibility() && candidate!==document.body
+                ? candidate : document.getElementById('editor-search-toggle');
+            if(restoreFocus)target?.focus({preventScroll:true});
+        };
+        this.layoutToolSearch = () => {
+            const popup=document.getElementById('editor-navigator'),anchor=document.getElementById('editor-search-toggle').getBoundingClientRect();
+            const width=Math.min(540,window.innerWidth-24);
+            popup.style.left=`${Math.max(12,Math.min(window.innerWidth-width-12,anchor.left))}px`;
+            popup.style.top=`${anchor.bottom+8}px`;popup.style.transform='none';popup.style.translate='none';
+            popup.style.maxHeight=`${Math.max(0,Math.min(650,window.innerHeight-anchor.bottom-20))}px`;
+        };
+        window.addEventListener('resize',()=>{if(document.body.classList.contains('editor-search-open'))this.layoutToolSearch();});
+        this.setToolSearchOpen = (open,{opener=document.getElementById('editor-search-toggle'),restoreFocus=true}={}) => {
+            if(!open){closeCommandSearch({restoreFocus});return;}
+            document.dispatchEvent(new Event('v_ase:global-tools'));
+            if(!document.body.classList.contains('editor-search-open'))this.commandSearchReturnFocus=opener;
+            document.body.classList.add('editor-search-open');
+            document.getElementById('editor-search-toggle')?.setAttribute('aria-expanded','true');
+            this.layoutToolSearch();filterRoutes();search?.focus({preventScroll:true});search?.select();
+        };
+        document.addEventListener('v_ase:find-tools',event=>this.setToolSearchOpen(true,{opener:event.detail?.opener}));
+        document.addEventListener('v_ase:category-tools',()=>closeCommandSearch({restoreFocus:false}));
+        const commandNavigator = document.getElementById('editor-navigator');
+        if (commandNavigator && !commandNavigator.querySelector('.editor-search-help')) {
+            const help = document.createElement('div');
+            help.className = 'editor-search-help';
+            help.setAttribute('aria-hidden', 'true');
+            help.innerHTML = '<span><kbd>↑ ↓</kbd> Choose</span><span><kbd>↵</kbd> Open</span><span><kbd>esc</kbd> Close</span>';
+            commandNavigator.appendChild(help);
+        }
+        commandNavigator?.addEventListener('keydown', event => {
+            if (!document.body.classList.contains('editor-search-open') || event.target === search
+                || event.altKey || event.metaKey || event.ctrlKey) return;
+            if (event.key === 'Escape') {
+                event.preventDefault(); event.stopPropagation(); closeCommandSearch(); return;
+            }
+            const buttons = visibleSearchRoutes(), index = buttons.indexOf(event.target.closest('[data-editor-route],[data-command-action]'));
+            if (index < 0 || !['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
+            event.preventDefault(); event.stopPropagation();
+            if (event.key === 'ArrowUp' && index === 0) { search.focus(); return; }
+            const next = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1
+                : (index + (event.key === 'ArrowUp' ? -1 : 1) + buttons.length) % buttons.length;
+            buttons[next].focus({ preventScroll: true });
+            buttons[next].scrollIntoView({ block: 'nearest' });
+        });
         search?.addEventListener('keydown', event => {
             if (event.key === 'Escape') {
                 event.preventDefault();
                 event.stopPropagation();
-                search.value = '';
-                filterRoutes();
-                document.body.classList.remove('editor-search-open');
-                document.getElementById('editor-search-toggle')?.setAttribute('aria-expanded', 'false');
-                document.getElementById('editor-search-toggle')?.focus();
+                closeCommandSearch();
+                return;
+            }
+            if (['ArrowDown', 'ArrowUp'].includes(event.key) && !event.altKey && !event.metaKey && !event.ctrlKey) {
+                event.preventDefault();
+                const buttons = visibleSearchRoutes();
+                const button = event.key === 'ArrowDown' ? buttons[0] : buttons.at(-1);
+                button?.focus({ preventScroll: true });
+                button?.scrollIntoView({ block: 'nearest' });
                 return;
             }
             if (event.key !== 'Enter') return;
-            const button = [...document.querySelectorAll('#editor-navigator [data-editor-route]')]
-                .find(candidate => !candidate.hidden && !candidate.closest('[data-editor-category]')?.hidden);
+            const button = visibleSearchRoutes()[0];
             if (!button) return;
             event.preventDefault();
+            if (button.dataset.commandAction) {button.click();return;}
             const route = button.dataset.editorRoute;
             const query = search.value.trim().toLocaleLowerCase();
-            const match = (EDITOR_SEARCH[route] || []).find(([terms]) => terms.includes(query));
+            const match = (EDITOR_SEARCH[route] || []).find(([terms]) => query.split(/\s+/).every(word=>terms.includes(word)));
             const commandMatch = Object.entries(EDITOR_COMMANDS).find(([id, command]) =>
                 command.section === route
                     && editorShortcutSearchTerms(id, this.shortcutPlatform).toLocaleLowerCase().includes(query));
             this.openEditorRoute(route, { focus: match?.[1] || commandMatch?.[1]?.focus
-                || EDITOR_ROUTES[route]?.target || null });
+                || EDITOR_ROUTES[route]?.target || null,fromSearch:true });
         });
+        const dismissMenuForAction = button => {
+            const menu = button.closest('details');
+            menu?.removeAttribute('open');
+            // A menu item is hidden after dismissal. Dialogs opened by its
+            // action must retain the visible summary as their return target.
+            (document.getElementById('editor-menu-toggle') || menu?.querySelector('summary'))?.focus({ preventScroll: true });
+        };
         document.querySelectorAll('[data-editor-menu-action]').forEach(button => {
             button.addEventListener('click', () => {
-                button.closest('details')?.removeAttribute('open');
+                dismissMenuForAction(button);
                 const action = button.dataset.editorMenuAction;
                 if (action === 'open') this.chooseStructureFile();
                 else if (EDITOR_COMMANDS[action]) this.executeEditorCommand(action);
@@ -5587,11 +5775,12 @@ class VAseApp {
                 else if (action === 'reset-coordinates') document.getElementById('btn-reset-coords')?.click();
                 else if (action === 'reset-all') document.getElementById('btn-reset')?.click();
                 else if (action === 'shortcuts') this.showShortcutsModal();
+                else if (action === 'preferences') this.openEditorRoute('view',{focus:'#ui-palette'});
             });
         });
         document.querySelectorAll('[data-editor-menu-route]').forEach(button => {
             button.addEventListener('click', () => {
-                button.closest('details')?.removeAttribute('open');
+                dismissMenuForAction(button);
                 const route = button.dataset.editorMenuRoute;
                 const commandId = Object.keys(EDITOR_COMMANDS).find(id =>
                     EDITOR_COMMANDS[id].section === route);
@@ -5661,7 +5850,7 @@ class VAseApp {
                     if (!button.title) button.title = `${command.label} (${label})`;
                 });
         });
-        [['editor-save', 'save'], ['editor-render', 'renderer']].forEach(([elementId, id]) => {
+        [['editor-save', 'save'], ['editor-render', 'renderer'], ['editor-search-toggle', 'search']].forEach(([elementId, id]) => {
             const button = document.getElementById(elementId);
             if (!button) return;
             button.setAttribute('aria-keyshortcuts', editorAriaShortcut(id, this.shortcutPlatform));
@@ -5685,12 +5874,24 @@ class VAseApp {
         const button = document.getElementById('camera-rotation-toggle');
         const toolbar = document.getElementById('view-toolbar');
         if (!tools || !group || !content || !button || !toolbar) return;
+        const inner = content.querySelector('.camera-rotation-inner');
+        if (inner) {
+            const presets = tools.querySelector('.camera-presets');
+            if (presets) inner.prepend(presets);
+            for (const id of ['btn-render-area-from-view', 'btn-grid-toggle', 'lighting-widget']) {
+                const control = document.getElementById(id);
+                if (control) inner.appendChild(control);
+            }
+        }
+        button.innerHTML = '<span>Camera</span><svg viewBox="0 0 12 8" aria-hidden="true"><path d="m2 2 4 4 4-4"/></svg>';
         const setExpanded = expanded => {
             group.classList.toggle('expanded', expanded);
             button.setAttribute('aria-expanded', String(expanded));
-            button.setAttribute('aria-label', `${expanded ? 'Collapse' : 'Expand'} rotation controls`);
+            button.setAttribute('aria-label', `${expanded ? 'Hide' : 'Show'} Camera controls`);
             button.title = button.getAttribute('aria-label');
             content.inert = group.classList.contains('compact') && !expanded;
+            // Position before the first visible animation frame.
+            this.layoutCameraRotation?.();
         };
         button.addEventListener('click', () => setExpanded(!group.classList.contains('expanded')));
         group.addEventListener('keydown', event => {
@@ -5700,20 +5901,54 @@ class VAseApp {
         });
         const update = () => {
             const viewport = this.renderer.container.getBoundingClientRect();
-            const access = document.querySelector('.viewport-object-access')?.getBoundingClientRect();
-            const top = tools.getBoundingClientRect().top;
-            const start = access && access.bottom > top ? access.right + 12 : viewport.left + 12;
-            const right = parseFloat(getComputedStyle(tools).right) || 12;
-            const otherWidth = [...tools.children].filter(node => node !== group)
-                .reduce((sum, node) => sum + node.getBoundingClientRect().width + 4, 0);
-            const compact = otherWidth + toolbar.scrollWidth + 2 > viewport.right - right - start;
+            const compact = true;
             if (compact !== group.classList.contains('compact')) {
                 const hadFocus = content.contains(document.activeElement);
                 group.classList.toggle('compact', compact);
                 // Resizing must not hide a field the user is still editing.
                 setExpanded(!compact || hadFocus);
             }
+            if (compact) {
+                const gap = 12, margin = 12;
+                const gizmo = document.getElementById('orientation-widget')?.getBoundingClientRect();
+                const anchor = group.getBoundingClientRect();
+                const leftLimit = viewport.left + margin, rightLimit = viewport.right - margin;
+                content.style.maxWidth = `${Math.max(1, viewport.width - margin * 2)}px`;
+                const reserveLeft=gizmo?Math.min(gizmo.left,anchor.left):anchor.left;
+                const beside = gizmo && reserveLeft - gap - leftLimit;
+                if (beside >= 150) content.style.maxWidth = `${Math.min(290,beside)}px`;
+                content.style.maxHeight = `${Math.max(1, viewport.height - margin * 2)}px`;
+                const popupWidth = content.getBoundingClientRect().width;
+                let left = Math.max(leftLimit, Math.min(anchor.right - popupWidth, rightLimit - popupWidth));
+                let top = anchor.bottom + 7;
+                if (gizmo && gizmo.width && reserveLeft - gap - popupWidth >= leftLimit - 1) {
+                    // Keep the axis target stable. The popup occupies a
+                    // separate column, including throughout its reveal motion.
+                    left = reserveLeft - gap - popupWidth;
+                    if (top + content.getBoundingClientRect().height > viewport.bottom - margin) {
+                        // A short stage can use the entire separate column;
+                        // keeping the popup below its button needlessly clips
+                        // camera actions even though the axis column is free.
+                        top = viewport.top + margin;
+                    }
+                } else if (gizmo && left < gizmo.right && left + popupWidth > gizmo.left) {
+                    top = Math.max(top, gizmo.bottom + gap);
+                }
+                const bottom = viewport.bottom - margin;
+                // Short stages can fit the popup above the axis reserve;
+                // otherwise retain a scrollable popup below it.
+                if (top + 80 > bottom && gizmo && gizmo.top - gap - viewport.top > 80) {
+                    top = viewport.top + margin;
+                    content.style.maxHeight = `${gizmo.top - gap - top}px`;
+                } else content.style.maxHeight = `${Math.max(1, bottom - top)}px`;
+                content.style.right = `${anchor.right - left - popupWidth}px`;
+                content.style.top = `${top - anchor.top}px`;
+            } else {
+                content.style.removeProperty('max-width');
+                content.style.removeProperty('right');
+            }
         };
+        this.layoutCameraRotation = update;
         let pending = null;
         this.scheduleCameraRotationLayout = () => {
             if (pending !== null) return;
@@ -5721,15 +5956,31 @@ class VAseApp {
         };
         this.cameraRotationObserver = new ResizeObserver(this.scheduleCameraRotationLayout);
         [this.renderer.container, document.getElementById('inspector'),
-            document.querySelector('.viewport-object-access'), toolbar].filter(Boolean)
+            document.getElementById('orientation-widget'), toolbar, inner].filter(Boolean)
             .forEach(element => this.cameraRotationObserver.observe(element));
-        setExpanded(true);
+        const afterPanelMotion = event => {
+            if (event.target === document.body && event.propertyName === '--ui-inspector-open') {
+                this.scheduleCameraRotationLayout();
+            }
+        };
+        document.body.addEventListener('transitionend', afterPanelMotion);
+        this.cleanupCallbacks.push(() => document.body.removeEventListener('transitionend', afterPanelMotion));
+        group.classList.add('compact');
+        setExpanded(false);
         this.scheduleCameraRotationLayout();
+        const dismissView = event => {
+            // Lighting belongs to View even though its floating card is
+            // mounted at body level to avoid clipping by the menu surface.
+            if (!group.contains(event.target)
+                && !document.getElementById('lighting-card')?.contains(event.target)) setExpanded(false);
+        };
+        document.addEventListener('pointerdown', dismissView);
+        this.cleanupCallbacks.push(() => document.removeEventListener('pointerdown', dismissView));
     }
 
     rehomeLightingWidget() {
         const widget = document.getElementById('lighting-widget');
-        const target = document.getElementById('viewport-camera-tools');
+        const target = document.querySelector('#camera-more-content .camera-rotation-inner');
         if (widget && target && widget.parentElement !== target) target.appendChild(widget);
     }
 
@@ -5808,6 +6059,122 @@ class VAseApp {
         });
     }
 
+    setObjectsDrawerOpen(open) {
+        if (this.workspaceChild) {
+            if (open) window.parent.postMessage({ type: 'v_ase:document-navigator-toggle',
+                sessionId: this.sessionId, show: true }, location.origin);
+            return;
+        }
+        if (this.setSceneNavigatorCollapsed) {
+            this.setSceneNavigatorCollapsed(!open);
+            if (open) this.renderSceneNavigatorObjects();
+            return;
+        }
+        const drawer = document.getElementById('objects-drawer');
+        if (!drawer) return;
+        drawer.inert = !open;
+        drawer.classList.toggle('hidden', !open);
+        document.getElementById('btn-objects')?.setAttribute('aria-expanded', String(open));
+        if (open) this.renderSceneNavigatorObjects();
+    }
+
+    setupSceneNavigator() {
+        const navigator = document.getElementById('scene-navigator');
+        const drawer = document.getElementById('objects-drawer');
+        if (!navigator || !drawer) return;
+        navigator.appendChild(drawer);
+        drawer.classList.remove('hidden');
+        drawer.inert = this.workspaceChild;
+        let preference = null;
+        try {
+            const saved = localStorage.getItem('v_ase.navigator.collapsed');
+            if (saved !== null) preference = saved === '1';
+        } catch {}
+        const media = matchMedia('(max-width: 1100px)');
+        this.setSceneNavigatorCollapsed = (collapsed, persist = true) => {
+            document.body.classList.toggle('scene-nav-collapsed', Boolean(collapsed));
+            navigator.inert = Boolean(collapsed) || this.workspaceChild;
+            drawer.inert = navigator.inert;
+            if (!this.workspaceChild) {
+                syncPanelToggle(document.getElementById('editor-sidebar-toggle'),!collapsed,'left','Scene sidebar');
+                document.getElementById('btn-objects')?.setAttribute('aria-expanded', String(!collapsed));
+            }
+            if (persist) {
+                preference = Boolean(collapsed);
+                try { localStorage.setItem('v_ase.navigator.collapsed', collapsed ? '1' : '0'); } catch {}
+            }
+            this.directWorkspace?.syncNavigatorState?.();
+        };
+        syncPanelToggle(document.getElementById('editor-sidebar-toggle'),!document.body.classList.contains('scene-nav-collapsed'),'left','Scene sidebar');
+        if (!this.workspaceChild) this.setSceneNavigatorCollapsed(preference ?? media.matches, false);
+        media.addEventListener('change', () => {
+            if (!this.workspaceChild && preference === null) this.setSceneNavigatorCollapsed(media.matches, false);
+        });
+        document.getElementById('editor-sidebar-toggle')?.addEventListener('click', () => {
+            if (this.workspaceChild) window.parent.postMessage({
+                type: 'v_ase:document-navigator-toggle', sessionId: this.sessionId,
+            }, location.origin);
+            else this.setSceneNavigatorCollapsed(!document.body.classList.contains('scene-nav-collapsed'));
+        });
+        document.getElementById('editor-inspector-toggle')?.addEventListener('click', () => {
+            document.getElementById('btn-inspector-collapse')?.click();
+        });
+        document.getElementById('constraint-selection-inspect')?.addEventListener('click', () => this.openEditorRoute('selection'));
+        const status = document.querySelector('#top-bar .status-group');
+        if (status) document.querySelector('.viewport-status-row')?.appendChild(status);
+        const modal = document.getElementById('modal-container');
+        const busyOverlay = document.getElementById('busy-overlay');
+        const header=document.getElementById('top-bar');
+        const syncToolbarBoundary=()=>document.body.style.setProperty('--ui-toolbar-bottom',`${header.getBoundingClientRect().bottom}px`);
+        const headerObserver=new ResizeObserver(syncToolbarBoundary);
+        headerObserver.observe(header);syncToolbarBoundary();
+        this.cleanupCallbacks.push(()=>headerObserver.disconnect());
+        const updateModal = () => {
+            const open = !modal.classList.contains('hidden') || Boolean(document.body.dataset.busy);
+            const visible = !modal.classList.contains('hidden') || (Boolean(document.body.dataset.busy)
+                && !busyOverlay.classList.contains('hidden') && !busyOverlay.classList.contains('busy-pending'));
+            if (this.workspaceChild) window.parent.postMessage({
+                type: 'v_ase:document-modal', sessionId: this.sessionId,
+                generation: this.recoveryGeneration, open, visible,
+            }, location.origin);
+            else this.directWorkspace?.syncNavigatorIsolation?.();
+        };
+        const observer = new MutationObserver(updateModal);
+        observer.observe(modal, { attributes: true, attributeFilter: ['class'] });
+        observer.observe(busyOverlay, { attributes: true, attributeFilter: ['class'] });
+        observer.observe(document.body, { attributes: true, attributeFilter: ['data-busy'] });
+        updateModal();
+        this.cleanupCallbacks.push(() => observer.disconnect());
+    }
+
+    performSceneNavigatorAction(id, action, checked) {
+        const entry = this.sceneNavigatorEntries?.get(id);
+        if (!entry) return;
+        if (action === 'inspect') {
+            this.openEditorRoute(entry.route, { focus: entry.focus });
+            entry.activate?.();
+            if (!this.workspaceChild && matchMedia('(max-width: 760px)').matches) this.setSceneNavigatorCollapsed?.(true);
+        } else if (action === 'visibility' && typeof checked === 'boolean') {
+            if (entry.setVisibility) entry.setVisibility(checked);
+            else if (entry.visibility) {
+                const source = document.getElementById(entry.visibility);
+                if (source) {
+                    source.checked = checked;
+                    source.dispatchEvent(new Event('change', { bubbles: true }));
+                }
+            }
+        }
+        this.renderSceneNavigatorObjects();
+    }
+
+    publishSceneNavigator() {
+        if (!this.workspaceChild || !this.sceneNavigatorSnapshot) return;
+        window.parent.postMessage({
+            type: 'v_ase:document-scene', sessionId: this.sessionId,
+            generation: this.recoveryGeneration, ...this.sceneNavigatorSnapshot,
+        }, location.origin);
+    }
+
     renderSceneNavigatorObjects() {
         const root = document.getElementById('objects-list');
         if (!root || !this.state.atoms) return;
@@ -5827,7 +6194,7 @@ class VAseApp {
             {id: 'grid', label: 'Grid', route: 'view', visibility: 'chk-grid'},
             {id: 'axes', label: 'Axes', route: 'view', visibility: 'chk-axes'});
         const bondCount = this.renderer.bondPairs?.length || 0;
-        if (bondCount) entries.push({
+        entries.push({
             id: 'bonds', label: `Bonds · ${bondCount}`, route: 'bonding',
             focus: '#bond-mode', visibility: 'chk-bonds'
         });
@@ -5879,55 +6246,42 @@ class VAseApp {
         if (this.state.display.lightingMode !== 'modeling') entries.push({
             id: 'sun', label: 'Sun lighting', route: 'export', focus: '#renderer-sun-position-x'
         });
-        entries.push({ id: 'render-area', label: 'Camera / render area', route: 'export', focus: '#btn-preview-image',
+        entries.push({ id: 'render-area', label: 'Render area', route: 'export', focus: '#btn-preview-image',
             checked: () => this.state.exportPreviewEnabled,
             setVisibility: checked => this.setRenderAreaVisible(checked),
             activate: () => this.setRenderAreaSelected(true) });
         if (this.state.display.showDisplacements
             || Number(this.state.atoms.metadata?.frame_count || 1) > 1) entries.push({
-            id: 'displacements', label: 'Displacement vectors', route: 'scene-vectors',
+            id: 'displacements', label: 'Displacements', route: 'scene-vectors',
             focus: '#scene-displacement-visible', visibility: 'scene-displacement-visible'
         });
         if (this.state.display.showForceVectors || this.state.atoms.forces?.length) entries.push({
-            id: 'forces', label: 'Stored force vectors', route: 'scene-vectors',
+            id: 'forces', label: 'Force vectors', route: 'scene-vectors',
             focus: '#scene-force-visible', visibility: 'scene-force-visible'
         });
-        const signature = JSON.stringify(entries.map(entry => [entry.id, entry.label,
-            entry.checked?.() ?? document.getElementById(entry.visibility)?.checked]));
+        this.sceneNavigatorEntries = new Map(entries.map(entry => [entry.id, entry]));
+        const records = entries.map(entry => ({ id: entry.id, label: entry.label,
+            route: entry.route, active: entry.route === this.editorRoute,
+            group: ['grid', 'axes', 'cell', 'render-area'].includes(entry.id) ? 'guides'
+                : ['water', 'displacements', 'forces'].includes(entry.id) ? 'overlays' : 'objects',
+            icon: ({ atoms: 'appearance', grid: 'grid', axes: 'axes', cell: 'cell-replication',
+                'render-area': 'export', displacements: 'displacement', forces: 'forces' })[entry.id] || entry.route,
+            visible: entry.visibility || entry.setVisibility
+                ? Boolean(entry.checked?.() ?? document.getElementById(entry.visibility)?.checked) : null }));
+        const count = this.state.atoms.positions.length;
+        const frames = Number(this.state.atoms.metadata?.frame_count || 1);
+        this.sceneNavigatorSnapshot = { entries: records, caption: `${count} atoms`,
+            detail: `${count} atoms${frames > 1 ? ` · ${frames} frames` : ''}` };
+        const title = document.getElementById('navigator-document-title');
+        if (title) title.textContent = this.workspaceDocumentTitle();
+        const detail = document.getElementById('navigator-document-detail');
+        if (detail) detail.textContent = this.sceneNavigatorSnapshot.detail;
+        const signature = JSON.stringify(this.sceneNavigatorSnapshot);
+        if (this.directWorkspace && this.directWorkspace.activeSessionId !== this.sessionId) return;
         if (root.dataset.signature === signature) return;
         root.dataset.signature = signature;
-        root.replaceChildren();
-        entries.forEach(entry => {
-            const row = document.createElement('div');
-            row.className = 'objects-row';
-            const button = document.createElement('button');
-            button.type = 'button';
-            button.dataset.objectId = entry.id;
-            button.dataset.editorRoute = entry.route;
-            button.textContent = entry.label;
-            button.addEventListener('click', () => {
-                this.openEditorRoute(entry.route, { focus: entry.focus });
-                entry.activate?.();
-                document.getElementById('objects-drawer')?.classList.add('hidden');
-                document.getElementById('btn-objects')?.setAttribute('aria-expanded', 'false');
-            });
-            row.appendChild(button);
-            if (entry.visibility || entry.setVisibility) {
-                const source = document.getElementById(entry.visibility);
-                const eye = document.createElement('input');
-                eye.type = 'checkbox';
-                eye.checked = entry.checked?.() ?? Boolean(source?.checked);
-                eye.setAttribute('aria-label', `Show ${entry.label}`);
-                eye.addEventListener('change', () => {
-                    if (entry.setVisibility) { entry.setVisibility(eye.checked); return; }
-                    if (!source) return;
-                    source.checked = eye.checked;
-                    source.dispatchEvent(new Event('change', { bubbles: true }));
-                });
-                row.appendChild(eye);
-            }
-            root.appendChild(row);
-        });
+        renderSceneNavigator(root, records, (id, action, checked) => this.performSceneNavigatorAction(id, action, checked));
+        this.publishSceneNavigator();
         document.getElementById('editor-command-search')?.dispatchEvent(new Event('input'));
     }
 
@@ -5971,6 +6325,29 @@ class VAseApp {
         set('renderer-background', profile.options.backgroundColor || '#ffffff');
         set('image-width', profile.width);
         set('image-height', profile.height);
+        const transparent = document.getElementById('renderer-image-transparent');
+        if (transparent) {
+            transparent.checked = profile.options.transparentBackground;
+            transparent.disabled = !this.imageFormatSupportsTransparency(this.imageExportDraftFormat || profile.format);
+        }
+        const summary = document.getElementById('renderer-image-output-summary');
+        if (summary) summary.textContent = `${profile.width} × ${profile.height} px · ${profile.options.scaleMode === 'physical' ? 'Physical scale' : 'Viewport framing'}`;
+    }
+
+    rehomeImageFrameSettings(route) {
+        const frame = document.getElementById('renderer-frame-settings');
+        const imageSlot = document.getElementById('renderer-image-frame-slot');
+        const common = document.querySelector('.renderer-output-group');
+        if (frame && imageSlot && common) {
+            if (route === 'render-image') imageSlot.appendChild(frame);
+            else common.insertBefore(frame, common.querySelector('.renderer-subsection'));
+        }
+        const background = document.getElementById('renderer-background')?.closest('.prop-row');
+        const backgroundSlot = document.getElementById('renderer-image-background-slot');
+        const extras = document.querySelector('.renderer-extras-group');
+        if (background && backgroundSlot && extras) {
+            (route === 'render-image' ? backgroundSlot : extras).appendChild(background);
+        }
     }
 
     syncProjectHtmlProfileFromRenderer() {
@@ -6198,6 +6575,15 @@ class VAseApp {
             document.getElementById(id)?.addEventListener('change', commitOverlays));
         document.getElementById('renderer-image-format')?.addEventListener('change', event => {
             this.imageExportDraftFormat = event.target.value;
+            this.syncRendererProperties();
+        });
+        document.getElementById('renderer-image-transparent')?.addEventListener('change', event => {
+            const profile = this.currentImageExportProfile();
+            profile.format = this.imageExportDraftFormat || profile.format;
+            profile.options.transparentBackground = event.target.checked;
+            this.setImageExportProfile(profile);
+            this.syncProjectHtmlProfileFromRenderer();
+            this.scheduleVisualHistoryCommit('renderer-background');
         });
         const updateVideoDraft = () => {
             const previous = this.videoExportDraft || {};
@@ -6311,7 +6697,8 @@ class VAseApp {
         }
     }
 
-    openEditorRoute(route, { focus = null } = {}) {
+    openEditorRoute(route, { focus = null, fromSearch = false } = {}) {
+        if (!fromSearch && !focus && route===this.editorRoute && document.body.classList.contains('editor-search-open')) return true;
         const draft = this.invalidDraftInput?.isConnected ? this.invalidDraftInput : document.activeElement;
         if (this.isCommittableInput(draft) && !this.commitInputValue(draft, { restoreInvalid: true })) return;
         const description = EDITOR_ROUTES[route];
@@ -6333,8 +6720,9 @@ class VAseApp {
         if (this.editorRoute && !document.body.classList.contains('workbench-contextual')) {
             this.previousWorkbenchRoute = this.editorRoute;
         }
+        const previousRoute = this.editorRoute;
+        if (previousRoute !== route) this.closeAtomColormapMenu();
         this.editorRoute = route;
-        syncWorkbenchRoute(route, description.title);
         this.syncWorkbenchEditingAvailability();
         this.rehomeSceneFieldProperties(route === 'scene-fields');
         this.rehomeSceneVectorProperties(route === 'scene-vectors');
@@ -6366,9 +6754,16 @@ class VAseApp {
         });
         const title = document.getElementById('inspector-context');
         if (title) title.textContent = description.title;
+        syncWorkbenchRoute(route, description.title, previousRoute);
+        const workbench = Object.keys(WORKBENCH_ROUTES).find(group => WORKBENCH_ROUTES[group].includes(route));
+        if (workbench) (this.workbenchLastRoutes ||= {})[workbench] = route;
+        this.renderSceneNavigatorObjects();
         if (route === 'add-atoms') document.getElementById('create-atom-widget')?.classList.remove('collapsed');
         this.updateAddAtomsRegionPreview();
         if (['export', 'render-image', 'render-video', 'render-html'].includes(route)) {
+            this.rehomeImageFrameSettings(route);
+            const shared = document.getElementById('render-shared-settings');
+            if (shared && previousRoute !== route) shared.open = route === 'export';
             this.syncRendererProperties();
             this.syncRendererFormatProperties();
         }
@@ -6380,18 +6775,20 @@ class VAseApp {
         if (picker && [...picker.options].some(option => option.value === route)) picker.value = route;
         const content = document.getElementById('inspector-content');
         if (content) content.scrollTop = 0;
-        if (description.target) requestAnimationFrame(() => {
-            document.querySelector(description.target)?.scrollIntoView({ block: 'nearest' });
-        });
         const focusTarget = route === 'cell-transform' && this.state.vizOnly
             ? '#btn-cell-transform-switch-edit' : focus;
         if (focusTarget) {
             const target = document.querySelector(focusTarget);
+            const shared = target?.closest('#render-shared-settings');
+            if (shared) shared.open = true;
             if (target && !target.disabled && target.offsetParent !== null) {
                 target.scrollIntoView({ block: 'nearest' });
                 target.focus({ preventScroll: true });
                 if (target instanceof HTMLInputElement) target.select();
             }
+        }
+        if(fromSearch && document.activeElement?.closest('#editor-navigator')) {
+            document.getElementById('inspector-tool-trigger')?.focus({preventScroll:true});
         }
         this.renderer?.onResize?.();
         return true;
@@ -6414,6 +6811,7 @@ class VAseApp {
     }
 
     executeEditorCommand(commandId, { repeat = false, target = null } = {}) {
+        if (document.body.dataset.busy) return true;
         if (DOCUMENT_COMMANDS[commandId]) {
             if (!repeat) this.executeDocumentNavigation(commandId);
             return true;
@@ -6429,6 +6827,10 @@ class VAseApp {
         if (modal && !modal.classList.contains('hidden')) return true;
         if (this.transform.mode !== 'IDLE') {
             this.toast('Finish or cancel the active transform before using a document command.', 'warning');
+            return true;
+        }
+        if (command.action === 'search') {
+            this.setToolSearchOpen?.(true,{opener:target || document.activeElement || document.getElementById('editor-search-toggle')});
             return true;
         }
         const active = this.isCommittableInput(target) ? target : document.activeElement;
@@ -6458,7 +6860,7 @@ class VAseApp {
 
     executeViewportNavigation(navigation) {
         if (!navigation) return false;
-        if (!this.collaborationReady || (this.workspaceChild && !this.workspaceRecoveryAcknowledged)
+        if (document.body.dataset.busy || !this.collaborationReady || (this.workspaceChild && !this.workspaceRecoveryAcknowledged)
             || !document.getElementById('modal-container')?.classList.contains('hidden')
             || this.transform.mode !== 'IDLE') return true;
         if (navigation.kind === 'cell-axis') {
@@ -6677,9 +7079,10 @@ class VAseApp {
             'Calculating displacement',
             `Frame ${currentFrame + 1} of ${frameCount}`
         );
+        let busyOwner = null;
         const busyTimer = suppressBusy ? null : setTimeout(() => {
             if (token === this.state.displacementRequestToken && !document.body.dataset.busy) {
-                this.setBusy('Calculating displacement vectors...');
+                busyOwner = this.setBusy('Calculating displacement vectors...');
                 document.body.dataset.displacementBusy = `${token}`;
             }
         }, 450);
@@ -6712,7 +7115,7 @@ class VAseApp {
             if (busyTimer !== null) clearTimeout(busyTimer);
             if (document.body.dataset.displacementBusy === `${token}`) {
                 delete document.body.dataset.displacementBusy;
-                this.clearBusy();
+                this.clearBusy(busyOwner);
             }
         }
     }
@@ -9132,12 +9535,13 @@ class VAseApp {
         const token = ++this.state.rdfPrefetchToken;
         const startedAt = performance.now();
         const { positions: _positions, frame_index: _frameIndex, ...baseOptions } = options;
+        let busyOwner = null;
         if (showBusy) {
-            this.setBusy(
+            busyOwner = this.setBusy(
                 complete
                     ? `Preparing RDF for ${frameCount} trajectory frames...`
                     : `Preparing nearby RDF frames within the memory limit...`,
-                { title: 'Preparing trajectory analysis', progress: 0 }
+                { title: 'Preparing trajectory analysis', progress: 0, compact: true, revealAfter: 180 }
             );
             await new Promise(resolve => requestAnimationFrame(resolve));
         }
@@ -9170,6 +9574,7 @@ class VAseApp {
                 if (showBusy) {
                     const progress = completed / indices.length * 100;
                     this.setBusyProgress(progress, {
+                        owner: busyOwner,
                         message: `Prepared RDF frame ${completed} of ${indices.length}`,
                         etaSeconds: this.estimatedRemainingFromProgress(startedAt, progress),
                         complete: completed === indices.length
@@ -9194,7 +9599,7 @@ class VAseApp {
             if (this.state.rdfPrefetchPromise === task) {
                 this.state.rdfPrefetchPromise = null;
             }
-            if (showBusy) this.clearBusy();
+            if (showBusy) this.clearBusy(busyOwner);
         }
     }
 
@@ -9328,6 +9733,7 @@ class VAseApp {
         );
         drawer.dataset.analysisType = type;
         drawer.classList.remove('hidden');
+        this.syncAnalysisDrawerSize?.();
         return this.analysisPlotElement(type);
     }
 
@@ -9352,10 +9758,11 @@ class VAseApp {
 
     plotTheme() {
         const style = getComputedStyle(document.documentElement);
+        const chrome = getComputedStyle(document.body);
         return {
-            text: style.getPropertyValue('--text').trim() || '#dce4e3',
-            muted: style.getPropertyValue('--muted').trim() || '#879392',
-            line: style.getPropertyValue('--line').trim() || '#33403f',
+            text: chrome.getPropertyValue('--text').trim() || '#dce4e3',
+            muted: chrome.getPropertyValue('--muted').trim() || '#879392',
+            line: chrome.getPropertyValue('--line').trim() || '#33403f',
             teal: style.getPropertyValue('--teal').trim() || '#58d5bd',
             amber: style.getPropertyValue('--amber').trim() || '#e58b2a',
             blue: '#6aa7ff'
@@ -9397,13 +9804,13 @@ class VAseApp {
             plot_bgcolor: 'rgba(0,0,0,0)',
             font: { color: theme.text, family: 'Inter, system-ui, sans-serif', size: 11 },
             xaxis: {
-                title: 'r / Å',
+                title: { text: 'r / Å' },
                 gridcolor: theme.line,
                 zeroline: false,
                 color: theme.muted
             },
             yaxis: {
-                title: result.y_label || (finite ? 'Pair probability / Å⁻¹' : 'g(r)'),
+                title: { text: result.y_label || (finite ? 'Pair probability / Å⁻¹' : 'g(r)') },
                 gridcolor: theme.line,
                 zerolinecolor: theme.line,
                 color: theme.muted
@@ -9579,7 +9986,7 @@ class VAseApp {
                         size: 7,
                         color: geometry.candidates.map(candidate => Number(candidate.angle_deg)),
                         colorscale: 'Viridis',
-                        colorbar: { title: 'angle / deg', thickness: 10 },
+                        colorbar: { title: { text: 'angle / deg' }, thickness: 10 },
                         line: { color: theme.text, width: 0.45 }
                     }
                 },
@@ -9600,13 +10007,13 @@ class VAseApp {
                 plot_bgcolor: 'rgba(0,0,0,0)',
                 font: { color: theme.text, family: 'Inter, system-ui, sans-serif', size: 10 },
                 xaxis: {
-                    title: 'mean |strain| / %',
+                    title: { text: 'mean |strain| / %' },
                     gridcolor: theme.line,
                     zeroline: false,
                     color: theme.muted
                 },
                 yaxis: {
-                    title: 'atoms in common cell',
+                    title: { text: 'atoms in common cell' },
                     gridcolor: theme.line,
                     zeroline: false,
                     color: theme.muted
@@ -9915,7 +10322,7 @@ class VAseApp {
         const request = () => this.api.fetchRdf(options);
         const response = quiet
             ? await request()
-            : await this.withBusy('Calculating pair distribution...', request);
+            : await this.withBusy('Calculating pair distribution...', request, { compact: true });
         if (token !== this.state.rdfRequestToken) return;
         const result = this.decorateRdfResult(response, context);
         this.cacheRdfResult(result, signature, context);
@@ -9947,32 +10354,17 @@ class VAseApp {
         const drawer = document.getElementById('analysis-drawer');
         const resizer = document.getElementById('analysis-drawer-resizer');
         if (!drawer || !resizer) return;
-        resizer.addEventListener('pointerdown', event => {
-            event.preventDefault();
-            const startY = event.clientY;
-            const startHeight = drawer.getBoundingClientRect().height;
-            const onMove = moveEvent => {
-                const height = Math.max(
-                    210,
-                    Math.min(window.innerHeight * 0.62, startHeight + startY - moveEvent.clientY)
-                );
-                if (document.body.classList.contains('editor-shell')) {
-                    document.body.style.setProperty('--results-height', `${height}px`);
-                } else {
-                    drawer.style.height = `${height}px`;
-                }
-                requestAnimationFrame(() => {
-                    window.Plotly?.Plots?.resize?.(this.analysisPlotElement());
-                });
-            };
-            const onUp = () => {
-                window.removeEventListener('pointermove', onMove);
-                window.removeEventListener('pointerup', onUp);
-                window.removeEventListener('pointercancel', onUp);
-            };
-            window.addEventListener('pointermove', onMove);
-            window.addEventListener('pointerup', onUp);
-            window.addEventListener('pointercancel', onUp);
+        this.syncAnalysisDrawerSize = installResizeHandle(resizer, {
+            axis: 'y', direction: -1,
+            getValue: () => drawer.getBoundingClientRect().height,
+            setValue: height => {
+                if (document.body.classList.contains('editor-shell')) document.body.style.setProperty('--results-height', `${height}px`);
+                else drawer.style.height = `${height}px`;
+                requestAnimationFrame(() => window.Plotly?.Plots?.resize?.(this.analysisPlotElement()));
+            },
+            bounds: () => [210, Math.max(210, window.innerHeight * .62)],
+            defaultValue: 225,
+            className: 'resizing-analysis'
         });
     }
 
@@ -10183,17 +10575,18 @@ class VAseApp {
         }
         const token = ++this.state.registryRequestToken;
         const jobId = crypto.randomUUID?.() || `registry-${Date.now()}-${token}`;
-        this.state.registryJobId = jobId;
         const options = this.registryOptions(jobId, {
             ...overrides,
             selectedIndices: selection
         });
+        this.state.registryJobId = jobId;
         const hklLabel = `(${options.hkl.join(' ')})`;
         this.setRegistryStatus('loading', 'Scanning periodic translations', `Evaluating one periodic ${hklLabel} cell.`);
-        this.setBusy('Preparing periodic interfacial distances...', {
+        const busyOwner = this.setBusy('Preparing periodic interfacial distances...', {
             title: `${hklLabel} translation map`,
             progress: 1
         });
+        this.registryBusyOwner = busyOwner;
         await new Promise(resolve => requestAnimationFrame(resolve));
         try {
             const result = await this.api.fetchRegistryMap(options);
@@ -10202,6 +10595,7 @@ class VAseApp {
             this.state.registrySelectionSignature = this.registrySelectionKey();
             this.state.registryTranslationFractional = [0, 0];
             this.setBusyProgress(100, {
+                owner: busyOwner,
                 message: 'Translation scan complete. Preparing the map...',
                 complete: true
             });
@@ -10216,8 +10610,8 @@ class VAseApp {
         } finally {
             if (token === this.state.registryRequestToken) {
                 this.state.registryJobId = null;
-                this.clearBusy();
             }
+            this.clearBusy(busyOwner);
         }
     }
 
@@ -10288,7 +10682,7 @@ class VAseApp {
                     ))),
                     color,
                     colorscale: [[0, theme.teal], [0.5, theme.blue], [1, theme.amber]],
-                    colorbar: { title: result.metric_label, thickness: 11 },
+                    colorbar: { title: { text: result.metric_label }, thickness: 11 },
                     showscale: true,
                     opacity: 0.92
                 },
@@ -10388,7 +10782,7 @@ class VAseApp {
             plot_bgcolor: 'rgba(0,0,0,0)',
             font: { color: theme.text, family: 'Inter, system-ui, sans-serif', size: 11 },
             xaxis: {
-                title: 'plane x / Å',
+                title: { text: 'plane x / Å' },
                 range: [Math.min(...boundsX) - padding, Math.max(...boundsX) + padding],
                 showgrid: true,
                 gridcolor: theme.line,
@@ -10398,7 +10792,7 @@ class VAseApp {
                 constrain: 'domain'
             },
             yaxis: {
-                title: 'plane y / Å',
+                title: { text: 'plane y / Å' },
                 range: [Math.min(...boundsY) - padding, Math.max(...boundsY) + padding],
                 showgrid: true,
                 gridcolor: theme.line,
@@ -10598,6 +10992,7 @@ class VAseApp {
             session_id: message.session_id,
             status: message.status,
             is_relaxing: Boolean(message.is_relaxing),
+            run_id: Number.isInteger(message.run_id) ? message.run_id : undefined,
             selected_indices: [...(message.selected_indices || [])],
             hkl: [...(message.hkl || [0, 0, 1])],
             periodic_axes: [...(message.periodic_axes || [0, 1])],
@@ -10700,7 +11095,8 @@ class VAseApp {
         if (fmaxControl) fmaxControl.value = `${fmax}`;
         if (stepsControl) stepsControl.value = `${steps}`;
         const requestedCalculator = this.calculatorPayloadWithOverrides(calculator);
-        const threeDimensional = this.state.registryRelaxation.translation_space === 'cartesian';
+        const modeAtStart = this.state.registryRelaxation;
+        const threeDimensional = modeAtStart.translation_space === 'cartesian';
         this.startModeTrajectory('registry', threeDimensional
             ? 'Rigid 3D translation relaxation'
             : 'Rigid planar translation relaxation');
@@ -10710,13 +11106,11 @@ class VAseApp {
                 steps,
                 calculator: requestedCalculator
             });
-            // A very short optimization can publish its WebSocket completion
-            // before this HTTP start response resolves.  Never let that older
-            // response put an already-finished mode back into a running state.
-            const terminalStatuses = new Set(['converged', 'steps', 'stopped', 'error']);
-            const currentStatus = String(this.state.registryRelaxation?.status || '');
-            if (!terminalStatuses.has(currentStatus)) {
-                this.state.registryRelaxation = summary;
+            // Events and authoritative snapshots replace the mode object.
+            // Adopt the start response only if none has arrived since this run
+            // began. A previous run's terminal status must not block a new run.
+            if (this.state.registryRelaxation === modeAtStart) {
+                this.state.registryRelaxation = this.registryRelaxationFromMessage(summary);
             }
             this.syncRegistryRelaxationControls();
         } catch (error) {
@@ -10830,8 +11224,6 @@ class VAseApp {
             this.calculateRegistryMap().catch(error => {
                 this.setRegistryStatus('warning', 'Translation map unavailable', error.message);
                 this.toast(`Translation map failed: ${error.message}`, 'error');
-                this.clearBusy();
-                this.state.registryJobId = null;
             });
         });
         document.getElementById('btn-registry-relax-activate')?.addEventListener('click', () => {
@@ -10907,6 +11299,8 @@ class VAseApp {
         if (!select) return;
         const info = window.v_aseTheme?.info?.() || {};
         select.value = this.normalizedThemePreference(info.preference);
+        const palette = document.getElementById('ui-palette');
+        if (palette) palette.value = info.palette || 'graphite';
     }
 
     refreshActiveAnalysisTheme() {
@@ -10922,32 +11316,24 @@ class VAseApp {
         }
     }
 
-    applyThemePreference(value, { persist = true, notifyWorkspace = true } = {}) {
-        const preference = this.normalizedThemePreference(value);
-        const result = window.v_aseTheme?.apply?.(preference, { persist })
-            || { preference, resolved: preference };
-        // System is the intentionally mixed default: the chrome follows the
-        // OS while the scientific canvas stays white. Explicit Dark makes the
-        // canvas dark as well, so the interface never looks half-switched.
-        const background = preference === 'dark' ? 'dark' : 'white';
-        if (this.state.display.viewportBackground !== background) {
-            this.state.display.viewportBackground = background;
-            this.syncViewControls();
-            this.renderer?.setDisplayOptions?.(this.state.display);
-            if (this.state.exportPreviewEnabled) this.syncImageExportPreview();
-            if (persist) this.scheduleVisualHistoryCommit('theme-viewport');
-        }
-        this.syncThemeControl();
-        this.refreshActiveAnalysisTheme();
-        if (notifyWorkspace && this.workspaceChild && window.parent !== window) {
-            window.parent.postMessage({
-                type: 'v_ase:document-theme',
-                sessionId: this.sessionId,
-                preference: result.preference,
-                persist
-            }, window.location.origin);
-        }
+    applyInterfacePresentation(patch, {persist=true,notifyWorkspace=true}={}) {
+        const current=window.v_aseTheme.info();
+        const preference=this.normalizedThemePreference(patch.preference ?? current.preference);
+        const palette=patch.palette ?? current.palette;
+        const owner=this.workspaceChild ? window.parent.__V_ASE_WORKSPACE__ : this.directWorkspace;
+        if(notifyWorkspace && owner?.applyWorkspaceTheme) return owner.applyWorkspaceTheme(preference,{palette,persist});
+        const result=window.v_aseTheme.applyPresentation({preference,palette},{persist});
+        this.syncThemeControl();this.refreshActiveAnalysisTheme();
+        if(notifyWorkspace && this.workspaceChild) window.parent.postMessage({type:'v_ase:document-theme',sessionId:this.sessionId,preference,palette,persist},location.origin);
         return result;
+    }
+
+    applyThemePreference(value, options={}) {
+        return this.applyInterfacePresentation({preference:value},options);
+    }
+
+    applyPalettePreference(value, options={}) {
+        return this.applyInterfacePresentation({palette:value},options);
     }
 
     applyConfiguredTheme(value) {
@@ -10961,6 +11347,7 @@ class VAseApp {
         document.getElementById('ui-theme')?.addEventListener('change', event => {
             this.applyThemePreference(event.target.value);
         });
+        document.getElementById('ui-palette')?.addEventListener('change', event => this.applyPalettePreference(event.target.value));
         this.handleThemeChange = () => {
             this.syncThemeControl();
             this.refreshActiveAnalysisTheme();
@@ -10969,81 +11356,17 @@ class VAseApp {
     }
 
     setupToolbarTooltips() {
-        const targets = document.querySelectorAll(
+        // The shared delegated tooltip also covers dynamically mounted tools.
+        // Preserve the existing ID and cleanup hook for viewport integrations.
+        document.querySelectorAll(
             '#top-bar button[aria-label], #top-bar button[title], #top-bar label[title]'
-        );
-        let tooltip = document.getElementById('toolbar-tooltip');
-        if (!tooltip) {
-            tooltip = document.createElement('div');
-            tooltip.id = 'toolbar-tooltip';
-            tooltip.className = 'toolbar-tooltip hidden';
-            tooltip.setAttribute('role', 'tooltip');
-            document.body.appendChild(tooltip);
-        }
-        let timer = null;
-        const hide = () => {
-            if (timer !== null) window.clearTimeout(timer);
-            timer = null;
-            tooltip.classList.add('hidden');
-            tooltip.removeAttribute('data-side');
-        };
-        const show = target => {
-            const description = target.dataset.tooltip
-                || target.getAttribute('aria-label')
-                || target.getAttribute('title');
-            if (!description) return;
-            if (timer !== null) window.clearTimeout(timer);
-            timer = window.setTimeout(() => {
-                timer = null;
-                tooltip.textContent = description;
-                tooltip.classList.remove('hidden');
-                const targetRect = target.getBoundingClientRect();
-                const tooltipRect = tooltip.getBoundingClientRect();
-                const margin = 10;
-                const left = Math.max(
-                    margin,
-                    Math.min(
-                        window.innerWidth - tooltipRect.width - margin,
-                        targetRect.left + targetRect.width / 2 - tooltipRect.width / 2
-                    )
-                );
-                let top = targetRect.bottom + 9;
-                if (top + tooltipRect.height > window.innerHeight - margin) {
-                    top = targetRect.top - tooltipRect.height - 9;
-                    tooltip.dataset.side = 'top';
-                }
-                tooltip.style.left = `${left}px`;
-                tooltip.style.top = `${Math.max(margin, top)}px`;
-            }, 560);
-        };
-        const bindings = [];
-        targets.forEach(target => {
-            if (target.dataset.tooltipBound === 'true') return;
-            target.dataset.tooltipBound = 'true';
+        ).forEach(target => {
             const description = target.getAttribute('title') || target.getAttribute('aria-label');
             if (description) target.dataset.tooltip = description;
             target.removeAttribute('title');
-            const enter = () => show(target);
-            target.addEventListener('pointerenter', enter);
-            target.addEventListener('pointerleave', hide);
-            target.addEventListener('focus', enter);
-            target.addEventListener('blur', hide);
-            target.addEventListener('click', hide);
-            bindings.push({ target, enter });
         });
-        this.hideToolbarTooltip = hide;
-        this.cleanupCallbacks.push(() => {
-            hide();
-            bindings.forEach(({ target, enter }) => {
-                target.removeEventListener('pointerenter', enter);
-                target.removeEventListener('pointerleave', hide);
-                target.removeEventListener('focus', enter);
-                target.removeEventListener('blur', hide);
-                target.removeEventListener('click', hide);
-                delete target.dataset.tooltipBound;
-            });
-            tooltip.remove();
-        });
+        this.hideToolbarTooltip = hideInterfaceTooltip;
+        this.cleanupCallbacks.push(hideInterfaceTooltip);
     }
 
     syncViewControls(options = this.state.display) {
@@ -11649,15 +11972,35 @@ class VAseApp {
             const margin = 10;
             const button = trigger.getBoundingClientRect();
             const header = document.getElementById('top-bar')?.getBoundingClientRect();
+            card.style.maxWidth=`${Math.max(1,window.innerWidth-margin*2)}px`;
             const width = card.getBoundingClientRect().width;
-            const left = Math.max(margin, Math.min(button.right - width, window.innerWidth - width - margin));
-            const top = Math.min((header?.bottom ?? button.bottom) + 8, Math.max(margin, window.innerHeight - 80));
+            const gizmo=document.getElementById('orientation-widget')?.getBoundingClientRect();
+            let left = Math.max(margin, Math.min(button.right - width, window.innerWidth-width-margin));
+            let top = Math.min((header?.bottom ?? button.bottom) + 8, Math.max(margin, window.innerHeight - 80));
+            if(gizmo&&left+width>gizmo.left&&left<gizmo.right) {
+                const rightSpace=window.innerWidth-margin-gizmo.right-12;
+                if(gizmo.left-width-12>=margin)left=gizmo.left-width-12;
+                else if(rightSpace>=260) {
+                    // The inspector is usable popup space too. Confining a
+                    // tall card to a short scientific stage leaves only its
+                    // header visible below the axis target.
+                    left=gizmo.right+12;card.style.maxWidth=`${rightSpace}px`;
+                } else if(window.innerHeight-margin-gizmo.bottom-12>=180)top=Math.max(top,gizmo.bottom+12);
+                else {
+                    const sideWidth=Math.max(1,gizmo.left-12-margin);
+                    left=margin;card.style.maxWidth=`${sideWidth}px`;
+                }
+            }
+            card.classList.toggle('lighting-card-compact',card.getBoundingClientRect().width<270);
             card.style.left = `${left}px`;
             card.style.top = `${top}px`;
             card.style.maxHeight = `${Math.max(0, window.innerHeight - top - margin)}px`;
         };
         const setOpen = open => {
-            card?.classList.toggle('hidden', !open);
+            if (card) {
+                card.inert = !open;
+                card.classList.toggle('hidden', !open);
+            }
             trigger?.setAttribute('aria-expanded', open ? 'true' : 'false');
             widget?.classList.toggle('open', open);
             if (open) {
@@ -11667,7 +12010,7 @@ class VAseApp {
         };
         trigger?.setAttribute('aria-controls', 'lighting-card');
         window.addEventListener('resize', positionCard);
-        window.addEventListener('scroll', positionCard, true);
+        window.addEventListener('scroll',event=>{if(!(event.target instanceof Node && card?.contains(event.target)))positionCard();},true);
         trigger?.addEventListener('click', event => {
             event.stopPropagation();
             setOpen(card?.classList.contains('hidden'));
@@ -11717,11 +12060,28 @@ class VAseApp {
         this.syncLightingControls();
     }
 
+    invalidatePendingStructureReads() {
+        this.structureGeneration += 1;
+    }
+
+    structureRefreshBlocked() {
+        return (this.state.transformSubject === 'atoms' && this.transform.mode !== 'IDLE')
+            || (this.pendingApplyInFlight && !this.pendingScientificError);
+    }
+
     async refresh() {
+        const sequence = ++this.structureRefreshSequence;
+        const generation = this.structureGeneration;
+        // A read is only a snapshot. Edits, optimizer events and newer reads
+        // supersede it, even when their HTTP/WebSocket responses arrive first.
+        const isCurrent = () => sequence === this.structureRefreshSequence
+            && generation === this.structureGeneration
+            && !this.structureRefreshBlocked();
+        if (!isCurrent()) return;
         try {
             if (this.state.displayConfigLoaded) this.captureBondSettingsFromControls();
             const data = await this.api.fetchAtoms();
-            if (!data || !data.positions) return;
+            if (!data || !data.positions || !isCurrent()) return;
 
             this.state.trajectoryBinaryGeneration = (this.state.trajectoryBinaryGeneration || 0) + 1;
             this.state.trajectoryBinaryCache = null;
@@ -11740,6 +12100,7 @@ class VAseApp {
                 this.loadTrajectoryCache({ background: true });
             }
             this.applyInitialDisplayConfig(data);
+            this.syncUnitCellControls();
             this.renderPairwiseBondControls();
             this.renderAppearanceRows();
             this.updateEditingAvailability();
@@ -11773,6 +12134,7 @@ class VAseApp {
                 initialFieldRequests.push(this.renderAllVolumetricPlanes());
             }
             await Promise.all(initialFieldRequests);
+            if (!isCurrent()) return;
             const projectCamera = data.metadata?.config?.initial_design_settings?.camera;
             if (projectCamera) this.applyCameraSettings(projectCamera, { syncScale: false });
             if (projectCamera && hasRequestedAtomicScale) {
@@ -11915,6 +12277,7 @@ class VAseApp {
     }
 
     syncRangeNumberCompanions() {
+        refreshRangeFills();
         this.rangeNumberCompanions?.forEach(({ range, number }) => {
             if (!number) return;
             number.disabled = range.disabled;
@@ -12705,6 +13068,7 @@ class VAseApp {
             trajectoryFrame = false
         } = {}
     ) {
+        this.invalidatePendingStructureReads();
         const refreshActiveRdf = Boolean(
             this.state.rdfAutoRefresh
             && this.state.activeAnalysisPlot === 'rdf'
@@ -13378,6 +13742,7 @@ class VAseApp {
         const normalized = Math.max(0, Math.min(count - 1, parseInt(index, 10) || 0));
         const positions = this.state.relaxTrajectory.frames[normalized];
         if (!positions) return;
+        this.invalidatePendingStructureReads();
         this.state.displayedTimelineSource = 'relax';
         this.state.relaxTrajectory.frame = normalized;
         this.state.atoms.positions = positions;
@@ -13647,6 +14012,7 @@ class VAseApp {
             slider.value = index;
             slider.disabled = count <= 1;
             slider.setAttribute('aria-label', `${this.timelineSourceName(source)} frame`);
+            updateRangeFill(slider);
         }
         const label = document.getElementById('frame-label');
         if (label) label.innerText = `${Math.min(index + 1, count)} / ${count}`;
@@ -13691,6 +14057,7 @@ class VAseApp {
             secondarySlider.value = Math.min(secondaryIndex, Math.max(0, secondaryCount - 1));
             secondarySlider.disabled = secondaryCount <= 1;
             secondarySlider.setAttribute('aria-label', `${this.timelineSourceName(secondary)} frame`);
+            updateRangeFill(secondarySlider);
         }
         const secondaryLabel = document.getElementById('secondary-frame-label');
         if (secondaryLabel && secondary) {
@@ -13706,6 +14073,8 @@ class VAseApp {
     }
 
     updateSelectionVisuals() {
+        const deleteButton = document.getElementById('btn-delete-selection');
+        if (deleteButton) deleteButton.disabled = !this.state.selected.size && !this.state.replicaSelected.size;
         this.updateToolState();
         this.renderer.setSelection(this.state.selected);
         if (this.state.vizOnly) {
@@ -13819,6 +14188,14 @@ class VAseApp {
         if (!fixBox || !kindSelect) return;
 
         const hasSelection = indices.length > 0;
+        const countText = document.getElementById('constraint-selection-count');
+        if (countText) countText.textContent = hasSelection ? `${indices.length} atoms selected` : 'No atoms selected';
+        const inspect = document.getElementById('constraint-selection-inspect');
+        if (inspect) inspect.hidden = !hasSelection;
+        const selectionControls = document.getElementById('constraint-selection-controls');
+        if (selectionControls) selectionControls.hidden = !hasSelection;
+        const emptyHint = document.getElementById('constraint-empty-hint');
+        if (emptyHint) emptyHint.hidden = hasSelection;
         const selectionSignature = indices.join(',');
         if (kindSelect.dataset.selectionSignature !== selectionSignature) {
             kindSelect.dataset.selectionSignature = selectionSignature;
@@ -13847,14 +14224,14 @@ class VAseApp {
         if (applyButton) applyButton.disabled = !vectorEnabled;
         if (clearButton) clearButton.disabled = !hasSelection || this.state.vizOnly || directional.kind === 'none';
         if (stateText) {
-            const fixedLabel = fixedState === 'all' ? 'FixAtoms' : fixedState === 'partial' ? 'partial FixAtoms' : 'free';
-            const dirLabel = directional.kind === 'fixed_line' ? 'FixedLine'
-                : directional.kind === 'fixed_plane' ? 'FixedPlane'
+            const fixedLabel = fixedState === 'all' ? 'Fixed atoms' : fixedState === 'partial' ? 'Partially fixed' : 'Free';
+            const dirLabel = directional.kind === 'fixed_line' ? 'Along a line'
+                : directional.kind === 'fixed_plane' ? 'Within a plane'
                 : directional.kind === 'mixed' ? 'mixed directional constraints'
                 : 'no directional constraint';
             stateText.innerText = hasSelection
-                ? `${indices.length} selected: ${fixedLabel}, ${dirLabel}.`
-                : 'Select atoms to edit constraints.';
+                ? `${fixedLabel} · ${dirLabel}`
+                : 'Select atoms in the canvas.';
         }
     }
 
@@ -13984,7 +14361,9 @@ class VAseApp {
             up: [camera.up.x, camera.up.y, camera.up.z],
             projection: this.state.display.projectionMode || this.renderer.projectionMode || 'perspective',
             fov: camera.fov || this.renderer.perspectiveCamera?.fov || 50,
-            zoom: camera.zoom || 1,
+            // Orthographic zoom is already represented by ortho_scale. Keep
+            // viewport-aspect compensation out of the semantic camera state.
+            zoom: camera.isOrthographicCamera ? 1 : (camera.zoom || 1),
             ortho_scale: camera.isOrthographicCamera ? (camera.top - camera.bottom) / Math.max(camera.zoom || 1, 1e-6) : null,
             near: camera.near,
             far: camera.far,
@@ -14141,20 +14520,11 @@ class VAseApp {
         try { this.applyCameraSettings(composition.camera, { syncScale: false }); }
         finally { this.aligningRenderCamera = false; }
         const size = this.renderer.containerSize();
-        // Use the work area with the inspector open, even if it is currently
-        // collapsed. Only entering camera view reframes; panel changes do not.
-        const panelWidth = window.matchMedia('(min-width: 761px)').matches
-            ? Math.min(this.clampInspectorWidth(parseFloat(getComputedStyle(document.documentElement)
-                .getPropertyValue('--inspector-width')) || 352), size.width - 100) : 0;
-        const workWidth = size.width - panelWidth;
-        const fit = 0.82 * Math.min(1, (workWidth / size.height) / (profile.width / profile.height));
+        // The renderer now occupies the actual stage. The inspector is outside
+        // this rectangle; subtracting it again offsets and shrinks the preview.
+        const fit = 0.82 * Math.min(1, (size.width / size.height) / (profile.width / profile.height));
         this.renderer.camera.zoom *= fit;
         this.renderer.camera.updateProjectionMatrix();
-        this.renderer.camera.updateMatrixWorld(true);
-        const offset = new THREE.Vector3(1, 0, 0).applyQuaternion(this.renderer.camera.quaternion)
-            .multiplyScalar(panelWidth / 2 / Math.max(1e-8, this.renderer.currentPixelsPerAngstrom()));
-        this.renderer.camera.position.add(offset);
-        this.renderer.controls.target.add(offset);
         this.renderer.camera.updateMatrixWorld(true);
         this.renderAreaPreviousView = this.currentCameraForExport();
         this.syncAtomicScaleFromCamera({ forceInput: true });
@@ -16045,6 +16415,7 @@ class VAseApp {
             }
         }
 
+        this.invalidatePendingStructureReads();
         this.state.originalPositions = this.currentPositionsFromScene().map(p => [...p]);
         this.readTransformSettings();
         this.safeApplyDisplayOptions();
@@ -16434,7 +16805,12 @@ class VAseApp {
         const tool = this.transform.mode !== 'IDLE' ? this.transform.mode.toLowerCase()
             : this.orbitToolActive ? 'orbit' : this.measureToolArmed ? 'measure' : 'select';
         this.activeViewportTool = tool;
-        if (this.transform.mode === 'IDLE') this.pointerTransformGesture = null;
+        if (this.transform.mode === 'IDLE') {
+            this.pointerTransformGesture = null;
+            const id = this.pointerTransformPointerId;
+            this.pointerTransformPointerId = null;
+            if (id != null && this.renderer.domElement.hasPointerCapture?.(id)) this.renderer.domElement.releasePointerCapture(id);
+        }
         const transforming = this.transform.mode !== 'IDLE';
         document.getElementById('viewport-transform-context')?.classList.toggle('hidden', !transforming);
         const title = document.getElementById('viewport-transform-title');
@@ -17537,6 +17913,7 @@ class VAseApp {
     }
 
     updateRadiusScaleLabel() {
+        updateRangeFill(document.getElementById('atom-radius-scale'));
         const scale = Number(
             document.getElementById('atom-radius-scale')?.value
             || this.state.display.atomRadiusScale
@@ -17549,12 +17926,30 @@ class VAseApp {
     renderAppearanceRows() {
         const root = document.getElementById('appearance-table-body');
         if (!root || !this.state.atoms?.symbols) return;
+        const appearanceEpoch = (this.appearanceRowsEpoch || 0) + 1;
+        this.appearanceRowsEpoch = appearanceEpoch;
         this.ensureElementTypeDatalist();
-        const active = document.activeElement;
+        const active = root.contains(document.activeElement) ? document.activeElement : null;
         const existingFocus = {
             label: active?.dataset?.atomLabel,
-            field: active?.dataset?.appearanceField
+            field: active?.dataset?.appearanceField,
+            binding: active?.dataset?.atomBinding,
+            renderedValue: active?.dataset?.renderedValue,
+            value: active?.value,
+            textDraft: active instanceof HTMLInputElement && active.type === 'text',
+            numberDraft: active instanceof HTMLInputElement && active.type === 'number',
+            start: active?.selectionStart,
+            end: active?.selectionEnd,
+            direction: active?.selectionDirection
         };
+        this.appearanceExpandedLabels ||= new Set();
+        const expandedBindings = new Set();
+        root.querySelectorAll('details.appearance-row').forEach(row => {
+            if (row.open) {
+                this.appearanceExpandedLabels.add(row.dataset.appearanceLabel);
+                expandedBindings.add(row.dataset.appearanceBinding);
+            } else this.appearanceExpandedLabels.delete(row.dataset.appearanceLabel);
+        });
         root.innerHTML = '';
         this.state.display.labelOpacities = {
             ...(this.state.display.labelOpacities || {})
@@ -17569,9 +17964,20 @@ class VAseApp {
             if (!(symbol in this.state.display.labelVisible)) {
                 this.state.display.labelVisible[symbol] = true;
             }
-            const row = document.createElement('div');
+            const row = document.createElement('details');
             row.className = 'appearance-row';
+            row.setAttribute('aria-label', `${symbol} atom appearance`);
+            row.dataset.appearanceLabel = symbol;
+            row.addEventListener('toggle', () => {
+                if (!row.isConnected || appearanceEpoch !== this.appearanceRowsEpoch) return;
+                if (row.open) this.appearanceExpandedLabels.add(symbol);
+                else this.appearanceExpandedLabels.delete(symbol);
+            });
             const labelAtomIndices = [...this.labelIndices(symbol)];
+            row.dataset.appearanceBinding = JSON.stringify(labelAtomIndices);
+            row.open = this.appearanceExpandedLabels.has(symbol)
+                || expandedBindings.has(row.dataset.appearanceBinding)
+                || (existingFocus.label === symbol && ['type', 'radius', 'opacity', 'material'].includes(existingFocus.field));
             const currentElements = this.chemicalSymbolsForLabel(symbol);
             const currentElement = currentElements.length === 1 ? currentElements[0] : null;
             const typeSelect = document.createElement('input');
@@ -17596,7 +18002,12 @@ class VAseApp {
             visibleBox.dataset.appearanceField = 'visible';
             visibleBox.checked = this.isLabelVisible(symbol);
             visibleBox.title = `Show ${symbol} atoms in the viewport`;
+            visibleBox.setAttribute('aria-label', `Show ${symbol} atoms`);
             visibleBox.addEventListener('change', () => {
+                // A checkbox action owns keyboard focus even on platforms where
+                // pointer activation does not focus it. updateUI rebuilds rows
+                // and restores this field, rather than leaving Delete on canvas.
+                visibleBox.focus({ preventScroll: true });
                 this.state.display.labelVisible = {
                     ...(this.state.display.labelVisible || {}),
                     [symbol]: visibleBox.checked
@@ -17621,10 +18032,14 @@ class VAseApp {
             selectBox.dataset.appearanceField = 'select';
             selectBox.disabled = !this.isLabelVisible(symbol) || labelAtomIndices.length === 0;
             selectBox.title = `Select all visible ${symbol} atoms`;
+            selectBox.setAttribute('aria-label', `Select ${symbol} atoms`);
             const selectionState = this.labelSelectionState(symbol);
             selectBox.checked = selectionState === 'all';
             selectBox.indeterminate = selectionState === 'partial';
-            selectBox.addEventListener('change', () => this.toggleLabelSelection(symbol, selectBox.checked));
+            selectBox.addEventListener('change', () => {
+                selectBox.focus({ preventScroll: true });
+                this.toggleLabelSelection(symbol, selectBox.checked);
+            });
 
             const nameInput = document.createElement('input');
             nameInput.type = 'text';
@@ -17646,6 +18061,9 @@ class VAseApp {
             };
             let renameRequestKey = null;
             const commitRename = async (baseOverride = null) => {
+                // Removing/re-focusing a draft during a background rebind can
+                // emit change on the old node. That is not a user commit.
+                if (!nameInput.isConnected || appearanceEpoch !== this.appearanceRowsEpoch) return;
                 const desired = this.normalizedTypeLabel(nameInput.value);
                 const requestKey = `${desired}\u0000${baseOverride || ''}`;
                 if (!desired || renameRequestKey === requestKey) return;
@@ -17778,14 +18196,26 @@ class VAseApp {
             count.className = 'atom-type-count';
             count.textContent = String(labelAtomIndices.length);
             count.title = `${labelAtomIndices.length} atoms`;
-            row.setAttribute('role', 'row');
-            [nameInput, color, visibleBox, selectBox, typeSelect, input, opacity, material, count]
+            row.setAttribute('role', 'group');
+            [nameInput, color, visibleBox, selectBox, typeSelect, input, opacity, material]
                 .forEach(control => {
-                    const cell = document.createElement('div');
-                    cell.setAttribute('role', 'cell');
-                    cell.append(control);
-                    row.append(cell);
+                    if (control.dataset.appearanceField) {
+                        control.dataset.atomBinding = JSON.stringify([labelAtomIndices, currentElements, this.state.vizOnly]);
+                        control.dataset.renderedValue = control.value;
+                    }
                 });
+            const summary = document.createElement('summary');
+            summary.className = 'appearance-label-summary';
+            summary.title = `Element, radius, opacity and material for ${symbol}`;
+            summary.append(color, nameInput, count, visibleBox, selectBox);
+            const fields = document.createElement('div'); fields.className = 'appearance-label-fields';
+            [['Element', typeSelect], ['Radius / Å', input], ['Opacity', opacity], ['Material', material]]
+                .forEach(([text, control]) => {
+                    const label = document.createElement('label');
+                    const name = document.createElement('span'); name.textContent = text;
+                    label.append(name, control); fields.appendChild(label);
+                });
+            row.append(summary, fields);
             root.appendChild(row);
         });
         const focusMatch = [...root.querySelectorAll('[data-atom-label][data-appearance-field]')]
@@ -17793,7 +18223,35 @@ class VAseApp {
                 element.dataset.atomLabel === existingFocus.label
                 && element.dataset.appearanceField === existingFocus.field
             ));
-        focusMatch?.focus();
+        if (focusMatch) {
+            // A background read with unchanged atom ownership must not discard
+            // a human draft. A changed authoritative value or label binding
+            // still wins; never restore a draft onto different atoms.
+            const sameBinding = focusMatch.dataset.atomBinding === existingFocus.binding;
+            const unchanged = focusMatch.value === existingFocus.renderedValue;
+            const sameNumber = existingFocus.numberDraft && existingFocus.value !== ''
+                && Number.isFinite(Number(existingFocus.value))
+                && Number(existingFocus.value) === Number(focusMatch.value);
+            const restoreDraft = !this.restoringDesignSettings && sameBinding && (existingFocus.textDraft || existingFocus.numberDraft)
+                && (unchanged || sameNumber);
+            if (restoreDraft) {
+                focusMatch.value = existingFocus.value;
+                if (existingFocus.field === 'label') focusMatch.dispatchEvent(new Event('input', { bubbles: true }));
+                if (this.invalidDraftInput === active) this.invalidDraftInput = focusMatch;
+            }
+            focusMatch.focus({ preventScroll: true });
+            if (restoreDraft) {
+                // focusin establishes a fresh baseline; restore the draft's
+                // dirty status so Enter/Tab still commits after a rebind.
+                this.controlCommitState.set(focusMatch, {
+                    value: focusMatch.dataset.renderedValue,
+                    dirty: focusMatch.value !== focusMatch.dataset.renderedValue
+                });
+            }
+            if (restoreDraft && existingFocus.textDraft && existingFocus.start !== null) {
+                focusMatch.setSelectionRange(existingFocus.start, existingFocus.end, existingFocus.direction);
+            }
+        }
         this.syncAppearanceScope();
         this.syncFlatDisplayControls();
     }
@@ -18267,47 +18725,11 @@ class VAseApp {
         const resizer = document.getElementById('pairwise-label-column-resizer');
         if (!resizer || resizer.dataset.bound === 'true') return;
         resizer.dataset.bound = 'true';
-        let drag = null;
-        const finish = event => {
-            if (!drag) return;
-            if (event?.pointerId === drag.pointerId && resizer.hasPointerCapture?.(drag.pointerId)) {
-                resizer.releasePointerCapture(drag.pointerId);
-            }
-            drag = null;
-            document.body.classList.remove('resizing-pairwise-column');
-        };
-        resizer.addEventListener('pointerdown', event => {
-            if (event.button !== 0) return;
-            drag = {
-                pointerId: event.pointerId,
-                startX: event.clientX,
-                startWidth: this.normalizedPairwiseLabelColumnWidth()
-            };
-            resizer.setPointerCapture?.(event.pointerId);
-            document.body.classList.add('resizing-pairwise-column');
-            event.preventDefault();
-            event.stopPropagation();
-        });
-        resizer.addEventListener('pointermove', event => {
-            if (!drag || event.pointerId !== drag.pointerId) return;
-            this.applyPairwiseLabelColumnWidth(
-                drag.startWidth + event.clientX - drag.startX
-            );
-            event.preventDefault();
-        });
-        ['pointerup', 'pointercancel', 'lostpointercapture'].forEach(type => {
-            resizer.addEventListener(type, finish);
-        });
-        resizer.addEventListener('keydown', event => {
-            if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
-            const current = this.normalizedPairwiseLabelColumnWidth();
-            const next = event.key === 'Home'
-                ? 120
-                : event.key === 'End'
-                    ? 520
-                    : current + (event.key === 'ArrowRight' ? 12 : -12);
-            this.applyPairwiseLabelColumnWidth(next);
-            event.preventDefault();
+        installResizeHandle(resizer, {
+            getValue: () => this.normalizedPairwiseLabelColumnWidth(),
+            setValue: value => this.applyPairwiseLabelColumnWidth(value),
+            bounds: () => [120, 520], defaultValue: 210, step: 12,
+            className: 'resizing-pairwise-column'
         });
         this.applyPairwiseLabelColumnWidth();
     }
@@ -20793,7 +21215,10 @@ class VAseApp {
             if (!['system', 'light', 'dark'].includes(theme)) {
                 throw new Error('set-interface-theme requires system, light, or dark.');
             }
-            this.applyThemePreference(theme);
+            if (operation.palette !== undefined && !['graphite','slate','stone','moss'].includes(operation.palette)) {
+                throw new Error('set-interface-theme palette must be graphite, slate, stone, or moss.');
+            }
+            this.applyInterfacePresentation({preference:theme,palette:operation.palette});
             return;
         }
         if (name === 'center-selection-at-origin') {
@@ -21763,6 +22188,7 @@ class VAseApp {
                 applyConstraints,
                 this.calculatorPayloadWithOverrides(operation.calculator)
             );
+            if (!this.optimizerMessageIsCurrent({ type: 'relax_step', run_id: response.run_id })) return;
             const completionArrivedFirst = (
                 this.state.relaxTrajectory?.kind === 'relaxation'
                 && this.state.relaxTrajectory?.finished === true
@@ -22600,7 +23026,7 @@ class VAseApp {
             protocol: 'v_ase.ai.v1',
             format,
             filename,
-            mimeType: blob.type || mimeType,
+            mimeType: (blob.type || mimeType).split(';', 1)[0].trim(),
             bytes: blob.size,
             dataUrl: await this.blobToDataUrl(blob)
         };
@@ -22959,6 +23385,7 @@ class VAseApp {
         const settings = this.designSettingsSnapshot({ includeIdentityOverrides: true });
         settings.documentMode = this.state.vizOnly ? 'view' : 'edit';
         settings.presentation = {
+            interfaceTheme: this.clonePlain(window.v_aseTheme?.info?.() || {}),
             route: this.editorRoute,
             inspectorCollapsed: document.body.classList.contains('inspector-collapsed'),
             inspectorWidth: parseFloat(document.documentElement.style.getPropertyValue('--inspector-width')) || 352,
@@ -23969,10 +24396,17 @@ class VAseApp {
     }
 
     setBusyProgress(progress, {
-        message = null,
-        etaSeconds = null,
-        complete = false
+        message = null, etaSeconds = null, complete = false,
+        owner = this.activeBusyOwner
     } = {}) {
+        const operation = this.busyOperations?.get(owner);
+        if (!operation) return;
+        const requested = Math.max(0, Math.min(100, Number(progress) || 0));
+        operation.progress = Math.max(Number(operation.progress || 0), complete ? requested : Math.min(99, requested));
+        operation.etaSeconds = etaSeconds;
+        operation.complete = complete;
+        if (message !== null) operation.message = message;
+        if (owner !== this.activeBusyOwner) return;
         const bar = document.getElementById('busy-progress');
         const fill = bar?.querySelector('span');
         const meta = document.getElementById('busy-progress-meta');
@@ -23980,70 +24414,125 @@ class VAseApp {
         const eta = document.getElementById('busy-progress-eta');
         const text = document.getElementById('busy-message');
         if (!bar || !fill || !meta || !percent || !eta) return;
-        const requested = Math.max(0, Math.min(100, Number(progress) || 0));
-        const capped = complete ? requested : Math.min(99, requested);
-        const previous = Number(document.body.dataset.busyProgress || 0);
-        const next = Math.max(previous, capped);
+        const next = operation.progress;
         document.body.dataset.busyProgress = `${next}`;
         bar.dataset.mode = 'determinate';
         bar.setAttribute('aria-valuemin', '0');
         bar.setAttribute('aria-valuemax', '100');
-        const roundedNext = `${Math.round(next)}`;
-        if (bar.getAttribute('aria-valuenow') !== roundedNext) {
-            bar.setAttribute('aria-valuenow', roundedNext);
-        }
+        bar.setAttribute('aria-valuenow', `${Math.round(next)}`);
         fill.style.width = `${next}%`;
         percent.textContent = `${Math.floor(next)}%`;
-        eta.textContent = complete && next >= 100
-            ? 'Complete'
-            : this.formatRemainingTime(etaSeconds);
+        eta.textContent = complete && next >= 100 ? 'Complete' : this.formatRemainingTime(etaSeconds);
         meta.classList.remove('hidden');
-        if (message !== null && text) text.textContent = message;
+        if (text) text.textContent = operation.message;
     }
 
     setBusy(message = 'Working...', {
-        title = 'Working',
-        progress = null,
-        etaSeconds = null
+        title = 'Working', progress = null, etaSeconds = null,
+        compact = false, revealAfter = 0
     } = {}) {
+        this.busyOperations ||= new Map();
+        if (!this.busyOperations.size) {
+            this.busyReturnFocus = document.activeElement;
+            this.busyReturnSessionId = this.sessionId;
+            hideInterfaceTooltip();
+            window.dispatchEvent(new Event('v_ase:interaction-blocked'));
+            this.renderer?.controls?.endGesture?.(null, { force: true });
+            if (this.pointerTransformGesture && this.transform?.mode !== 'IDLE') this.cancelTransform();
+            if (this.state?.isDragging) {
+                this.state.isDragging = false;
+                this.hideMarquee();
+                this.renderer.controls.enabled = true;
+            }
+        }
+        const owner = Symbol('busy-operation');
+        this.busyOperations.set(owner, {
+            title, message, progress, etaSeconds, compact, complete: false,
+            revealAt: performance.now() + Math.max(0, Number(revealAfter) || 0)
+        });
+        this.activeBusyOwner = owner;
+        this.renderBusySurface();
+        return owner;
+    }
+
+    renderBusySurface() {
+        const owner = this.activeBusyOwner;
+        const operation = this.busyOperations?.get(owner);
+        if (!operation) return;
         const overlay = document.getElementById('busy-overlay');
-        const text = document.getElementById('busy-message');
+        clearTimeout(this.busyRevealTimer);
+        this.busyRevealTimer = null;
+        const remaining = Math.max(0, operation.revealAt - performance.now());
+        overlay?.classList.toggle('busy-pending', remaining > 0);
+        if (remaining > 0) this.busyRevealTimer = setTimeout(() => {
+            if (this.activeBusyOwner !== owner) return;
+            this.busyRevealTimer = null;
+            overlay?.classList.remove('busy-pending');
+        }, remaining);
+        overlay?.classList.toggle('busy-compact', operation.compact);
         const heading = document.getElementById('busy-title');
+        const text = document.getElementById('busy-message');
         const bar = document.getElementById('busy-progress');
         const fill = bar?.querySelector('span');
-        const meta = document.getElementById('busy-progress-meta');
-        if (heading) heading.textContent = title;
-        if (text) text.innerText = message;
+        if (heading) heading.textContent = operation.title;
+        if (text) text.textContent = operation.message;
         delete document.body.dataset.busyProgress;
-        if (progress === null) {
-            if (bar) {
-                bar.dataset.mode = 'indeterminate';
-                bar.removeAttribute('aria-valuenow');
-            }
+        if (operation.progress === null) {
+            if (bar) { bar.dataset.mode = 'indeterminate'; bar.removeAttribute('aria-valuenow'); }
             if (fill) fill.style.width = '';
-            meta?.classList.add('hidden');
+            document.getElementById('busy-progress-meta')?.classList.add('hidden');
+        } else {
+            this.setBusyProgress(operation.progress, { ...operation, owner });
         }
         overlay?.classList.remove('hidden');
         document.body.dataset.busy = 'true';
-        if (progress !== null) {
-            this.setBusyProgress(progress, { message, etaSeconds });
-        }
+        syncBusyIsolation(overlay, true);
+        overlay?.focus({ preventScroll: true });
     }
 
-    clearBusy() {
-        document.getElementById('busy-overlay')?.classList.add('hidden');
+    clearBusy(owner = this.activeBusyOwner) {
+        if (!this.busyOperations?.delete(owner)) return;
+        if (owner !== this.activeBusyOwner) return;
+        this.activeBusyOwner = [...this.busyOperations.keys()].at(-1);
+        if (this.activeBusyOwner) { this.renderBusySurface(); return; }
+        clearTimeout(this.busyRevealTimer);
+        this.busyRevealTimer = null;
+        const overlay = document.getElementById('busy-overlay');
+        overlay?.classList.add('hidden');
+        overlay?.classList.remove('busy-pending');
         delete document.body.dataset.busy;
         delete document.body.dataset.busyProgress;
+        syncBusyIsolation(overlay, false);
+        // Layout may have changed while the operation was running. Restore
+        // current panel constraints before reapplying any still-open modal.
+        this.restoreChromeAvailability();
+        const modal = document.getElementById('modal-container');
+        let target = this.busyReturnFocus;
+        const sameDocument = this.sessionId === this.busyReturnSessionId && this.workspaceActive && !this.disposed;
+        this.busyReturnFocus = null;
+        this.busyReturnSessionId = null;
+        if (!sameDocument) return;
+        if (modal && !modal.classList.contains('hidden') && !modal.contains(target)) target = document.getElementById('modal-content');
+        if (!target || target === document.body || !target.isConnected || target.closest('[inert]')
+            || !target.getClientRects().length || target.disabled) target = this.renderer?.domElement;
+        if (target && !target.closest('[inert]') && target.getClientRects().length) target.focus({ preventScroll: true });
     }
 
-    async withBusy(message, task) {
-        this.setBusy(message);
-        await new Promise(resolve => requestAnimationFrame(() => resolve()));
-        try {
-            return await task();
-        } finally {
-            this.clearBusy();
-        }
+    async withBusy(message, task, { compact = false } = {}) {
+        // Ownership survives overlapping work and delayed visual feedback.
+        const owner = this.setBusy(message, { revealAfter: 180, compact });
+        await new Promise(resolve => requestAnimationFrame(resolve));
+        try { return await task(owner); }
+        finally { this.clearBusy(owner); }
+    }
+
+    restoreChromeAvailability() {
+        if (document.body.dataset.busy) return;
+        this.setInspectorCollapsed?.(document.body.classList.contains('inspector-collapsed'), false);
+        if (!this.workspaceChild) this.setSceneNavigatorCollapsed?.(document.body.classList.contains('scene-nav-collapsed'), false);
+        this.syncWorkbenchEditingAvailability?.();
+        this.directWorkspace?.syncNavigatorIsolation?.();
+        syncModalIsolation(document.getElementById('modal-container'));
     }
 
     async setSupercellAsCell() {
@@ -24904,11 +25393,13 @@ class VAseApp {
         this.state.commensurateJobId = jobId;
         this.renderPrimitiveCommensurateCells();
         this.updateCommensurateStatus('Searching bounded integer supercells...', 'ready');
+        let busyOwner = null;
         if (showBusy) {
-            this.setBusy('Projecting periodic lattices...', {
+            busyOwner = this.setBusy('Projecting periodic lattices...', {
                 title: 'Commensurate atoms',
                 progress: 1
             });
+            this.commensurateBusyOwner = busyOwner;
             await new Promise(resolve => requestAnimationFrame(resolve));
         }
         try {
@@ -24924,6 +25415,7 @@ class VAseApp {
             this.state.commensurateCandidates = Array.isArray(result.candidates) ? result.candidates : [];
             if (showBusy) {
                 this.setBusyProgress(100, {
+                    owner: busyOwner,
                     message: 'Common-cell search complete. Preparing the interactive graph...',
                     complete: true
                 });
@@ -24970,7 +25462,7 @@ class VAseApp {
             this.updateCommensurateStatus(error.message, 'warning');
             throw error;
         } finally {
-            if (showBusy && token === this.state.commensurateRequestToken) this.clearBusy();
+            if (showBusy) this.clearBusy(busyOwner);
             if (token === this.state.commensurateRequestToken) this.state.commensurateJobId = null;
         }
     }
@@ -25576,6 +26068,27 @@ class VAseApp {
         });
     }
 
+    optimizerMessageIsCurrent(message) {
+        const type = String(message.type || '');
+        let current = null;
+        if (type.startsWith('add_atoms_relax_')) {
+            current = this.addAtomsUI?.active;
+            if (message.addition_id && current?.id !== message.addition_id) return false;
+        } else if (type.startsWith('registry_relax_')) {
+            current = this.state.registryRelaxation;
+            if (message.session_id && current?.session_id !== message.session_id) return false;
+        } else if (type === 'relax_step' || type === 'relax_finished') {
+            current = this.state.atoms?.metadata?.relaxation;
+        }
+        if (!current || !Number.isInteger(message.run_id)) return true;
+        // Clear/restore increments the backend run id before returning its
+        // retained geometry. Queued events from the discarded run must not
+        // recreate that movie or overwrite those coordinates afterwards.
+        if (Number.isInteger(current.run_id) && message.run_id < current.run_id) return false;
+        current.run_id = message.run_id;
+        return true;
+    }
+
     setupWebSocket() {
         if (!this.sessionId) return;
         const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
@@ -25595,6 +26108,7 @@ class VAseApp {
             } catch {
                 return;
             }
+            if (!this.optimizerMessageIsCurrent(msg)) return;
             if (msg.type === 'ai_command') {
                 void this.handleAICommandMessage(msg);
                 return;
@@ -25608,6 +26122,7 @@ class VAseApp {
                 if (activeJob && msg.job_id === activeJob) {
                     const progress = Math.max(0, Math.min(1, Number(msg.progress) || 0));
                     this.setBusyProgress(progress * 100, {
+                        owner: msg.analysis === 'commensurate' ? this.commensurateBusyOwner : this.registryBusyOwner,
                         message: String(msg.stage || 'Calculating analysis...'),
                         etaSeconds: null
                     });
@@ -25623,11 +26138,13 @@ class VAseApp {
                     ? ` · ${Math.min(Number(msg.frame) || 0, Number(msg.frame_count))}/${Number(msg.frame_count)}`
                     : '';
                 this.setBusyProgress(78 + ratio * 20, {
+                    owner: this.videoBusyOwner,
                     message: `Encoding video${frameDetail}...`,
                     etaSeconds: msg.eta_seconds
                 });
             }
             if (msg.type === 'relax_step') {
+                this.invalidatePendingStructureReads();
                 this.state.atoms.positions = msg.positions;
                 this.state.originalPositions = msg.positions.map(p => [...p]);
                 this.appendRelaxFrame(msg.positions);
@@ -25642,6 +26159,7 @@ class VAseApp {
                 if (fmax) fmax.innerText = msg.fmax.toFixed(6);
             }
             if (msg.type === 'relax_finished') {
+                this.invalidatePendingStructureReads();
                 this.state.isRelaxing = false;
                 if (Array.isArray(msg.positions)) {
                     this.appendRelaxFrame(msg.positions, { force: this.relaxFrameCount() <= 1 });
@@ -25677,6 +26195,7 @@ class VAseApp {
             }
             if (msg.type === 'registry_relax_step') {
                 if (!this.state.registryRelaxation) return;
+                this.invalidatePendingStructureReads();
                 this.state.registryRelaxation = this.registryRelaxationFromMessage(msg);
                 const registryLabel = this.state.registryRelaxation.translation_space === 'cartesian'
                     ? 'Rigid 3D translation relaxation'
@@ -25702,6 +26221,7 @@ class VAseApp {
             }
             if (msg.type === 'registry_relax_finished') {
                 if (!this.state.registryRelaxation) return;
+                this.invalidatePendingStructureReads();
                 this.state.registryRelaxation = this.registryRelaxationFromMessage(msg);
                 const registry3d = this.state.registryRelaxation.translation_space === 'cartesian';
                 const registryLabel = registry3d
@@ -25746,6 +26266,7 @@ class VAseApp {
             if (msg.type === 'add_atoms_relax_step') {
                 const addition = this.addAtomsUI?.active;
                 if (!addition || (msg.addition_id && addition.id !== msg.addition_id)) return;
+                this.invalidatePendingStructureReads();
                 if (Array.isArray(msg.positions)) {
                     this.state.atoms.positions = msg.positions;
                     this.state.originalPositions = msg.positions.map(position => [...position]);
@@ -25776,6 +26297,7 @@ class VAseApp {
             if (msg.type === 'add_atoms_relax_finished') {
                 const addition = this.addAtomsUI?.active;
                 if (!addition || (msg.addition_id && addition.id !== msg.addition_id)) return;
+                this.invalidatePendingStructureReads();
                 if (Array.isArray(msg.positions)) {
                     this.state.atoms.positions = msg.positions;
                     this.state.originalPositions = msg.positions.map(position => [...position]);
@@ -25830,6 +26352,7 @@ class VAseApp {
         const a = document.createElement('a');
         a.href = url;
         a.download = filename;
+        a.dataset.preparedDownload = 'true';
         a.rel = 'noopener';
         a.style.display = 'none';
         document.body.appendChild(a);
@@ -25943,10 +26466,24 @@ class VAseApp {
         const dismiss = this.modalDismiss;
         this.modalDismiss = null;
         dismiss?.();
-        document.getElementById('modal-container')?.classList.add('hidden');
+        const container = document.getElementById('modal-container');
+        if (container) {
+            container.inert = true;
+            container.classList.add('hidden');
+        }
+        syncModalIsolation(container);
+        this.restoreChromeAvailability();
+        // A closing dialog can remain painted during its exit transition.
+        // Keep it inert after the shared isolation snapshot is released.
+        if (container) container.inert = true;
         const returnFocus = this.modalReturnFocus;
         this.modalReturnFocus = null;
-        if (returnFocus?.isConnected) returnFocus.focus({ preventScroll: true });
+        const sameDocument = this.modalReturnSessionId === this.sessionId && this.workspaceActive && !this.disposed;
+        this.modalReturnSessionId = null;
+        if (!sameDocument) return;
+        const target = returnFocus?.isConnected && !returnFocus.closest('[inert]')
+            && returnFocus.getClientRects().length && !returnFocus.disabled ? returnFocus : this.renderer?.domElement;
+        if (target && !target.closest('[inert]') && target.getClientRects().length) target.focus({ preventScroll: true });
     }
 
     showModal(contentHtml, actionsHtml = '<button id="modal-close" class="btn">Close</button>') {
@@ -25954,7 +26491,10 @@ class VAseApp {
         const content = document.getElementById('modal-content');
         const actions = document.querySelector('#modal-container .modal-actions');
         if (!container || !content || !actions) return;
-        if (container.classList.contains('hidden')) this.modalReturnFocus = document.activeElement;
+        if (container.classList.contains('hidden')) {
+            this.modalReturnFocus = document.body.dataset.busy ? this.busyReturnFocus : document.activeElement;
+            this.modalReturnSessionId = this.sessionId;
+        }
         container.querySelector('.modal')?.classList.remove(
             'export-image-modal',
             'html-export-modal',
@@ -25969,10 +26509,12 @@ class VAseApp {
         content.tabIndex = 0;
         actions.innerHTML = actionsHtml;
         container.classList.remove('hidden');
+        container.inert = false;
+        syncModalIsolation(container);
         actions.querySelector('#modal-close')?.addEventListener('click', () => this.closeModal());
-        requestAnimationFrame(() => {
-            if (!container.classList.contains('hidden')) content.focus({ preventScroll: true });
-        });
+        // Keyboard ownership starts with isolation, before the entry animation.
+        // Deferring focus lets a fast Escape reach the dismissed menu instead.
+        content.focus({ preventScroll: true });
     }
 
     htmlExportProfile(profile = null) {
@@ -26542,7 +27084,7 @@ class VAseApp {
     }
 
     async showOpenFilesModal(entries, options = {}) {
-        const { queueFileOpen } = await import('./file_open_batch.js?v=0.4.13');
+        const { queueFileOpen } = await import('./file_open_batch.js?v=0.4.13&ui=20261111.2');
         return queueFileOpen(this, entries, options);
     }
 
@@ -26578,9 +27120,10 @@ class VAseApp {
         return openFileInWindow(this, file, inputFormat, index, runtimeMode, options);
     }
 
-    showOpenFileModal(file, { handle = null, dropped = false, onCommit = null } = {}) {
+    showOpenFileModal(file, { handle = null, onCommit = null } = {}) {
         const newTabAvailable = Boolean(this.sessionId);
         const hasDocument = this.hasScratchContent();
+        const defaultOpenMode = hasDocument && newTabAvailable ? 'new-tab' : 'replace';
         if (/\.vase$/i.test(file.name)) {
             // A project already declares its mode, frame, appearance and camera.
             // Opening it is not an import operation and needs no reader dialog.
@@ -26597,6 +27140,36 @@ class VAseApp {
                 <strong id="open-file-name"></strong>
                 <span id="open-file-size"></span>
             </div>
+            <fieldset class="open-file-modes"${hasDocument ? '' : ' hidden'}>
+                <legend>Open as</legend>
+                <label class="open-file-mode${newTabAvailable ? '' : ' disabled'}">
+                    <input type="radio" name="open-file-mode" value="new-tab"${newTabAvailable ? '' : ' disabled'}${defaultOpenMode === 'new-tab' ? ' checked' : ''}>
+                    <span>
+                        <strong>Open in new tab</strong>
+                        <small>${newTabAvailable
+                            ? 'Keep your current document open. The new tab has its own structure, view and undo history.'
+                            : 'Available when v_ase is running in its multi-tab workspace.'}</small>
+                    </span>
+                </label>
+                <label class="open-file-mode">
+                    <input type="radio" name="open-file-mode" value="append">
+                    <span>
+                        <strong>Add to this trajectory</strong>
+                        <small>Append all selected frames to the current tab for movie playback, keeping this tab’s appearance.</small>
+                    </span>
+                </label>
+                <label class="open-file-mode">
+                    <input type="radio" name="open-file-mode" value="replace"${defaultOpenMode === 'replace' ? ' checked' : ''}>
+                    <span>
+                        <strong>Replace this tab</strong>
+                        <small>Replace the current document. Unsaved changes are checked before opening.</small>
+                    </span>
+                </label>
+                <label class="open-file-mode">
+                    <input type="radio" name="open-file-mode" value="new-window">
+                    <span><strong>Open in new window</strong><small>Use a separate workspace window.</small></span>
+                </label>
+            </fieldset>
             <div class="export-grid">
                 <label for="open-file-format">Reader</label>
                 <select id="open-file-format">
@@ -26609,6 +27182,7 @@ class VAseApp {
                     <option value="traj">ASE trajectory</option>
                     <option value="xyz">XYZ</option>
                     <option value="extxyz">Extended XYZ</option>
+                    <option value="cif">CIF crystal structure</option>
                     <option value="vase">v_ase project</option>
                     <option value="html">v_ase HTML project</option>
                 </select>
@@ -26624,36 +27198,6 @@ class VAseApp {
                 </div>
                 <p class="modal-intro">View prioritizes large-data inspection. Edit enables ASE-backed structure changes and calculators.</p>
             </fieldset>
-            <fieldset class="open-file-modes"${hasDocument ? '' : ' hidden'}>
-                <legend>Open as</legend>
-                <label class="open-file-mode">
-                    <input type="radio" name="open-file-mode" value="replace"${dropped && hasDocument ? '' : ' checked'}>
-                    <span>
-                        <strong>Replace this tab</strong>
-                        <small>Open the selected document in the current tab. A .vase project or project-embedded HTML restores its complete visual setup.</small>
-                    </span>
-                </label>
-                <label class="open-file-mode">
-                    <input type="radio" name="open-file-mode" value="append">
-                    <span>
-                        <strong>Add to trajectory</strong>
-                        <small>Append every selected frame to this tab for movie playback. A .vase file or project-embedded HTML contributes structures only.</small>
-                    </span>
-                </label>
-                <label class="open-file-mode${newTabAvailable ? '' : ' disabled'}">
-                    <input type="radio" name="open-file-mode" value="new-tab"${newTabAvailable ? '' : ' disabled'}${dropped && hasDocument ? ' checked' : ''}>
-                    <span>
-                        <strong>Open in new tab</strong>
-                        <small>${newTabAvailable
-                            ? 'Create an independent structure tab with its own state and .vase project.'
-                            : 'Available when v_ase is running in its multi-tab workspace.'}</small>
-                    </span>
-                </label>
-                <label class="open-file-mode">
-                    <input type="radio" name="open-file-mode" value="new-window">
-                    <span><strong>Open in new window</strong><small>Use a separate workspace window.</small></span>
-                </label>
-            </fieldset>
         `, `
             <button id="open-file-cancel" class="btn">Cancel</button>
             <button id="open-file-confirm" class="btn primary">Replace</button>
@@ -26668,7 +27212,7 @@ class VAseApp {
         if (size) size.textContent = this.formatFileSize(file.size);
         const confirm = document.getElementById('open-file-confirm');
         const syncConfirmLabel = () => {
-            const mode = document.querySelector('input[name="open-file-mode"]:checked')?.value || 'replace';
+            const mode = document.querySelector('input[name="open-file-mode"]:checked')?.value || defaultOpenMode;
             const labels = {
                 replace: 'Replace',
                 append: 'Add Frames',
@@ -26684,7 +27228,7 @@ class VAseApp {
         confirm?.addEventListener('click', async () => {
             const inputFormat = document.getElementById('open-file-format')?.value || '';
             const index = document.getElementById('open-file-index')?.value.trim() || ':';
-            const mode = document.querySelector('input[name="open-file-mode"]:checked')?.value || 'replace';
+            const mode = document.querySelector('input[name="open-file-mode"]:checked')?.value || defaultOpenMode;
             const runtimeMode = document.querySelector('input[name="open-runtime-mode"]:checked')?.value || currentRuntimeMode;
             onCommit?.();
             this.modalDismiss = null;
@@ -26996,12 +27540,14 @@ class VAseApp {
             <p class="panel-note">Browser or operating-system reserved ${this.shortcutPlatform === 'mac' ? 'Command' : 'Control'} keys may not reach an ordinary tab. Fullscreen Keyboard Lock may help where supported; File and navigator controls remain available.</p>
             <h3 class="help-section-title">Opening Files</h3>
             <div class="help-save-grid">
-                <strong>Replace this tab</strong>
-                <span>Replace the current structure or trajectory. A .vase project also restores its saved visual setup.</span>
-                <strong>Add to trajectory</strong>
-                <span>Append every selected frame to the current movie while keeping this tab's visual setup. A .vase file contributes structures only.</span>
                 <strong>Open in new tab</strong>
-                <span>Create an independent structure tab. A .vase project restores its complete state in that new tab.</span>
+                <span>Default when a document is open. Keep its structure, view and undo history while opening the new file independently.</span>
+                <strong>Add to this trajectory</strong>
+                <span>Append every selected frame to the current movie while keeping this tab's visual setup. A .vase file contributes structures only.</span>
+                <strong>Replace this tab</strong>
+                <span>Explicitly replace the current structure or trajectory after checking unsaved changes.</span>
+                <strong>Several files</strong>
+                <span>Choose Separate tabs for one new tab per file, or One trajectory to combine all files' frames in one new tab. Check the listed order before opening.</span>
             </div>
             <h3 class="help-section-title">Geometry Export</h3>
             <div class="help-save-grid">
@@ -27030,7 +27576,6 @@ class VAseApp {
             </div>
         `);
         document.querySelector('#modal-container .modal')?.classList.add('help-modal');
-        requestAnimationFrame(() => document.getElementById('modal-content')?.focus());
     }
 
     imageOutputDimensions() {
@@ -27174,6 +27719,8 @@ class VAseApp {
             if (heightInput) heightInput.value = `${normalized.height}`;
         }
         if (syncPreview && this.state.exportPreviewEnabled) this.syncImageExportPreview();
+        const summary = document.getElementById('renderer-image-output-summary');
+        if (summary) summary.textContent = `${normalized.width} × ${normalized.height} px · ${normalized.options.scaleMode === 'physical' ? 'Physical scale' : 'Viewport framing'}`;
         return normalized;
     }
 
@@ -27423,17 +27970,24 @@ class VAseApp {
             .forEach(id => document.getElementById(id)?.addEventListener('change', updateExportSummary));
         updateExportSummary();
 
-        document.getElementById('modal-export-image')?.addEventListener('click', async () => {
+        const exportButton = document.getElementById('modal-export-image');
+        exportButton?.addEventListener('click', async () => {
+            if (exportButton.disabled) return;
+            exportButton.disabled = true;
+            const dialog = exportButton.closest('#modal-container');
+            let rendering = false;
+            let busyOwner = null;
             try {
                 const profile = readImageProfile();
                 const { width: exportWidth, height: exportHeight, format, options } = profile;
                 const mimeType = this.imageMimeType(format);
                 const filename = `v_ase-${exportWidth}x${exportHeight}.${format}`;
                 const destination = await this.chooseSaveDestination(filename, mimeType);
-                if (!destination) return;
+                if (!destination || !exportButton.isConnected || dialog.classList.contains('hidden')) return;
                 const startedAt = performance.now();
                 const updateProgress = (progress, message, complete = false) => {
                     this.setBusyProgress(progress, {
+                        owner: busyOwner,
                         message,
                         etaSeconds: complete
                             ? 0
@@ -27441,14 +27995,17 @@ class VAseApp {
                         complete
                     });
                 };
-                this.setBusy(
+                busyOwner = this.setBusy(
                     `Preparing ${exportWidth} x ${exportHeight} image...`,
                     {
-                        title: 'Export Image',
+                        title: 'Exporting image',
+                        compact: true,
                         progress: 2,
                         etaSeconds: null
                     }
                 );
+                rendering = true;
+                dialog.inert = true;
                 await new Promise(resolve => requestAnimationFrame(resolve));
                 const blob = await this.renderOptimizedImage(
                     exportWidth,
@@ -27491,14 +28048,73 @@ class VAseApp {
                     updateProgress(100, 'Image export saved.', true);
                     await new Promise(resolve => window.setTimeout(resolve, 120));
                     this.closeModal();
-                    this.toast('Image export saved.', 'success');
+                    this.showImageExportResult(
+                        blob, destination.handle?.name || filename, mimeType, exportWidth * exportHeight
+                    );
                 }
             } catch (err) {
                 this.toast(`Image export failed: ${err.message}`, 'error');
             } finally {
-                this.clearBusy();
+                if (rendering) {
+                    this.clearBusy(busyOwner);
+                    if (!dialog.classList.contains('hidden')) dialog.inert = false;
+                }
+                exportButton.disabled = false;
+                if (!dialog.classList.contains('hidden') && exportButton.isConnected) {
+                    exportButton.focus({ preventScroll: true });
+                }
             }
         });
+    }
+
+    showImageExportResult(blob, filename, mimeType, pixelCount) {
+        const result = document.getElementById('image-export-result');
+        const thumbnail = document.getElementById('image-export-thumbnail');
+        const copy = document.getElementById('image-export-copy');
+        const dismiss = document.getElementById('image-export-dismiss');
+        if (!result || !thumbnail || !copy || !dismiss) return;
+        document.getElementById('image-export-filename').textContent = filename;
+        result.hidden = false;
+        const releaseThumbnail = () => {
+            const url = thumbnail.getAttribute('src');
+            if (url) URL.revokeObjectURL(url);
+            thumbnail.removeAttribute('src');
+            thumbnail.onload = null;
+            thumbnail.onerror = null;
+            thumbnail.hidden = true;
+        };
+        releaseThumbnail();
+        // Use the actual exported pixels. Avoid decoding a second full-size
+        // image for very large figures or a PDF.
+        if (mimeType.startsWith('image/') && pixelCount <= 4_000_000) {
+            const url = URL.createObjectURL(blob);
+            thumbnail.onload = () => {
+                URL.revokeObjectURL(url);
+                thumbnail.hidden = false;
+            };
+            thumbnail.onerror = releaseThumbnail;
+            thumbnail.src = url;
+        }
+        const saveCopy = async () => {
+            copy.disabled = true;
+            try {
+                if (await this.savePreparedBlob(blob, filename, mimeType)) {
+                    this.toast('Image copy saved.', 'success');
+                }
+            } catch (error) {
+                this.toast(`Could not save image copy: ${error.message}`, 'error');
+            } finally {
+                if (copy.onclick === saveCopy) copy.disabled = false;
+            }
+        };
+        copy.disabled = false;
+        copy.onclick = saveCopy;
+        dismiss.onclick = () => {
+            result.hidden = true;
+            releaseThumbnail();
+            copy.onclick = null;
+            this.renderer.domElement.focus({ preventScroll: true });
+        };
     }
 
     showExportVideoModal() {
@@ -27973,6 +28589,7 @@ class VAseApp {
         const elapsedSeconds = Math.max(0.001, (performance.now() - startedAt) / 1000);
         const secondsPerFrame = elapsedSeconds / Math.max(1, outputIndex);
         this.setBusyProgress(3 + (outputIndex / outputCount) * 90, {
+            owner: this.videoBusyOwner,
             message: `Encoding frame ${outputIndex} of ${outputCount}...`,
             etaSeconds: secondsPerFrame * Math.max(0, outputCount - outputIndex)
         });
@@ -28042,7 +28659,8 @@ class VAseApp {
         window.addEventListener('pagehide', abortOnPageHide);
         let micFallback = false;
         this.closeModal();
-        this.setBusy(`Preparing ${outputFrameCount} video frames...`, { title: 'Exporting video', progress: 1 });
+        const busyOwner = this.setBusy(`Preparing ${outputFrameCount} video frames...`, { title: 'Exporting video', progress: 1 });
+        this.videoBusyOwner = busyOwner;
         try {
             sequence = await this.api.beginVideoFrames({width: outputWidth, height: outputHeight, fps: outputFps, frames: outputFrameCount, format: outputFormat, loop});
             this.state.videoExportId = sequence.export_id;
@@ -28077,7 +28695,7 @@ class VAseApp {
                     first = second;
                 }
             }
-            this.setBusyProgress(95, { message: 'Finalizing encoded video...', etaSeconds: 1 });
+            this.setBusyProgress(95, { owner: busyOwner, message: 'Finalizing encoded video...', etaSeconds: 1 });
             const video = await this.api.finishVideoFrames(sequence.export_id);
             sequence = null;
             video.vaseMetadata = {width: outputWidth, height: outputHeight, fps: outputFps,
@@ -28085,13 +28703,13 @@ class VAseApp {
                 interpolationMultiplier: interpolationFactor, interpolationMic,
                 captureMode: 'indexed-png', camera: this.clonePlain(effectiveRender.camera), effectiveRender};
             if (returnBlob) {
-                this.setBusyProgress(100, {message: 'Video export complete.', etaSeconds: 0, complete: true});
+                this.setBusyProgress(100, {owner: busyOwner, message: 'Video export complete.', etaSeconds: 0, complete: true});
                 await new Promise(resolve => setTimeout(resolve, 160));
                 return video;
             }
             const saved = await this.savePreparedBlob(video, filename, outputMime, selectedDestination);
             if (saved) {
-                this.setBusyProgress(100, {message: 'Video export complete.', etaSeconds: 0, complete: true});
+                this.setBusyProgress(100, {owner: busyOwner, message: 'Video export complete.', etaSeconds: 0, complete: true});
                 await new Promise(resolve => setTimeout(resolve, 220));
                 this.toast(`${outputFormat.toUpperCase()} video saved.`, 'success');
             }
@@ -28114,7 +28732,7 @@ class VAseApp {
                 this.state.videoExportStartedAt = null;
                 this.state.exportPreviewProfile = null;
                 if (this.state.exportPreviewEnabled) this.syncImageExportPreview();
-                this.clearBusy();
+                this.clearBusy(busyOwner);
             }
         }
     }
@@ -28245,6 +28863,7 @@ class VAseApp {
     }
 
     async loadFrameData(index) {
+        this.invalidatePendingStructureReads();
         if (
             this.transform.mode !== 'IDLE'
             && !['sun', 'render-area'].includes(this.state.transformSubject)
@@ -28889,6 +29508,7 @@ class VAseApp {
                     this.state.applyConstraints,
                     this.currentCalculatorPayload()
                 );
+                if (!this.optimizerMessageIsCurrent({ type: 'relax_step', run_id: response.run_id })) return;
                 if (response.status === 'started' || response.status === 'restarting') {
                     if (response.status === 'started' && enteringRelaxationMode) {
                         this.recordStructureHistoryAction('/api/relax/start/');
@@ -29368,6 +29988,7 @@ class VAseApp {
                 e.preventDefault();
                 if (this.pointerTransformGesture === 'armed') {
                     this.pointerTransformGesture = 'dragging';
+                    this.pointerTransformPointerId = e.pointerId;
                     this.state.transformStartPointer.set(e.clientX, e.clientY);
                     this.transform.pointerDelta.set(0, 0);
                     this.state.rotationPointerActive = false;
@@ -29567,7 +30188,7 @@ class VAseApp {
                 }
                 if (e.key === 'Escape') {
                     e.preventDefault();
-                    this.closeModal();
+                    if (!modal.inert) this.closeModal();
                 } else if ((e.ctrlKey || e.metaKey || e.altKey)
                     && !(e.target instanceof Element
                         && e.target.closest('input, textarea, select, [contenteditable=""], [contenteditable="true"]'))) {
@@ -29582,23 +30203,22 @@ class VAseApp {
                 || (e.target instanceof Element && Boolean(e.target.closest(
                     '[contenteditable]:not([contenteditable="false"]), [role="textbox"], [role="spinbutton"]'
                 )));
-            const isFormControl = isEditableControl || tag === 'button';
+            const isFormControl = isEditableControl || tag === 'button' || tag === 'summary';
             const inspectorCollapsed = document.body.classList.contains('inspector-collapsed');
             if (e.key === 'Escape' && this.transform.mode === 'IDLE' && (this.orbitToolActive || this.measureToolArmed)) {
                 e.preventDefault(); this.activateViewportTool('select'); return;
             }
             if (e.key === 'Escape' && this.transform.mode === 'IDLE') {
                 const objects = document.getElementById('objects-drawer');
-                if (objects && !objects.classList.contains('hidden')) {
-                    e.preventDefault(); objects.classList.add('hidden');
-                    document.getElementById('btn-objects')?.setAttribute('aria-expanded', 'false');
-                    document.getElementById('btn-objects')?.focus();
+                if (objects && !this.workspaceChild && !document.body.classList.contains('scene-nav-collapsed')
+                    && document.getElementById('scene-navigator')?.contains(e.target)) {
+                    e.preventDefault();
+                    this.setObjectsDrawerOpen(false);
+                    document.getElementById('editor-sidebar-toggle')?.focus();
                     return;
                 }
                 if (document.body.classList.contains('editor-search-open')) {
-                    e.preventDefault(); document.body.classList.remove('editor-search-open');
-                    document.getElementById('editor-search-toggle')?.setAttribute('aria-expanded', 'false');
-                    document.getElementById('editor-search-toggle')?.focus();
+                    e.preventDefault(); this.setToolSearchOpen(false);
                     return;
                 }
                 const modal = document.getElementById('modal-container');

@@ -2,7 +2,9 @@
 const clone = value => JSON.parse(JSON.stringify(value));
 const styleFields = new Set(['name','color','opacity','showFaces','showEdges','edgeColor','edgeRadius']);
 const geometryRules = rules => (rules || []).map(rule => Object.fromEntries(Object.entries(rule).filter(([key])=>!styleFields.has(key))));
-const signature = app => JSON.stringify([app.polyhedraRuntime.generation,geometryRules(app.state.display.polyhedraRules),app.renderer.atomsData?.symbols]);
+const bondSettings = d => Object.fromEntries(['bondMode','bondCutoffScale','pairwiseBondCutoffs','pairwiseBondRanges','manualBondPairs','showPeriodicBonds'].map(key=>[key,d[key]]));
+const signature = app => JSON.stringify([app.polyhedraRuntime.generation,geometryRules(app.state.display.polyhedraRules),
+    Boolean(app.state.display.polyhedraBondedOnly),app.state.display.polyhedraBondedOnly ? [bondSettings(app.state.display),app.renderer.atomsData?.constraints?.hookean] : null,app.renderer.atomsData?.symbols]);
 const input = id => document.getElementById(`poly-${id}`);
 const parsedNumbers = text => text.trim().split(/[\s,]+/).filter(Boolean).map(value => {
     if (!/^\d+$/.test(value)) throw new Error('Atom indices must be nonnegative integers separated by commas.');
@@ -110,9 +112,21 @@ export function installPolyhedra(App) {
                 this.polyhedraDraft=null;this.syncPolyhedraControls(true);
             } catch(error){this.toast(error.message,'error');}
         });
-        for (const [name,key] of [['enabled','enabled'],['atom-mode','atomMode'],['respect','respectVisibility'],['complete','completeLigands'],['center-bonds','showCenterBonds']]) {
+        input('auto')?.addEventListener('click',async()=>{
+            try {await this.configurePolyhedra({automatic:true,enabled:true});}
+            catch(error){this.toast(error.message,'error');this.syncPolyhedraControls(true);}
+        });
+        const help=input('help'),helpToggle=input('help-toggle');
+        helpToggle?.addEventListener('click',()=>{
+            help.hidden=!help.hidden;helpToggle.setAttribute('aria-expanded',String(!help.hidden));
+        });
+        for(const node of [help,helpToggle])node?.addEventListener('keydown',event=>{
+            if(event.key==='Escape'&&!help.hidden){event.preventDefault();event.stopPropagation();help.hidden=true;helpToggle.setAttribute('aria-expanded','false');helpToggle.focus();}
+        });
+        for (const [name,key] of [['enabled','enabled'],['bonded-only','bondedOnly'],['atom-mode','atomMode'],['respect','respectVisibility'],['complete','completeLigands'],['center-bonds','showCenterBonds']]) {
             input(name)?.addEventListener('change',async()=>{
-                try {await this.configurePolyhedra({[key]:name==='atom-mode'?input(name).value:input(name).checked});}
+                const automatic=name==='enabled'&&input(name).checked&&!(this.state.display.polyhedraRules||[]).length;
+                try {await this.configurePolyhedra({[key]:name==='atom-mode'?input(name).value:input(name).checked,...(automatic?{automatic:true}:{})});}
                 catch(error){this.toast(error.message,'error');this.syncPolyhedraControls(true);}
             });
         }
@@ -126,6 +140,8 @@ export function installPolyhedra(App) {
         input('respect').checked=d.polyhedraRespectVisibility!==false;
         input('complete').checked=d.polyhedraCompleteLigands!==false;
         input('center-bonds').checked=Boolean(d.polyhedraShowCenterBonds);
+        input('bonded-only').checked=Boolean(d.polyhedraBondedOnly);
+        input('auto').textContent=(d.polyhedraRules||[]).length?'Replace with automatic rules':'Find neighbors automatically';
         if (!force && document.activeElement?.closest('[data-panel="polyhedra"]')) return;
         const rules=d.polyhedraRules||[];
         const draft=this.polyhedraDraft || rules[0] || null;
@@ -148,6 +164,20 @@ export function installPolyhedra(App) {
         const complex=Object.keys(draft.centers||{}).length>1||Object.keys(draft.ligands||{}).length>1||(draft.explicit?.length||0)>1;
         input('apply').disabled=complex;
         input('complex').hidden=!complex;
+    };
+    proto.showPolyhedraSummary = function(data) {
+        const list=input('breakdown');
+        if(list)list.replaceChildren(...(data.ruleSummaries||[]).map(rule=>{
+            const item=document.createElement('li');
+            const cn=Object.entries(rule.coordinationCounts).map(([n,count])=>`${count} × CN ${n}`).join(', ');
+            item.textContent=`${rule.name} · ≤ ${Number(rule.maxDistance).toFixed(2)} Å · ${cn||'0 hulls'}${rule.omittedCount?` · ${rule.omittedCount} omitted`:''}`;
+            return item;
+        }));
+        const omitted=data.diagnostics||[];
+        if(input('status'))input('status').textContent=!data.rules?.length
+            ? 'No supported element pairs found. Add a custom rule with center and ligand elements or atom indices.'
+            : !data.centerCount ? 'No centers match the enabled rules. Check their center elements, labels or indices.'
+            : `${data.polyhedronCount} polyhedra · ${data.centerCount} centers · ${omitted.length} omitted.${omitted.length?` First omitted: atom ${omitted[0].center}, ${omitted[0].neighborCount} neighbors (${omitted[0].status}). Adjust the cutoff, coordination range or bonded-neighbor filter.`:''}`;
     };
     proto.schedulePolyhedra = function () {
         const runtime=this.polyhedraRuntime;
@@ -188,7 +218,8 @@ export function installPolyhedra(App) {
         const pending=this.api.jsonPost('/api/analysis/polyhedra/{session_id}',{
             frame_index:Number(this.state.atoms?.metadata?.current_frame||0),
             positions:runtime.preview ? atoms.positions.map((_,i)=>this.renderer.getAtomPosition(i).toArray()) : atoms.positions,
-            cell:atoms.cell,pbc:atoms.pbc,labels:atoms.symbols,rules:this.state.display.polyhedraRules||[]
+            cell:atoms.cell,pbc:atoms.pbc,labels:atoms.symbols,rules:this.state.display.polyhedraRules||[],
+            bondedOnly:Boolean(this.state.display.polyhedraBondedOnly),bondSettings:bondSettings(this.state.display)
         });
         runtime.pending=pending;
         try {
@@ -198,7 +229,7 @@ export function installPolyhedra(App) {
                 this.state.polyhedraSummary={polyhedronCount:data.polyhedronCount,centerCount:data.centerCount,
                     vertexCount:data.vertexCount,frame:data.frame,fingerprint:data.fingerprint,
                     diagnostics:data.diagnostics.slice(0,40)};
-                if(input('status'))input('status').textContent=`${data.polyhedronCount} polyhedra · ${data.centerCount} centers · ${data.diagnostics.length} omitted. ${data.diagnostics[0]?.status||''}`;
+                this.showPolyhedraSummary(data);
             }
             return data;
         } catch(error){runtime.error=error.message;throw error;}
@@ -238,26 +269,31 @@ export function installPolyhedra(App) {
         if(options.completeLigands!==undefined)next.polyhedraCompleteLigands=options.completeLigands;
         if(options.showCenterBonds!==undefined)next.polyhedraShowCenterBonds=options.showCenterBonds;
         if(options.respectVisibility!==undefined)next.polyhedraRespectVisibility=options.respectVisibility;
+        if(options.bondedOnly!==undefined)next.polyhedraBondedOnly=options.bondedOnly;
         const generation=this.polyhedraRuntime.generation;
         const initialSignature=signature(this);
+        const initialBonds=JSON.stringify(bondSettings(d));
         const result=await this.api.jsonPost('/api/analysis/polyhedra/{session_id}',{
             frame_index:Number(this.state.atoms?.metadata?.current_frame||0),
             positions:this.renderer.atomsData.positions,cell:this.renderer.atomsData.cell,pbc:this.renderer.atomsData.pbc,
-            labels:this.renderer.atomsData.symbols,rules:next.polyhedraRules||[]
+            labels:this.renderer.atomsData.symbols,rules:next.polyhedraRules||[],automatic:options.automatic===true,
+            bondedOnly:Boolean(next.polyhedraBondedOnly),bondSettings:bondSettings(next)
         });
-        if(generation!==this.polyhedraRuntime.generation||initialSignature!==signature(this))throw new Error('The structure or coordination rules changed during polyhedra setup. Apply again to the current frame.');
+        if(generation!==this.polyhedraRuntime.generation||initialSignature!==signature(this)
+            ||(next.polyhedraBondedOnly&&initialBonds!==JSON.stringify(bondSettings(d))))throw new Error('The structure, bond definitions or coordination rules changed during polyhedra setup. Apply again to the current frame.');
         // Preserve human changes to unrelated appearance while the query ran.
         const updates={};
-        for(const [option,field] of [['rules','polyhedraRules'],['enabled','showPolyhedra'],['atomMode','polyhedraAtomMode'],['completeLigands','polyhedraCompleteLigands'],['showCenterBonds','polyhedraShowCenterBonds'],['respectVisibility','polyhedraRespectVisibility']]) {
+        for(const [option,field] of [['rules','polyhedraRules'],['enabled','showPolyhedra'],['bondedOnly','polyhedraBondedOnly'],['atomMode','polyhedraAtomMode'],['completeLigands','polyhedraCompleteLigands'],['showCenterBonds','polyhedraShowCenterBonds'],['respectVisibility','polyhedraRespectVisibility']]) {
             if(options[option]!==undefined)updates[field]=next[field];
         }
+        if(options.automatic===true)updates.polyhedraRules=clone(result.rules);
         Object.assign(next,d,updates);
         this.renderer.validatePolyhedraDisplay(result,next);
         const previous={display:clone(d),draft:clone(this.polyhedraDraft??null),data:this.renderer.polyhedraData,
             runtimeData:this.polyhedraRuntime.data,key:this.polyhedraRuntime.key};
         try {
             Object.assign(d,next);
-            if(options.rules!==undefined)this.polyhedraDraft=clone(next.polyhedraRules.find(r=>r.id===this.polyhedraDraft?.id)||next.polyhedraRules[0]||null);
+            if(options.rules!==undefined||options.automatic===true)this.polyhedraDraft=clone(next.polyhedraRules.find(r=>r.id===this.polyhedraDraft?.id)||next.polyhedraRules[0]||null);
             this.polyhedraRuntime.data=result;this.polyhedraRuntime.key=signature(this);this.polyhedraRuntime.error=null;
             this.renderer.polyhedraDataValid=false;
             this.renderer.setDisplayOptions(d);
@@ -273,7 +309,7 @@ export function installPolyhedra(App) {
             vertexCount:result.vertexCount,frame:result.frame,fingerprint:result.fingerprint,diagnostics:result.diagnostics.slice(0,40)};
         this.scheduleVisualHistoryCommit('configure-polyhedra');
         this.syncPolyhedraControls(true);
-        if(input('status'))input('status').textContent=`${result.polyhedronCount} polyhedra · ${result.diagnostics.length} omitted. ${result.diagnostics[0]?.status||''}`;
+        this.showPolyhedraSummary(result);
         return result;
     };
     const ui=proto.updateUI;

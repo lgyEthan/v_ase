@@ -192,9 +192,10 @@ shadowed rendering where available. A scene using only standard/rubber
 materials does not allocate the metal reflection environment.
 
 The **System** interface theme follows the browser/OS preference. Explicit
-Light or Dark persists in that browser. Interface theme and viewport background
-are distinct settings, although explicit Dark selects a matching dark viewport
-for a coherent starting point.
+Light or Dark persists locally. Graphite (default), Slate, Stone and Moss
+palettes independently color the interface. Appearance and palette preserve the
+scientific background, atoms, camera and output profile. Change the scientific
+background separately under Display & guides.
 
 ## Reusing a style
 

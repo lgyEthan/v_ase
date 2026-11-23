@@ -24,7 +24,7 @@ def material():
 
 def open_panel(page):
     if page.locator('body').evaluate("e=>e.classList.contains('inspector-collapsed')"):
-        page.click('#btn-inspector-collapse')
+        page.click('#editor-inspector-toggle')
     open_editor_route(page, 'polyhedra')
     page.locator('#poly-add').scroll_into_view_if_needed()
 
@@ -71,8 +71,8 @@ def test_gui_colors_opacity_native_snapshot_and_exact_render(tmp_path):
             assert styled['vertices']==poly['vertices']
             # Select a visible face with atoms hidden. Publication output must
             # remain identical even though the live document gains a highlight.
-            page.click('#btn-inspector-collapse')
-            page.wait_for_function("document.getElementById('inspector').getBoundingClientRect().width <= 1")
+            page.click('#editor-inspector-toggle')
+            page.wait_for_function("document.getElementById('inspector').getBoundingClientRect().left >= innerWidth - 1")
             render_args={'width':960,'height':640,'options':{
                 'scale_mode':'physical','pixels_per_angstrom':90}}
             rendered=tools.call('vase_render',render_args)

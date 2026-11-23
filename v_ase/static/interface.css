@@ -1,0 +1,717 @@
+/* v_ase interface system. Original artwork and motion; system fonts only.
+   Loaded last in the editor and workspace, embedded in offline exports.
+   These roles style application chrome, never the scientific renderer. */
+:root {
+    --ui-font: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    --ui-mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+    --ui-canvas: #eceeed;
+    --ui-surface: #f9faf8;
+    --ui-elevated: #ffffff;
+    --ui-field: #ffffff;
+    --ui-hover: #e4e9e5;
+    --ui-pressed: #d9e0da;
+    --ui-line: #dde2de;
+    --ui-border: #c6cec8;
+    --ui-ink: #252b27;
+    --ui-secondary: #657068;
+    --ui-select-arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='m1 1 4 4 4-4' fill='none' stroke='%2366696d' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    --ui-accent: #2f67d8;
+    --ui-accent-hover: #244eaa;
+    --ui-accent-pressed: #193e8d;
+    --ui-accent-wash: #e8eefb;
+    --ui-on-accent: #ffffff;
+    --ui-danger: #b73430;
+    --ui-danger-wash: #fcebe9;
+    --ui-warning: #ad7418;
+    --ui-ring: #648be0;
+    --ui-track: #d7d8da;
+    --ui-thumb: #ffffff;
+    --ui-shadow-control: 0 1px 2px rgb(28 30 34 / .08);
+    --ui-shadow-popover: 0 12px 36px rgb(25 28 34 / .13), 0 2px 8px rgb(25 28 34 / .06);
+    --ui-shadow-dialog: 0 24px 80px rgb(20 23 30 / .24), 0 4px 16px rgb(20 23 30 / .1);
+    --ui-radius: 7px;
+    --ui-radius-panel: 12px;
+    --ui-fast: 110ms;
+    --ui-press: 65ms;
+    --ui-enter: 150ms;
+    --ui-exit: 120ms;
+    --ui-reveal: 190ms;
+    --ui-ease: cubic-bezier(.2,.75,.25,1);
+    --ui-inspector-width: var(--inspector-width);
+}
+html[data-ui-theme="dark"], html[data-viewer-theme="dark"] {
+    --ui-canvas: #202422;
+    --ui-surface: #2c322e;
+    --ui-elevated: #363d38;
+    --ui-field: #363d38;
+    --ui-hover: #3c443e;
+    --ui-pressed: #454c56;
+    --ui-line: #404a43;
+    --ui-border: #58665d;
+    --ui-ink: #eeeef0;
+    --ui-secondary: #b0b2b7;
+    --ui-select-arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='m1 1 4 4 4-4' fill='none' stroke='%23b0b2b7' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    --ui-accent: #8eb4ff;
+    --ui-accent-hover: #b5ccff;
+    --ui-accent-pressed: #82a4ea;
+    --ui-accent-wash: #343f58;
+    --ui-on-accent: #18243b;
+    --ui-danger: #ffaba4;
+    --ui-danger-wash: #553633;
+    --ui-warning: #e6b95d;
+    --ui-ring: #a8c1ff;
+    --ui-track: #55585d;
+    --ui-shadow-control: 0 1px 2px rgb(0 0 0 / .18);
+    --ui-shadow-popover: 0 12px 36px rgb(0 0 0 / .3), 0 2px 8px rgb(0 0 0 / .15);
+    --ui-shadow-dialog: 0 24px 80px rgb(0 0 0 / .45), 0 4px 16px rgb(0 0 0 / .24);
+}
+html[data-ui-theme] body.editor-shell, body.workspace-shell, body.standalone-shell {
+    --font-ui: var(--ui-font);
+    --font-mono: var(--ui-mono);
+    --chrome: var(--ui-canvas);
+    --chrome-raised: var(--ui-elevated);
+    --panel: var(--ui-surface);
+    --panel-raised: var(--ui-elevated);
+    --field: var(--ui-field);
+    --surface: var(--ui-field);
+    --surface-faint: color-mix(in srgb, var(--ui-ink) 1%, transparent);
+    --surface-subtle: color-mix(in srgb, var(--ui-ink) 2%, transparent);
+    --surface-hover: var(--ui-hover);
+    --surface-active: var(--ui-pressed);
+    --panel-glass: var(--ui-elevated);
+    --chrome-glass: var(--ui-canvas);
+    --hud-glass: var(--ui-surface);
+    --scroll-thumb: var(--ui-border);
+    --line: var(--ui-line);
+    --line-strong: var(--ui-border);
+    --text: var(--ui-ink);
+    --text-soft: var(--ui-ink);
+    --muted: var(--ui-secondary);
+    --teal: var(--ui-accent);
+    --teal-contrast: var(--ui-accent);
+    --teal-soft: var(--ui-accent-wash);
+    --teal-faint: color-mix(in srgb, var(--ui-accent) 4%, transparent);
+    --teal-wash: var(--ui-accent-wash);
+    --teal-selected: var(--ui-accent-wash);
+    --teal-active: var(--ui-accent-wash);
+    --teal-border-soft: var(--ui-border);
+    --teal-border: var(--ui-accent);
+    --teal-border-strong: var(--ui-accent);
+    --red: var(--ui-danger);
+    --red-soft: var(--ui-danger-wash);
+    --red-contrast: var(--ui-danger);
+    --danger: var(--ui-danger);
+    --focus-ring: var(--ui-ring);
+    --range-track: var(--ui-track);
+    --radius: var(--ui-radius);
+    --radius-lg: var(--ui-radius-panel);
+    --control-height: 32px;
+    --control-height-compact: 28px;
+    --shadow-sm: var(--ui-shadow-control);
+    --shadow-control: var(--ui-shadow-control);
+    --shadow-md: var(--ui-shadow-popover);
+    --shadow: var(--ui-shadow-dialog);
+    --shadow-lg: var(--ui-shadow-dialog);
+    --shadow-header: none;
+    --shadow-inspector: none;
+    font-family: var(--ui-font);
+    font-size: 13px;
+    font-weight: 400;
+    line-height: 1.45;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+}
+/* Keep the target still while its fill or glyph acknowledges a press. */
+:is(.editor-shell, .workspace-shell) :is(button, summary, input, select, textarea) {
+    font-family: var(--ui-font);
+    transition: background-color var(--ui-fast) ease, border-color var(--ui-fast) ease,
+        color var(--ui-fast) ease, box-shadow var(--ui-fast) ease;
+    -webkit-tap-highlight-color: transparent;
+}
+.editor-shell :is(button, summary), .workspace-shell button { touch-action: manipulation; }
+:is(.editor-shell, .workspace-shell) :is(button:not(:disabled), summary):active { transition-duration: var(--ui-press); }
+.editor-shell :is(.workbench-tool-list, .viewport-tool-group) button svg { transition: scale var(--ui-fast) var(--ui-ease); }
+.editor-shell :is(.workbench-tool-list, .viewport-tool-group) button:active:not(:disabled) svg { scale: .91; transition-duration: var(--ui-press); }
+:is(.editor-shell, .workspace-shell) :is(button, input, select, textarea, summary, [tabindex]):focus-visible {
+    outline: 2px solid var(--ui-ring);
+    outline-offset: 2px;
+}
+:is(.editor-shell, .workspace-shell) :is(button, input, select, textarea):disabled {
+    cursor: default;
+    opacity: .42;
+    box-shadow: none;
+}
+body.editor-shell :is(.btn, .btn-block, .btn-stack-row button, .create-atom-actions button),
+body.editor-shell #inspector button:not([role="tab"]):not(.atom-colormap-option):not(.atom-colormap-editor-stop) {
+    min-height: 30px;
+    border-radius: var(--ui-radius);
+    font-size: 13px;
+    font-weight: 500;
+    letter-spacing: 0;
+    text-transform: none;
+    box-shadow: none;
+    transform: none;
+}
+body.editor-shell :is(.btn, .btn-block, .btn-stack-row button):not(.primary):not(.danger) {
+    background: var(--ui-elevated);
+    border-color: var(--ui-border);
+    color: var(--ui-ink);
+    box-shadow: var(--ui-shadow-control);
+}
+body.editor-shell :is(.btn, .btn-block, .btn-stack-row button):hover:not(:disabled) {
+    background: var(--ui-hover);
+    border-color: var(--ui-border);
+    color: var(--ui-ink);
+}
+body.editor-shell :is(.btn, .btn-block, .btn-stack-row button):active:not(:disabled) {
+    background: var(--ui-pressed);
+    box-shadow: inset 0 1px 2px rgb(0 0 0 / .08);
+    transform: none;
+}
+body.editor-shell :is(.btn.primary, .btn-block.primary, .btn-stack-row button.primary, .create-atom-actions button.primary, .add-atoms-session-actions button.primary) {
+    background: var(--ui-accent);
+    border-color: transparent;
+    color: var(--ui-on-accent);
+}
+body.editor-shell :is(.btn.primary, .btn-block.primary, .btn-stack-row button.primary):hover:not(:disabled) {
+    background: var(--ui-accent-hover);
+    color: var(--ui-on-accent);
+}
+body.editor-shell :is(.btn.primary, .btn-block.primary, .btn-stack-row button.primary, .create-atom-actions button.primary, .add-atoms-session-actions button.primary):active:not(:disabled) {
+    background: var(--ui-accent-pressed);
+    color: var(--ui-on-accent);
+    box-shadow: inset 0 1px 2px rgb(0 0 0 / .12);
+}
+body.editor-shell :is(.danger, .btn.danger, .btn-block.danger) { color: var(--ui-danger); }
+body.editor-shell :is(.btn.danger, .btn-block.danger):hover:not(:disabled) { background: var(--ui-danger-wash); }
+/* Fields keep native selection, steppers, validation and keyboard semantics. */
+body.editor-shell :is(#inspector, #modal-container, .lighting-widget) :is(input:where(:not([type="range"]):not([type="checkbox"]):not([type="radio"]):not([type="color"])), select, textarea) {
+    border: 1px solid var(--ui-border);
+    border-radius: var(--ui-radius);
+    background-color: var(--ui-field);
+    color: var(--ui-ink);
+    font: 400 13px/1.4 var(--ui-font);
+    box-shadow: inset 0 1px 1px rgb(0 0 0 / .025);
+    min-width: 0;
+    max-width: 100%;
+}
+body.editor-shell :is(#inspector, #modal-container) :is(input:where(:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"])), select) {
+    min-height: 32px;
+    height: 32px;
+    padding: 5px 8px;
+}
+/* Keep the value and the disclosure glyph in separate areas, including compact
+   table cells. :where() above prevents input exclusions from raising select
+   specificity and silently overriding this space. The popup remains native. */
+body.editor-shell :is(#inspector, #modal-container, #top-bar, #command-bar, .lighting-widget) select:where(:not([multiple]):not([size]), :not([multiple])[size="1"]):not([aria-hidden="true"]),
+body.editor-shell #inspector #appearance-table select {
+    appearance: var(--ui-select-appearance, none);
+    -webkit-appearance: var(--ui-select-appearance, none);
+    padding-inline-end: 28px;
+    background-image: var(--ui-select-arrow);
+    background-repeat: no-repeat;
+    background-size: 10px 6px;
+    background-position: right 10px center;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+body.editor-shell #inspector .atom-colormap-native-select {
+    width: 1px; height: 1px; min-height: 0; min-width: 0; padding: 0; border: 0;
+}
+/* A wrapping disclosure title and its chevron are separate grid items. Avoid
+   browser markers outside the row and absolutely positioned floating glyphs. */
+body.editor-shell #inspector details:not(.panel-section) > summary {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 10px;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 2px;
+    list-style: none;
+    overflow-wrap: anywhere;
+    cursor: pointer;
+}
+body.editor-shell #inspector details:not(.panel-section) > summary::-webkit-details-marker { display: none; }
+body.editor-shell #inspector details:not(.panel-section) > summary::marker { content: ""; }
+body.editor-shell #inspector details:not(.panel-section) > summary::after {
+    content: "";
+    position: static;
+    width: 6px; height: 6px;
+    justify-self: center;
+    border: solid var(--ui-secondary);
+    border-width: 0 1.5px 1.5px 0;
+    transform: rotate(-45deg);
+}
+body.editor-shell #inspector details:not(.panel-section) > summary::after { transition: transform var(--ui-enter) var(--ui-ease); }
+body.editor-shell #inspector details[open]:not(.panel-section) > summary::after { transform: translateY(-2px) rotate(45deg); }
+body.editor-shell :is(#inspector, #modal-container) :is(input, select, textarea):hover:not(:disabled) { border-color: var(--ui-secondary); }
+body.editor-shell :is(#inspector, #modal-container) :is(input, select, textarea):focus { outline: none; border-color: var(--ui-ring); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ui-ring) 22%, transparent); }
+body.editor-shell :is(#inspector, #modal-container) :is(input, textarea):user-invalid { border-color: var(--ui-danger); }
+body.editor-shell :is(#inspector, #modal-container) input[type="number"] { font-variant-numeric: tabular-nums; }
+body.editor-shell :is(#inspector, #modal-container) input::placeholder { color: var(--ui-secondary); opacity: .85; }
+body.editor-shell :is(#inspector, #modal-container) .unit-input { border-radius: var(--ui-radius); background: var(--ui-field); border-color: var(--ui-border); }
+body.editor-shell :is(#inspector, #modal-container) .unit-input > input { border: 0; box-shadow: none; background: transparent; height: 30px; min-height: 30px; }
+body.editor-shell :is(#inspector, #modal-container) .unit-input:focus-within { outline: none; border-color: var(--ui-ring); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ui-ring) 22%, transparent); }
+body.editor-shell :is(#inspector, #modal-container) input[type="checkbox"],
+body.editor-shell .objects-row input[type="checkbox"] {
+    appearance: auto; -webkit-appearance: auto; accent-color: var(--ui-accent);
+    width: 15px; min-width: 15px; height: 15px; min-height: 15px; margin: 0;
+    border-radius: 4px; box-shadow: none; cursor: pointer;
+}
+body.editor-shell #inspector input[type="checkbox"]::after { display: none; }
+body.editor-shell :is(#inspector, #modal-container) input[type="radio"] { accent-color: var(--ui-accent); }
+body.editor-shell input[type="color"] { padding: 3px; background: var(--ui-field); border: 1px solid var(--ui-border); border-radius: 6px; cursor: pointer; }
+body.editor-shell input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
+body.editor-shell input[type="color"]::-webkit-color-swatch { border: 0; border-radius: 3px; }
+/* A full-height range hit area surrounds a precise, filled 3 px track. */
+:is(body.editor-shell :is(#inspector, #command-bar, #modal-container, #app-viewport), body.standalone-shell) input[type="range"], .workspace-shell input[type="range"] {
+    appearance: none; -webkit-appearance: none; height: 28px; min-height: 28px;
+    padding: 0; margin: 0; border: 0; border-radius: 0; box-shadow: none;
+    background: transparent; cursor: pointer; accent-color: var(--ui-accent);
+}
+:is(body.editor-shell :is(#inspector, #command-bar, #modal-container, #app-viewport), body.standalone-shell) input[type="range"]::-webkit-slider-runnable-track {
+    height: 3px; border-radius: 3px;
+    background: linear-gradient(to right, var(--ui-accent) var(--range-fill, 0%), var(--ui-track) var(--range-fill, 0%));
+}
+:is(body.editor-shell :is(#inspector, #command-bar, #modal-container, #app-viewport), body.standalone-shell) input[type="range"]::-webkit-slider-thumb {
+    appearance: none; -webkit-appearance: none; width: 14px; height: 14px;
+    margin-top: -5.5px; border: 1px solid var(--ui-border); border-radius: 50%;
+    background: var(--ui-thumb); box-shadow: 0 1px 3px rgb(0 0 0 / .18);
+    transition: box-shadow var(--ui-fast) ease, border-color var(--ui-fast) ease;
+}
+:is(body.editor-shell :is(#inspector, #command-bar, #modal-container, #app-viewport), body.standalone-shell) input[type="range"]:is(:hover,:focus-visible)::-webkit-slider-thumb { border-color: var(--ui-accent); box-shadow: 0 0 0 4px color-mix(in srgb, var(--ui-accent) 13%, transparent), 0 1px 3px rgb(0 0 0 / .15); }
+:is(body.editor-shell :is(#inspector, #command-bar, #modal-container, #app-viewport), body.standalone-shell) input[type="range"]:active::-webkit-slider-thumb { background: var(--ui-accent); border-color: var(--ui-accent); }
+:is(body.editor-shell :is(#inspector, #command-bar, #modal-container, #app-viewport), body.standalone-shell) input[type="range"]::-moz-range-track { height: 3px; border-radius: 3px; background: var(--ui-track); }
+:is(body.editor-shell :is(#inspector, #command-bar, #modal-container, #app-viewport), body.standalone-shell) input[type="range"]::-moz-range-progress { height: 3px; border-radius: 3px; background: var(--ui-accent); }
+:is(body.editor-shell :is(#inspector, #command-bar, #modal-container, #app-viewport), body.standalone-shell) input[type="range"]::-moz-range-thumb { width: 13px; height: 13px; border: 1px solid var(--ui-border); border-radius: 50%; background: var(--ui-thumb); box-shadow: 0 1px 3px rgb(0 0 0 / .18); }
+body.editor-shell #inspector input[type="range"]:focus { box-shadow: none; }
+/* Application bar: modest branding and ordinary, discoverable commands. */
+body.editor-shell #top-bar { padding-inline: 16px; gap: 12px; background: var(--ui-canvas); box-shadow: none; }
+body.editor-shell #top-bar .logo { gap: 8px; padding-right: 6px; }
+body.editor-shell #top-bar .logo .version { display: none; }
+.interface-wordmark { color: var(--ui-ink); font: 600 18px/1 var(--ui-font); letter-spacing: -.8px; white-space: nowrap; }
+.interface-wordmark span { color: var(--ui-secondary); }
+body.editor-shell .editor-menu-bar { gap: 1px; }
+body.editor-shell .editor-menu-bar summary { padding: 6px 8px; font-size: 12px; font-weight: 400; border-radius: 6px; color: var(--ui-secondary); }
+body.editor-shell .editor-menu-bar summary:is(:hover,:focus-visible), body.editor-shell .editor-menu-bar details[open] summary { color: var(--ui-ink); background: var(--ui-hover); }
+body.editor-shell .runtime-mode-switch { height: 29px; padding: 2px; gap: 1px; border: 0; border-radius: 7px; background: var(--ui-hover); }
+body.editor-shell .runtime-mode-switch button { height: 25px; min-width: 45px; padding: 0 10px; font-size: 12px; font-weight: 500; text-transform: none; border-radius: 5px; }
+body.editor-shell .runtime-mode-switch button[aria-pressed="true"] { background: var(--ui-elevated); color: var(--ui-ink); box-shadow: var(--ui-shadow-control); }
+body.editor-shell #editor-search-toggle { width: 30px; height: 30px; color: var(--ui-secondary); border-radius: 7px; }
+body.editor-shell #editor-search-toggle:hover { background: var(--ui-hover); color: var(--ui-ink); }
+body.editor-shell .editor-document-name { font-size: 12px; color: var(--ui-secondary); }
+body.editor-shell #top-bar .status-group { gap: 10px; }
+body.editor-shell #top-bar .status-item { height: auto; min-width: 0; display: flex; align-items: baseline; gap: 6px; padding: 0 2px; border: 0; border-radius: 0; background: transparent; }
+body.editor-shell #top-bar .status-item .label { text-transform: none; font: 400 11px var(--ui-font); color: var(--ui-secondary); }
+body.editor-shell #top-bar .status-item .value { max-width: 150px; color: var(--ui-secondary); font: 400 11px var(--ui-font); }
+body.editor-shell .editor-quick-actions { gap: 6px; }
+body.editor-shell .editor-quick-actions button { height: 29px; min-height: 29px; padding: 0 12px; border-radius: 7px; font: 500 12px var(--ui-font); background: var(--ui-elevated); border: 1px solid var(--ui-border); color: var(--ui-ink); }
+body.editor-shell #editor-render { background: var(--ui-accent); color: var(--ui-on-accent); border-color: transparent; }
+body.editor-shell #editor-render:hover { background: var(--ui-accent-hover); }
+body.editor-shell #editor-save:hover { background: var(--ui-hover); }
+body.editor-shell #editor-render:active { background: var(--ui-accent-pressed); box-shadow: inset 0 1px 2px rgb(0 0 0 / .12); }
+body.editor-shell #editor-save:active { background: var(--ui-pressed); box-shadow: inset 0 1px 2px rgb(0 0 0 / .08); }
+/* Inspector hierarchy: navigation, tool title, then quiet groups of values. */
+body.editor-shell #inspector { background: var(--ui-surface); box-shadow: -1px 0 0 var(--ui-line); border-color: var(--ui-line); }
+#inspector-pane { display: flex; flex: 1 1 auto; flex-direction: column; min-width: 0; min-height: 0; }
+body[data-workbench="build"] { --ui-workbench-index: 1; }
+body[data-workbench="analyze"] { --ui-workbench-index: 2; }
+body[data-workbench="render"] { --ui-workbench-index: 3; }
+.workbench-tabs {
+    --ui-tab-pad: 12px;
+    position: relative; isolation: isolate; flex-basis: 46px; height: 46px; margin: 0;
+    padding: 8px var(--ui-tab-pad); gap: 0; border: 0; background: var(--ui-surface);
+}
+.workbench-tabs::before {
+    content: ""; position: absolute; z-index: -1; pointer-events: none;
+    inset: 8px auto 8px calc(var(--ui-tab-pad) + 1px);
+    width: calc((100% - 2 * var(--ui-tab-pad)) / 4 - 2px);
+    translate: calc(var(--ui-workbench-index, 0) * (100% + 2px)) 0;
+    border-radius: 6px; background: var(--ui-elevated); box-shadow: var(--ui-shadow-control);
+    transition: translate var(--ui-reveal) var(--ui-ease);
+}
+.workbench-tabs button { min-height: 30px; border: 0; border-radius: 6px; font: 500 12px var(--ui-font); color: var(--ui-secondary); }
+.workbench-tabs button[aria-selected="true"] { border: 0; color: var(--ui-ink); background: transparent; font-weight: 600; }
+.workbench-tabs button[aria-selected="false"]:hover { color: var(--ui-ink); background: transparent; }
+.workbench-tabs button:active { color: var(--ui-accent); }
+.workbench-tools { padding: 0 14px 9px; border-bottom: 1px solid var(--ui-line); }
+.workbench-tool-list { display: flex; flex-wrap: wrap; gap: 3px; }
+.workbench-tool-list button { flex: 1 0 33px; width: 33px; max-width: 42px; height: 32px; min-height: 32px; padding: 6px; border: 0; border-radius: 6px; color: var(--ui-secondary); }
+.workbench-tool-list button::after { display: none !important; }
+.workbench-tool-list button:hover { background: var(--ui-hover); color: var(--ui-ink); }
+.workbench-tool-list button[aria-selected="true"] { background: var(--ui-accent-wash); color: var(--ui-accent); }
+.editor-icon { width: 19px; height: 19px; flex-basis: 19px; stroke-width: 1.6; }
+body.editor-shell #inspector .inspector-head { flex-basis: auto; min-height: 54px; padding: 15px 17px 10px; border-bottom: 0; background: transparent; align-items: flex-start; }
+body.editor-shell #inspector-context { font: 600 18px/1.25 var(--ui-font); letter-spacing: -.35px; }
+.inspector-title-group { min-width: 0; display: grid; gap: 5px; }
+.inspector-description { margin: 0; color: var(--ui-secondary); font: 400 12px/1.45 var(--ui-font); max-width: 45ch; }
+body.editor-shell #inspector-content { padding: 5px 17px 24px; scrollbar-width: thin; scrollbar-color: var(--ui-border) transparent; }
+body.editor-shell #inspector-content > .panel-section.editor-route-current { background: transparent; border: 0; box-shadow: none; }
+body.editor-shell #inspector-content .panel-section.editor-route-current > .panel-subhead:first-of-type { margin-top: 0; padding-top: 4px; }
+body.editor-shell #inspector :is(.panel-subhead, .appearance-section-heading, .settings-group > .appearance-section-heading) { padding: 12px 0 8px; margin: 8px 0 10px; border: 0; background: transparent; color: var(--ui-ink); font: 600 12px/1.4 var(--ui-font); text-transform: none; letter-spacing: 0; }
+body.editor-shell #inspector :is(.settings-group, .export-group, .constraint-settings, .cell-matrix-editor) { background: transparent; border-color: var(--ui-line); border-radius: 0; box-shadow: none; }
+body.editor-shell #inspector .settings-group { margin: 0 0 18px; padding: 0; }
+body.editor-shell #inspector .settings-group:has(> #selected-appearance.hidden) { display: none; }
+body.editor-shell #inspector .range-row { margin: 8px 0 10px; }
+body.editor-shell #inspector :is(.create-atom-tabs, .volume-tool-tabs) { padding: 3px; gap: 2px; border: 0; border-radius: 8px; background: var(--ui-hover); }
+body.editor-shell #inspector :is(.create-atom-tabs, .volume-tool-tabs) button { min-height: 29px; border: 0; border-radius: 6px; background: transparent; color: var(--ui-secondary); font: 500 12px var(--ui-font); }
+body.editor-shell #inspector :is(.create-atom-tabs, .volume-tool-tabs) button[aria-selected="true"] { background: var(--ui-elevated); color: var(--ui-ink); box-shadow: var(--ui-shadow-control); }
+body.editor-shell #inspector :is(.create-atom-tabs, .volume-tool-tabs) button:hover:not([aria-selected="true"]) { background: var(--ui-pressed); color: var(--ui-ink); }
+body.editor-shell #inspector :is(.panel-note, .atom-type-fields label, .atom-type-toggle) { font: 400 12px/1.5 var(--ui-font); color: var(--ui-secondary); }
+body.editor-shell #inspector :is(.prop-row, .field-row) { min-height: 34px; gap: 10px; }
+body.editor-shell #inspector :is(.prop-row, .field-row, .range-head, .check-row) > label { font-size: 12px; font-weight: 400; }
+body.editor-shell #inspector .range-head output { font: 500 12px/1.4 var(--ui-font); font-variant-numeric: tabular-nums; color: var(--ui-secondary); }
+body.editor-shell #inspector .range-with-number { grid-template-columns: minmax(60px,1fr) minmax(72px,86px); align-items: center; gap: 14px; }
+body.editor-shell #inspector :is(.atom-colorscale-card, .atom-radius-mapping-card, .selected-appearance) { padding: 12px; margin: 12px 0; background: var(--ui-canvas); border: 1px solid var(--ui-line); border-radius: 9px; box-shadow: none; }
+body.editor-shell #inspector :is(.atom-colorscale-title-row, .selected-appearance-head) { border-color: var(--ui-line); padding-bottom: 10px; margin-bottom: 10px; }
+body.editor-shell #inspector :is(.atom-colorscale-title-row strong, .mapping-subhead) { font-size: 12px; font-weight: 600; }
+body.editor-shell #inspector .matrix-grid { padding: 10px; background: var(--ui-canvas); border-color: var(--ui-line); border-radius: 9px; }
+body.editor-shell #inspector .renderer-properties > .export-group { margin: 8px 0; padding: 10px 0; border: 0; border-bottom: 1px solid var(--ui-line); }
+body.editor-shell[data-current-editor-route="export"] #render-shared-settings > summary { display: none; }
+body.editor-shell #inspector #render-shared-settings { margin: 10px 0 0; border-top: 1px solid var(--ui-line); }
+body.editor-shell[data-current-editor-route="export"] #inspector #render-shared-settings { border-top: 0; margin: 0; }
+body.editor-shell #inspector .export-image-actions { grid-template-columns: minmax(0, 1fr); }
+body.editor-shell #inspector .export-media .panel-subhead,
+body.editor-shell #inspector .export-media > .panel-note,
+body.editor-shell #inspector .renderer-format-config > .panel-subhead,
+body.editor-shell #inspector-content [data-panel="export"] .export-action-header { display: none; }
+body.editor-shell #inspector .export-media { padding-block: 0; border: 0; margin: 0 0 12px; }
+body.editor-shell #inspector .renderer-format-config { padding: 0; border: 0; margin: 0 0 12px; }
+body.editor-shell #inspector .renderer-format-config > .panel-note { margin-inline: 0; }
+body.editor-shell #inspector .export-media .primary { width: 100%; }
+body.editor-shell:not([data-current-editor-route="build-match"]) .commensurate-start-note,
+body.editor-shell .commensurate-start-note:has(+ .commensurate-master-row input:checked) { display: none; }
+body.editor-shell #btn-delete-selection:disabled { color: var(--ui-secondary); background: transparent; }
+body.editor-shell #inspector :is(.poly-actions, .repulsion-apply-all-row, .repulsion-pair-heading) button {
+    background: var(--ui-field); color: var(--ui-ink); border: 1px solid var(--ui-border);
+}
+body.editor-shell #inspector :is(.poly-actions, .repulsion-apply-all-row, .repulsion-pair-heading) button:active:not(:disabled) { background: var(--ui-pressed); }
+body.editor-shell #inspector .renderer-properties > .export-group > .panel-subhead { margin: 0 0 10px; padding: 0; background: transparent; border: 0; font: 600 12px var(--ui-font); }
+body.editor-shell #inspector .renderer-properties > .export-group > :not(.panel-subhead) { margin-left: 0; margin-right: 0; }
+body.editor-shell #inspector :is(.pairwise-bond-panel, .repulsion-pair-panel, #appearance-table) { border-color: var(--ui-line); border-radius: 8px; background: var(--ui-field); }
+body.editor-shell #inspector :is(.mini-table-head, .appearance-table-head) { color: var(--ui-secondary); background: var(--ui-canvas); font-size: 11px; font-weight: 500; }
+body.editor-shell #appearance-table .appearance-row { min-height: 41px; border-color: var(--ui-line); }
+body.editor-shell #appearance-table .appearance-table-head { min-height: 30px; background: var(--ui-canvas); }
+body.editor-shell #appearance-table .appearance-table-head > :first-child { background: var(--ui-canvas); }
+body.editor-shell #inspector #appearance-table :is(input:not([type="checkbox"]),select) { height: 27px; min-height: 27px; border-radius: 5px; }
+/* Contextual viewport tools. Flat, original line icons replace decorative 3D arrows. */
+body.editor-shell .viewport-tools { top: 56px; left: 12px; width: 46px; min-width: 46px; max-width: 46px; padding: 5px; gap: 0; justify-content: flex-start; border: 1px solid var(--ui-line); border-radius: 9px; background: var(--ui-surface); box-shadow: var(--ui-shadow-control); scrollbar-gutter: auto; }
+body.editor-shell .viewport-tool-group { gap: 3px; padding: 5px 0; }
+body.editor-shell .viewport-tool-group + .viewport-tool-group { border-color: var(--ui-line); }
+body.editor-shell .viewport-tools button { width: 34px; height: 34px; min-height: 34px; border-radius: 7px; color: var(--ui-secondary); }
+body.editor-shell .viewport-tools button:hover:not(:disabled) { background: var(--ui-hover); color: var(--ui-ink); }
+body.editor-shell .viewport-tools button[aria-pressed="true"] { color: var(--ui-accent); background: var(--ui-accent-wash); }
+body.editor-shell .viewport-tools button.active::before { display: none; }
+body.editor-shell .viewport-tools button:active:not(:disabled) { background: var(--ui-pressed); }
+body.editor-shell :is(.viewport-object-access button, #btn-fit-view, .camera-presets, .camera-view-toggle, #camera-rotation-toggle, .view-toolbar, #btn-grid-toggle, #btn-lighting-toggle) { border: 1px solid var(--ui-line); border-radius: 8px; background: var(--ui-surface); color: var(--ui-ink); box-shadow: var(--ui-shadow-control); }
+body.editor-shell .viewport-object-access { top: 14px; left: 14px; gap: 10px; }
+body.editor-shell .viewport-object-access button, body.editor-shell #btn-fit-view { min-height: 30px; padding: 5px 10px; font-size: 12px; }
+body.editor-shell #viewport-scene-caption { color: var(--ui-secondary); padding: 3px 6px; border-radius: 5px; background: var(--ui-surface); }
+body.editor-shell .camera-presets { padding: 3px; gap: 1px; }
+body.editor-shell .camera-presets button { min-height: 26px; padding: 0 9px; border-radius: 5px; font: 500 11px var(--ui-font); }
+body.editor-shell .camera-presets button:hover { background: var(--ui-hover); }
+body.editor-shell .viewport-camera-tools { gap: 5px; }
+body.editor-shell .view-toolbar { padding: 3px; gap: 2px; }
+body.editor-shell .camera-rotation-tools.compact #camera-more-content { overflow-x: auto; }
+body.editor-shell .view-toolbar button { width: 26px; height: 26px; min-height: 26px; padding: 4px; background: transparent; color: var(--ui-secondary); border: 0; border-radius: 5px; filter: none; }
+body.editor-shell .view-toolbar button:hover { background: var(--ui-hover); color: var(--ui-ink); }
+body.editor-shell .view-toolbar .interface-camera-icon { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; filter: none; }
+body.editor-shell #view-rotate-step { height: 25px; min-height: 25px; background: var(--ui-field); border: 1px solid var(--ui-line); color: var(--ui-ink); border-radius: 5px; font: 12px var(--ui-font); }
+body.editor-shell .viewport-transform-context { border-radius: 9px; background: var(--ui-surface); border-color: var(--ui-line); box-shadow: var(--ui-shadow-popover); }
+body.editor-shell #inspector #btn-inspector-collapse { width: 18px; height: 38px; border: 1px solid var(--ui-line); border-right: 0; border-radius: 7px 0 0 7px; background: var(--ui-surface); color: var(--ui-secondary); opacity: 1; transform: translateY(-50%); }
+body.editor-shell #inspector-resizer { width: 12px; left: -6px; cursor: col-resize; touch-action: none; }
+body.editor-shell #inspector-resizer::before { width: 2px; left: 5px; background: transparent; transition: background-color var(--ui-fast) ease; }
+body.editor-shell #inspector-resizer:is(:hover,:focus-visible)::before, body.resizing-inspector #inspector-resizer::before { background: var(--ui-accent); }
+body.editor-shell .analysis-drawer-resizer { touch-action: none; }
+body.editor-shell .analysis-drawer-resizer:is(:hover,:focus-visible) { background: var(--ui-accent-wash); }
+body.ui-resizing, body.ui-resizing * { user-select: none !important; }
+/* The panel and its adjacent tools share a reveal distance. Resizing changes
+   the width directly, so the separator follows the pointer at every frame. */
+@property --ui-inspector-open {
+    syntax: "<number>";
+    inherits: true;
+    initial-value: 1;
+}
+@media (min-width: 761px) {
+    body.editor-shell {
+        --ui-inspector-open: 1;
+        --ui-inspector-distance: calc(var(--ui-inspector-open) * var(--ui-inspector-width));
+        overflow: clip;
+        transition: --ui-inspector-open var(--ui-reveal) var(--ui-ease);
+    }
+    body.editor-shell.inspector-collapsed { --ui-inspector-open: 0; }
+    body.editor-shell.inspector-collapsed #inspector { width: var(--ui-inspector-width); border-left: 1px solid var(--ui-line); }
+    body.editor-shell.inspector-collapsed #inspector-pane :is(.inspector-title, .inspector-content) { display: block; }
+    body.editor-shell #inspector {
+        translate: calc(var(--ui-inspector-width) - var(--ui-inspector-distance)) 0;
+    }
+    body.editor-shell #app-viewport :is(.viewport-camera-tools, .orientation-widget) {
+        right: calc(var(--ui-inspector-distance) + 18px);
+    }
+    body.editor-shell #app-viewport #btn-fit-view {
+        right: calc(var(--ui-inspector-distance) + 14px);
+    }
+}
+@media (prefers-reduced-motion: reduce) {
+    body.editor-shell { transition: none; }
+}
+/* Popovers and dialogs share one surface and return to their origin. */
+body.editor-shell :is(.editor-menu-popover, .objects-drawer, .viewport-more-menu, .atom-colormap-menu, .lighting-card) { border: 1px solid var(--ui-border); border-radius: 10px; background: var(--ui-elevated); color: var(--ui-ink); box-shadow: var(--ui-shadow-popover); }
+body.editor-shell .editor-menu-popover { padding: 5px; min-width: 230px; transform-origin: top left; animation: ui-popover-in var(--ui-enter) var(--ui-ease); }
+@supports (interactivity: inert) and selector(details::details-content) {
+    .editor-menu-bar details::details-content {
+        transition: content-visibility var(--ui-exit) allow-discrete;
+    }
+    .editor-menu-bar details[open]::details-content { content-visibility: visible; transition: none; }
+    body.editor-shell .editor-menu-popover {
+        animation: none; opacity: 1; transform: none;
+        transition: opacity var(--ui-enter) var(--ui-ease), transform var(--ui-enter) var(--ui-ease);
+    }
+    body.editor-shell .editor-menu-bar details:not([open]) .editor-menu-popover {
+        opacity: 0; transform: translateY(-3px); transition-duration: var(--ui-exit);
+        interactivity: inert; pointer-events: none;
+    }
+}
+body.editor-shell .editor-menu-popover button { min-height: 30px; padding: 6px 9px; border: 0; border-radius: 5px; font: 400 12px/1.4 var(--ui-font); }
+body.editor-shell .editor-menu-popover button:is(:hover,:focus-visible) { background: var(--ui-accent-wash); color: var(--ui-accent); }
+body.editor-shell .editor-menu-popover kbd { font: 11px var(--ui-font); }
+body.editor-shell .objects-drawer { top: 52px; left: 14px; padding: 4px; }
+body.editor-shell .objects-drawer-head { padding: 8px; border-color: var(--ui-line); }
+body.editor-shell .objects-row { border-radius: 6px; }
+body.editor-shell .objects-row:hover { background: var(--ui-hover); }
+body.editor-shell .objects-row button { border-radius: 6px; font-size: 12px; }
+body.editor-shell .objects-row button:hover { background: transparent; }
+body.editor-shell .atom-colormap-menu-search {
+    padding: 5px 8px; border: 1px solid var(--ui-border); border-radius: 6px;
+    background: var(--ui-field); color: var(--ui-ink); font: 13px var(--ui-font);
+}
+body.editor-shell .atom-colormap-menu-search:focus {
+    outline: none; border-color: var(--ui-ring);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--ui-ring) 23%, transparent);
+}
+body.editor-shell .lighting-card-head strong { font: 600 13px var(--ui-font); }
+body.editor-shell .lighting-card-head span { color: var(--ui-secondary); font: 400 11px var(--ui-font); text-transform: none; }
+body.editor-shell.editor-search-open #editor-navigator { top: calc(var(--header-height) + 8px); left: 50%; translate: -50% 0; width: min(460px, calc(100vw - 24px)); max-height: min(70dvh,620px); border-radius: 12px; border-color: var(--ui-border); background: var(--ui-elevated); box-shadow: var(--ui-shadow-dialog); animation: ui-popover-in var(--ui-enter) var(--ui-ease); }
+.editor-search-help { position: sticky; bottom: 0; display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 6px 16px; padding: 9px 12px; margin-top: 4px; border-top: 1px solid var(--ui-line); background: var(--ui-elevated); color: var(--ui-secondary); font: 11px/1.5 var(--ui-font); }
+.editor-search-help span { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.editor-search-help kbd { font: inherit; color: var(--ui-ink); }
+/* A mounted inspector already supplies the task title. Keep the insertion
+   session badge/exit control when active, without a second inactive title. */
+body.editor-shell #inspector-content .create-atom-head:has(#add-atoms-mode-badge.hidden) { display: none; }
+body.editor-shell .editor-navigator-search { padding: 14px; gap: 8px; font-size: 12px; }
+body.editor-shell .editor-navigator-search input { height: 36px; padding: 7px 10px; background: var(--ui-field); border-color: var(--ui-border); border-radius: 7px; }
+body.editor-shell.editor-search-open .editor-navigator-list { padding: 5px; }
+body.editor-shell.editor-search-open .editor-navigator-list button { min-height: 32px; padding: 7px 10px; border: 0; border-radius: 6px; color: var(--ui-ink); }
+body.editor-shell .editor-navigator-list button:is(:hover,:focus-visible,.active) { background: var(--ui-accent-wash); }
+body.editor-shell #modal-container { background: rgb(22 25 30 / .27); backdrop-filter: none; }
+body.editor-shell #modal-container .modal { background: var(--ui-surface); border: 1px solid var(--ui-border); border-radius: 12px; box-shadow: var(--ui-shadow-dialog); }
+body.editor-shell :is(.objects-drawer, .atom-colormap-menu, .lighting-card, #modal-container) {
+    opacity: 1;
+    transition: opacity var(--ui-enter) var(--ui-ease), display var(--ui-enter) allow-discrete;
+}
+body.editor-shell :is(.objects-drawer, .atom-colormap-menu, .lighting-card, #modal-container).hidden {
+    opacity: 0; pointer-events: none; transition-duration: var(--ui-exit);
+}
+body.editor-shell :is(.objects-drawer, .atom-colormap-menu, .lighting-card) {
+    transform: none;
+    transition-property: opacity, transform, display;
+    transition-behavior: normal, normal, allow-discrete;
+}
+body.editor-shell :is(.objects-drawer, .atom-colormap-menu, .lighting-card).hidden { transform: translateY(var(--ui-popover-shift, -3px)); }
+body.editor-shell #modal-container .modal { transform: none; transition: transform var(--ui-reveal) var(--ui-ease); }
+body.editor-shell #modal-container.hidden .modal { transform: translateY(4px) scale(.99); transition-duration: var(--ui-exit); }
+@starting-style {
+    body.editor-shell :is(.objects-drawer, .atom-colormap-menu, .lighting-card, #modal-container):not(.hidden) { opacity: 0; }
+    body.editor-shell :is(.objects-drawer, .atom-colormap-menu, .lighting-card):not(.hidden) { transform: translateY(var(--ui-popover-shift, -3px)); }
+    body.editor-shell #modal-container:not(.hidden) .modal { transform: translateY(4px) scale(.99); }
+}
+body.editor-shell #modal-content { padding: 24px; }
+body.editor-shell .modal h2 { font: 600 20px/1.3 var(--ui-font); letter-spacing: -.4px; }
+body.editor-shell .modal-actions { padding: 14px 20px; background: var(--ui-canvas); border-top: 1px solid var(--ui-line); box-shadow: none; gap: 8px; }
+body.editor-shell .modal-intro { color: var(--ui-secondary); font-size: 13px; }
+body.editor-shell #busy-overlay .busy-card {
+    width: min(330px, calc(100vw - 32px)); min-height: 0; padding: 15px 16px;
+    grid-template-columns: minmax(0, 1fr); grid-template-rows: auto 3px; gap: 10px;
+    border-radius: 10px; background: var(--ui-surface); border-color: var(--ui-line); box-shadow: var(--ui-shadow-popover);
+}
+body.editor-shell #busy-overlay.busy-compact { place-items: end start; padding: 0 16px 18px; background: transparent; backdrop-filter: none; }
+.image-export-result {
+    position: absolute; z-index: 330; left: 68px; bottom: 14px;
+    display: flex; align-items: center; gap: 9px; max-width: calc(100% - 90px); padding: 7px;
+    border: 1px solid var(--ui-line); border-radius: 9px; background: var(--ui-elevated); color: var(--ui-ink);
+    box-shadow: var(--ui-shadow-popover); animation: ui-result-in var(--ui-enter) var(--ui-ease);
+}
+.image-export-result[hidden] { display: none; }
+.image-export-result img { width: 52px; height: 38px; object-fit: contain; border-radius: 4px; background: var(--ui-canvas); }
+.image-export-caption { min-width: 0; display: grid; gap: 2px; font: 12px var(--ui-font); }
+.image-export-caption span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: var(--ui-secondary); }
+#image-export-copy { white-space: nowrap; font-size: 12px; }
+#image-export-dismiss { min-width: 26px; min-height: 30px; border: 0; border-radius: 5px; color: var(--ui-secondary); background: transparent; font-size: 18px; }
+#image-export-dismiss:active { background: var(--ui-pressed); }
+@media (max-width: 760px) {
+    .image-export-result { left: 10px; bottom: 68px; max-width: calc(100% - 20px); }
+}
+body.editor-shell .busy-copy strong { font-size: 15px; font-weight: 600; }
+body.editor-shell .busy-progress { height: 3px; border-radius: 3px; background: var(--ui-track); }
+body.editor-shell .busy-progress span { background: var(--ui-accent); }
+body.editor-shell .toast { background: var(--ui-elevated); border-color: var(--ui-line); color: var(--ui-ink); border-radius: 9px; box-shadow: var(--ui-shadow-popover); }
+body.file-drag-over::after {
+    content: ""; inset: 9px; border-radius: 10px; border-color: var(--ui-accent);
+    background: color-mix(in srgb, var(--ui-accent) 5%, transparent);
+}
+body.file-drag-over::before {
+    content: "Drop a structure or project to open";
+    position: fixed; z-index: 20001; bottom: 22px; left: 50%; translate: -50% 0;
+    width: max-content; max-width: calc(100% - 44px); padding: 8px 12px;
+    border: 1px solid var(--ui-line); border-radius: 8px; pointer-events: none;
+    background: var(--ui-elevated); color: var(--ui-ink); box-shadow: var(--ui-shadow-popover);
+    font: 500 13px var(--ui-font); animation: ui-result-in var(--ui-enter) var(--ui-ease);
+}
+/* Playback is a transport, not a second toolbar of high-emphasis buttons. */
+body.editor-shell #command-bar { padding-inline: 12px; background: var(--ui-canvas); border-color: var(--ui-line); }
+body.editor-shell #trajectory-panel { min-height: 58px; margin-inline: -12px; flex-basis: calc(100% + 24px); padding: 9px 16px; border-color: var(--ui-line); gap: 14px; }
+body.editor-shell .trajectory-strip button { border: 0; background: transparent; color: var(--ui-ink); box-shadow: none; border-radius: 6px; transform: none; font: 500 17px var(--ui-font); }
+body.editor-shell .trajectory-strip button:hover:not(:disabled) { background: var(--ui-hover); }
+body.editor-shell .timeline-source-select { height: 30px; border-color: var(--ui-border); background-color: var(--ui-field); color: var(--ui-ink); border-radius: 7px; font: 400 12px var(--ui-font); }
+body.editor-shell :is(#frame-label,#secondary-frame-label) { font: 500 12px var(--ui-font); font-variant-numeric: tabular-nums; }
+body.editor-shell .timeline-fps { font-size: 11px; color: var(--ui-secondary); }
+body.editor-shell .timeline-fps input { height: 28px; border: 1px solid var(--ui-border); border-radius: 6px; background: var(--ui-field); color: var(--ui-ink); font: 12px var(--ui-font); }
+body.editor-shell .viewport-status-row { height: 31px; gap: 8px; }
+body.editor-shell .viewport-status-row :is(#hover-readout,#coord-readout,#selection-measure-readout) { border: 0; background: transparent; color: var(--ui-secondary); box-shadow: none; font: 11px/1.4 var(--ui-mono); }
+body.editor-shell #scene-status-readout { font: 11px var(--ui-font); color: var(--ui-secondary); }
+/* Workspace tabs and direct/notebook tabs use the same visual contract. */
+body.workspace-shell .document-bar, body.editor-shell #direct-document-bar { height: 40px; padding: 4px 10px; gap: 5px; align-items: center; background: var(--ui-canvas); border-color: var(--ui-line); box-shadow: none; }
+body.workspace-shell { --tab-height: 40px; }
+body.workspace-shell .document-tabs { height: 32px; gap: 4px; }
+.workspace-shell .document-tab, body.editor-shell .direct-document-tab { height: 32px; border: 0; border-radius: 7px; background: transparent; color: var(--ui-secondary); transition: background-color var(--ui-fast) ease, color var(--ui-fast) ease; }
+.workspace-shell .document-tab:hover, body.editor-shell .direct-document-tab:hover { background: var(--ui-hover); color: var(--ui-ink); }
+.workspace-shell .document-tab.active, body.editor-shell .direct-document-tab.active { background: var(--ui-elevated); color: var(--ui-ink); border: 0; box-shadow: var(--ui-shadow-control); }
+.workspace-shell .document-tab::after { display: none; }
+.workspace-shell .document-symbol, body.editor-shell .direct-document-indicator { box-shadow: none; width: 6px; height: 6px; background: transparent; border: 1px solid var(--ui-border); }
+.workspace-shell .document-tab.active .document-symbol, body.editor-shell .direct-document-tab.active .direct-document-indicator { border-color: var(--ui-accent); background: var(--ui-accent); }
+.workspace-shell .document-tab.dirty .document-symbol, body.editor-shell .direct-document-tab.dirty .direct-document-indicator { border-color: var(--ui-warning); background: var(--ui-warning); }
+.workspace-shell .document-tab.saving .document-symbol, body.editor-shell .direct-document-tab.saving .direct-document-indicator { border-color: var(--ui-accent); background: transparent; }
+.workspace-shell .document-tab.error .document-symbol, body.editor-shell .direct-document-tab.error .direct-document-indicator { border-color: var(--ui-danger); background: var(--ui-danger); }
+.workspace-shell .document-title { font-size: 12px; font-weight: 500; }
+.workspace-shell .document-close, body.editor-shell .direct-document-close { height: 24px; width: 24px; flex-basis: 24px; align-self: center; margin-right: 4px; border-radius: 5px; }
+.workspace-shell .document-close:hover, body.editor-shell .direct-document-close:hover { color: var(--ui-ink); background: var(--ui-hover); }
+.workspace-shell .new-document { height: 28px; width: 28px; margin-inline: 3px; background: transparent; border: 0; border-radius: 6px; }
+.workspace-shell .new-document:hover { background: var(--ui-hover); color: var(--ui-ink); }
+.workspace-shell #workspace-fullscreen-editing { font-size: 11px; padding: 4px 8px; background: transparent; border-color: var(--ui-border); color: var(--ui-secondary); border-radius: 6px; }
+.workspace-shell .workspace-shortcut-status { max-width: 200px; font-size: 10px; }
+body.editor-shell.direct-workspace { margin-top: 40px; height: calc(100dvh - 40px); }
+body.editor-shell #direct-document-panes { inset-block-start: 40px; }
+/* Empty state typography belongs to the product, not the figure renderer. */
+body.editor-shell .empty-workspace { gap: 12px; }
+body.editor-shell .empty-workspace img { width: 130px; max-height: 70px; object-fit: contain; filter: none; }
+body.editor-shell .empty-workspace h1 { color: #303236; font: 600 25px/1.25 var(--ui-font); letter-spacing: -.6px; }
+body.editor-shell .empty-workspace > span { color: #66696d; font-size: 13px; }
+body.editor-shell .empty-workspace .btn.primary { background: #315fbe; color: #fff; border-color: transparent; box-shadow: 0 1px 2px rgb(0 0 0 / .08); }
+.interface-tooltip { position: fixed; z-index: 22000; max-width: min(280px,calc(100vw - 16px)); padding: 7px 9px; border: 1px solid var(--ui-border); border-radius: 7px; background: var(--ui-elevated); color: var(--ui-ink); box-shadow: var(--ui-shadow-popover); font: 12px/1.4 var(--ui-font); pointer-events: none; animation: ui-tooltip-in var(--ui-fast) ease-out; }
+.interface-tooltip[hidden] { display: none; }
+@keyframes ui-popover-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes ui-result-in { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: none; } }
+@keyframes ui-tooltip-in { from { opacity: 0; } to { opacity: 1; } }
+@media (max-width: 1050px) {
+    body.editor-shell #top-bar { gap: 7px; padding-inline: 10px; }
+    body.editor-shell .editor-menu-bar summary { padding-inline: 6px; }
+    .workspace-shell .workspace-shortcut-status { display: none; }
+}
+@media (max-width: 760px) {
+    body.editor-shell #inspector .inspector-head { padding-block: 12px 8px; min-height: 50px; }
+    body.editor-shell #inspector-content { padding-inline: 16px; }
+    .workbench-tabs { --ui-tab-pad: 10px; }
+    .workbench-tools { padding-inline: 10px; }
+    body.editor-shell .viewport-tools { top: auto; bottom: 8px; left: 10px; width: max-content; min-width: 0; max-width: calc(100% - 20px); max-height: 56px; flex-direction: row; overflow-x: auto; overflow-y: hidden; }
+    body.editor-shell .viewport-tool-group { flex-direction: row; padding: 0 3px; gap: 2px; }
+    body.editor-shell .viewport-tool-group + .viewport-tool-group { border-top: 0; border-left: 1px solid var(--ui-line); }
+    body.editor-shell .viewport-tools button { width: 40px; height: 40px; min-height: 40px; }
+    body.editor-shell #btn-fit-view { top: 10px; right: 10px; bottom: auto; }
+    body.editor-shell .viewport-object-access { max-width: calc(100% - 110px); }
+    body.editor-shell .viewport-object-access #btn-objects { flex: none; }
+    body.editor-shell #viewport-scene-caption { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    body.editor-shell .editor-menu-bar summary { font-size: 11px; padding-inline: 5px; }
+    body.editor-shell .interface-wordmark { font-size: 17px; }
+    body.editor-shell .viewport-object-access { left: 10px; top: 10px; }
+    body.editor-shell #trajectory-panel { padding-inline: 10px; gap: 8px; }
+    body.editor-shell #modal-content { padding: 18px; }
+    .workspace-shell #workspace-fullscreen-editing { max-width: 100px; line-height: 1.2; }
+}
+@media (max-width: 480px) {
+    body.editor-shell #top-bar { gap: 4px; padding-inline: 8px; }
+    body.editor-shell #top-bar .logo { padding-right: 4px; }
+    body.editor-shell #top-bar .editor-menu-bar details:nth-child(4) { display: none; }
+    body.editor-shell .viewport-tools { padding: 4px; }
+    body.editor-shell #modal-container { padding: 10px; }
+}
+@media (min-width: 540px) and (max-width: 760px) and (max-height: 480px) {
+    body.editor-shell, body.editor-shell.inspector-collapsed,
+    body.editor-shell:has(#analysis-drawer:not(.hidden)) {
+        grid-template-columns: minmax(0, 1fr) min(320px, 47%);
+        grid-template-rows: 49px minmax(0, 1fr) 0 auto;
+        grid-template-areas: "header header" "viewport inspector" "results results" "footer footer";
+    }
+    body.editor-shell #inspector, body.editor-shell.inspector-collapsed #inspector {
+        border-top: 0;
+        border-left: 1px solid var(--ui-line);
+    }
+    #inspector-pane { overflow: hidden; }
+    .workbench-tabs { height: 36px; flex-basis: 36px; padding-block: 3px; }
+    .workbench-tabs::before { inset-block: 3px; }
+    .workbench-tools { padding-bottom: 4px; }
+    .workbench-tool-list button { height: 28px; min-height: 28px; padding: 4px; }
+    body.editor-shell #inspector .inspector-head { min-height: 31px; padding-block: 6px 4px; }
+    .inspector-description { display: none; }
+    body.editor-shell #app-viewport .orientation-widget { top: 81px; width: 50px; height: 50px; }
+    body.editor-shell #trajectory-panel {
+        min-height: 42px; padding-block: 5px;
+        grid-template-columns: minmax(0, 280px) minmax(35px, 1fr) max-content;
+    }
+    .trajectory-strip .timeline-head {
+        grid-template-columns: minmax(94px, 1fr) repeat(3, 26px) minmax(41px, max-content);
+        gap: 3px;
+    }
+    body.editor-shell .trajectory-strip button { width: 26px; min-width: 26px; height: 28px; }
+    body.editor-shell :is(#frame-label, #secondary-frame-label) { min-width: 41px; }
+    body.editor-shell .timeline-fps { grid-template-columns: 22px 38px 25px 38px; gap: 4px; }
+    body.editor-shell .timeline-fps input { width: 38px; }
+    body.editor-shell .secondary-trajectory-row { grid-column: 1 / -1; }
+    body.editor-shell .viewport-status-row { height: 25px; }
+}
+@media (max-width: 760px) and (pointer: coarse) {
+    body.editor-shell .viewport-tools button { width: 44px; height: 44px; min-height: 44px; }
+}
+@media (prefers-reduced-motion: reduce) {
+    :is(.editor-shell, .workspace-shell) *, :is(.editor-shell, .workspace-shell) *::before, :is(.editor-shell, .workspace-shell) *::after {
+        animation-duration: .01ms !important; animation-iteration-count: 1 !important;
+        transition-duration: 0s !important; scroll-behavior: auto !important;
+    }
+}
+@media (forced-colors: active) {
+    :root { --ui-select-appearance: auto; --ui-select-arrow: none; }
+    :is(.editor-shell, .workspace-shell) :is(button, input, select, textarea) { forced-color-adjust: auto; }
+    .workbench-tabs button[aria-selected="true"], .workbench-tool-list button[aria-selected="true"] { outline: 2px solid Highlight; outline-offset: -2px; }
+    body.editor-shell .atom-colormap-menu-search:focus { outline: 2px solid Highlight; }
+}
+
+/* Offline HTML keeps its saved scientific background and frame. Only its
+   temporary controls use this material. The file has no external UI assets. */
+.standalone-shell .viewer-toolbar, .standalone-shell .timeline, .standalone-shell .metadata-popover {
+    padding: 6px; border: 1px solid var(--ui-border); border-radius: 10px;
+    background: var(--ui-surface); color: var(--ui-ink); box-shadow: var(--ui-shadow-popover);
+    backdrop-filter: none;
+}
+.standalone-shell .document-title { color: var(--ui-ink); font: 500 12px var(--ui-font); }
+.standalone-shell .view-only-badge { background: transparent; color: var(--ui-secondary); border: 0; font-weight: 400; font-size: 11px; }
+.standalone-shell :is(.icon-button, .text-button, .timeline button) { border: 0; border-radius: 6px; background: transparent; color: var(--ui-ink); font-family: var(--ui-font); transition: background-color var(--ui-fast) ease; }
+.standalone-shell :is(.icon-button, .text-button, .timeline button):hover:not(:disabled) { background: var(--ui-hover); }
+.standalone-shell :is(button, input):focus-visible { outline: 2px solid var(--ui-ring); outline-offset: 2px; }
+.standalone-shell input[type="range"] { accent-color: var(--ui-accent); }
+.standalone-shell .metadata-popover { padding: 16px; }
+.standalone-shell .metadata-popover { top: 72px; max-height: calc(100dvh - 88px); overflow: auto; animation: ui-popover-in var(--ui-enter) var(--ui-ease); }
+.standalone-shell .metadata-grid dt { color: var(--ui-secondary); }
+.standalone-shell .metadata-grid dd { color: var(--ui-ink); }
+.standalone-shell :is(.frame-label, .fps-label) { color: var(--ui-secondary); font: 12px var(--ui-font); font-variant-numeric: tabular-nums; }
+.standalone-shell .fps-label input { background: var(--ui-field); border-color: var(--ui-border); border-radius: 6px; color: var(--ui-ink); font: 12px var(--ui-font); }
+.standalone-shell #boot-error { background: var(--ui-surface); color: var(--ui-danger); border-color: var(--ui-danger); border-radius: 12px; box-shadow: var(--ui-shadow-dialog); }
+@media (prefers-reduced-motion: reduce) { .standalone-shell * { animation: none !important; transition: none !important; } }

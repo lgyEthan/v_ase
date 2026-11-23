@@ -1,6 +1,6 @@
 'use strict';
 
-const { app, BrowserWindow, Menu, clipboard, dialog, ipcMain, session, shell } = require('electron');
+const { app, BrowserWindow, Menu, clipboard, dialog, ipcMain, session, shell, powerSaveBlocker } = require('electron');
 const { spawn } = require('node:child_process');
 const fs = require('node:fs');
 const fsp = require('node:fs/promises');
@@ -21,6 +21,7 @@ if (smoke) {
 const vault = new FileVault();
 let win, backend, backendOrigin, handshake, exiting = false;
 const windows = new Set();
+const smokeKeyboards = [];
 const closingWindows = new Set();
 let quitting = false, quitRequested = false;
 const focusedWindow = () => BrowserWindow.getFocusedWindow() || [...windows].find(w => !w.isDestroyed());
@@ -87,7 +88,7 @@ function createMenu(registry = {}) {
         } });
     const menu = [
         ...(process.platform === 'darwin' ? [{ label: 'v_ase', submenu: [
-            { role: 'about' }, { type: 'separator' }, { role: 'hide' }, { role: 'hideOthers' },
+            { role: 'about' }, { label:'Preferences…', accelerator:'Command+,', click:()=>sendCommand('preferences') }, { type: 'separator' }, { role: 'hide' }, { role: 'hideOthers' },
             { role: 'unhide' }, { type: 'separator' }, { label: 'Quit v_ase', accelerator: 'Command+Q', click: () => quitSafely() },
         ] }] : []),
         { label: 'File', submenu: [
@@ -101,7 +102,8 @@ function createMenu(registry = {}) {
             ...(process.platform !== 'darwin' ? [{ type: 'separator' }, { label: 'Quit v_ase', click: () => quitSafely() }] : []),
         ] },
         { label: 'Edit', submenu: [edit('Undo', 'Z'), edit('Redo', 'Z', true), { type: 'separator' },
-            edit('Cut', 'X'), edit('Copy', 'C'), edit('Paste', 'V'), edit('Select all', 'A')] },
+            edit('Cut', 'X'), edit('Copy', 'C'), edit('Paste', 'V'), edit('Select all', 'A'),
+            {type:'separator'},item('search','Find tools…')] },
         { label: 'View', submenu: [item('appearance', 'Atom properties'), item('bonding', 'Bonds'),
             item('supercell', 'Supercell'), item('cell-transform', 'Cell transformation'), item('renderer', 'Renderer'),
             { type: 'separator' }, { role: 'togglefullscreen' }] },
@@ -310,8 +312,13 @@ async function createEditorWindow(url, { snapshot = null, sourceOwner = null, po
     // animation frames and cannot exercise the real restore/readiness lifecycle.
     const win = new BrowserWindow({ width: contentSize[0], height: contentSize[1], useContentSize: true, minWidth: 390, minHeight: 480, title: 'v_ase', show: true,
         backgroundColor: '#f8f9fa', webPreferences: { preload: path.join(__dirname, 'preload.cjs'),
-            contextIsolation: true, nodeIntegration: false, sandbox: true, webSecurity: true, session: isolated } });
+            contextIsolation: true, nodeIntegration: false, sandbox: true, webSecurity: true, session: isolated,
+            backgroundThrottling: !smoke } });
     windows.add(win);
+    if (smoke) {
+        const keyboard = require('./smoke-input.cjs')(win.webContents);
+        smokeKeyboards.push({ id: win.id, keyboard });
+    }
     if (position && Number.isFinite(position.x) && Number.isFinite(position.y)) win.setPosition(Math.round(position.x), Math.round(position.y));
     win.on('close', event => { if (!exiting) { event.preventDefault(); closeWindowSafely(win); } });
     win.on('closed', () => { readyWindows.delete(win); windows.delete(win); });
@@ -327,6 +334,7 @@ async function createEditorWindow(url, { snapshot = null, sourceOwner = null, po
         return { action: 'deny' };
     });
     win.webContents.on('before-input-event', (event, input) => {
+        if (event.defaultPrevented) return;
         // Let the shared editor choose structural editing versus text editing.
         // Avoid recursively invoking our Edit menu when its click sends a key.
         const editing = ['KeyZ', 'KeyX', 'KeyC', 'KeyV', 'KeyA'].includes(input.code)
@@ -367,7 +375,16 @@ async function createEditorWindow(url, { snapshot = null, sourceOwner = null, po
             await openQueued();
             if (smoke && initial) {
                 const { runSmoke } = require('./smoke.cjs');
-                await runSmoke({ app, win, handshake, vault, sendCommand, openQueue });
+                const awake = powerSaveBlocker.start('prevent-display-sleep');
+                try {
+                    await runSmoke({ app, win, handshake, vault, sendCommand, openQueue });
+                    for (const { keyboard } of smokeKeyboards) keyboard.assertDrained();
+                }
+                finally {
+                    powerSaveBlocker.stop(awake);
+                    await fsp.writeFile(path.join(process.env.V_ASE_SMOKE_DIR || path.join(__dirname,'smoke-output'),'native-input-isolation.json'),
+                        JSON.stringify(smokeKeyboards.map(({id,keyboard})=>({id,...keyboard.snapshot()})),null,2));
+                }
                 exiting = true; if (!win.isDestroyed()) win.destroy(); stopBackend(); app.exit(0);
             }
         } catch (error) {
@@ -375,8 +392,26 @@ async function createEditorWindow(url, { snapshot = null, sourceOwner = null, po
             if (smoke && initial) {
                 const output = process.env.V_ASE_SMOKE_DIR || path.join(__dirname, 'smoke-output');
                 await fsp.mkdir(output, { recursive: true });
-                await fsp.writeFile(path.join(output, 'failure.png'), (await win.webContents.capturePage()).toPNG()).catch(() => {});
-                const visible = await win.webContents.executeJavaScript(`document.body.innerText + '\\n' + [...document.querySelectorAll('iframe')].map(f=>f.contentDocument?.body?.innerText || '').join('\\n')`).catch(() => '');
+                const { withDeadline } = require('./smoke-support.cjs');
+                const failureWindows = [];
+                for (const candidate of BrowserWindow.getAllWindows()) {
+                    const state = await withDeadline(candidate.webContents.executeJavaScript(`(()=>{
+                        const w=window.__V_ASE_WORKSPACE__,f=w?.tabs.get(w.activeSessionId)?.pane?.contentWindow,a=f?.__ASE_APP__,d=f?.document;
+                        return {url:location.href,active:w?.activeSessionId,count:a?.state.atoms?.positions?.length,
+                            focus:d?.activeElement?.id,modalHidden:d?.getElementById('modal-container')?.className,
+                            modalActions:d?.querySelector('#modal-container .modal-actions')?.innerHTML,
+                            modalContent:d?.getElementById('modal-content')?.innerHTML,
+                            error:a?.projectFile.error,pending:a?.pendingScientificRequests.size,inFlight:a?.pendingApplyInFlight,
+                            visual:a?.projectVisualSignature(),savedVisual:a?.projectFile.savedVisualSignature,
+                            scientific:a?.projectScientificSignature(),savedScientific:a?.projectFile.savedScientificSignature,
+                            events:window.__smokeDiagnostics?.events?.slice(-30)};})()`), 'failure window state', 3000)
+                        .catch(error=>({error:error.message}));
+                    failureWindows.push(state);
+                }
+                await fsp.writeFile(path.join(output,'failure-state.json'),JSON.stringify(failureWindows,null,2));
+                await withDeadline(win.webContents.capturePage(undefined, { stayAwake: true }), 'failure capture', 5000)
+                    .then(image => fsp.writeFile(path.join(output, 'failure.png'), image.toPNG())).catch(() => {});
+                const visible = await withDeadline(win.webContents.executeJavaScript(`document.body.innerText + '\\n' + [...document.querySelectorAll('iframe')].map(f=>f.contentDocument?.body?.innerText || '').join('\\n')`), 'failure document state', 3000).catch(() => '');
                 console.error('Workspace at failure:', visible.slice(-12000));
                 exiting = true; stopBackend(); app.exit(1);
             }

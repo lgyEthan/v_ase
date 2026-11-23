@@ -215,7 +215,7 @@ revision. See [connection and recovery](ai-tools.md#read-edit-verify).
 * - `vase_set_atom_colorscale`
   - Colors atoms by x/y/z, force norm, or a discovered numeric per-atom ASE array/calculator result. scope is all or selected. rangeMode is current, trajectory, or manual; every trajectory frame uses the same resolved minimum and maximum.…
 * - `vase_set_interface_theme`
-  - theme is system, light, or dark. system follows the browser/OS color-scheme preference and is the built-in default.
+  - theme is system, light, or dark. system follows the browser/OS color-scheme preference and is the built-in default. Optional palette is graphite (default), slate, stone, or moss. Both affect interface chrome only; scientific…
 * - `vase_set_personal_visual_default`
   - Persists the current reusable visual settings for this OS user. Coordinates, trajectory data, absolute camera placement, and per-atom appearance overrides are excluded.
 * - `vase_restore_app_visual_defaults`

@@ -1,5 +1,6 @@
 """Camera visibility, responsive controls and uninterrupted viewport presentation."""
 import pytest
+from tests.ui_navigation import click_view_control
 
 from tests.test_browser_camera_property_persistence import page
 
@@ -13,12 +14,13 @@ def test_camera_icons_and_objects_share_visibility_and_unlock_when_hidden(page):
     original = page.evaluate('structuredClone(window.__ASE_APP__.state.exportPreviewCamera)')
     page.click('#btn-camera-lock-viewport')
     assert page.get_attribute('#btn-camera-lock-viewport', 'aria-pressed') == 'true'
-    page.click('#btn-render-area-from-view')
+    click_view_control(page, '#btn-render-area-from-view')
     for selector in ['#btn-preview-image', '#btn-render-area-from-view', '#btn-camera-lock-viewport']:
         assert page.get_attribute(selector, 'aria-pressed') == 'false'
     assert page.locator('#export-preview-frame').is_hidden()
-    page.click('#btn-objects')
-    checkbox = page.get_by_role('checkbox', name='Show Camera / render area', exact=True)
+    if page.locator('#editor-sidebar-toggle').get_attribute('aria-pressed') != 'true':
+        page.click('#editor-sidebar-toggle')
+    checkbox = page.get_by_role('checkbox', name='Show Render area', exact=True)
     assert not checkbox.is_checked()
     checkbox.check()
     assert page.get_attribute('#btn-preview-image', 'aria-pressed') == 'true'
@@ -42,32 +44,35 @@ def test_camera_icons_and_objects_share_visibility_and_unlock_when_hidden(page):
 @pytest.mark.parametrize('projection', ['orthographic', 'perspective'])
 @pytest.mark.parametrize('collapsed', [True, False])
 def test_enter_camera_view_fits_open_panel_work_area_without_changing_output(page, projection, collapsed):
+    page.emulate_media(reduced_motion='reduce')
     result = page.evaluate('''({projection,collapsed})=>{
       const a=window.__ASE_APP__,r=a.renderer;
       a.applyCameraSettings({...a.currentCameraForExport(),projection});a.captureRenderAreaCamera();
       const before=structuredClone(a.state.exportPreviewCamera);
-      a.setInspectorCollapsed(collapsed);a.setRenderAreaVisible(true,{enterView:true});r.renderNow();
-      const area={...r.lastExportPreview.frameRect}, pose=a.currentCameraForExport();
-      a.setInspectorCollapsed(!collapsed);r.renderNow();
-      return {before,after:a.state.exportPreviewCamera,area,pose,afterPanel:a.currentCameraForExport(),
+      a.setInspectorCollapsed(collapsed);r.onResize();a.setRenderAreaVisible(true,{enterView:true});r.renderNow();
+      const area={...r.lastExportPreview.frameRect}, pose=a.cameraSettingsSnapshot(),width=r.containerSize().width;
+      a.setInspectorCollapsed(!collapsed);r.onResize();r.renderNow();
+      return {before,after:a.state.exportPreviewCamera,area,pose,afterPanel:a.cameraSettingsSnapshot(),
         panel:parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--inspector-width')),
-        width:r.containerSize().width};
+        width};
     }''', dict(projection=projection, collapsed=collapsed))
     area = result['area']
-    assert area['left'] + area['width'] / 2 == pytest.approx((result['width'] - result['panel']) / 2, abs=.1)
+    assert area['left'] + area['width'] / 2 == pytest.approx(result['width'] / 2, abs=.1)
     assert area['left'] > 0
-    assert area['left'] + area['width'] < result['width'] - result['panel']
+    assert area['left'] + area['width'] < result['width']
     assert result['before'] == result['after']
     assert result['pose'] == result['afterPanel']
 
 
-def test_rotation_controls_inline_when_spacious_and_animated_disclosure_when_narrow(page):
+def test_view_controls_remain_compact_bounded_and_preserve_focus_on_resize(page):
     page.set_viewport_size(dict(width=1800, height=960))
-    page.wait_for_function("!document.getElementById('camera-more').classList.contains('compact')")
-    assert not page.locator('#camera-rotation-toggle').is_visible()
+    page.wait_for_function("document.getElementById('camera-more').classList.contains('compact')")
+    assert page.locator('#camera-rotation-toggle').is_visible()
+    page.click('#camera-rotation-toggle')
     assert page.locator('[data-view-rotate="left"]').is_visible()
     page.fill('#view-rotate-step', '30')
     page.locator('#view-rotate-step').press('Enter')
+    page.click('#camera-rotation-toggle')
     page.set_viewport_size(dict(width=1000, height=800))
     page.wait_for_function("document.getElementById('camera-more').classList.contains('compact')")
     assert page.get_attribute('#camera-rotation-toggle', 'aria-expanded') == 'false'
@@ -87,8 +92,9 @@ def test_rotation_controls_inline_when_spacious_and_animated_disclosure_when_nar
     assert page.get_attribute('#camera-rotation-toggle', 'aria-expanded') == 'false'
     assert page.evaluate("document.activeElement.id") == 'camera-rotation-toggle'
     page.set_viewport_size(dict(width=1800, height=960))
-    page.wait_for_function("!document.getElementById('camera-more').classList.contains('compact')")
-    assert not page.evaluate("document.getElementById('camera-more-content').inert")
+    page.wait_for_function("document.getElementById('camera-more').classList.contains('compact')")
+    assert page.evaluate("document.getElementById('camera-more-content').inert")
+    page.click('#camera-rotation-toggle')
     assert page.input_value('#view-rotate-step') == '30'
     page.locator('#view-rotate-step').focus()
     page.set_viewport_size(dict(width=1000, height=800))

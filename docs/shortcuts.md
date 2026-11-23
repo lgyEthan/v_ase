@@ -2,18 +2,20 @@
 
 The visualizer is designed to be familiar to Blender users.
 
-Use the top-bar **View / Edit** switch to change between lightweight
-visualization and ASE-backed structural editing without reopening the file.
-The right workbench organizes controls under **Style**, **Build**,
-**Analyze**, and **Render**. Each tab exposes icon bookmarks with hover/focus names above the active section heading. Style groups Atoms, Bonds, Cell,
-Polyhedra and View & guides. The optional Objects drawer overlays the viewport.
-Selecting an atom does not steal the chosen workbench route.
-The File/Edit/View/Help menu and Save/Render actions sit in the command bar;
-the left icon toolbar separates selection/measurement, selected-object
-Move/Rotate/Scale, camera Orbit and Add atoms. Transform buttons activate only
-when a suitable object is selected. Click a transform, then drag in the canvas;
-Apply/Enter commits, Cancel/Escape reverts, and switching tools cancels a preview. Grid and lighting remain beside the camera presets. At narrow widths, the workbench stacks below
-the viewport. The header search popover reveals existing controls.
+Use the top-bar **View only / Edit structure** segment to select access to
+physical editing without reopening the file. Document tabs span the top;
+Scene is a separate sidebar. **Style**, **Build**, **Analyze** and **Render**
+organize tools. The inspector title and **Find tools… (⌘F / Ctrl+F)** open the
+same global search, including tools from other categories and document commands.
+Native desktop menus live in the OS menu bar; browser/notebook hosts retain a
+compact **…** menu. **Camera** groups camera presets, rotation, grid and lighting.
+**Display & guides** includes Graphite/Slate/Stone/Moss and System/Light/Dark.
+
+The canvas toolbar separates selection/measurement, Move/Rotate/Scale, Orbit and
+Add atoms. Transform buttons activate when a suitable object is selected. Click
+a transform and drag in the canvas; Apply/Enter commits, Cancel/Escape reverts,
+and switching tools cancels a preview. At narrow widths the inspector stacks
+below the viewport. Selecting an atom retains the chosen tool route.
 Selected appearance is live in View and Edit, with automatic label separation
 and an undoable first adjustment. Reusing a label asks to merge and inherit its
 visual settings. See [Live selected appearance](appearance.md#live-selected-appearance).
@@ -242,3 +244,6 @@ its window, and the last window quits. An empty window also closes. Dirty
 documents still offer Save, Discard and Cancel. Browser/notebook windows keep
 a blank internal document. When the output camera is selected, **G/R/S** apply
 to its position, orientation and frame scale; **Enter/Escape** commit/cancel.
+
+**Command/Ctrl+F** opens command and control search across all workspaces.
+Use arrows to choose a result, Enter to open it, and Escape to return.

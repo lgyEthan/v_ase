@@ -211,6 +211,8 @@ export function startStandaloneViewer(scene, projectBase64) {
 
     const updateFrameControls = () => {
         slider.value = String(frameIndex);
+        slider.style.setProperty('--range-fill', `${frames.length > 1 ? frameIndex / (frames.length - 1) * 100 : 0}%`);
+        slider.setAttribute('aria-valuetext', `Frame ${frameIndex + 1} of ${frames.length}`);
         frameLabel.textContent = `${frameIndex + 1} / ${frames.length}`;
         document.documentElement.dataset.vAseFrame = String(frameIndex);
     };
@@ -288,12 +290,23 @@ export function startStandaloneViewer(scene, projectBase64) {
         });
     }
     const metadata = document.getElementById('metadata-popover');
-    document.getElementById('show-metadata').addEventListener('click', () => {
-        metadata.hidden = !metadata.hidden;
+    const metadataButton = document.getElementById('show-metadata');
+    const setMetadataOpen = open => {
+        metadata.hidden = !open;
+        metadataButton.setAttribute('aria-expanded', String(open));
+    };
+    metadataButton.addEventListener('click', () => setMetadataOpen(metadata.hidden));
+    document.addEventListener('pointerdown', event => {
+        if (!metadata.contains(event.target) && !metadataButton.contains(event.target)) setMetadataOpen(false);
     });
 
     document.addEventListener('keydown', event => {
-        if (event.target instanceof HTMLInputElement) return;
+        if (event.key === 'Escape' && !metadata.hidden) {
+            event.preventDefault(); setMetadataOpen(false); metadataButton.focus(); return;
+        }
+        // Space on a focused button activates that button. Form editing must
+        // not also start playback or reset the scientific camera.
+        if (event.target.closest?.('input, button, select, textarea')) return;
         if (event.code === 'Space' && frames.length > 1) {
             event.preventDefault();
             if (timer === null) startPlayback();

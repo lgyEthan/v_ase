@@ -1,6 +1,7 @@
 // One physical-key registry for the editor, both workspace parents, UI hints,
 // and the optional top-level Keyboard Lock.
 export const EDITOR_COMMANDS = Object.freeze({
+    search: { code: 'KeyF', shift: false, label: 'Find tools and commands', action: 'search' },
     supercell: { code: 'KeyB', shift: true, label: 'Open Style → Cell → Supercell', section: 'cell-replication', focus: '#super-x' },
     appearance: { code: 'KeyP', shift: true, label: 'Open Style → Atoms', section: 'appearance', focus: '#atom-radius-scale-number' },
     bonding: { code: 'KeyB', shift: false, label: 'Open Style → Bonds', section: 'bonding', focus: '#bond-mode' },

@@ -534,7 +534,7 @@ def test_browser_colorscale_is_lazy_selection_scoped_frame_aware_and_reversible(
             if page.locator("body").evaluate(
                 "element => element.classList.contains('inspector-collapsed')"
             ):
-                page.click("#btn-inspector-collapse")
+                page.click("#editor-inspector-toggle")
             open_editor_route(page, 'appearance')
             page.wait_for_function(
                 "document.querySelector('[data-panel=\"appearance\"]')?.open === true"

@@ -16,12 +16,12 @@ element colors, so a fixed layer can still have its own scientific color group.
 
 ## Constraint enforcement
 
-Open **Build > Constraints** in Edit. **Apply constraints** is enabled by
+Open **Build > Constraints** in Edit. **Respect constraints** is enabled by
 default. A viewport transform is previewed interactively, then the proposed
 coordinates are committed through ASE and the backend returns the constrained
 result.
 
-Turning **Apply constraints** off permits an unconstrained coordinate commit.
+Turning **Respect constraints** off permits an unconstrained coordinate commit.
 It does not remove the constraint from the ASE object. Re-enable it before the
 next operation when subsequent edits should respect the stored constraint.
 
@@ -41,7 +41,7 @@ The lower Cu layer already has `FixAtoms`; Li already has
 ### 1. Inspect or set the plane
 
 Open **Constraints**, choose **FixedPlane**, set normal `(0, 0, 1)` and press
-**Apply Direction** if creating it yourself. Keep **Apply constraints** enabled.
+**Apply Direction** if creating it yourself. Keep **Respect constraints** enabled.
 The normal is perpendicular to the allowed plane: z is blocked, x/y are free.
 
 ```{figure} assets/steps/plane-start.png
@@ -82,7 +82,7 @@ actual depth; no part is forced in front of the scene.
 ### 3. Remove only the intended constraint
 
 **Clear Direction** removes FixedLine/FixedPlane from the selected atoms.
-It does not remove a separate FixAtoms constraint. Turning **Apply constraints**
+It does not remove a separate FixAtoms constraint. Turning **Respect constraints**
 off temporarily bypasses enforcement but retains stored ASE constraints.
 
 ## Example: stretch a Hookean restraint

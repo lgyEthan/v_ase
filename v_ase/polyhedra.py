@@ -19,6 +19,64 @@ MAX_CENTERS = 5000
 MAX_VERTICES = 100000
 MAX_NEIGHBORS = 512
 MAX_IMAGE_QUERIES = 2000000
+AUTOMATIC_LIGANDS = ('O', 'N', 'F', 'S', 'Cl', 'Se', 'Br', 'I')
+
+
+def automatic_rules(atoms):
+    """Editable pair rules, not oxidation-state or ideal-shape assignment."""
+    from ase.data import atomic_numbers, covalent_radii
+    present = set(atoms.get_chemical_symbols())
+    ligands = [element for element in AUTOMATIC_LIGANDS if element in present]
+    centers = sorted(present - set(AUTOMATIC_LIGANDS) - {'H', 'He', 'Ne', 'Ar', 'Kr', 'Xe', 'Rn', 'Og', 'X'})
+    if len(centers) * len(ligands) > 32:
+        raise ValueError('Automatic coordination exceeds 32 element pairs. Use custom center and ligand rules.')
+    return [{'id': f'auto-{center}-{ligand}', 'name': f'{center}–{ligand}',
+             'centers': {'elements': [center]}, 'ligands': {'elements': [ligand]},
+             'maxDistance': round(1.25 * (covalent_radii[atomic_numbers[center]]
+                                        + covalent_radii[atomic_numbers[ligand]]), 4),
+             'periodic': True, 'planar': False, 'minCoordination':4}
+            for center in centers for ligand in ligands]
+
+
+def _bond_neighbor_filter(atoms, labels, settings):
+    """Apply bond definitions to each periodic image, irrespective of drawing.
+
+    Automatic/pairwise distances retain all eligible periodic sites, including
+    tied images of one base atom. Manual pairs retain only their displayed
+    direct/minimum-image connections. No bond mesh or calculator is consulted.
+    """
+    from ase.data import covalent_radii
+    from ase.geometry import find_mic
+    from .export import _automatic_bond_cutoff, _normalized_bond_mode, _pairwise_bond_ranges
+    mode = _normalized_bond_mode(settings)
+    symbols = atoms.get_chemical_symbols()
+    radii = covalent_radii[atoms.numbers]
+    ranges = _pairwise_bond_ranges(settings) if mode == 'pairwise' else {}
+    manual = {tuple(sorted(map(int, pair))) for pair in settings.get('manualBondPairs', [])}
+    excluded = {tuple(sorted(map(int, constraint.indices))) for constraint in atoms.constraints
+                if type(constraint).__name__=='Hookean' and getattr(constraint,'_type',None)=='two atoms'}
+    scale = float(settings.get('bondCutoffScale', 1.0))
+    if not np.isfinite(scale) or scale <= 0:
+        raise ValueError('Bond cutoff scale must be finite and positive.')
+
+    def permitted(center, hit):
+        neighbor, shift, _, distance = hit
+        if tuple(sorted((int(center),neighbor))) in excluded:
+            return False
+        if mode == 'manual':
+            if tuple(sorted((int(center), neighbor))) not in manual:
+                return False
+            if not settings.get('showPeriodicBonds'):
+                return not any(shift)
+            _, minimum = find_mic(atoms.positions[neighbor] - atoms.positions[center], atoms.cell, atoms.pbc)
+            return abs(distance - float(minimum)) < 1e-8
+        if mode == 'pairwise':
+            pair = ranges.get('-'.join(sorted((labels[center], labels[neighbor]))), {})
+            maximum = float(pair.get('max', 0)) if pair.get('enabled') is not False else 0
+        else:
+            maximum = _automatic_bond_cutoff(symbols[center], symbols[neighbor], radii[center], radii[neighbor]) * scale
+        return distance > .15 and np.isfinite(maximum) and maximum > 0 and distance <= maximum + 1e-10
+    return permitted
 
 SELECTOR_SCHEMA = {
     'type': 'object', 'additionalProperties': False,
@@ -216,7 +274,7 @@ def _hull(points):
             'centerInside': bool(inside), 'hullVertexCount': len(hull.vertices), 'toleranceAngstrom': tolerance}
 
 
-def calculate_polyhedra(atoms, rules, *, labels=None):
+def calculate_polyhedra(atoms, rules, *, labels=None, bond_settings=None):
     """Calculate deterministic coordination hulls. No calculator is evaluated."""
     rules = normalize_rules(rules)
     positions = np.asarray(atoms.positions, dtype=float)
@@ -225,6 +283,7 @@ def calculate_polyhedra(atoms, rules, *, labels=None):
     labels = list(atom_labels(atoms) if labels is None else labels)
     if len(labels) != len(atoms) or any(not isinstance(x, str) for x in labels):
         raise ValueError('Polyhedra labels must contain one string per atom.')
+    permitted = _bond_neighbor_filter(atoms, labels, bond_settings) if bond_settings is not None else None
     result, diagnostics = [], []
     total_centers = total_vertices = 0
     for rule in rules:
@@ -260,6 +319,9 @@ def calculate_polyhedra(atoms, rules, *, labels=None):
             raise ValueError('Polyhedra exceed 5000 centers. Use a smaller center selection.')
         for center in centers:
             hits = sorted(lookup[int(center)], key=lambda x: (x[3], x[0], tuple(x[1])))
+            unfiltered_count = len(hits)
+            if permitted:
+                hits = [hit for hit in hits if permitted(center, hit)]
             unique = []
             for hit in hits:
                 if not any(np.linalg.norm(hit[2] - existing[2]) <= 1e-9 for existing in unique):
@@ -267,8 +329,11 @@ def calculate_polyhedra(atoms, rules, *, labels=None):
             count = len(unique)
             record = {'ruleId': rule['id'], 'center': int(center), 'neighborCount': count,
                       'duplicateVertexCount': len(hits)-count}
+            if permitted:
+                record['unfilteredNeighborCount'] = unfiltered_count
             if count < rule['minCoordination'] or count > rule['maxCoordination']:
-                diagnostics.append({**record, 'status': 'coordination-outside-range'}); continue
+                status = 'bonded-neighbors-outside-range' if permitted and len(hits) < unfiltered_count else 'coordination-outside-range'
+                diagnostics.append({**record, 'status': status}); continue
             total_vertices += count
             if total_vertices > MAX_VERTICES:
                 raise ValueError('Polyhedra exceed 100000 vertices. Reduce the center selection.')
@@ -280,7 +345,17 @@ def calculate_polyhedra(atoms, rules, *, labels=None):
                            'centerPosition': positions[center].tolist(), 'centerLabel': labels[center],
                            'style': {key: rule[key] for key in ('color','opacity','showFaces','showEdges','edgeColor','edgeRadius')}})
             result.append(record)
+    summaries = []
+    for rule in rules:
+        hulls = [item for item in result if item['ruleId'] == rule['id']]
+        omitted = [item for item in diagnostics if item['ruleId'] == rule['id']]
+        summaries.append({'ruleId':rule['id'], 'name':rule.get('name') or rule['id'],
+                          'maxDistance':rule['maxDistance'], 'polyhedronCount':len(hulls),
+                          'omittedCount':len(omitted),
+                          'coordinationCounts':{str(n):sum(item['neighborCount']==n for item in hulls)
+                                                for n in sorted({item['neighborCount'] for item in hulls})}})
     return {'polyhedra': result, 'diagnostics': diagnostics, 'centerCount': total_centers,
             'polyhedronCount': len(result), 'vertexCount': total_vertices,
+            'rules':rules, 'ruleSummaries':summaries, 'bondedOnly':permitted is not None,
             'units': {'length': 'angstrom', 'area': 'angstrom^2', 'volume': 'angstrom^3'},
             'definition': 'Convex hull of the specified ligand sites; geometry is not a bonding or oxidation-state inference.'}

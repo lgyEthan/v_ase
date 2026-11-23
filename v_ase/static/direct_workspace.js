@@ -5,8 +5,9 @@ import { captureDocumentRecovery, restoreDocumentRecovery } from './workspace_re
 import { createWorkspaceAIBridge, handleWorkspaceAICommand } from './workspace_ai.js?v=0.4.13';
 import { installShortcutCapture } from './shortcut_capture.js?v=0.4.13';
 import { navigateWorkspaceDocument } from './workspace_navigation.js?v=0.4.13';
+import { renderSceneNavigator } from './scene_navigator.js?v=0.4.13&ui=20261111.1';
 import { commandIdForEvent, editorAriaShortcut, editorShortcutLabel, resolveShortcutPlatform,
-    viewportNavigationForEvent, documentCommandIdForEvent } from './editor_commands.js?v=0.4.13';
+    viewportNavigationForEvent, documentCommandIdForEvent } from './editor_commands.js?v=0.4.13&ui=20261111.1';
 
 export class DirectWorkspace {
     constructor(app) {
@@ -69,8 +70,9 @@ export class DirectWorkspace {
     buildShell() {
         const bar = document.createElement('div');
         bar.id = 'direct-document-bar';
-        bar.setAttribute('role', 'tablist');
+        bar.setAttribute('role', 'group');
         bar.setAttribute('aria-label', 'Open structures');
+        bar.setAttribute('aria-orientation', 'horizontal');
         const add = document.createElement('button');
         add.id = 'direct-document-new';
         add.type = 'button';
@@ -81,7 +83,11 @@ export class DirectWorkspace {
         add.addEventListener('click', () => {
             this.createDocument().catch(error => this.app.toast(error.message, 'error'));
         });
-        bar.appendChild(add);
+        const brand=document.createElement('div'); brand.className='document-brand';
+        brand.innerHTML='<img src="/static/v_ase-brand.png" alt="v_ase" width="80" height="25">';
+        const tabRoot=document.createElement('div'); tabRoot.className='direct-tab-list';
+        tabRoot.setAttribute('role','tablist'); tabRoot.setAttribute('aria-label','Open structures'); tabRoot.setAttribute('aria-orientation','horizontal');
+        bar.append(brand,tabRoot,add);
         const capture = document.getElementById('editor-fullscreen-editing')
             || document.createElement('button');
         capture.id = 'direct-fullscreen-editing';
@@ -103,12 +109,73 @@ export class DirectWorkspace {
         this.app.disposeShortcutCapture = null;
         const panes = document.createElement('div');
         panes.id = 'direct-document-panes';
-        document.body.append(bar, panes);
+        const navigator = document.getElementById('scene-navigator');
+        navigator.querySelector('.navigator-document-summary')?.remove();
+        document.getElementById('editor-document-strip')?.setAttribute('hidden','');
+        document.body.prepend(bar);
+        const footer = document.createElement('div'); footer.className = 'navigator-footer';
+        footer.append(capture, captureStatus);
+        if (captureExit) footer.appendChild(captureExit);
+        if (captureOpenFull) footer.appendChild(captureOpenFull);
+        navigator.appendChild(footer);
+        document.body.appendChild(panes);
         document.body.classList.add('direct-workspace');
         this.bar = bar;
+        this.tabRoot = tabRoot;
         this.panes = panes;
         this.newButton = add;
         this.app.renderer.onResize();
+    }
+
+    applyWorkspaceTheme(preference, {persist=true,palette=window.v_aseTheme.info().palette}={}) {
+        const result=window.v_aseTheme.applyPresentation({preference,palette},{persist});
+        for(const entry of this.tabs.values()) {
+            const target=entry.host ? window : entry.pane.contentWindow;
+            if(target?.v_aseTheme?.applyPresentation) {
+                if(target!==window) target.v_aseTheme.applyPresentation(result,{persist:false,announce:false});
+                const app=entry.host ? this.app : target.__ASE_APP__;
+                app?.syncThemeControl();app?.refreshActiveAnalysisTheme();
+            } else target?.postMessage({type:'v_ase:workspace-theme',preference:result.preference,palette:result.palette},location.origin);
+        }
+        return result;
+    }
+
+    syncNavigatorState() {
+        this.syncNavigatorIsolation();
+        const collapsed = document.body.classList.contains('scene-nav-collapsed');
+        for (const entry of this.tabs.values()) entry.pane?.contentWindow?.postMessage({
+            type: 'v_ase:workspace-navigator', collapsed,
+        }, location.origin);
+    }
+
+    syncNavigatorIsolation() {
+        const entry = this.tabs.get(this.activeSessionId);
+        const open = entry?.host ? (!document.getElementById('modal-container').classList.contains('hidden') || Boolean(document.body.dataset.busy))
+            : Boolean(entry?.modalOpen);
+        document.body.classList.toggle('workspace-modal-open', open);
+        const overlay=document.getElementById('busy-overlay');
+        const visible=entry?.host ? (!document.getElementById('modal-container').classList.contains('hidden')
+            || (Boolean(document.body.dataset.busy) && !overlay.classList.contains('hidden') && !overlay.classList.contains('busy-pending')))
+            : Boolean(entry?.modalVisible);
+        document.body.classList.toggle('workspace-scrim-visible',visible);
+        if (this.bar) this.bar.inert = open;
+        document.getElementById('scene-navigator').inert = open
+            || document.body.classList.contains('scene-nav-collapsed');
+    }
+
+    renderActiveScene() {
+        const entry = this.tabs.get(this.activeSessionId);
+        if (!entry) return;
+        const records = entry.host ? this.app.sceneNavigatorSnapshot?.entries : entry.sceneEntries;
+        renderSceneNavigator(document.getElementById('objects-list'), records || [], (id, action, checked) => {
+            if (entry.sessionId !== this.activeSessionId) return;
+            if (entry.host) this.app.performSceneNavigatorAction(id, action, checked);
+            else entry.pane.contentWindow?.postMessage({
+                type: 'v_ase:workspace-scene-action', sessionId: entry.sessionId,
+                generation: entry.childGeneration, id, action, checked,
+            }, location.origin);
+            if (action === 'inspect' && matchMedia('(max-width: 760px)').matches) this.app.setSceneNavigatorCollapsed(true);
+        });
     }
 
     addTab(documentState, { host = false } = {}) {
@@ -116,10 +183,11 @@ export class DirectWorkspace {
         if (!sessionId || this.tabs.has(sessionId)) return this.tabs.get(sessionId);
         const tab = document.createElement('div');
         tab.className = 'direct-document-tab';
-        tab.setAttribute('role', 'tab');
+        tab.setAttribute('role', 'presentation');
         tab.dataset.sessionId = sessionId;
         const select = document.createElement('button');
         select.type = 'button';
+        select.setAttribute('role','tab');
         select.className = 'direct-document-select';
         select.addEventListener('click', () => this.activate(sessionId));
         const indicator = document.createElement('span');
@@ -135,7 +203,7 @@ export class DirectWorkspace {
             this.closeDocument(sessionId).catch(error => this.app.toast(error.message, 'error'));
         });
         tab.append(select, close);
-        this.bar.insertBefore(tab, this.newButton);
+        this.tabRoot.appendChild(tab);
         const pane = host ? null : document.createElement('iframe');
         if (pane) {
             pane.className = 'direct-document-pane';
@@ -170,7 +238,7 @@ export class DirectWorkspace {
         entry.tab.classList.toggle('saving', entry.saving);
         entry.tab.classList.toggle('error', Boolean(entry.error));
         entry.tab.classList.toggle('active', this.activeSessionId === entry.sessionId);
-        entry.tab.setAttribute('aria-selected', this.activeSessionId === entry.sessionId ? 'true' : 'false');
+        entry.select.setAttribute('aria-selected', this.activeSessionId === entry.sessionId ? 'true' : 'false');
     }
 
     updateHost() {
@@ -207,6 +275,8 @@ export class DirectWorkspace {
             }
         }
         this.tabs.forEach(item => this.updateTab(item));
+        this.renderActiveScene();
+        this.syncNavigatorState();
         document.title = `${entry.name} - v_ase`;
         if (hostActive) this.app.renderer.domElement.focus({ preventScroll: true });
         return true;
@@ -232,7 +302,7 @@ export class DirectWorkspace {
         event.stopImmediatePropagation();
         if (commandId && event.repeat) return;
         if (!entry || child?.document?.getElementById('modal-container')
-            ?.classList.contains('hidden') === false) return;
+            ?.classList.contains('hidden') === false || child?.document?.body?.dataset.busy) return;
         if (app?.collaborationReady && app.workspaceRecoveryAcknowledged
             && app.sessionId === this.activeSessionId) {
             if (commandId) app.executeEditorCommand(commandId);
@@ -367,6 +437,28 @@ export class DirectWorkspace {
             && message.generation !== entry.childGeneration) return;
         if (recoveryMessage && entry.childGeneration
             && Number(message.recoveryRevision) < entry.recoveryRevision) return;
+        if (message.type === 'v_ase:document-navigator-toggle' && this.activeSessionId === entry.sessionId) {
+            this.app.setSceneNavigatorCollapsed(message.show === true ? false
+                : !document.body.classList.contains('scene-nav-collapsed'));
+            this.syncNavigatorState();
+            return;
+        }
+        if (message.type === 'v_ase:document-scene' && message.generation === currentApp?.recoveryGeneration) {
+            entry.sceneEntries = message.entries;
+            if (entry.sessionId === this.activeSessionId) this.renderActiveScene();
+            return;
+        }
+        if (message.type === 'v_ase:document-modal'
+            && message.generation === currentApp?.recoveryGeneration) {
+            entry.modalOpen = Boolean(message.open);
+            entry.modalVisible = Boolean(message.visible ?? message.open);
+            if (this.activeSessionId === entry.sessionId) this.syncNavigatorIsolation();
+            return;
+        }
+        if (message.type === 'v_ase:document-theme') {
+            this.applyWorkspaceTheme(message.preference,{persist:message.persist!==false,palette:message.palette});
+            return;
+        }
         if (message.type === 'v_ase:document-close-result') {
             const pending = this.pendingClose.get(message.requestId);
             if (!pending || pending.source !== event.source) return;
@@ -390,6 +482,8 @@ export class DirectWorkspace {
                     type: 'v_ase:workspace-active', active: this.activeSessionId === entry.sessionId,
                     recoveryReady: true
                 }, location.origin);
+                this.syncNavigatorState();
+                app?.publishSceneNavigator?.();
             }
         } else if (message.type === 'v_ase:document-command' && this.activeSessionId === entry.sessionId) {
             if (message.requestId) {
