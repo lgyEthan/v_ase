@@ -64,6 +64,12 @@ module.exports = async ({ app, win, js, active, appRef, wait, key, output, openQ
     await wait(`${active}.document.querySelectorAll('#open-batch-files li').length === 3`);
     await js(`${active}.document.querySelector('#open-batch-confirm').click()`);
     await wait(`${ws}.tabs.size === ${count+4}`);
+    // importFileBatch publishes all tabs synchronously, then initializes the
+    // first editor and finishes the progress modal asynchronously. During
+    // that interval the tab strip is intentionally inert. Do not inject a
+    // one-shot hover/press until the normal recovery/modal barriers have run.
+    await wait(`!window.__vaseFileOpenQueue.running && ${appRef}?.workspaceRecoveryAcknowledged
+        && !document.getElementById('document-bar').inert`);
     assert.equal(BrowserWindow.getAllWindows().length, windows);
     // Native mouse input exercises the same hit testing and drag capture as a human.
     const orderedIds = await js(`[...${ws}.tabs.keys()]`);

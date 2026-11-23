@@ -162,6 +162,9 @@ in both source and packaged checks, including the final signed Mac apps.
 Native tab clicks first wait for a real pointer move to reach the top document
 from the editor iframe, then inject the press and release. Hit testing, tab
 activation and document recovery remain mandatory assertions.
+After batch import, tests first require the import queue to finish, the new
+editor to acknowledge recovery and the tab strip to leave its modal-inert
+state. A published tab count alone does not mean its editor is ready for input.
 
 For stability review, set `V_ASE_SMOKE_VISUAL_REPEATS=10` and use a fresh
 `V_ASE_SMOKE_DIR` for each process. Each cycle checks both 2D and 3D, exact

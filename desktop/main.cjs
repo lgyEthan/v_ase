@@ -398,6 +398,10 @@ async function createEditorWindow(url, { snapshot = null, sourceOwner = null, po
                     const state = await withDeadline(candidate.webContents.executeJavaScript(`(()=>{
                         const w=window.__V_ASE_WORKSPACE__,f=w?.tabs.get(w.activeSessionId)?.pane?.contentWindow,a=f?.__ASE_APP__,d=f?.document;
                         return {url:location.href,active:w?.activeSessionId,count:a?.state.atoms?.positions?.length,
+                            documentBarInert:document.getElementById('document-bar')?.inert,
+                            importQueueRunning:window.__vaseFileOpenQueue?.running,
+                            recoveryAcknowledged:a?.workspaceRecoveryAcknowledged,
+                            activeModalOpen:w?.tabs.get(w.activeSessionId)?.modalOpen,
                             focus:d?.activeElement?.id,modalHidden:d?.getElementById('modal-container')?.className,
                             modalActions:d?.querySelector('#modal-container .modal-actions')?.innerHTML,
                             modalContent:d?.getElementById('modal-content')?.innerHTML,
