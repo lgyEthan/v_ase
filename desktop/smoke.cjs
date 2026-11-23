@@ -245,8 +245,20 @@ async function runSmoke({ app, win, handshake, vault, sendCommand, openQueue }) 
             const visible=element=>element.getClientRects().length && f.getComputedStyle(element).visibility!=='hidden';
             for (const group of d.querySelectorAll('#workbench-tabs [data-workbench]')) {
                 group.click();
-                for (const button of d.querySelectorAll('#workbench-tools [data-editor-route]')) {
-                    if (!visible(button)) continue;
+                const category=group.dataset.workbench;
+                const tools=d.querySelector('[data-tool-group="'+category+'"]');
+                for (const button of tools.querySelectorAll('[data-editor-route]')) {
+                    const menu=d.getElementById('inspector-tool-menu');
+                    if (menu.hidden) d.getElementById('inspector-tool-trigger').click();
+                    if (!visible(button)) throw new Error('Hidden category tool: '+button.dataset.editorRoute);
+                    for (const other of d.querySelectorAll('#workbench-tools [data-editor-route]')) {
+                        if (visible(other) && other.closest('[data-tool-group]').dataset.toolGroup!==category)
+                            issues.push('foreign category:'+other.dataset.editorRoute);
+                    }
+                    button.scrollIntoView({block:'nearest'});
+                    await new Promise(resolve=>f.requestAnimationFrame(()=>f.requestAnimationFrame(resolve)));
+                    const menuBox=button.getBoundingClientRect(),hit=d.elementFromPoint(menuBox.x+menuBox.width/2,menuBox.y+menuBox.height/2);
+                    if (hit!==button && !button.contains(hit)) issues.push('occluded tool:'+button.dataset.editorRoute);
                     button.click(); routes++;
                     await new Promise(resolve=>f.requestAnimationFrame(()=>f.requestAnimationFrame(resolve)));
                     const inspector=d.getElementById('inspector').getBoundingClientRect();
@@ -274,7 +286,7 @@ async function runSmoke({ app, win, handshake, vault, sendCommand, openQueue }) 
             f.__ASE_APP__.openEditorRoute('appearance');
             return {routes,issues};
         })()`);
-        assert.equal(geometry.routes, 25, `All tools must remain visible at ${width}px`);
+        assert.equal(geometry.routes, 25, `All tools must be reachable through their category at ${width}px`);
         assert.deepEqual(geometry.issues, [], `Clipped controls/units at ${width}px`);
         geometryRoutes += geometry.routes;
         await fs.writeFile(path.join(output, `workspace-${width}.png`), (await capturePage(win.webContents)).toPNG());
