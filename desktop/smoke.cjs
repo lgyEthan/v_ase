@@ -268,7 +268,13 @@ async function runSmoke({ app, win, handshake, vault, sendCommand, openQueue }) 
                         const table=element.closest('#appearance-table');
                         if (table) {
                             const box=table.getBoundingClientRect();
-                            if (box.left<inspector.left-1 || box.right>inspector.right+1 || f.getComputedStyle(table).overflowX!=='auto') issues.push('label table overflow');
+                            const scrollable=['auto','scroll'].includes(f.getComputedStyle(table).overflowX);
+                            if (box.left<inspector.left-1 || box.right>inspector.right+1
+                                || (table.scrollWidth>table.clientWidth+1 && !scrollable)) issues.push('label table overflow');
+                            if (!scrollable) {
+                                const r=element.getBoundingClientRect();
+                                if (r.left<box.left-1 || r.right>box.right+1) issues.push('label control overflow');
+                            }
                             continue;
                         }
                         const r=element.getBoundingClientRect();
