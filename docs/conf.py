@@ -94,4 +94,7 @@ linkcheck_ignore = [
     # The page returns 200 to direct clients but repeatedly times out through
     # Sphinx's linkcheck requests on the release runner.
     r"https://docs\.scipy\.org/doc/scipy/reference/generated/scipy\.ndimage\.gaussian_filter\.html",
+    # Verified through a browser-backed reader on 2026-11-23; this exact
+    # editorial page rejects Sphinx's automated client with HTTP 403.
+    r"https://www\.androidauthority\.com/dia-browser-hands-on-3568966/$",
 ]

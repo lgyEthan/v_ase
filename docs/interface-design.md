@@ -163,6 +163,6 @@ short windows the analysis surface begins below the actual toolbar boundary,
 including the document strip, so navigation and its Back action remain usable.
 
 Analysis plots use explicit title objects for axis and colorbar labels, matching
-[the Plotly title contract](https://plotly.com/javascript/guides/migrating-to-v3/#title-attribute-as-a-string).
+[the Plotly title contract](https://plotly.com/javascript/guides/migrating-to-v3/).
 Regression checks read actual SVG quantity/unit text and bounds, rather than
 accepting a title string in a layout object that the renderer silently ignores.

@@ -55,7 +55,7 @@ npx skills@latest add ./v_ase/skills \
 ```
 
 Update tracked global installations with `npx skills@latest update -g -y`.
-The installer’s [source formats, scopes and client options](https://github.com/vercel-labs/skills/blob/main/docs/commands.md#skills-add)
+The installer’s [source formats, scopes and client options](https://github.com/vercel-labs/skills/blob/main/docs/commands.md)
 also cover version-pinned repositories. These commands target local coding
 clients; ChatGPT web/app uses the [connected MCP/plugin workflow](chatgpt-local.md).
 

@@ -69,13 +69,17 @@ async function runSmoke({ app, win, handshake, vault, sendCommand, openQueue }) 
             return;
         }
         const dirty = await js(`${appRef}.updateProjectDirtyState()`);
-        await js(`(()=>{ const a=${appRef}; const original=a.loadStructureFile.bind(a); a.loadStructureFile=(...args)=>{ a.loadStructureFile=original; window.__smokeLoaded=original(...args); return window.__smokeLoaded; }; })()`);
-        await js(`${active}.document.querySelector('#open-file-confirm').click()`);
+        await js(`(()=>{ const a=${appRef}; window.__smokeLoaded=null; const original=a.loadStructureFile.bind(a); a.loadStructureFile=(...args)=>{ a.loadStructureFile=original; window.__smokeLoaded=original(...args); return window.__smokeLoaded; }; })()`);
+        // These fixture steps deliberately replace the current document. The
+        // real picker now defaults to a new tab when the document has content.
+        await js(`${active}.document.querySelector('[name="open-file-mode"][value="replace"]').click(); ${active}.document.querySelector('#open-file-confirm').click()`);
         if (dirty) {
             await wait(`${active}.document.querySelector('#modal-discard-document')`);
             await js(`${active}.document.querySelector('#modal-discard-document').click()`);
         }
+        await wait('window.__smokeLoaded !== null');
         await js('window.__smokeLoaded');
+        assert.equal(await js('window.__V_ASE_WORKSPACE__.activeSessionId'), previousSession);
         await wait(`${appRef}.state.atoms.positions.length === 3`);
     }
     await wait(`${appRef}?.collaborationReady`);
