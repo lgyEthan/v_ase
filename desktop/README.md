@@ -167,10 +167,12 @@ Smoke windows temporarily receive native focus. `smoke-input.cjs` records and
 blocks input that the harness did not send, before it reaches desktop shortcuts
 or scientific editing. Tested input still uses Electron's `sendInputEvent` and
 the normal host/editor handlers. Missing test key presses or mouse presses and
-releases fail the run; consecutive mouse moves may be coalesced. macOS consumes
-Command shortcut releases in AppKit, so their keyDown delivery and resulting
-command are mandatory while those releases are optional. Ordinary key releases
-remain mandatory. `native-input-isolation.json` includes all windows, even closed
+releases fail the run; consecutive mouse moves may be coalesced. Native
+accelerators can consume releases, including Windows Ctrl+O and macOS Command
+shortcuts. The smoke guard uses the host's actual command matcher to recognize
+those releases; every command keyDown and resulting action remain mandatory.
+Text-editing Control+A and ordinary Delete/Backspace releases remain mandatory
+on Windows. `native-input-isolation.json` includes all windows, even closed
 ones. `input-trace.json`, `complete-input-trace.json`, `failure-state.json` and
 `detached-save.json` retain input provenance and model/save state for diagnosis.
 This isolation is installed only with `--smoke-test`; normal user input is unchanged.

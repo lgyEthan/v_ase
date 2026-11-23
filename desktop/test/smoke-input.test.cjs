@@ -80,3 +80,27 @@ test('macOS consumed Command releases never block the next mandatory command', (
     guard.assertDrained();
     assert.equal(receive({type:'keyUp',code:'KeyO',meta:true}),false);
 });
+test('Windows host shortcuts may consume releases without blocking the next mandatory command', () => {
+    const consumesShortcut = input => input.control && input.code === 'KeyO' && !input.shift;
+    const { contents, guard, receive } = fixture({platform:'win32',consumesShortcut});
+    for (let cycle = 0; cycle < 2; cycle++) {
+        contents.sendInputEvent({type:'keyDown',keyCode:'O',modifiers:['control']});
+        assert.equal(receive({type:'keyDown',code:'KeyO',control:true}),false);
+        contents.sendInputEvent({type:'keyUp',keyCode:'O',modifiers:['control']});
+    }
+    guard.assertDrained();
+    assert.equal(receive({type:'keyUp',code:'KeyO',control:true}),false);
+});
+test('Windows text editing and unmodified releases still fail when lost', () => {
+    const consumesShortcut = input => input.control && input.code === 'KeyO';
+    for (const [keyCode,modifiers] of [['A',['control']],['Delete',[]],['Backspace',[]]]) {
+        const { contents, guard, receive } = fixture({platform:'win32',consumesShortcut});
+        const code = keyCode === 'A' ? 'KeyA' : keyCode;
+        contents.sendInputEvent({type:'keyDown',keyCode,modifiers});
+        assert.equal(receive({type:'keyDown',code,control:modifiers.includes('control')}),false);
+        contents.sendInputEvent({type:'keyUp',keyCode,modifiers});
+        assert.throws(guard.assertDrained,/Every test key/);
+        assert.equal(receive({type:'keyUp',code,control:modifiers.includes('control')}),false);
+        guard.assertDrained();
+    }
+});

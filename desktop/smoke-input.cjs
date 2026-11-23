@@ -13,7 +13,9 @@ function codeFor(key) {
 // edit when that focus changes. Every test key still traverses before-input-
 // event and the normal desktop/editor handlers; unmatched input is recorded.
 // A lost or incorrectly matched test key leaves a pending expectation and fails.
-module.exports = function isolateSmokeKeyboard(contents, {platform = process.platform} = {}) {
+module.exports = function isolateSmokeKeyboard(contents, {
+    platform = process.platform, consumesShortcut = () => false,
+} = {}) {
     const pending = [], optionalReleases = [], pendingMouse = [], received = [], sent = [];
     const original = contents.sendInputEvent.bind(contents);
     contents.sendInputEvent = input => {
@@ -22,10 +24,12 @@ module.exports = function isolateSmokeKeyboard(contents, {platform = process.pla
             const expected = { type: input.type, code: codeFor(input.keyCode),
                 meta: modifiers.includes('meta'), control: modifiers.includes('control'),
                 alt: modifiers.includes('alt'), shift: modifiers.includes('shift') };
-            // AppKit consumes Command shortcut releases before Electron's
-            // before-input-event. The command keyDown remains mandatory; plain
-            // keys (including Delete/Backspace/Tab) require both events.
-            if(platform === 'darwin' && expected.meta && input.type === 'keyUp') optionalReleases.push(expected);
+            // Native accelerators can consume their release before Electron's
+            // before-input-event, including Ctrl+O on Windows. Use the real
+            // host command matcher so unrelated modified keys stay mandatory.
+            // Every command keyDown and plain Delete/Backspace/Tab still must arrive.
+            const consumed = consumesShortcut({ ...expected, type: 'keyDown' });
+            if(input.type === 'keyUp' && ((platform === 'darwin' && expected.meta) || consumed)) optionalReleases.push(expected);
             else pending.push(expected);
             sent.push({ at: Date.now(), ...input });
         } else if (input.type.startsWith('mouse')) {

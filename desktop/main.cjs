@@ -316,7 +316,7 @@ async function createEditorWindow(url, { snapshot = null, sourceOwner = null, po
             backgroundThrottling: !smoke } });
     windows.add(win);
     if (smoke) {
-        const keyboard = require('./smoke-input.cjs')(win.webContents);
+        const keyboard = require('./smoke-input.cjs')(win.webContents, { consumesShortcut: inputCommand });
         smokeKeyboards.push({ id: win.id, keyboard });
     }
     if (position && Number.isFinite(position.x) && Number.isFinite(position.y)) win.setPosition(Math.round(position.x), Math.round(position.y));
