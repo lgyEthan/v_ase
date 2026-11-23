@@ -264,6 +264,10 @@ assets remotely after stapling. Bind its ZIP/DMG SHA-256 inputs to the exact
 candidate files in a draft GitHub release, and require both native Mac jobs
 before publishing the release. `verify_scientific_payload.py` compares every
 bundled v_ase file with the published wheel, including its canonical Skill.
+Draft visibility requires repository push access, so a download-only staging
+job binds all four hashes with that permission. The Mac execution jobs retain
+read-only repository access, receive no release token and do not persist
+checkout credentials. Their evidence includes all ten visual cycles.
 
 The helper signs nested Mach-O executables/libraries, Electron helpers and
 frameworks **inside out**, then the outer app, with secure timestamps and

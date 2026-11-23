@@ -28,7 +28,53 @@ permissions:
   contents: read
 
 jobs:
+  stage-signed:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # GitHub requires push access to see draft releases. Keep that token in a
+    # download-only job; no application code executes with write credentials.
+    permissions:
+      contents: write
+    env:
+      RELEASE_TAG: ${{ inputs.tag }}
+      ARM64_ZIP_SHA256: ${{ inputs.arm64_zip_sha256 }}
+      X64_ZIP_SHA256: ${{ inputs.x64_zip_sha256 }}
+      ARM64_DMG_SHA256: ${{ inputs.arm64_dmg_sha256 }}
+      X64_DMG_SHA256: ${{ inputs.x64_dmg_sha256 }}
+    steps:
+      - name: Bind the signed draft candidates
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          VERSION="${RELEASE_TAG#v}"
+          mkdir signed-downloads
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --pattern "v_ase-${VERSION}-mac-*.zip" \
+            --pattern "v_ase-${VERSION}-mac-*.dmg" --dir signed-downloads
+          python - <<'PY'
+          import hashlib, os
+          from pathlib import Path
+          version = os.environ['RELEASE_TAG'][1:]
+          for arch in ('arm64', 'x64'):
+              for kind in ('zip', 'dmg'):
+                  expected = os.environ[f'{arch.upper()}_{kind.upper()}_SHA256']
+                  path = Path(f'signed-downloads/v_ase-{version}-mac-{arch}.{kind}')
+                  with path.open('rb') as stream:
+                      actual = hashlib.file_digest(stream, 'sha256').hexdigest()
+                  assert len(expected) == 64 and actual == expected, path
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: staged-signed-mac-candidates
+          path: signed-downloads/*
+          if-no-files-found: error
+          retention-days: 1
+
   signed-mac:
+    needs: stage-signed
     strategy:
       fail-fast: false
       matrix:
@@ -51,21 +97,22 @@ jobs:
       V_ASE_SMOKE_DIR: ${{ github.workspace }}/desktop/smoke-output/signed-release
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Download and bind the signed candidate bytes
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: staged-signed-mac-candidates
+          path: signed-downloads
+      - name: Bind the signed candidate bytes
         shell: bash
         run: |
           set -euo pipefail
           [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
           VERSION="${RELEASE_TAG#v}"
           mkdir -p signed-downloads signed-app desktop/smoke-output/signed-release
-          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
-            --pattern "v_ase-${VERSION}-mac-${RELEASE_ARCH}.zip" \
-            --pattern "v_ase-${VERSION}-mac-${RELEASE_ARCH}.dmg" --dir signed-downloads
           python - <<'PY'
           import hashlib, os
           from pathlib import Path
@@ -100,5 +147,6 @@ jobs:
             desktop/smoke-output/signed-release/result.json
             desktop/smoke-output/signed-release/signature.json
             desktop/smoke-output/signed-release/scientific-payload.json
+            desktop/smoke-output/signed-release/repeated-visuals.json
             desktop/smoke-output/signed-release/*.png
           retention-days: 14
