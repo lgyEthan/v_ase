@@ -78,12 +78,22 @@ def test_release_version_is_synchronized():
 
 def test_documentation_release_metadata_is_synchronized():
     index = (ROOT / "docs/index.md").read_text(encoding="utf-8")
-    documented = re.search(
+    released = re.search(
         r"This manual describes \*\*v_ase ([^*]+)\*\*\.",
         index,
     )
-    assert documented is not None, "docs/index.md has no current-release declaration"
+    source = re.search(
+        r"This `main` manual includes \*\*unreleased changes after v_ase ([^*]+)\*\*\.",
+        index,
+    )
+    assert bool(released) != bool(source), (
+        "docs/index.md must declare exactly one released or unreleased source channel"
+    )
+    documented = released or source
     assert documented.group(1) == __version__
+    if source:
+        assert f"Published desktop installers and PyPI remain {__version__}." in index
+        assert "## Unreleased" in (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
 
     citation = ROOT / "CITATION.cff"
     assert _yaml_scalar(citation, "version") == __version__
