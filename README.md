@@ -20,6 +20,8 @@ data, available as a desktop app, in your browser and in Jupyter.
 The `main` branch includes changes after published **0.4.13**. Desktop downloads
 and PyPI still provide that release; use the [source setup](https://v-ase.readthedocs.io/en/latest/agent-setup.html)
 for the current GitHub code and its matching Skill.
+Source pushes verify that source; desktop installer packaging is an explicit
+maintainer step after its matching scientific wheel is published.
 
 The desktop workspace has **document tabs across the top**, the v_ase logo, a
 Scene sidebar, a framed scientific canvas and a precise inspector. Choose

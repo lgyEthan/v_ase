@@ -7,7 +7,8 @@ document shortcuts, single-instance file opening and safe Quit.
 
 ## Pre-publication Windows check
 
-`Verify desktop source before publication` runs the current candidate source in
+`Verify desktop source before publication` runs on `main` and candidate branches,
+using the current source in
 Windows Electron before the version exists on PyPI. It checks native selection
 and constraint pixels, panel scrolling at 100/125/150% zoom, shortcuts, saved
 projects and window lifecycles. These are validation files, never distributable
@@ -180,7 +181,11 @@ Native captures/renderer calls have deadlines, and smoke prevents display sleep
 and background animation throttling while running, so an unresponsive compositor
 fails with evidence instead of waiting indefinitely.
 
-`.github/workflows/desktop.yml` tests Apple silicon, Intel Mac and Windows
+After the matching scientific wheel is published, explicitly dispatch
+`.github/workflows/desktop.yml` with `gh workflow run desktop.yml --ref RELEASE_TAG`
+using the tag or branch pointing to the tested release commit.
+Source pushes run source verification instead of packaging an older public wheel.
+The packaging workflow tests Apple silicon, Intel Mac and Windows
 independently, then repeats tests against each packaged app. It retains build
 candidates and evidence as workflow artifacts. It deliberately does **not**
 publish those ad-hoc Mac builds: an automatic `--clobber` must never replace a

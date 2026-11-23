@@ -217,6 +217,13 @@ def test_release_contract_covers_user_agent_and_rendered_docs():
     ):
         assert required in contract
         assert required in checklist
+    packaging = (ROOT / ".github/workflows/desktop.yml").read_text(encoding="utf-8")
+    source = (ROOT / ".github/workflows/desktop-source.yml").read_text(encoding="utf-8")
+    packaging_triggers = packaging.split("\non:\n", 1)[1].split("\npermissions:", 1)[0]
+    assert set(re.findall(r"^  ([a-z_]+):", packaging_triggers, re.MULTILINE)) == {
+        "workflow_dispatch"
+    }, "Source pushes must not package an older published scientific wheel"
+    assert re.search(r'^    branches:.*"main"', source, re.MULTILINE)
 
 
 def test_readme_render_assets_are_synchronized_for_github():

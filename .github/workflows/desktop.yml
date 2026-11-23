@@ -1,9 +1,6 @@
 name: Build and verify desktop apps
 
 on:
-  push:
-    branches: [main]
-    paths: ["desktop/**", ".github/workflows/desktop.yml"]
   workflow_dispatch:
 
 permissions:

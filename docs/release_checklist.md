@@ -83,7 +83,10 @@ and rendered examples in sync.
 12. Install the published wheel in a clean environment and verify
    `v_ase --version`, `v_ase gui`, canonical skill serving, and the documented
    end-to-end semantic workflow.
-13. For desktop releases, follow `desktop/README.md` for the tested CI artifact
+13. For desktop releases, publish the matching scientific wheel first, then
+    explicitly dispatch `desktop.yml` at the release commit. `main` and candidate
+    pushes verify current source through `desktop-source.yml`; they do not start
+    packaging against an older public wheel. Follow `desktop/README.md` for the tested CI artifact
     and local Developer ID/notarization promotion procedure. All three platform
     jobs must pass; CI's ad-hoc candidates are not public Mac releases. Sign
     both Mac architectures including their private runtimes, repeat packaged

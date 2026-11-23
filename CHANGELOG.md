@@ -5,6 +5,8 @@
 - Publish the accumulated source/UI fixes on GitHub main with matching manuals,
   canonical Skill, explicit npx discovery, and an agent-readable setup entry.
   Distinguish main source from the unchanged published 0.4.13 installers/PyPI.
+- Verify current desktop source on main/candidate pushes. Dispatch installer
+  packaging explicitly after its matching scientific wheel is published.
 
 - Default single-file Open to a new tab when a document contains work; keep
   replacement and trajectory append explicit. Make multi-file destinations and

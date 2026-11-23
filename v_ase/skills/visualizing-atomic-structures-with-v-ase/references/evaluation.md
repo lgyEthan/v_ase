@@ -50,6 +50,10 @@ Review both lists whenever the skill description changes.
 
 Before every release:
 
+For desktop work, `desktop-source.yml` verifies current source on main/candidate
+pushes. Explicitly dispatch `desktop.yml` only after the matching scientific wheel
+is published; that packaging workflow installs the published wheel.
+
 1. start `v_ase gui EXAMPLE --cli`;
 2. parse the first-line handshake and verify later stdout remains valid NDJSON;
 3. open `human_url`, then call `capabilities` through
