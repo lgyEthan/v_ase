@@ -4,23 +4,22 @@ Install the scientific Skill so your agent knows how to use v_ase, then connect
 MCP so it can call the live tools. The Skill installer does not install the
 scientific Python runtime or register an MCP server.
 
-This `main` guide includes source changes after published **0.4.13**. Existing
-desktop downloads and PyPI remain the published release. Match the Skill and
-runtime channel below; a shared version number alone does not identify a local
-source build.
+This guide describes the synchronized **0.4.14** Python, desktop and Skill release.
+Match the Skill and runtime channel below; development snapshots should use the
+same commit rather than relying only on a shared version number.
 
 ## Choose a matching runtime and Skill
 
 | Your runtime | Skill source |
 | --- | --- |
-| Current Python source, or a development host explicitly using that source runtime | `lgyEthan/v_ase` |
-| Published desktop app or PyPI **0.4.13** | `lgyEthan/v_ase@v0.4.13` |
-| A specific source commit or release tag | The same commit or tag in `owner/repo@REF` |
+| Released desktop app or PyPI **0.4.14** | `lgyEthan/v_ase@v0.4.14` |
+| Older desktop app or PyPI **0.4.13** | `lgyEthan/v_ase@v0.4.13` |
+| Current Python development source | The same commit or `lgyEthan/v_ase` for matching `main` |
+| A specific release tag or source commit | The same ref in `owner/repo@REF` |
 
-The commands below target current GitHub source. For published 0.4.13, replace
-the Skill source as shown above and install `v_ase-gui[mcp]==0.4.13` instead of
-the source package. The [release page](https://github.com/lgyEthan/v_ase/releases/tag/v0.4.13)
-contains the published desktop downloads.
+The commands below install the 0.4.14 release. The
+[release page](https://github.com/lgyEthan/v_ase/releases/tag/v0.4.14) contains
+matching desktop downloads.
 
 ## Install the Skill with npx
 
@@ -29,7 +28,7 @@ without Node.js. Choose the coding clients you use; this example targets all
 three and makes the Skill available across projects:
 
 ```bash
-npx skills@latest add lgyEthan/v_ase \
+npx skills@latest add lgyEthan/v_ase@v0.4.14 \
   --skill visualizing-atomic-structures-with-v-ase \
   -a claude-code codex cursor -g -y
 ```
@@ -61,18 +60,22 @@ clients; ChatGPT web/app uses the [connected MCP/plugin workflow](chatgpt-local.
 
 ## Install a matching runtime
 
-For current GitHub source, use a fresh Python environment with Python 3.10 or newer:
+For the release, use a Python environment with Python 3.10 or newer:
 
 ```bash
-python -m pip install "v_ase-gui[mcp] @ git+https://github.com/lgyEthan/v_ase.git@main"
+python -m pip install "v_ase-gui[mcp]==0.4.14"
 v_ase --version
 ```
 
-An existing source checkout can instead use `python -m pip install '.[mcp]'`.
-When replacing an already installed 0.4.13 snapshot in an existing environment,
-add `--force-reinstall`: the source version string has not yet been advanced for
-a new public release. Verify the imported source and tool contract, not only
-`v_ase --version`.
+For development, install current source and select the matching source Skill:
+
+```bash
+python -m pip install "v_ase-gui[mcp] @ git+https://github.com/lgyEthan/v_ase.git@main"
+```
+
+An existing source checkout can use `python -m pip install '.[mcp]'`.
+For a different snapshot with the same version string, add `--force-reinstall`
+or use a fresh environment. Verify the imported source and live tool contract.
 The optional `rhino` extra adds Rhino export. A desktop app already contains
 its Python runtime and MCP adapter; it does not add `v_ase` to your terminal PATH.
 Use the bundled Python as explained below rather than modifying a separate

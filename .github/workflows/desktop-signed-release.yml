@@ -1,0 +1,98 @@
+name: Verify signed desktop release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag containing the signed candidate assets
+        required: true
+      arm64_zip_sha256:
+        description: Expected Apple silicon ZIP SHA-256
+        required: true
+      x64_zip_sha256:
+        description: Expected Intel ZIP SHA-256
+        required: true
+      arm64_dmg_sha256:
+        description: Expected Apple silicon DMG SHA-256
+        required: true
+      x64_dmg_sha256:
+        description: Expected Intel DMG SHA-256
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  signed-mac:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            arch: arm64
+          - runner: macos-15-intel
+            arch: x64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    env:
+      RELEASE_TAG: ${{ inputs.tag }}
+      RELEASE_ARCH: ${{ matrix.arch }}
+      ARM64_ZIP_SHA256: ${{ inputs.arm64_zip_sha256 }}
+      X64_ZIP_SHA256: ${{ inputs.x64_zip_sha256 }}
+      ARM64_DMG_SHA256: ${{ inputs.arm64_dmg_sha256 }}
+      X64_DMG_SHA256: ${{ inputs.x64_dmg_sha256 }}
+      V_ASE_SOFTWARE_GL: '1'
+      V_ASE_SMOKE_DIR: ${{ github.workspace }}/desktop/smoke-output/signed-release
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Download and bind the signed candidate bytes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          VERSION="${RELEASE_TAG#v}"
+          mkdir -p signed-downloads signed-app desktop/smoke-output/signed-release
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --pattern "v_ase-${VERSION}-mac-${RELEASE_ARCH}.zip" \
+            --pattern "v_ase-${VERSION}-mac-${RELEASE_ARCH}.dmg" --dir signed-downloads
+          python - <<'PY'
+          import hashlib, os
+          from pathlib import Path
+          arch = os.environ['RELEASE_ARCH']
+          version = os.environ['RELEASE_TAG'][1:]
+          for kind in ('zip', 'dmg'):
+              expected = os.environ[f'{arch.upper()}_{kind.upper()}_SHA256']
+              path = Path(f'signed-downloads/v_ase-{version}-mac-{arch}.{kind}')
+              assert len(expected) == 64 and hashlib.sha256(path.read_bytes()).hexdigest() == expected, path
+          PY
+          ditto -x -k "signed-downloads/v_ase-${VERSION}-mac-${RELEASE_ARCH}.zip" signed-app
+      - name: Verify signed code, tickets, Gatekeeper and scientific identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          python desktop/scripts/verify_macos.py signed-app/v_ase.app --team-id B89YQRGQ6C --notarized \
+            > desktop/smoke-output/signed-release/signature.json
+          python desktop/scripts/verify_scientific_payload.py signed-app/v_ase.app --version "${RELEASE_TAG#v}" \
+            > desktop/smoke-output/signed-release/scientific-payload.json
+          spctl --assess --type open --context context:primary-signature --verbose=2 \
+            "signed-downloads/v_ase-${RELEASE_TAG#v}-mac-${RELEASE_ARCH}.dmg"
+      - name: Exercise the final signed app on a dedicated Mac
+        run: python desktop/scripts/test_packaged.py --app signed-app/v_ase.app
+      - name: Recheck the sealed bundle after use
+        run: python desktop/scripts/verify_macos.py signed-app/v_ase.app --team-id B89YQRGQ6C --notarized
+      - name: Keep public validation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: signed-release-${{ matrix.arch }}
+          path: |
+            desktop/smoke-output/signed-release/result.json
+            desktop/smoke-output/signed-release/signature.json
+            desktop/smoke-output/signed-release/scientific-payload.json
+            desktop/smoke-output/signed-release/*.png
+          retention-days: 14

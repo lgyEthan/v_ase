@@ -1,13 +1,13 @@
-import { restoreWindowDocument } from './workspace_windows.js?v=0.4.13';
-import { projectProvenanceFromLoad } from './project_provenance.js?v=0.4.13';
-import { captureDocumentRecovery, restoreDocumentRecovery } from './workspace_recovery.js?v=0.4.13';
-import { createWorkspaceAIBridge, handleWorkspaceAICommand } from './workspace_ai.js?v=0.4.13';
-import { installShortcutCapture } from './shortcut_capture.js?v=0.4.13';
-import { navigateWorkspaceDocument } from './workspace_navigation.js?v=0.4.13';
-import { installInterfaceControls } from './interface.js?v=0.4.13&ui=20261111.1';
-import { renderSceneNavigator } from './scene_navigator.js?v=0.4.13&ui=20261111.1';
+import { restoreWindowDocument } from './workspace_windows.js?v=0.4.14';
+import { projectProvenanceFromLoad } from './project_provenance.js?v=0.4.14';
+import { captureDocumentRecovery, restoreDocumentRecovery } from './workspace_recovery.js?v=0.4.14';
+import { createWorkspaceAIBridge, handleWorkspaceAICommand } from './workspace_ai.js?v=0.4.14';
+import { installShortcutCapture } from './shortcut_capture.js?v=0.4.14';
+import { navigateWorkspaceDocument } from './workspace_navigation.js?v=0.4.14';
+import { installInterfaceControls } from './interface.js?v=0.4.14&ui=20261111.1';
+import { renderSceneNavigator } from './scene_navigator.js?v=0.4.14&ui=20261111.1';
 import { commandIdForEvent, editorAriaShortcut, editorShortcutLabel, resolveShortcutPlatform,
-    viewportNavigationForEvent, documentCommandIdForEvent } from './editor_commands.js?v=0.4.13&ui=20261111.1';
+    viewportNavigationForEvent, documentCommandIdForEvent } from './editor_commands.js?v=0.4.14&ui=20261111.1';
 
 class VAseWorkspace {
     constructor() {

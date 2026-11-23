@@ -62,6 +62,8 @@ jobs:
         run: npm run dist
       - name: Test the packaged application and relocated Python
         run: python scripts/test_packaged.py
+      - name: Match every scientific file to the published wheel
+        run: python scripts/verify_scientific_payload.py
       - name: Verify Windows install and uninstall file associations
         if: runner.os == 'Windows'
         run: python scripts/test_windows_associations.py

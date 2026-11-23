@@ -53,6 +53,10 @@ Before every release:
 For desktop work, `desktop-source.yml` verifies current source on main/candidate
 pushes. Explicitly dispatch `desktop.yml` only after the matching scientific wheel
 is published; that packaging workflow installs the published wheel.
+The release verifier compares all bundled v_ase files with that wheel. After
+Mac signing and stapling, run `desktop-signed-release.yml` against checksum-bound
+candidate assets on dedicated Mac runners. Do not take focus or send OS input
+on a researcher's personal computer to collect release GUI evidence.
 
 1. start `v_ase gui EXAMPLE --cli`;
 2. parse the first-line handshake and verify later stdout remains valid NDJSON;

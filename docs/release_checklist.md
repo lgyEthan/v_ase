@@ -90,7 +90,8 @@ and rendered examples in sync.
     and local Developer ID/notarization promotion procedure. All three platform
     jobs must pass; CI's ad-hoc candidates are not public Mac releases. Sign
     both Mac architectures including their private runtimes, repeat packaged
-    GUI tests, require Apple **Accepted** for app and DMG, staple both, and
+    GUI tests on dedicated runners, require Apple **Accepted** for app and DMG,
+    staple both, and
     verify every native component plus Gatekeeper. Publish checksums computed
     after stapling, public signing evidence, matching desktop source, and clear
     Mac/Windows installation instructions. Re-download and verify the actual

@@ -64,7 +64,7 @@ html_theme_options = {
     "titles_only": True,
 }
 html_context = {
-    "vase_unreleased_source": os.environ.get("READTHEDOCS_VERSION_TYPE", "branch") != "tag",
+    "vase_unreleased_source": False,  # main and the release tag describe 0.4.14.
     "display_github": True,
     "github_user": "lgyEthan",
     "github_repo": "v_ase",

@@ -4,7 +4,7 @@ This page records what the 0.3.1 audit establishes and how to reproduce it.
 It separates mathematical correctness of a calculation from physical validity
 of the model supplied to that calculation.
 
-For the current unreleased fixes, see the illustrated
+For the 0.4.14 fixes, see the illustrated
 [source audit by feature](scientific-source-audit.md). The results below are
 the historical 0.3.1 audit.
 

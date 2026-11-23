@@ -2,9 +2,15 @@
 
 ## Unreleased
 
-- Publish the accumulated source/UI fixes on GitHub main with matching manuals,
-  canonical Skill, explicit npx discovery, and an agent-readable setup entry.
-  Distinguish main source from the unchanged published 0.4.13 installers/PyPI.
+No changes yet.
+
+## 0.4.14
+
+Released 2026-11-23.
+
+- Release the accumulated source/UI fixes with matching Python and desktop
+  version 0.4.14, synchronized manuals and canonical Skill, npx discovery, and
+  an agent-readable setup entry.
 - Verify current desktop source on main/candidate pushes. Dispatch installer
   packaging explicitly after its matching scientific wheel is published.
 

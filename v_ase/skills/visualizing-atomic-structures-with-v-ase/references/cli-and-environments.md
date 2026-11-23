@@ -8,7 +8,7 @@ A cloud agent still needs the documented MCP/tunnel setup; its own localhost
 cannot reach a person's desktop app.
 
 For desktop installation, use the [step-by-step user guide](https://v-ase.readthedocs.io/en/latest/desktop.html).
-The 0.4.13 downloads are Mac DMGs (Apple silicon or Intel, macOS 15+) and a
+The 0.4.14 downloads are Mac DMGs (Apple silicon or Intel, macOS 15+) and a
 Windows x64 EXE installer (Windows 10/11). Mac users copy the app to Applications;
 Windows users complete the installer and launch from Start. ZIPs require full
 extraction; the Windows ZIP does not install file associations. Check the
@@ -40,29 +40,27 @@ separately for VASP. Setting a default app does not convert file contents.
 
 ## Installation
 
-Match the runtime, MCP adapter and Skill to the same source channel. This
-Skill from `main` describes changes after published 0.4.13. For current source,
-use a fresh Python environment:
+Match the runtime, MCP adapter and Skill to the same version. For released
+0.4.14, install its runtime and select `lgyEthan/v_ase@v0.4.14` in the Skill
+installer:
+
+```bash
+python -m pip install "v_ase-gui[mcp]==0.4.14"
+```
+
+For current GitHub source, use a fresh Python environment and the same Skill ref:
 
 ```bash
 python -m pip install "v_ase-gui[mcp] @ git+https://github.com/lgyEthan/v_ase.git@main"
 ```
 
-If replacing an installed snapshot with the same version string, use a fresh
-environment or `--force-reinstall`. Inspect the live tool contract and source
-origin; a version string alone does not identify the source commit.
+If replacing a snapshot with the same version string, use a fresh environment
+or `--force-reinstall`. Inspect the live tool contract and source origin.
 
-For published 0.4.13 instead, install its runtime and select
-`lgyEthan/v_ase@v0.4.13` in the optional Skill installer:
+Optional Rhino export for the release:
 
 ```bash
-python -m pip install "v_ase-gui[mcp]==0.4.13"
-```
-
-Optional Rhino export for the current source:
-
-```bash
-python -m pip install "v_ase-gui[mcp,rhino] @ git+https://github.com/lgyEthan/v_ase.git@main"
+python -m pip install "v_ase-gui[mcp,rhino]==0.4.14"
 ```
 
 Runtime dependencies are ASE, matscipy, FastAPI, Uvicorn, NumPy, SciPy,
@@ -79,7 +77,7 @@ the complete environment with the same interpreter instead of replacing NumPy
 alone:
 
 ```bash
-python -m pip install --upgrade --force-reinstall "v_ase-gui[mcp] @ git+https://github.com/lgyEthan/v_ase.git@main"
+python -m pip install --upgrade --force-reinstall "v_ase-gui[mcp]==0.4.14"
 ```
 
 v_ase uses the `AGPL-3.0-or-later` license. Preserve the license and source

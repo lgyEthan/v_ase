@@ -1,4 +1,4 @@
-import { editorIcon } from './editor_interactions.js?v=0.4.13&ui=20261111.1';
+import { editorIcon } from './editor_interactions.js?v=0.4.14&ui=20261111.1';
 
 // A presentation of the editor's actual scene entries. Both the standalone
 // navigator and workspace parent use the same rows; actions stay in the editor.

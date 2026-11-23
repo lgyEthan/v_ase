@@ -60,16 +60,16 @@
     } catch {}
 })();
     </script>
-    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.4.13&ui=20261111.2">
-    <link id="editor-style" rel="stylesheet" href="static/editor.css?v=0.4.13">
-    <link id="direct-workspace-style" rel="stylesheet" href="static/direct_workspace.css?v=0.4.13">
-    <link id="interface-style" rel="stylesheet" href="static/interface.css?v=0.4.13&ui=20261111.1">
-    <link id="workspace-layout-style" rel="stylesheet" href="static/workspace_layout.css?v=0.4.13&ui=20261111.1">
+    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.4.14&ui=20261111.2">
+    <link id="editor-style" rel="stylesheet" href="static/editor.css?v=0.4.14">
+    <link id="direct-workspace-style" rel="stylesheet" href="static/direct_workspace.css?v=0.4.14">
+    <link id="interface-style" rel="stylesheet" href="static/interface.css?v=0.4.14&ui=20261111.1">
+    <link id="workspace-layout-style" rel="stylesheet" href="static/workspace_layout.css?v=0.4.14&ui=20261111.1">
     <script>
         window.__V_ASE_MOCK__ = new URLSearchParams(window.location.search).has('v_ase_mock');
         const threeModulePath = window.location.protocol === 'file:'
             ? './vendor/three.module.js'
-            : '/static/vendor/three.module.js?v=0.4.13';
+            : '/static/vendor/three.module.js?v=0.4.14';
         const importMap = document.createElement('script');
         importMap.type = 'importmap';
         importMap.textContent = JSON.stringify({
@@ -87,7 +87,7 @@
             document.getElementById('ui-palettes-style').href = './ui_palettes.css';
         }
     </script>
-    <link id="ui-palettes-style" rel="stylesheet" href="/static/ui_palettes.css?v=0.4.13&ui=20261111.1">
+    <link id="ui-palettes-style" rel="stylesheet" href="/static/ui_palettes.css?v=0.4.14&ui=20261111.1">
 </head>
 <body class="editor-shell" data-viewport-background="white">
     <header id="editor-document-strip" class="document-strip" aria-label="Documents">
@@ -202,7 +202,7 @@
         <button id="editor-sidebar-toggle" class="toolbar-icon-button" type="button" aria-label="Toggle navigator" aria-pressed="true" title="Toggle navigator"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16"/></svg></button>
         <div class="logo">
             <span class="interface-wordmark" aria-label="v_ase">v<span>_</span>ase</span>
-            <span class="version">0.4.13</span>
+            <span class="version">0.4.14</span>
         </div>
         <div class="document-menu-anchor"><button id="editor-menu-toggle" class="toolbar-icon-button" type="button" aria-label="Document menu" aria-expanded="false" aria-controls="editor-menu-bar" title="Document menu"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg></button>
         <nav id="editor-menu-bar" class="editor-menu-bar" aria-label="Document commands">
@@ -2586,7 +2586,7 @@
         }
         const modulePath = (window.location.protocol === 'file:' || window.location.pathname.endsWith('/static/index.html'))
             ? './main.js'
-            : './static/main.js?v=0.4.13&ui=20261111.2';
+            : './static/main.js?v=0.4.14&ui=20261111.2';
         import(modulePath).catch(error => {
             console.error('v_ase failed to initialize:', error?.stack || error);
         });

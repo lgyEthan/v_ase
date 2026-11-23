@@ -55,7 +55,7 @@ Do not load every reference into context when only one is relevant.
 The optional installer accepts the canonical directory directly from GitHub:
 
 ```bash
-npx skills@latest add lgyEthan/v_ase \
+npx skills@latest add lgyEthan/v_ase@v0.4.14 \
   --skill visualizing-atomic-structures-with-v-ase \
   -a claude-code codex cursor -g -y
 ```
@@ -65,8 +65,8 @@ Use `--list` to inspect without installing. This installs the complete Skill
 and references; registering an MCP server is a separate step. Node.js 22.20+
 is needed only for this optional installer, not for running v_ase.
 
-Match the source channel: this Skill from `main` describes current GitHub Python
-source; a published 0.4.13 runtime should use `lgyEthan/v_ase@v0.4.13` instead.
+Match the source channel: the released 0.4.14 runtime uses
+`lgyEthan/v_ase@v0.4.14`; a development checkout uses its matching source ref.
 See [installation](cli-and-environments.md#installation) for matching runtime
 commands, and [the user setup guide](https://v-ase.readthedocs.io/en/latest/agent-setup.html)
 for desktop-only MCP executable paths.

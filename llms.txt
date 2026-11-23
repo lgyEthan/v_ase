@@ -4,7 +4,7 @@
 
 ## Agent setup
 
-This branch contains source changes after the published 0.4.13 release. Match the runtime, MCP adapter and Skill to the same source channel. Publishing this guide does not update PyPI or the desktop installers.
+This guide describes v_ase 0.4.14. Match the Python runtime, desktop app, MCP adapter and Skill to the same release or development source ref.
 
 - Setup guide: https://v-ase.readthedocs.io/en/latest/agent-setup.html
 - Scientific Skill: https://github.com/lgyEthan/v_ase/tree/main/v_ase/skills/visualizing-atomic-structures-with-v-ase
@@ -14,12 +14,12 @@ This branch contains source changes after the published 0.4.13 release. Match th
 Install the current source Skill for the coding clients the user selects:
 
 ```bash
-npx skills@latest add lgyEthan/v_ase --skill visualizing-atomic-structures-with-v-ase -a claude-code codex cursor -g -y
+npx skills@latest add lgyEthan/v_ase@v0.4.14 --skill visualizing-atomic-structures-with-v-ase -a claude-code codex cursor -g -y
 ```
 
 The command installs instructions and their references. Install/configure the v_ase runtime and MCP connection separately. Use only the clients and project/global scope requested by the user; preserve unrelated MCP servers and existing environment configuration.
 
-For the published 0.4.13 runtime, select the matching Skill with `lgyEthan/v_ase@v0.4.13` instead. For current GitHub source in a Python environment:
+For the published 0.4.14 runtime, install `v_ase-gui[mcp]==0.4.14` and use the matching Skill tag. Older runtimes use their corresponding tag. For current GitHub source in a Python environment:
 
 ```bash
 python -m pip install "v_ase-gui[mcp] @ git+https://github.com/lgyEthan/v_ase.git@main"

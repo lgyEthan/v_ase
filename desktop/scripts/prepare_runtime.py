@@ -96,7 +96,7 @@ def main():
                    check=True, env=environment)
     subprocess.run([str(interpreter), "-I", "-m", "pip", "check"], check=True)
     subprocess.run([str(interpreter), "-I", "-c",
-                    "from v_ase._version import __version__; assert __version__ == '0.4.13'; "
+                    "from v_ase._version import __version__; assert __version__ == '0.4.14'; "
                     "import ase, matscipy, skimage, rhino3dm, mcp; print('Runtime verified:', __version__)"], check=True)
     if key == ("Darwin", "x86_64"):
         extension = next((runtime / "python").glob("lib/python3.11/site-packages/cryptography/hazmat/bindings/_rust*.so"))
@@ -104,14 +104,20 @@ def main():
         if "libcrypto" in links or "libssl" in links or "/usr/local/" in links or "/opt/homebrew/" in links:
             raise SystemExit(f"Cryptography must not require the build machine's libraries:\n{links}")
         print("Intel cryptography has no external OpenSSL dependency", flush=True)
-    # The scientific package is the published wheel. Ship the synchronized
-    # agent documentation with the additional desktop connection instructions.
+    # Preserve every published wheel byte, including its canonical Skill.
+    # Git checkouts can use CRLF on Windows, so compare source guide text
+    # without replacing the installed release resources.
     package = Path(subprocess.check_output([str(interpreter), "-I", "-X", "utf8", "-c",
         "import pathlib,v_ase; print(pathlib.Path(v_ase.__file__).parent)"], text=True).strip())
     skill = "visualizing-atomic-structures-with-v-ase"
-    shutil.copytree(ROOT.parent / "v_ase/skills" / skill, package / "skills" / skill, dirs_exist_ok=True)
+    source_skill = ROOT.parent / "v_ase/skills" / skill
+    for source in source_skill.rglob("*"):
+        if source.is_file() and source.suffix in {".md", ".yaml"}:
+            installed = package / "skills" / skill / source.relative_to(source_skill)
+            if not installed.is_file() or installed.read_text(encoding="utf-8") != source.read_text(encoding="utf-8"):
+                raise SystemExit("Publish the matching canonical Skill before packaging the desktop app")
     (runtime / "python" / "v_ase-desktop-runtime.json").write_text(json.dumps({
-        "v_ase": "0.4.13", "python": PYTHON, "source": name, "sha256": expected,
+        "v_ase": "0.4.14", "python": PYTHON, "source": name, "sha256": expected,
         "platform": target,
         "agent_documentation": "Canonical repository Skill with desktop connection guidance",
     }, indent=2) + "\n")

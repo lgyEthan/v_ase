@@ -10,8 +10,8 @@ CLI and native function adapters share the same scientific backend.
 Install the complete Skill in the client's documented local directory; keep
 personal client configuration outside shared projects and release artifacts.
 The optional `npx skills` installer is documented in
-`references/agent-setup.md`. Match the Skill's Git ref to its runtime; `main`
-contains changes after published 0.4.13. Installing a Skill does not register MCP.
+`references/agent-setup.md`. Match the Skill's Git ref to its runtime; this guide describes v_ase 0.4.14.
+Use the matching `v0.4.14` tag for a released runtime. Installing a Skill does not register MCP.
 The optional macOS/Windows desktop host uses the same GUI and API. To attach
 to an existing desktop document, use Help → Copy agent connection URL and the
 normal CLI/HTTP contract. Keep the app open; do not start another viewer or

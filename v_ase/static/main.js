@@ -1,40 +1,40 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.4.13';
-import { ASERenderer } from './renderer.js?v=0.4.13&ui=20261111.1';
-import { ASESelection } from './selection.js?v=0.4.13';
-import { ASETransform } from './transform.js?v=0.4.13';
-import { SelectedAppearanceEditor } from './selected_appearance.js?v=0.4.13';
-import { installActivityIndicators } from './ui_activity.js?v=0.4.13';
+import { ASEApi } from './api.js?v=0.4.14';
+import { ASERenderer } from './renderer.js?v=0.4.14&ui=20261111.1';
+import { ASESelection } from './selection.js?v=0.4.14';
+import { ASETransform } from './transform.js?v=0.4.14';
+import { SelectedAppearanceEditor } from './selected_appearance.js?v=0.4.14';
+import { installActivityIndicators } from './ui_activity.js?v=0.4.14';
 
-import { installPolyhedra } from './polyhedra.js?v=0.4.13&ui=20261111.1';
+import { installPolyhedra } from './polyhedra.js?v=0.4.14&ui=20261111.1';
 import { installWaterUI } from './water_ui.js';
-import { installAIScene } from './ai_scene.js?v=0.4.13';
-import { AtomScalarStore } from './atom_properties.js?v=0.4.13';
-import { DirectWorkspace } from './direct_workspace.js?v=0.4.13&ui=20261111.1';
-import { navigateWorkspaceDocument } from './workspace_navigation.js?v=0.4.13';
-import { projectProvenanceFromLoad } from './project_provenance.js?v=0.4.13';
-import { installShortcutCapture } from './shortcut_capture.js?v=0.4.13';
-import { openFileInWindow } from './workspace_windows.js?v=0.4.13';
-import { installEditorInteractions } from './editor_interactions.js?v=0.4.13&ui=20261111.1';
-import { WORKBENCH_ROUTES, WORKBENCH_LABELS, mountWorkbenchTools, syncWorkbenchRoute } from './editor_ui.js?v=0.4.13&ui=20261111.1';
-import { renderSceneNavigator } from './scene_navigator.js?v=0.4.13&ui=20261111.1';
-import { installResizeHandle, refreshRangeFills, updateRangeFill, syncModalIsolation, syncBusyIsolation, hideInterfaceTooltip, syncPanelToggle } from './interface.js?v=0.4.13&ui=20261111.1';
+import { installAIScene } from './ai_scene.js?v=0.4.14';
+import { AtomScalarStore } from './atom_properties.js?v=0.4.14';
+import { DirectWorkspace } from './direct_workspace.js?v=0.4.14&ui=20261111.1';
+import { navigateWorkspaceDocument } from './workspace_navigation.js?v=0.4.14';
+import { projectProvenanceFromLoad } from './project_provenance.js?v=0.4.14';
+import { installShortcutCapture } from './shortcut_capture.js?v=0.4.14';
+import { openFileInWindow } from './workspace_windows.js?v=0.4.14';
+import { installEditorInteractions } from './editor_interactions.js?v=0.4.14&ui=20261111.1';
+import { WORKBENCH_ROUTES, WORKBENCH_LABELS, mountWorkbenchTools, syncWorkbenchRoute } from './editor_ui.js?v=0.4.14&ui=20261111.1';
+import { renderSceneNavigator } from './scene_navigator.js?v=0.4.14&ui=20261111.1';
+import { installResizeHandle, refreshRangeFills, updateRangeFill, syncModalIsolation, syncBusyIsolation, hideInterfaceTooltip, syncPanelToggle } from './interface.js?v=0.4.14&ui=20261111.1';
 import {
     EDITOR_COMMANDS, commandIdForEvent, resolveShortcutPlatform,
     editorShortcutLabel, editorAriaShortcut, editorShortcutSearchTerms,
     viewportNavigationForEvent, DOCUMENT_COMMANDS, documentCommandIdForEvent, documentShortcutLabel
-} from './editor_commands.js?v=0.4.13&ui=20261111.1';
+} from './editor_commands.js?v=0.4.14&ui=20261111.1';
 import {
     DEFAULT_ATOM_RADIUS_MAPPING,
     atomRadiusFactors,
     normalizeAtomRadiusMapping,
     radiusMappingPreset
-} from './radius_mapping.js?v=0.4.13';
+} from './radius_mapping.js?v=0.4.14';
 import {
     interpolateTrajectoryFrames,
     interpolatedFrameCount,
     normalizeInterpolationMultiplier
-} from './trajectory.js?v=0.4.13';
+} from './trajectory.js?v=0.4.14';
 
 const EDITOR_ROUTES = Object.freeze({
     'structure-info': { group: 'inspect', category: 'scene', title: 'Scene overview' },
@@ -27084,7 +27084,7 @@ class VAseApp {
     }
 
     async showOpenFilesModal(entries, options = {}) {
-        const { queueFileOpen } = await import('./file_open_batch.js?v=0.4.13&ui=20261111.2');
+        const { queueFileOpen } = await import('./file_open_batch.js?v=0.4.14&ui=20261111.2');
         return queueFileOpen(this, entries, options);
     }
 

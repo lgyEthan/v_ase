@@ -1,5 +1,14 @@
 # What is new
 
+## 0.4.14
+
+- Synchronized Python, Mac/Windows desktop and agent Skill release.
+- Refined desktop layout, themes, category menus and global Find tools.
+- Reliable CIF symmetry loading and configurable coordination polyhedra.
+- Multi-file tab/trajectory choices and new-tab file opening by default.
+- Uniform bond colors, preserved edit history, and stable native controls.
+- Install the complete Skill with npx; match its Git tag to the runtime.
+
 ## 0.4.13
 
 - Cartesian axis lines remain visible across the canvas in orthographic views

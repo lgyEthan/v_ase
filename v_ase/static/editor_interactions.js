@@ -1,4 +1,4 @@
-import { installInterfaceControls } from './interface.js?v=0.4.13&ui=20261111.1';
+import { installInterfaceControls } from './interface.js?v=0.4.14&ui=20261111.1';
 // Shared editor chrome. Scientific state and mutations remain in ASEApp.
 const paths = {
     grid: '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18M15 3v18M3 9h18M3 15h18"/>',

@@ -102,17 +102,16 @@ Desktop updates are described in [Update or uninstall](desktop.md#update-or-unin
 
 ## Source checkout
 
-The `main` documentation contains changes after published 0.4.13. To use that
-source snapshot in a fresh Python environment:
+For the published 0.4.14 runtime, use the Python installation above. To develop
+against current GitHub source in a fresh environment:
 
 ```bash
 python -m pip install "v_ase-gui @ git+https://github.com/lgyEthan/v_ase.git@main"
 ```
 
-The `mcp` extra adds the agent adapter; use [agent setup](agent-setup.md) to
-install the matching Skill. Existing desktop downloads and the normal PyPI
-command above still install published 0.4.13. For an existing environment with
-another 0.4.13 snapshot, use a fresh environment or add `--force-reinstall`.
+The `mcp` extra adds the agent adapter; [agent setup](agent-setup.md) explains
+release-pinned and development Skill sources. For another snapshot with the
+same version string, use a fresh environment or add `--force-reinstall`.
 To change the code itself, see [Contributing](development.md).
 
 ## Next step

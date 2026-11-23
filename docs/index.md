@@ -35,9 +35,8 @@ Start with the desktop app or use v_ase from Python and Jupyter.
 Each guide includes the controls and examples for that task. If something does
 not work, start with [Troubleshooting](troubleshooting.md).
 
-This `main` manual includes **unreleased changes after v_ase 0.4.13**.
-Published desktop installers and PyPI remain 0.4.13. For the current code and
-matching Skill, follow [source setup](agent-setup.md). [What's new](whats-new.md).
+This manual describes **v_ase 0.4.14**. The Python package, desktop apps and
+canonical Skill use the same release. [What's new](whats-new.md).
 
 ```{toctree}
 :caption: Get started
