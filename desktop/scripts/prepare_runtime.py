@@ -60,6 +60,7 @@ def published_wheel(root: Path) -> Path:
 def main():
     if sys.version_info < (3, 12):
         raise SystemExit('Run this build helper with Python 3.12 or newer (the bundled runtime is Python 3.11).')
+    version = json.loads((ROOT / "package.json").read_text())["version"]
     key = (platform.system(), platform.machine())
     if key not in RUNTIMES:
         raise SystemExit(f"Build on the target OS and architecture: {key!r} is unsupported")
@@ -96,7 +97,7 @@ def main():
                    check=True, env=environment)
     subprocess.run([str(interpreter), "-I", "-m", "pip", "check"], check=True)
     subprocess.run([str(interpreter), "-I", "-c",
-                    "from v_ase._version import __version__; assert __version__ == '0.4.14'; "
+                    f"from v_ase._version import __version__; assert __version__ == {version!r}; "
                     "import ase, matscipy, skimage, rhino3dm, mcp; print('Runtime verified:', __version__)"], check=True)
     if key == ("Darwin", "x86_64"):
         extension = next((runtime / "python").glob("lib/python3.11/site-packages/cryptography/hazmat/bindings/_rust*.so"))
@@ -117,7 +118,7 @@ def main():
             if not installed.is_file() or installed.read_text(encoding="utf-8") != source.read_text(encoding="utf-8"):
                 raise SystemExit("Publish the matching canonical Skill before packaging the desktop app")
     (runtime / "python" / "v_ase-desktop-runtime.json").write_text(json.dumps({
-        "v_ase": "0.4.14", "python": PYTHON, "source": name, "sha256": expected,
+        "v_ase": version, "python": PYTHON, "source": name, "sha256": expected,
         "platform": target,
         "agent_documentation": "Canonical repository Skill with desktop connection guidance",
     }, indent=2) + "\n")

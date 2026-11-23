@@ -123,6 +123,9 @@ MCP image inspection returns an image content block. A native-function host must
 recognize `delivery="image"`, read the validated artifact bytes and embed image
 input using its model API. Never serialize those bytes/Base64 as text. Consume
 structuredContent or its text fallback once, not both as duplicate context.
+For the Python `FunctionTools` adapter, `read_artifact(uri)` returns
+`(metadata, content_bytes)`. Unpack that pair and embed `content_bytes`; retain
+the originating adapter because artifact access is scoped to its live session.
 
 ## Scientific and collaboration guarantees
 

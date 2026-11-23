@@ -50,6 +50,11 @@ Review both lists whenever the skill description changes.
 
 Before every release:
 
+Verify the backend's exact runtime version and imported package path before
+recording a release pass. A generic `v_ase` on PATH can target an older installed
+package despite a newer working tree. Use the intended environment's absolute
+executable and reject an audit whose reported version differs from the release.
+
 For desktop work, `desktop-source.yml` verifies current source on main/candidate
 pushes. Explicitly dispatch `desktop.yml` only after the matching scientific wheel
 is published; that packaging workflow installs the published wheel.

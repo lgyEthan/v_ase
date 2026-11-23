@@ -61,8 +61,17 @@ def test_local_markdown_links_resolve():
 
 
 def test_release_version_is_synchronized():
+    import json
+
     project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     assert project["project"]["version"] == __version__
+    for filename in ("package.json", "package-lock.json"):
+        desktop = json.loads((ROOT / "desktop" / filename).read_text(encoding="utf-8"))
+        assert desktop["version"] == __version__
+        if filename == "package-lock.json":
+            assert desktop["packages"][""]["version"] == __version__
+    runtime = (ROOT / "desktop/requirements-runtime.txt").read_text(encoding="utf-8")
+    assert f"v_ase-gui[mcp,rhino]=={__version__}" in runtime
 
     versioned_assets = [
         ROOT / "v_ase/static/index.html",
