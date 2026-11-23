@@ -5,18 +5,23 @@ on:
     inputs:
       tag:
         description: Release tag containing the signed candidate assets
+        type: string
         required: true
       arm64_zip_sha256:
         description: Expected Apple silicon ZIP SHA-256
+        type: string
         required: true
       x64_zip_sha256:
         description: Expected Intel ZIP SHA-256
+        type: string
         required: true
       arm64_dmg_sha256:
         description: Expected Apple silicon DMG SHA-256
+        type: string
         required: true
       x64_dmg_sha256:
         description: Expected Intel DMG SHA-256
+        type: string
         required: true
 
 permissions:
