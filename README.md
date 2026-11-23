@@ -22,6 +22,8 @@ and scientific Skill. Use the [agent setup guide](https://v-ase.readthedocs.io/e
 to install the matching runtime and Skill.
 Source pushes verify that source; desktop installer packaging is an explicit
 maintainer step after its matching scientific wheel is published.
+Desktop release checks repeat native selection, constraint and axis pixel
+verification ten times before promotion, including the final signed Mac apps.
 
 The desktop workspace has **document tabs across the top**, the v_ase logo, a
 Scene sidebar, a framed scientific canvas and a precise inspector. Choose

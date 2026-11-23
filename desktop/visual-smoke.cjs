@@ -117,16 +117,31 @@ module.exports = async function visualSmoke({js, active, appRef, win, output, wa
             const point=r.camera.position.clone().set(0,0,60),p=r.projectWorldToClient(point),rect=r.domElement.getBoundingClientRect();
             return {camera:a.currentCameraForExport(),x:p.x-rect.left,y:p.y-rect.top,
                 width:rect.width,height:rect.height};})()`);
-        const shown=await captureImage(`canvas-axis-${mode}-visible`);
+        const sample=image=>{
+            const scale=image.getSize().width/state.width;
+            return image.crop({x:Math.round((state.x-2)*scale),y:Math.round((state.y-2)*scale),
+                width:Math.max(5,Math.round(5*scale)),height:Math.max(5,Math.round(5*scale))}).toBitmap();
+        };
+        const blueCount=bitmap=>{
+            let count=0;
+            for(let i=0;i<bitmap.length;i+=4)if(bitmap[i]>bitmap[i+2]+20)count++;
+            return count;
+        };
+        // Two renderer RAFs do not guarantee that capturePage has received
+        // the new camera/viewport bitmap. Confirm the positive control before
+        // hiding the shaft; otherwise an old camera frame becomes the baseline.
+        let visibleCaptures=0;
+        const shown=await waitForVisualFrame(
+            ()=>{visibleCaptures++;return captureImage(`canvas-axis-${mode}-visible`);},
+            image=>blueCount(sample(image))>=3);
         const scale=shown.getSize().width/state.width;
-        const crop={x:Math.round((state.x-2)*scale),y:Math.round((state.y-2)*scale),
-            width:Math.max(5,Math.round(5*scale)),height:Math.max(5,Math.round(5*scale))};
-        const visible=shown.crop(crop).toBitmap();
+        const visible=sample(shown);
+        assert.ok(blueCount(visible)>=3,`Missing presented ${mode} canvas Z shaft`);
         await js(`(()=>{const r=${appRef}.renderer;r.axesHelper.children[2].visible=false;r.renderNow();})()`);
         const hidden=await waitForVisualFrame(
             ()=>captureImage(`canvas-axis-${mode}-hidden`),
-            image=>!image.crop(crop).toBitmap().equals(visible));
-        const absent=hidden.crop(crop).toBitmap();
+            image=>!sample(image).equals(visible));
+        const absent=sample(hidden);
         let bluePixels=0;
         for(let i=0;i<visible.length;i+=4)
             if(visible[i]>visible[i+2]+20&&visible[i]-absent[i]>15)bluePixels++;
@@ -134,7 +149,7 @@ module.exports = async function visualSmoke({js, active, appRef, win, output, wa
         assert.deepEqual(await js(`${appRef}.currentCameraForExport()`),state.camera,
             'Canvas axis rendering must preserve stored camera settings');
         await js(`(()=>{const r=${appRef}.renderer;r.axesHelper.children[2].visible=true;r.renderNow();})()`);
-        axisChecks.push({mode,bluePixels,captureScale:scale,cameraPreserved:true});
+        axisChecks.push({mode,bluePixels,visibleCaptures,captureScale:scale,cameraPreserved:true});
     }
     const layoutChecks=[];
     for(const [width,height,zoom] of [[1280,720,1],[1024,600,1.25],[1024,768,1.5]]) {

@@ -28,6 +28,7 @@ jobs:
     timeout-minutes: 45
     env:
       V_ASE_SOFTWARE_GL: ${{ matrix.software_gl || '0' }}
+      V_ASE_SMOKE_VISUAL_REPEATS: '10'
     defaults:
       run:
         working-directory: desktop

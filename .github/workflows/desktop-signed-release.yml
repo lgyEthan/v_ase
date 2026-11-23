@@ -47,6 +47,7 @@ jobs:
       ARM64_DMG_SHA256: ${{ inputs.arm64_dmg_sha256 }}
       X64_DMG_SHA256: ${{ inputs.x64_dmg_sha256 }}
       V_ASE_SOFTWARE_GL: '1'
+      V_ASE_SMOKE_VISUAL_REPEATS: '10'
       V_ASE_SMOKE_DIR: ${{ github.workspace }}/desktop/smoke-output/signed-release
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
