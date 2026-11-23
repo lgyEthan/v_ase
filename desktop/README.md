@@ -159,6 +159,9 @@ Axis checks also require the visible shaft at its projected camera position
 before capturing the hidden control. This prevents a previous camera bitmap
 from becoming the baseline. Release builds repeat the visual cycle ten times
 in both source and packaged checks, including the final signed Mac apps.
+Native tab clicks first wait for a real pointer move to reach the top document
+from the editor iframe, then inject the press and release. Hit testing, tab
+activation and document recovery remain mandatory assertions.
 
 For stability review, set `V_ASE_SMOKE_VISUAL_REPEATS=10` and use a fresh
 `V_ASE_SMOKE_DIR` for each process. Each cycle checks both 2D and 3D, exact

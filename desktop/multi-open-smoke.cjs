@@ -2,7 +2,7 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const path = require('node:path');
-const { capturePage } = require('./smoke-support.cjs');
+const { capturePage, ensureFocus } = require('./smoke-support.cjs');
 const { dialog, BrowserWindow } = require('electron');
 module.exports = async ({ app, win, js, active, appRef, wait, key, output, openQueue }) => {
     const ws = 'window.__V_ASE_WORKSPACE__';
@@ -68,9 +68,19 @@ module.exports = async ({ app, win, js, active, appRef, wait, key, output, openQ
     // Native mouse input exercises the same hit testing and drag capture as a human.
     const orderedIds = await js(`[...${ws}.tabs.keys()]`);
     async function clickTab(id) {
+        await ensureFocus(win);
         const point = await js(`(()=>{const n=${ws}.tabs.get('${id}').select;
             n.scrollIntoView({block:'nearest',inline:'nearest'});const r=n.getBoundingClientRect();
+            window.__smokeTabHover=null;
+            n.addEventListener('pointermove',()=>{window.__smokeTabHover='${id}';},{once:true});
+            const hit=document.elementFromPoint(r.left+r.width/2,r.top+r.height/2);
+            if(hit!==n&&!n.contains(hit))throw new Error('Native tab click target is occluded');
             return {x:Math.round(r.left+r.width/2),y:Math.round(r.top+r.height/2)};})()`);
+        // Enter the top document through native hit testing before pressing.
+        // The previous pointer is in an editor iframe; injecting only a press
+        // can reach the native queue before its surface route has changed.
+        win.webContents.sendInputEvent({type:'mouseMove',...point});
+        await wait(`window.__smokeTabHover === '${id}'`);
         win.webContents.sendInputEvent({type:'mouseDown',button:'left',clickCount:1,...point});
         win.webContents.sendInputEvent({type:'mouseUp',button:'left',clickCount:1,...point});
         await wait(`${ws}.activeSessionId === '${id}' && ${appRef}?.workspaceRecoveryAcknowledged`);
