@@ -69,7 +69,7 @@ windows align at their edges when you drag a window by its title bar.
 phosphorene ribbon and rotate them into a twist. The camera stays in place
 while you edit the coordinates.
 
-![Successive atom selections and rotations turn a flat phosphorene ribbon into a twist](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_phosphorene_twist.gif)
+![Successive atom selections and rotations turn a flat phosphorene ribbon into a twist](https://raw.githubusercontent.com/lgyEthan/v_ase/71725c7bc72b0c7d9308820014b60e8cd595fb54/docs/assets/github/readme_phosphorene_twist.gif)
 
 [Build and edit](#build-and-edit) · [Water and fields](#water-and-volumetric-fields) ·
 [Periodic interfaces](#periodic-cells-and-interfaces) · [Appearance](#atoms-bonds-and-coordination) ·
@@ -83,7 +83,7 @@ while you edit the coordinates.
 Create a cell, choose a composition and populate it with atoms. Build a crystal
 with ASE, or prepare a disordered starting structure and remove close contacts.
 
-![An empty workspace becomes a populated cell, followed by overlap relaxation](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_scratch_amorphous.gif)
+![An empty workspace becomes a populated cell, followed by overlap relaxation](https://raw.githubusercontent.com/lgyEthan/v_ase/71725c7bc72b0c7d9308820014b60e8cd595fb54/docs/assets/github/readme_scratch_amorphous.gif)
 
 [Atomic distributions](https://v-ase.readthedocs.io/en/latest/atomic-distributions.html) ·
 [Crystal and atom builders](https://v-ase.readthedocs.io/en/latest/build-atoms.html)
@@ -93,7 +93,7 @@ with ASE, or prepare a disordered starting structure and remove close contacts.
 Define an insertion region and control composition, density and allowed space.
 Here, oxygen is added around an existing copper structure while the host remains in place.
 
-![Oxygen atoms placed within a chosen region around copper, then relaxed](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_add_atoms_allowed.gif)
+![Oxygen atoms placed within a chosen region around copper, then relaxed](https://raw.githubusercontent.com/lgyEthan/v_ase/71725c7bc72b0c7d9308820014b60e8cd595fb54/docs/assets/github/readme_add_atoms_allowed.gif)
 
 [Insertion regions and placement](https://v-ase.readthedocs.io/en/latest/insertion-regions.html)
 
@@ -103,7 +103,7 @@ Insert rigid molecules into a selected region, set their number or density,
 and relax close contacts before keeping the result. This example places water
 around hydroxylated graphene-oxide layers.
 
-![Water molecules inserted and relaxed around a layered graphene-oxide structure](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_add_molecules.gif)
+![Water molecules inserted and relaxed around a layered graphene-oxide structure](https://raw.githubusercontent.com/lgyEthan/v_ase/71725c7bc72b0c7d9308820014b60e8cd595fb54/docs/assets/github/readme_add_molecules.gif)
 
 [Molecular insertion](https://v-ase.readthedocs.io/en/latest/molecules.html)
 
@@ -118,7 +118,7 @@ fractional cell units in the current frame or every frame.
 Right-click a viewport object for its actions. When you have selected atoms,
 the menu also offers actions for that selection. Right-drag pans the view.
 
-![A selected ferrocene ring rotates about an explicit pivot and axis](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_ferrocene_pivot.gif)
+![A selected ferrocene ring rotates about an explicit pivot and axis](https://raw.githubusercontent.com/lgyEthan/v_ase/71725c7bc72b0c7d9308820014b60e8cd595fb54/docs/assets/github/readme_ferrocene_pivot.gif)
 
 [Move](https://v-ase.readthedocs.io/en/latest/move.html) ·
 [Rotate and choose a pivot](https://v-ase.readthedocs.io/en/latest/rotate.html) ·
@@ -133,7 +133,7 @@ Turn H₂O coordinates into a translucent water envelope while keeping ions and
 solids visible. Adjust color, opacity, smoothing and lighting, and follow the
 surface through a trajectory.
 
-![An animated translucent water surface surrounds ions and an atomistic membrane](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/water-surface-experiment.gif)
+![An animated translucent water surface surrounds ions and an atomistic membrane](https://raw.githubusercontent.com/lgyEthan/v_ase/71725c7bc72b0c7d9308820014b60e8cd595fb54/docs/assets/github/water-surface-experiment.gif)
 
 [Water surfaces](https://v-ase.readthedocs.io/en/latest/water-surface.html)
 
@@ -143,7 +143,7 @@ Display positive and negative isosurfaces, change the threshold, and control
 color and transparency. The example below changes the isovalue of a fixed
 signed field around a carbon structure.
 
-![Positive and negative isosurfaces expand and contract as the isovalue changes](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_volumetric.gif)
+![Positive and negative isosurfaces expand and contract as the isovalue changes](https://raw.githubusercontent.com/lgyEthan/v_ase/71725c7bc72b0c7d9308820014b60e8cd595fb54/docs/assets/github/readme_volumetric.gif)
 
 [Isosurfaces](https://v-ase.readthedocs.io/en/latest/isosurfaces.html) ·
 [Import and combine fields](https://v-ase.readthedocs.io/en/latest/field-processing.html)
@@ -153,7 +153,7 @@ signed field around a carbon structure.
 Move a colored section through the data to inspect what lies inside. Choose
 Cartesian or crystallographic planes and keep the atomic structure in view.
 
-![A colored scalar-field plane sweeps through an atomic structure](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_volumetric_plane.gif)
+![A colored scalar-field plane sweeps through an atomic structure](https://raw.githubusercontent.com/lgyEthan/v_ase/71725c7bc72b0c7d9308820014b60e8cd595fb54/docs/assets/github/readme_volumetric_plane.gif)
 
 [Field planes and cross-sections](https://v-ase.readthedocs.io/en/latest/field-planes.html)
 
@@ -167,7 +167,7 @@ Cell tools also provide supercells, wrapping and cell transformations.
 Press `A`, `B` or `C` for an upright view along that lattice vector. Press it
 again for the opposite side. `X`, `Y` and `Z` select Cartesian views.
 
-![Rotating a graphene and hBN bilayer reveals a compatible periodic cell](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_commensurate.gif)
+![Rotating a graphene and hBN bilayer reveals a compatible periodic cell](https://raw.githubusercontent.com/lgyEthan/v_ase/71725c7bc72b0c7d9308820014b60e8cd595fb54/docs/assets/github/readme_commensurate.gif)
 
 [Commensurate rotation](https://v-ase.readthedocs.io/en/latest/commensurate.html#commensurate-same-lattice-rotation) ·
 [Cells and supercells](https://v-ase.readthedocs.io/en/latest/cell-tools.html)
@@ -177,7 +177,7 @@ again for the opposite side. `X`, `Y` and `Z` select Cartesian views.
 Load a second material, search possible common cells and compare the required
 strain. Here, graphene and MoS₂ are matched as separate host and guest structures.
 
-![Graphene and MoS2 host and guest lattices are searched for a common periodic cell](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_commensurate_host_guest.gif)
+![Graphene and MoS2 host and guest lattices are searched for a common periodic cell](https://raw.githubusercontent.com/lgyEthan/v_ase/71725c7bc72b0c7d9308820014b60e8cd595fb54/docs/assets/github/readme_commensurate_host_guest.gif)
 
 [Host/guest matching](https://v-ase.readthedocs.io/en/latest/commensurate.html)
 
@@ -188,7 +188,7 @@ Registry maps compare geometric contact or bond-strain scores while preserving
 the fragment's internal structure. Use **Finish** to keep the result or
 **Cancel** to restore the starting structure.
 
-![A selected layer translates rigidly over its host without deforming its internal structure](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_registry_relax.gif)
+![A selected layer translates rigidly over its host without deforming its internal structure](https://raw.githubusercontent.com/lgyEthan/v_ase/71725c7bc72b0c7d9308820014b60e8cd595fb54/docs/assets/github/readme_registry_relax.gif)
 
 [Registry maps and rigid translation](https://v-ase.readthedocs.io/en/latest/registry.html)
 
@@ -212,7 +212,7 @@ In **Per-label appearance**, a new label name applies across the trajectory.
 Renaming to an unused name updates the Distribution legend and retains its
 curves and axis limits.
 
-![Substrate copper is separated into a label and styled independently of the surface oxide](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_cu5o4_view_appearance.gif)
+![Substrate copper is separated into a label and styled independently of the surface oxide](https://raw.githubusercontent.com/lgyEthan/v_ase/71725c7bc72b0c7d9308820014b60e8cd595fb54/docs/assets/github/readme_cu5o4_view_appearance.gif)
 
 [Atom appearance](https://v-ase.readthedocs.io/en/latest/appearance.html) ·
 [Pair-specific bonds](https://v-ase.readthedocs.io/en/latest/bonds.html)
@@ -229,7 +229,7 @@ For vermiculite this resolves both SiO₄ tetrahedra and MgO₆ octahedra.
 Show local coordination as faces, edges and ligand connectors. Give different
 center groups their own colors and transparency, in both 3D and flat 2D views.
 
-![Two groups of IrO2 coordination polyhedra receive independent colors and face opacity](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_polyhedra.gif)
+![Two groups of IrO2 coordination polyhedra receive independent colors and face opacity](https://raw.githubusercontent.com/lgyEthan/v_ase/71725c7bc72b0c7d9308820014b60e8cd595fb54/docs/assets/github/readme_polyhedra.gif)
 
 [Coordination polyhedra](https://v-ase.readthedocs.io/en/latest/polyhedra.html)
 
@@ -241,7 +241,7 @@ Scrub or play a trajectory, color atoms by stored scalar data, and display force
 or displacement vectors. Keep a shared colorscale across frames for comparison.
 Atom radii can also follow a scalar such as charge or fractional existence.
 
-![Trajectory playback combines a force-magnitude colorscale with force vectors](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_atom_colorscale.gif)
+![Trajectory playback combines a force-magnitude colorscale with force vectors](https://raw.githubusercontent.com/lgyEthan/v_ase/71725c7bc72b0c7d9308820014b60e8cd595fb54/docs/assets/github/readme_atom_colorscale.gif)
 
 [Trajectories](https://v-ase.readthedocs.io/en/latest/trajectories.html) ·
 [Colorscales](https://v-ase.readthedocs.io/en/latest/scalar-colors.html) ·
@@ -281,7 +281,7 @@ coordinates after matching indices.
 Pick atoms in order to measure a distance, angle, or torsion. Drag to select
 a group for editing.
 
-![Ordered atom picks reveal a distance, angle and torsion](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_measurement.gif)
+![Ordered atom picks reveal a distance, angle and torsion](https://raw.githubusercontent.com/lgyEthan/v_ase/71725c7bc72b0c7d9308820014b60e8cd595fb54/docs/assets/github/readme_measurement.gif)
 
 [Selection and measurements](https://v-ase.readthedocs.io/en/latest/selection.html)
 
@@ -298,7 +298,7 @@ markers. Background, grid, fonts, tick labels and axis limits apply to the
 whole graph. Valid limits update as you type, and an empty limit stays
 automatic. Export the styled graph as PNG or the curves as CSV.
 
-![Total and label-resolved Cu-Zr radial distribution curves beside the atomic structure](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_rdf.png)
+![Total and label-resolved Cu-Zr radial distribution curves beside the atomic structure](https://raw.githubusercontent.com/lgyEthan/v_ase/71725c7bc72b0c7d9308820014b60e8cd595fb54/docs/assets/github/readme_rdf.png)
 
 [Radial and pair distributions](https://v-ase.readthedocs.io/en/latest/rdf.html)
 
@@ -313,7 +313,7 @@ Cartesian or fractional directions. Visible guides make the allowed motion clear
 The guide's length and thickness follow atom-size mappings immediately,
 including animated trajectories and saved projects.
 
-![FixedLine keeps selected atom motion on a visible guide line](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_fixedline.gif)
+![FixedLine keeps selected atom motion on a visible guide line](https://raw.githubusercontent.com/lgyEthan/v_ase/71725c7bc72b0c7d9308820014b60e8cd595fb54/docs/assets/github/readme_fixedline.gif)
 
 **FixedPlane** lets you move an adsorbate while holding its height above a surface.
 A translucent pale cyan face fills each allowed plane, framed by narrow, darker inner and outer rims.
@@ -322,7 +322,7 @@ Selection expands the ring around the yellow outline while preserving its face w
 The ring and atom occlude one another at their actual 3D depth.
 Drag with the Orbit tool to inspect the plane from any angle. Shift-drag pans.
 
-![FixedPlane lets a lithium adsorbate move within a plane above copper](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_fixedplane.gif)
+![FixedPlane lets a lithium adsorbate move within a plane above copper](https://raw.githubusercontent.com/lgyEthan/v_ase/71725c7bc72b0c7d9308820014b60e8cd595fb54/docs/assets/github/readme_fixedplane.gif)
 
 [Fixed atoms, lines, planes and fractional constraints](https://v-ase.readthedocs.io/en/latest/constraints.html)
 
@@ -331,7 +331,7 @@ Drag with the Orbit tool to inspect the plane from any angle. Shift-drag pans.
 Use Hookean restraints between atoms or relative to a point or plane. The
 spring guide shows the relationship as the structure changes.
 
-![A Hookean restraint stretches as the selected atom is moved](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_hookean.gif)
+![A Hookean restraint stretches as the selected atom is moved](https://raw.githubusercontent.com/lgyEthan/v_ase/71725c7bc72b0c7d9308820014b60e8cd595fb54/docs/assets/github/readme_hookean.gif)
 
 [Hookean restraints](https://v-ase.readthedocs.io/en/latest/constraints.html#hookean)
 
@@ -341,7 +341,7 @@ Remove close contacts with built-in repulsion, or optimize using a configured
 ASE calculator. Play the relaxation trajectory, keep a chosen frame, or restore
 the starting structure. The example shows repulsive overlap removal.
 
-![A crowded atomic cluster separates during repulsive relaxation](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_relaxation.gif)
+![A crowded atomic cluster separates during repulsive relaxation](https://raw.githubusercontent.com/lgyEthan/v_ase/71725c7bc72b0c7d9308820014b60e8cd595fb54/docs/assets/github/readme_relaxation.gif)
 
 [Relaxation and calculators](https://v-ase.readthedocs.io/en/latest/relaxation.html)
 
@@ -365,12 +365,12 @@ version, use its matching tag.
 You can also ask an agent to set up v_ase by reading
 [`llms.txt`](https://raw.githubusercontent.com/lgyEthan/v_ase/main/llms.txt).
 
-![A user and an AI agent exchange requests and refine one shared live v_ase document](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_ai_collaboration.gif)
+![A user and an AI agent exchange requests and refine one shared live v_ase document](https://raw.githubusercontent.com/lgyEthan/v_ase/71725c7bc72b0c7d9308820014b60e8cd595fb54/docs/assets/github/readme_ai_collaboration.gif)
 
 For example, turn a selected graphene site into a pyridinic N₃ vacancy and place
 a Li atom above it. The resulting atoms remain editable in the GUI.
 
-![An agent creates a pyridinic N3 vacancy in graphene and places a lithium atom above it](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_ai_edit.gif)
+![An agent creates a pyridinic N3 vacancy in graphene and places a lithium atom above it](https://raw.githubusercontent.com/lgyEthan/v_ase/71725c7bc72b0c7d9308820014b60e8cd595fb54/docs/assets/github/readme_ai_edit.gif)
 
 [MCP setup](https://v-ase.readthedocs.io/en/latest/ai-tools.html#install-and-connect-an-mcp-client) ·
 [Shared-document workflow](https://v-ase.readthedocs.io/en/latest/ai-agents.html#share-one-document) ·
@@ -394,7 +394,7 @@ or **Z** to resize along a projected axis. **Fix ratio** keeps it proportional.
 In **2D flat**, **Outline width** sets a shared stroke width for the atoms and
 bond ribbons. **Atom & bond segments** sets their rendering detail.
 
-![Standard, Metal and Rubber materials compared on identical copper clusters](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_materials.png)
+![Standard, Metal and Rubber materials compared on identical copper clusters](https://raw.githubusercontent.com/lgyEthan/v_ase/71725c7bc72b0c7d9308820014b60e8cd595fb54/docs/assets/github/readme_materials.png)
 
 Continue working in **Blender** with editable atoms, bonds and water-surface
 meshes, including trajectory animation. Blender opens with the exported camera,
