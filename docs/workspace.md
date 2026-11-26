@@ -61,13 +61,9 @@ XYZ coordinates. Constraints show the current selection scope and relevant
 parameters. **Render → Image** exposes exact dimensions and framing immediately;
 **Advanced render settings** contains shared lighting, quality and camera options.
 
-Panel toggles commit canvas size once and animate only the panel surface. Resizing preserves coordinates, camera direction
-and viewing scale, while the canvas gains real space. Narrow portrait windows
-stack the inspector below the canvas; short landscape windows keep them beside
-each other. Tool palettes remain scrollable and exact numerical input is retained.
-Motion respects the system reduced-motion preference. The colormap list chooses
-the side with room; Escape returns to its button and leaves the inspector open.
-[Design and interaction contract](interface-design.md) · [Reference study](interface-references.md).
+Hide the Scene sidebar or the inspector to make more room for the structure.
+The inspector moves below the canvas in narrow portrait windows. Press Escape
+to close the colormap list and return to its button.
 
 The inspector and analysis separators also support keyboard resizing: focus an
 edge and use the arrow keys, or hold Shift for larger steps. Home/End chooses

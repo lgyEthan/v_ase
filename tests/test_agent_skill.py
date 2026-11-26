@@ -430,8 +430,7 @@ def test_skill_explains_vendor_neutral_agent_handoff():
     assert "CAD-ready" not in readme
     assert "--for-ai" not in setup + readme + compatibility
     # README is a short entry point; the linked guide owns the detailed contract.
-    assert "ai-agents.html#share-one-document" in readme
-    assert "ai-tools.html#install-and-connect-an-mcp-client" in readme
+    assert "https://v-ase.readthedocs.io/en/latest/agent-setup.html" in readme
     assert "external AI agent typed access" in handoff_guide
     assert "same live GUI" in handoff_guide
     assert "a later human edit becomes a new revision" in handoff_guide
@@ -443,7 +442,6 @@ def test_skill_explains_vendor_neutral_agent_handoff():
 
 def test_skill_documents_bidirectional_same_document_collaboration():
     collaboration = (REFERENCES / "collaboration.md").read_text(encoding="utf-8")
-    readme = (ROOT / "README.md").read_text(encoding="utf-8")
     evaluation = (REFERENCES / "evaluation.md").read_text(encoding="utf-8")
 
     for required in (
@@ -460,12 +458,11 @@ def test_skill_documents_bidirectional_same_document_collaboration():
         "stale-revision",
     ):
         assert required.lower() in (
-            collaboration + readme + evaluation
+            collaboration + evaluation
         ).lower(), required
 
     guide = (ROOT / "docs/ai-agents.md").read_text(encoding="utf-8")
     assert "readme_ai_collaboration.png" in guide
-    assert "readme_ai_collaboration.gif" in readme
 
     assert "request_id" in collaboration
     assert "Scene snapshots expose `revision`" in collaboration

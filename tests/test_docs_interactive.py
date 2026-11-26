@@ -151,6 +151,18 @@ def test_public_docs_links_use_latest_until_stable_exists():
     assert "/en/latest/" in project["project"]["urls"]["Changelog"]
 
 
+def test_desktop_download_table_links_to_the_version_shown():
+    guide = (DOCS / "desktop.md").read_text(encoding="utf-8")
+    downloads = "https://github.com/lgyEthan/v_ase/releases/download/"
+    rows = [line for line in guide.splitlines() if line.startswith("|") and downloads in line]
+    assert len(rows) == 3
+    for row, platform, installer in zip(rows, ("mac-arm64", "mac-x64", "win-x64"), ("dmg", "dmg", "exe")):
+        _, version, install_link, zip_link = (part.strip() for part in row.split("|")[1:-1])
+        base = f"{downloads}v{version}/v_ase-{version}-{platform}"
+        assert f"({base}.{installer})" in install_link
+        assert f"({base}.zip)" in zip_link
+
+
 def test_connection_diagram_has_a_pdf_compatible_fallback():
     from PIL import Image
     guide=(DOCS / 'chatgpt-local.md').read_text()

@@ -5,14 +5,13 @@ the scientific tools and uses your system's file dialogs and keyboard shortcuts.
 
 ## Choose a download
 
-The installers below bundle **0.4.14**. The [Python installation](installation.md#python-installation)
-provides **0.5.1**.
+| Your computer | Version | Installer | ZIP |
+| --- | --- | --- | --- |
+| Apple silicon Mac (M-series), macOS 15+ | 0.4.14 | [DMG](https://github.com/lgyEthan/v_ase/releases/download/v0.4.14/v_ase-0.4.14-mac-arm64.dmg) | [ZIP](https://github.com/lgyEthan/v_ase/releases/download/v0.4.14/v_ase-0.4.14-mac-arm64.zip) |
+| Intel Mac, macOS 15+ | 0.4.14 | [DMG](https://github.com/lgyEthan/v_ase/releases/download/v0.4.14/v_ase-0.4.14-mac-x64.dmg) | [ZIP](https://github.com/lgyEthan/v_ase/releases/download/v0.4.14/v_ase-0.4.14-mac-x64.zip) |
+| Windows 10/11, Intel or AMD 64-bit | 0.4.14 | [EXE](https://github.com/lgyEthan/v_ase/releases/download/v0.4.14/v_ase-0.4.14-win-x64.exe) | [ZIP](https://github.com/lgyEthan/v_ase/releases/download/v0.4.14/v_ase-0.4.14-win-x64.zip) |
 
-| Your computer | Download |
-| --- | --- |
-| Apple silicon Mac (M-series), macOS 15+ | [Apple silicon installer](https://github.com/lgyEthan/v_ase/releases/download/v0.4.14/v_ase-0.4.14-mac-arm64.dmg) |
-| Intel Mac, macOS 15+ | [Intel installer](https://github.com/lgyEthan/v_ase/releases/download/v0.4.14/v_ase-0.4.14-mac-x64.dmg) |
-| Windows 10/11, Intel or AMD 64-bit | [Windows installer](https://github.com/lgyEthan/v_ase/releases/download/v0.4.14/v_ase-0.4.14-win-x64.exe) |
+The [Python installation](installation.md#python-installation) provides **0.5.1**.
 
 On a Mac, **Apple menu → About This Mac** shows your chip or processor.
 Windows users can check **Settings → System → About → System type**.
@@ -32,7 +31,7 @@ it from the release linked above.
 
 ## Install on Windows
 
-1. Download and run **v_ase-0.4.14-win-x64.exe**.
+1. Download and run the Windows installer from the table above.
 2. Follow the installer to choose where to install the app.
 3. Open **v_ase** from the Start menu.
 4. Choose **File → Open** (`Ctrl+O`) to open your structure or project.
@@ -120,9 +119,10 @@ To uninstall, quit the app and move it to Trash on Mac, or remove it through
 
 ## ZIP downloads and checksums
 
-The [release page](https://github.com/lgyEthan/v_ase/releases/tag/v0.4.14) also
-provides ZIP downloads. Extract the entire ZIP first. On Mac, move **v_ase.app**
-to Applications; on Windows, run **v_ase.exe** and keep its adjacent files together.
+Choose a ZIP from the table above and extract it. On Mac, move **v_ase.app** to
+Applications. If that folder requires administrator access, you can move the app
+to `~/Applications` or another folder you own and open it there. On Windows, run
+**v_ase.exe** from the extracted folder with its adjacent files.
 The Windows ZIP does not create Start-menu entries or file associations.
 
 If a download appears incomplete, download it again. You can check its integrity

@@ -48,8 +48,6 @@ installation
 desktop
 quickstart
 workspace
-interface-design
-interface-references
 data-input
 example-inputs
 worked-examples

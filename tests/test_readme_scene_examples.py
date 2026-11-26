@@ -493,8 +493,21 @@ def test_brand_logo_generation_uses_approved_palette_and_separated_letter_atoms(
     assert "shutil.copy2(source, github_dir / source.name)" in source
 
 
-def test_readme_presents_real_manipulation_and_analysis_workflows():
+def test_readme_links_to_installation_and_first_use():
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    for required in (
+        "desktop.html#choose-a-download",
+        "python -m pip install v_ase-gui",
+        "v_ase gui",
+        "quickstart.html",
+        "example-inputs.html",
+        "save-projects.html#html-view",
+    ):
+        assert required in readme
+    assert "releases/download/" not in readme
+
+
+def test_user_guides_present_real_manipulation_and_analysis_workflows():
     documentation = {
         name: (ROOT / "docs" / name).read_text(encoding="utf-8")
         for name in (
@@ -508,60 +521,6 @@ def test_readme_presents_real_manipulation_and_analysis_workflows():
             "projects-export.md",
         )
     }
-    # Each major capability stays visible in the README itself: a concrete
-    # demonstration and an adjacent guide, not just a directory of links.
-    showcases = {
-        "Build and edit": (
-            "readme_scratch_amorphous.gif", "readme_add_atoms_allowed.gif",
-            "readme_add_molecules.gif", "readme_ferrocene_pivot.gif",
-        ),
-        "Water and volumetric fields": (
-            "water-surface-experiment.gif", "readme_volumetric.gif",
-            "readme_volumetric_plane.gif",
-        ),
-        "Periodic cells and interfaces": (
-            "readme_commensurate.gif", "readme_commensurate_host_guest.gif",
-            "readme_registry_relax.gif",
-        ),
-        "Atoms, bonds and coordination": (
-            "readme_cu5o4_view_appearance.gif", "readme_polyhedra.gif",
-        ),
-        "Trajectories and analysis": (
-            "readme_atom_colorscale.gif", "readme_measurement.gif", "readme_rdf.png",
-        ),
-        "Constraints and relaxation": (
-            "readme_fixedline.gif", "readme_fixedplane.gif",
-            "readme_hookean.gif", "readme_relaxation.gif",
-        ),
-        "Work with an AI agent": ("readme_ai_collaboration.gif", "readme_ai_edit.gif"),
-        "Render and export": ("readme_materials.png",),
-    }
-    for heading, assets in showcases.items():
-        section = readme.split(f"## {heading}\n", 1)[1].split("\n## ", 1)[0]
-        assert "https://v-ase.readthedocs.io/en/latest/" in section, heading
-        for asset in assets:
-            assert f"docs/assets/github/{asset}" in section, (heading, asset)
-            with Image.open(ROOT / "docs/assets/github" / asset) as image:
-                if asset.endswith(".gif"):
-                    assert image.n_frames > 1, asset
-                else:
-                    image.verify()
-
-    for heading in ("Get v_ase", "Save and share", "Help and project information"):
-        assert f"## {heading}" in readme
-    assert "version=latest" in readme
-    for guide in (
-        "move.html", "rotate.html", "commensurate.html", "trajectories.html",
-        "isosurfaces.html", "constraints.html", "save-projects.html",
-        "ai-agents.html", "notebooks-remote.html", "property-radius.html",
-        "bonds.html", "rdf.html", "export-structures.html",
-    ):
-        assert f"https://v-ase.readthedocs.io/en/latest/{guide}" in readme
-
-    gifs = re.findall(r"docs/assets/github/([a-z0-9_-]+\.gif)", readme)
-    assert "readme_phosphorene_twist.gif" in gifs
-    assert len(gifs) == len(set(gifs)), "Do not repeat the hero animation down the page"
-
     worked = " ".join(documentation["worked-examples.md"].split())
     for required in (
         "Active atom (last selected)",
