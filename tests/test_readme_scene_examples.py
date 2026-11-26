@@ -505,6 +505,58 @@ def test_readme_links_to_installation_and_first_use():
     ):
         assert required in readme
     assert "releases/download/" not in readme
+    assert "interface-design.md" not in readme
+    assert "interface-references.md" not in readme
+
+
+def test_readme_shows_the_feature_walkthroughs():
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    showcases = {
+        "Build and edit": (
+            "readme_scratch_amorphous.gif", "readme_add_atoms_allowed.gif",
+            "readme_add_molecules.gif", "readme_ferrocene_pivot.gif",
+        ),
+        "Water and volumetric fields": (
+            "water-surface-experiment.gif", "readme_volumetric.gif",
+            "readme_volumetric_plane.gif",
+        ),
+        "Periodic cells and interfaces": (
+            "readme_commensurate.gif", "readme_commensurate_host_guest.gif",
+            "readme_registry_relax.gif",
+        ),
+        "Atoms, bonds and coordination": (
+            "readme_cu5o4_view_appearance.gif", "readme_polyhedra.gif",
+        ),
+        "Trajectories and analysis": (
+            "readme_atom_colorscale.gif", "readme_measurement.gif", "readme_rdf.png",
+        ),
+        "Constraints and relaxation": (
+            "readme_fixedline.gif", "readme_fixedplane.gif", "readme_hookean.gif",
+            "readme_relaxation.gif",
+        ),
+        "Work with an AI agent": ("readme_ai_collaboration.gif", "readme_ai_edit.gif"),
+        "Render and export": ("model_output_figures.png", "readme_materials.png"),
+    }
+    image_pattern = re.compile(
+        r"!\[[^\]\n]+\]\((?:[^)\s]*/)?docs/assets/github/([a-z0-9_-]+\.(?:gif|png))\)"
+    )
+    for heading, assets in showcases.items():
+        _, separator, rest = readme.partition(f"\n## {heading}\n")
+        assert separator, heading
+        section = rest.split("\n## ", 1)[0]
+        assert set(assets) <= set(image_pattern.findall(section)), heading
+        assert "https://v-ase.readthedocs.io/en/latest/" in section, heading
+
+    hero = readme.split("\n## Build and edit\n", 1)[0]
+    assert "readme_phosphorene_twist.gif" in image_pattern.findall(hero)
+    assets = image_pattern.findall(readme)
+    assert len(assets) == len(set(assets))
+    for asset in assets:
+        with Image.open(ROOT / "docs/assets/github" / asset) as image:
+            if asset.endswith(".gif"):
+                assert image.is_animated, asset
+            else:
+                image.verify()
 
 
 def test_user_guides_present_real_manipulation_and_analysis_workflows():
