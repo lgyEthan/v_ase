@@ -14,7 +14,7 @@ or in Jupyter.
 
 ## Download and install
 
-**[Download for macOS or Windows](https://v-ase.readthedocs.io/en/latest/desktop.html#choose-a-download)**
+**[Download v_ase 0.5.1 for macOS or Windows](https://v-ase.readthedocs.io/en/latest/desktop.html#choose-a-download)**
 
 Choose the installer or ZIP for your computer. The desktop app includes Python.
 The workflow GIFs below were recorded in **v_ase 0.5.1**.
