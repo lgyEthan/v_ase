@@ -4,9 +4,13 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Release tag containing the signed candidate assets
+        description: Source release tag, for example v0.5.1
         type: string
         required: true
+      staging_tag:
+        description: Draft release containing the signed candidates, for example v0.5.1-desktop-staging
+        type: string
+        required: false
       arm64_zip_sha256:
         description: Expected Apple silicon ZIP SHA-256
         type: string
@@ -37,6 +41,7 @@ jobs:
       contents: write
     env:
       RELEASE_TAG: ${{ inputs.tag }}
+      STAGING_TAG: ${{ inputs.staging_tag || inputs.tag }}
       ARM64_ZIP_SHA256: ${{ inputs.arm64_zip_sha256 }}
       X64_ZIP_SHA256: ${{ inputs.x64_zip_sha256 }}
       ARM64_DMG_SHA256: ${{ inputs.arm64_dmg_sha256 }}
@@ -49,9 +54,11 @@ jobs:
         run: |
           set -euo pipefail
           [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          [[ "$STAGING_TAG" == "$RELEASE_TAG" || "$STAGING_TAG" == "${RELEASE_TAG}-desktop-staging" ]]
+          [[ "$(gh release view "$STAGING_TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq '.isDraft')" == true ]]
           VERSION="${RELEASE_TAG#v}"
           mkdir signed-downloads
-          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+          gh release download "$STAGING_TAG" --repo "$GITHUB_REPOSITORY" \
             --pattern "v_ase-${VERSION}-mac-*.zip" \
             --pattern "v_ase-${VERSION}-mac-*.dmg" --dir signed-downloads
           python - <<'PY'
@@ -98,6 +105,7 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
+          ref: refs/tags/${{ inputs.tag }}
           persist-credentials: false
       - uses: actions/setup-python@v5
         with:

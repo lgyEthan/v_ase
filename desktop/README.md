@@ -15,8 +15,8 @@ projects and window lifecycles. These are validation files, never distributable
 installers. The normal three-platform packaging workflow below still installs
 and verifies the exact published wheel before any public desktop promotion.
 
-The 0.4.14 desktop apps bundle the matching published 0.4.14 scientific wheel.
-To develop against it, install that checkout in a Python environment and run
+Each desktop release bundles the published scientific wheel for its version.
+To develop against a release, install its checkout in a Python environment and run
 the host with `VASE_DEV_PYTHON` pointing to that environment. Running the normal
 runtime preparation helper still installs the published wheel; it does not
 turn a host build into a new scientific release. Do not label a source test or
@@ -256,6 +256,8 @@ Do not sign an installed/running app. Run the following from `desktop/` for
 ```sh
 VASE_APP=/absolute/staging/mac-arm64/v_ase.app
 VASE_ARCH=arm64
+VASE_TAG=v0.5.1
+VASE_VERSION=${VASE_TAG#v}
 VASE_OUTPUT=/absolute/staging/release
 VASE_IDENTITY='Developer ID Application: YOUR_NAME (YOUR_TEAM_ID)'
 mkdir -p "$VASE_OUTPUT"
@@ -268,7 +270,10 @@ GUI tests run on dedicated Macs or CI runners. Keep a personal signing Mac
 free of test windows: `desktop-signed-release.yml` verifies the final signed
 assets remotely after stapling. Bind its ZIP/DMG SHA-256 inputs to the exact
 candidate files in a draft GitHub release, and require both native Mac jobs
-before publishing the release. `verify_scientific_payload.py` compares every
+before publishing the desktop downloads. Dispatch with `tag` set to the
+source release tag. If that release is already public for Python, create a
+separate draft named `${VASE_TAG}-desktop-staging`, target the same source
+commit, and pass its name as `staging_tag`. `verify_scientific_payload.py` compares every
 bundled v_ase file with the published wheel, including its canonical Skill.
 Draft visibility requires repository push access, so a download-only staging
 job binds all four hashes with that permission. The Mac execution jobs retain
@@ -292,10 +297,10 @@ must be repaired and tested before continuing. Once accepted:
 xcrun stapler staple "$VASE_APP"
 xcrun stapler validate "$VASE_APP"
 spctl --assess --type execute --verbose=2 "$VASE_APP"
-ditto -c -k --sequesterRsrc --keepParent "$VASE_APP" "$VASE_OUTPUT/v_ase-0.4.14-mac-$VASE_ARCH.zip"
+ditto -c -k --sequesterRsrc --keepParent "$VASE_APP" "$VASE_OUTPUT/v_ase-$VASE_VERSION-mac-$VASE_ARCH.zip"
 npx --no-install electron-builder --prepackaged "$VASE_APP" --mac dmg --"$VASE_ARCH" --publish never --config.directories.output="$VASE_OUTPUT" --config.dmg.writeUpdateInfo=false
-codesign --force --timestamp --sign "$VASE_IDENTITY" "$VASE_OUTPUT/v_ase-0.4.14-mac-$VASE_ARCH.dmg"
-xcrun notarytool submit "$VASE_OUTPUT/v_ase-0.4.14-mac-$VASE_ARCH.dmg" --keychain-profile vase-notary --wait --output-format json
+codesign --force --timestamp --sign "$VASE_IDENTITY" "$VASE_OUTPUT/v_ase-$VASE_VERSION-mac-$VASE_ARCH.dmg"
+xcrun notarytool submit "$VASE_OUTPUT/v_ase-$VASE_VERSION-mac-$VASE_ARCH.dmg" --keychain-profile vase-notary --wait --output-format json
 ```
 
 The pinned builder's `--prepackaged` path creates the familiar DMG layout
@@ -303,11 +308,11 @@ without rebuilding or re-signing the app. After the **DMG** submission is
 Accepted, retain that ID/log as well, then run:
 
 ```sh
-xcrun stapler staple "$VASE_OUTPUT/v_ase-0.4.14-mac-$VASE_ARCH.dmg"
-xcrun stapler validate "$VASE_OUTPUT/v_ase-0.4.14-mac-$VASE_ARCH.dmg"
+xcrun stapler staple "$VASE_OUTPUT/v_ase-$VASE_VERSION-mac-$VASE_ARCH.dmg"
+xcrun stapler validate "$VASE_OUTPUT/v_ase-$VASE_VERSION-mac-$VASE_ARCH.dmg"
 codesign --verify --deep --strict "$VASE_APP"
 python scripts/verify_macos.py "$VASE_APP" --team-id YOUR_TEAM_ID --notarized
-spctl --assess --type open --context context:primary-signature --verbose=2 "$VASE_OUTPUT/v_ase-0.4.14-mac-$VASE_ARCH.dmg"
+spctl --assess --type open --context context:primary-signature --verbose=2 "$VASE_OUTPUT/v_ase-$VASE_VERSION-mac-$VASE_ARCH.dmg"
 ```
 
 ZIPs cannot themselves receive a staple: their enclosed `.app` must already
@@ -345,8 +350,8 @@ users should install the native arm64 build.
    download, source archive and evidence file. Preserve hashes for unchanged
    Windows assets. Sign-only promotion does not modify the Python tag, wheel,
    sdist or package version.
-5. Use authenticated `gh release upload v0.4.14 --repo lgyEthan/v_ase --clobber`
-   with the explicit changed asset paths. Upload the checksum file last. Use
+5. Use authenticated `gh release upload "$VASE_TAG" --repo lgyEthan/v_ase`
+   with the explicit new asset paths. Upload the checksum file last. Use
    `gh release edit ... --notes-file ...` to preserve core release notes and
    update desktop install links, source provenance, Mac signed/notarized status
    and the distinct unsigned Windows status. Never include credentials.
