@@ -82,7 +82,7 @@ def test_capture_controller_granted_denied_retry_and_exit():
             assert result['locked']['state'] == 'locked'
             assert 'OS may still reserve' in result['locked']['message']
             assert set(result['locked']['codes']) == {'KeyW', 'KeyN', 'KeyS',
-                                                     'KeyB', 'KeyP', 'KeyA', 'KeyE', 'KeyO', 'KeyF',
+                                                     'KeyB', 'KeyP', 'KeyA', 'KeyE', 'KeyO', 'KeyF', 'KeyT',
                                                      'ArrowLeft', 'ArrowRight',
                                                      *(f'Digit{i}' for i in range(1, 10))}
             assert result['exited'] == {'state': 'normal', 'unlocks': 1}

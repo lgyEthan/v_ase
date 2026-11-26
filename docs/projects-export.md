@@ -137,6 +137,11 @@ for each output frame rather than copied from one source frame.
 
 ### Blender
 
+Blender uses the visible Render Area camera or the current viewport camera
+when the Render Area is off. The script preserves framing, roll, materials,
+Sun controls and visible repetitions, smooth-shades atom spheres and omits
+graph overlays.
+
 The generated Python scene uses grouped/instanced atom geometry, bond styles,
 optional cell, trajectory animation, camera, and lighting. Optimized output
 avoids one Blender object per atom; select individual-object output only when

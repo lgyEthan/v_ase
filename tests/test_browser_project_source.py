@@ -1,6 +1,9 @@
 """Opened local projects retain a conflict-safe server write-back target."""
 
 import base64
+import gzip
+from pathlib import Path
+import re
 import pytest
 from ase import Atoms
 from playwright._impl._errors import Error as PlaywrightError
@@ -50,6 +53,95 @@ def test_opened_server_project_saves_exact_source_and_rejects_external_change(tm
             assert source.read_bytes() == b"external"
             assert page.locator('#project-save-status').is_visible()
             assert 'changed outside' in page.locator('#project-save-error-text').inner_text()
+            browser.close()
+    finally:
+        editor.close()
+
+
+@pytest.mark.parametrize('framing, shortcut', [('physical', 'Control+s'), ('viewport', 'Meta+s')])
+def test_saving_html_keeps_live_camera_while_the_poster_encodes(tmp_path, framing, shortcut):
+    from io import BytesIO
+
+    from PIL import Image
+
+    atoms = Atoms('CuO', positions=[[-1, -.25, 0], [1, .25, 0]])
+    profile = {'kind': 'html', 'width': 1280, 'height': 720, 'options': {
+        'scaleMode': framing, 'pixelsPerAngstrom': 180,
+    }}
+    settings = {'projectSave': {'format': 'html', 'html': {'exportProfile': profile}}}
+    seed = EditorSession('html-camera-seed', atoms.copy(), atoms.copy(), config={'viz_only': True})
+    source = tmp_path / 'camera.html'
+    source.write_bytes(export_html_response(seed, {'settings': settings, 'embed_project': True,
+                                                   'export_profile': profile}).body)
+    editor = view(atoms, notebook=True, open_browser=False, block=False,
+                  port=find_free_port(), close_on_disconnect=False)
+    sessions[editor.session_id].config['launch_directory'] = str(tmp_path)
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            page = browser.new_page(viewport={'width': 1320, 'height': 840}, device_scale_factor=1.25)
+            platform = 'macOS' if shortcut == 'Meta+s' else 'Windows'
+            page.add_init_script(f"Object.defineProperty(navigator, 'userAgentData', {{value: {{platform: '{platform}'}}}})")
+            page.goto(editor.url)
+            page.wait_for_function('window.__ASE_APP__?.collaborationReady')
+            before = page.evaluate('''async () => {
+                const app = window.__ASE_APP__;
+                await app.loadStructureFile({name:'camera.html'}, '', ':', 'view',
+                    {path:'camera.html', throwErrors:true});
+                app.applyCameraSettings({position:[0,0,10], target:[0,0,0], up:[0,1,0],
+                    projection:'orthographic', ortho_scale:6});
+                app.captureRenderAreaCamera({syncPreview:false});
+                app.setRenderAreaVisible(true, {enterView:true});
+                app.setRenderCameraNavigation(true);
+                const renderer = app.renderer;
+                const canvas = renderer.domElement;
+                const renderFrame = renderer.renderFrame.bind(renderer);
+                renderer.renderFrame = () => {
+                    renderFrame();
+                    if (!renderer.exportCaptureActive) window.livePixels = canvas.toDataURL();
+                };
+                renderer.renderNow();
+                const toBlob = canvas.toBlob.bind(canvas);
+                canvas.toBlob = (callback, ...args) => toBlob(blob => {
+                    window.finishPoster = () => callback(blob);
+                }, ...args);
+                window.liveView = () => ({
+                    size: [canvas.width, canvas.height],
+                    camera: app.cameraSettingsSnapshot(),
+                    renderArea: renderer.exportPreviewFrame.style.cssText,
+                    png: window.livePixels,
+                });
+                return window.liveView();
+            }''')
+            page.locator('#app-viewport > canvas').press(shortcut)
+            page.wait_for_function('typeof window.finishPoster === "function"')
+            during = page.evaluate('''() => new Promise(resolve => requestAnimationFrame(() => {
+                requestAnimationFrame(() => resolve({view: window.liveView(),
+                    captureActive: window.__ASE_APP__.renderer.exportCaptureActive,
+                    saving: window.__ASE_APP__.projectFile.saving}));
+            }))''')
+            page.evaluate('window.finishPoster()')
+            page.wait_for_function('window.__ASE_APP__.projectFile.lastSaveKind === "server-source"'
+                                   ' && !window.__ASE_APP__.projectFile.saving')
+            assert during['saving']
+            assert not during['captureActive'], during['view']['size']
+            assert during['view']['size'] == before['size']
+            assert during['view']['camera'] == before['camera']
+            assert during['view']['renderArea'] == before['renderArea']
+            assert during['view']['png'] == before['png']
+            assert page.evaluate('window.liveView().size') == before['size']
+
+            stored = re.search(rb'<script id="v-ase-three-source"[^>]*>([^<]+)</script>', source.read_bytes()).group(1)
+            unpacked = gzip.decompress(base64.b64decode(stored, validate=True))
+            renderer_bundle = Path(__file__).resolve().parents[1] / 'v_ase/static/vendor/three.module.js'
+            assert unpacked == renderer_bundle.read_bytes()
+
+            offline = browser.new_page(java_script_enabled=False)
+            offline.goto(source.as_uri())
+            poster = offline.locator('#standalone-poster').get_attribute('src')
+            with Image.open(BytesIO(base64.b64decode(poster.split(',', 1)[1]))) as image:
+                assert image.size == (1920, 1080)
+                assert any(lo < hi for lo, hi in image.convert('RGB').getextrema())
             browser.close()
     finally:
         editor.close()

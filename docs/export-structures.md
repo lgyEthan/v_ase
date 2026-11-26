@@ -38,10 +38,13 @@ Source oxide/support figure before export; this screenshot is from v_ase, not Bl
 
 ### Blender
 
-The generated Python scene uses grouped/instanced atom geometry, bond styles,
-optional cell, trajectory animation, camera, and lighting. Optimized output
-avoids one Blender object per atom; select individual-object output only when
-atom-by-atom Blender editing is required.
+The generated Python scene carries atom and bond materials, visible cell
+repetitions, the current trajectory frame and Sun settings. Its camera follows
+the visible Render Area when enabled and the viewport otherwise. The exported
+camera keeps the framing, roll and zoom in either projection. Both optimized
+instances and individual atom objects use Shade Smooth. Graph overlays are
+omitted from the Blender scene. Use individual objects for atom-by-atom edits.
+Blender uses its own material and lighting renderer for the resulting scene.
 
 Water surfaces are included from 0.4.9. **Render → Geometry → Blender** downloads
 `v_ase_blender_scene.py`. In Blender's Scripting workspace, open that file in the

@@ -15,7 +15,7 @@ This earlier combined reference remains available for existing links.
 v_ase keeps the displayed trajectory frame, atom identities, stored
 properties, vectors, volumetric assignments, and plotted analyses synchronized.
 This page covers source and optimizer timelines, displacement, stored forces,
-per-atom property coloring, and radial or finite pair distributions.
+per-atom property coloring, and radial or pair distributions.
 
 ```{contents} On this page
 :local:
@@ -259,9 +259,10 @@ cutoff contains every pair, the total curve integrates to one.
 
 ### Partial periodicity
 
-Slab and wire cells with partial PBC are rejected because a geometry-specific
-boundary correction is required. v_ase does not report a boundary-biased
-curve under the bulk RDF name.
+Slabs and wires use radial neighbor density, in neighbors per atom per Å.
+The count includes images along the declared periodic axes and the integral
+is the mean coordination inside the cutoff. Clear **Use periodic boundaries
+(PBC)** for distances between the stored Cartesian positions alone.
 
 ### Pair curves
 
@@ -412,7 +413,7 @@ and use its current `collaboration.revision`.
 - verify displacement reference and MIC policy;
 - prove stored forces exist without calculator evaluation;
 - record scalar field ID, scope, map, gamma, and one locked range;
-- distinguish periodic RDF from finite pair density and reject partial PBC;
+- verify bulk RDF, partial-periodic neighbor density, or finite pair density;
 - verify result frame, cutoff, bins, normalization, pair curves, and warnings;
 - decode video frame count and duration; and
 - never accept a stale frame-specific buffer because its colors or shape look

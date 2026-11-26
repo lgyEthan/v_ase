@@ -45,6 +45,8 @@ provide the complete intended `manual_bond_pairs` or `volumetric_planes` list.
 `map_mode="replace"` makes a supplied map an explicit replacement, including {}.
 Do not change global bond style merely to override pair styles; inspect the
 resolved segment appearance. To hide bonds use `show_bonds=false` only.
+The Scene Bonds count remains tied to the current bond topology when its
+drawing is hidden. Inspect rendered edge counts to verify visibility.
 
 `plane_selection={"plane_ids":[]}` deselects planes explicitly. `clear_selections`
 clears all selection types; do not combine it with explicit selection fields.

@@ -11,8 +11,8 @@
 ## Current source and connection
 
 Choose matching runtime and Skill refs using
-[installation](cli-and-environments.md#installation). The 0.4.14 runtime
-uses the Skill's `v0.4.14` tag; a development checkout uses the same source ref.
+[installation](cli-and-environments.md#installation). The 0.5.1 runtime
+uses the Skill's `v0.5.1` tag; a development checkout uses the same source ref.
 Restart the GUI and adapter together after upgrading; their contracts must match.
 No model or model API key is required by v_ase itself.
 

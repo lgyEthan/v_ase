@@ -266,7 +266,7 @@ def test_blender_export_includes_constraints_and_hookean_spring():
     assert "CAMERA = DATA.get(\"camera\", {})" in script
     assert "'position': [4.0, -5.0, 6.0]" in script
     assert "add_scene_camera()" in script
-    assert "look_at_camera(obj, target)" in script
+    assert "look_at_camera(obj, target, up)" in script
 
 
 def test_blender_export_includes_trajectory_keyframes_when_frames_match():

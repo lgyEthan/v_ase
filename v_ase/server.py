@@ -8,12 +8,13 @@ import io
 import html
 import json
 import logging
+import re
 import tempfile
 from collections import Counter
 from copy import deepcopy
 from importlib.metadata import PackageNotFoundError, distribution
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Literal
 from ase.io.formats import UnknownFileTypeError
 from .session import (
     append_session_frames,
@@ -30,7 +31,7 @@ from .session import (
     sessions,
     workspaces,
 )
-from .serialization import atoms_to_json, molecule_id_payload
+from .serialization import LABEL_APPEARANCE_ARRAY, atoms_to_json, molecule_id_payload
 from .project_files import (
     bind_project_source,
     current_project_binding,
@@ -101,6 +102,7 @@ from .registry_relax import (
     stop_registry_relaxation,
 )
 from .ai import AI_PROTOCOL, COLLABORATION_PROTOCOL, ai_skill_path
+from .ai_display_schema import RDF_GRAPH_STYLE
 from .ai_schema import (
     AI_CONTROL_SCHEMA, AI_OPERATION_PARAMETERS, AI_EXPORT_PARAMETERS,
     AI_DESCRIBE_PROFILES, AI_RENDER_PARAMETERS, ai_schema_payload,
@@ -118,9 +120,15 @@ from .project import (
 from .preferences import (
     PREFERENCES_SCHEMA,
     clear_visual_defaults,
+    graph_background,
+    graph_presets,
     load_visual_defaults,
     save_visual_defaults,
 )
+from .trajectory_tools import (
+    match_trajectory_indices, normalize_energy_style, trajectory_energy_series, trajectory_overlay_availability,
+)
+from ._version import __version__
 from .volumetric import (
     GRID_GEOMETRY_ATOL,
     GRID_GEOMETRY_RTOL,
@@ -393,6 +401,7 @@ def trajectory_layout_compatible(session: EditorSession) -> bool:
     base_labels = atom_labels(session.working_atoms)
     base_numbers = session.working_atoms.numbers
     base_molecules = molecule_id_payload(session.working_atoms).get("molecule_ids")
+    base_appearance = session.working_atoms.arrays.get(LABEL_APPEARANCE_ARRAY)
     base_cell = np.asarray(session.working_atoms.cell.array)
     base_pbc = np.asarray(session.working_atoms.pbc, dtype=bool)
     base_origin = np.asarray(session.working_atoms.get_celldisp()).reshape(3)
@@ -401,6 +410,9 @@ def trajectory_layout_compatible(session: EditorSession) -> bool:
             session._trajectory_layout_compatible = False
             return False
         if molecule_id_payload(frame).get("molecule_ids") != base_molecules:
+            session._trajectory_layout_compatible = False
+            return False
+        if not np.array_equal(frame.arrays.get(LABEL_APPEARANCE_ARRAY), base_appearance):
             session._trajectory_layout_compatible = False
             return False
         if atom_labels(frame) != base_labels:
@@ -2135,10 +2147,15 @@ def configure_repulsion_calculators(
         scientific_content_changed(session, all_frames=True)
     return configured
 
+def editor_build_version() -> str:
+    label = os.environ.get("V_ASE_BUILD_LABEL", "")
+    return label if re.fullmatch(r"\d+\.\d+\.\d+[a-z]", label) else __version__
+
+
 @app.get("/")
 async def get_index():
     with open(os.path.join(static_dir, "index.html"), "r") as f:
-        return HTMLResponse(f.read())
+        return HTMLResponse(f.read().replace("{{EDITOR_BUILD_VERSION}}", editor_build_version()))
 
 
 @app.get("/license", include_in_schema=False)
@@ -2176,7 +2193,7 @@ async def get_license():
 @app.get("/workspace")
 async def get_workspace_index():
     with open(os.path.join(static_dir, "workspace.html"), "r") as f:
-        return HTMLResponse(f.read())
+        return HTMLResponse(f.read().replace("{{EDITOR_BUILD_VERSION}}", editor_build_version()))
 
 
 def workspace_session_payload(session: EditorSession) -> Dict[str, Any]:
@@ -2718,6 +2735,245 @@ async def get_trajectory_positions(session_id: str, precision: str = "float32"):
     )
 
 
+def loaded_trajectory_frames(session: EditorSession):
+    source = session.trajectory_source
+    if source is not None:
+        return (source.read_atoms(index) for index in range(session.frame_count))
+    return tuple(session.working_atoms if index == session.current_frame else frame
+                 for index, frame in enumerate(session.trajectory_frames))
+
+
+@app.get("/api/trajectory/overlay-availability/{session_id}")
+async def get_trajectory_overlay_availability(session_id: str):
+    session = get_session(session_id)
+    try:
+        return await asyncio.to_thread(trajectory_overlay_availability, loaded_trajectory_frames(session))
+    except (OSError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/trajectory/energy/{session_id}")
+async def get_trajectory_energy(session_id: str, neb_images: int | None = None, neb_mic: bool = True):
+    session = get_session(session_id)
+    if neb_images is not None and neb_images != 0 and not 2 <= neb_images <= session.frame_count:
+        raise HTTPException(status_code=400, detail="Choose all frames or a band of at least two loaded frames.")
+    try:
+        return await asyncio.to_thread(
+            trajectory_energy_series, loaded_trajectory_frames(session), neb_images=neb_images, neb_mic=neb_mic
+        )
+    except (OSError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=f"Could not read saved trajectory energies: {exc}") from exc
+
+
+@app.post("/api/trajectory/match/{session_id}")
+async def match_loaded_trajectory(session_id: str, payload: Dict[str, Any]):
+    session = get_session(session_id)
+    require_editable(session, "Matching trajectory indices")
+    if session.is_relaxing or session.relaxation_mode_active:
+        raise HTTPException(status_code=409, detail="Finish the relaxation before matching atom indices.")
+    revision = session.scientific_content_identity()
+    original_frames = session.trajectory_frames
+    try:
+        frames = await asyncio.to_thread(
+            match_trajectory_indices, tuple(loaded_trajectory_frames(session)), payload.get("mode", "mic")
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    require_editable(session, "Matching trajectory indices")
+    if session.is_relaxing or session.relaxation_mode_active:
+        raise HTTPException(status_code=409, detail="The trajectory began relaxing while matching.")
+    if (session.trajectory_frames is not original_frames
+            or session.scientific_content_identity() != revision):
+        raise HTTPException(status_code=409, detail="The trajectory changed while matching. Try again.")
+    session.push_history(include_trajectory=True)
+    session.trajectory_frames = frames
+    refresh_working_frame(session)
+    session.invalidate_trajectory_layout()
+    session.refresh_trajectory_identity()
+    scientific_content_changed(session, all_frames=True)
+    return session_update_to_json(session)
+
+
+@app.post("/api/trajectory/duplicate/{session_id}")
+async def duplicate_trajectory_frame(session_id: str, payload: Dict[str, Any]):
+    session = get_session(session_id)
+    require_editable(session, "Duplicating a trajectory frame")
+    if session.is_relaxing:
+        raise HTTPException(status_code=409, detail="Finish the relaxation before duplicating a frame.")
+    placement = payload.get("placement", "next")
+    if placement not in ("next", "end"):
+        raise HTTPException(status_code=400, detail="Choose the next frame or the end of the trajectory.")
+    sync_session_frame_from_payload(session, payload)
+    if not len(session.working_atoms):
+        raise HTTPException(status_code=400, detail="Load or build a structure before adding a frame.")
+    copy = session._copy_atoms(session.working_atoms)
+    if payload.get("positions") is not None:
+        try:
+            displayed_positions = np.asarray(payload["positions"], dtype=float)
+            if displayed_positions.shape != copy.positions.shape or not np.isfinite(displayed_positions).all():
+                raise ValueError
+        except (ValueError, TypeError, OverflowError) as exc:
+            raise HTTPException(status_code=400, detail="The displayed frame does not match the loaded atoms.") from exc
+        if not np.array_equal(displayed_positions, copy.positions):
+            copy.set_positions(displayed_positions, apply_constraint=False)
+            # A derived snapshot does not inherit results for the source geometry.
+            for key in ("energy", "potential_energy", "energy_eV", "potential_energy_eV",
+                        "delta_energy_eV", "path_length_A", "forces", "stress"):
+                copy.info.pop(key, None)
+            for key in ("forces", "stress", "stresses", "energies"):
+                copy.arrays.pop(key, None)
+            if isinstance(copy.calc, SinglePointCalculator):
+                copy.calc = None
+    if session.relaxation_mode_active:
+        # Finish the stopped run on its source frame before activating an
+        # independent trajectory frame. Keep its last committed geometry.
+        from .relax import exit_relaxation
+        await exit_relaxation(session, keep=True)
+    index = session.frame_count if placement == "end" else session.current_frame + 1
+    session.push_history(include_trajectory=True, include_original=True)
+    session.sync_current_frame()
+    session.trajectory_frames.insert(index, copy)
+    session.original_frames.insert(index, session._copy_atoms(copy))
+    session.set_frame(index)
+    session.invalidate_trajectory_layout()
+    session.refresh_trajectory_identity()
+    scientific_content_changed(session, all_frames=True)
+    return session_update_to_json(session)
+
+
+@app.post("/api/trajectory/delete-frame/{session_id}")
+async def delete_trajectory_frame(session_id: str, payload: Dict[str, Any]):
+    session = get_session(session_id)
+    require_editable(session, "Deleting a trajectory frame")
+    if session.is_relaxing or session.relaxation_mode_active:
+        raise HTTPException(status_code=409, detail="Finish the relaxation before deleting a frame.")
+    if session.frame_count <= 1:
+        raise HTTPException(status_code=400, detail="Keep at least one structure in the document.")
+    index = sync_session_frame_from_payload(session, payload)
+    session.push_history(include_trajectory=True, include_original=True)
+    session.trajectory_frames.pop(index)
+    session.original_frames.pop(index)
+    session.set_frame(min(index, session.frame_count - 1))
+    session.original_atoms = session._copy_atoms(session.original_frames[session.current_frame])
+    session.invalidate_trajectory_layout()
+    session.refresh_trajectory_identity()
+    scientific_content_changed(session, all_frames=True)
+    return session_update_to_json(session)
+
+
+def trajectory_appearance_frame(session, payload):
+    index = payload.get("frame_index", session.current_frame)
+    if type(index) is not int or not 0 <= index < session.frame_count:
+        raise HTTPException(status_code=400, detail="The requested frame is outside the trajectory.")
+    return index
+
+
+def trajectory_appearance_inputs(session, payload):
+    from .trajectory_labels import effective_labels
+
+    index = trajectory_appearance_frame(session, payload)
+    frames = list(loaded_trajectory_frames(session))
+    if session.trajectory_source is not None:
+        frames[session.current_frame] = session.working_atoms
+    return index, frames, effective_labels(frames, payload.get("view_identity_overrides"))
+
+
+@app.post("/api/trajectory/appearance-scope/{session_id}")
+async def get_trajectory_appearance_scope(session_id: str, payload: Dict[str, Any]):
+    from .trajectory_labels import appearance_scope_reason
+
+    session = get_session(session_id)
+
+    def assess():
+        source = session.trajectory_source
+        current = session.current_frame
+        working = session.working_atoms
+        if source is not None and not payload.get("view_identity_overrides"):
+            index = trajectory_appearance_frame(session, payload)
+            count = session.frame_count
+            reference = working if index == current else source.read_atoms(index)
+            reference_labels = atom_labels(reference)
+            frames = (working if i == current else source.read_atoms(i) for i in range(count))
+            frames_and_labels = ((frame, atom_labels(frame)) for frame in frames)
+        else:
+            index, frames, labels = trajectory_appearance_inputs(session, payload)
+            reference, reference_labels = frames[index], labels[index]
+            frames_and_labels = zip(frames, labels)
+        indices = edit_atom_indices(payload.get("indices", []), len(reference))
+        reason = appearance_scope_reason(reference, reference_labels, frames_and_labels, indices, index)
+        return {"all_frames": reason is None, "reason": reason}
+
+    return await asyncio.to_thread(assess)
+
+
+@app.post("/api/trajectory/labels/{session_id}")
+async def update_trajectory_labels(session_id: str, payload: Dict[str, Any]):
+    from .trajectory_labels import appearance_scope_reason
+
+    session = get_session(session_id)
+    require_no_atom_addition(session, "changing labels")
+    require_no_registry_relaxation(session, "changing labels")
+    if session.is_relaxing or session.relaxation_mode_active:
+        raise HTTPException(status_code=409, detail="Finish the relaxation before changing trajectory labels.")
+    current, frames, labels = trajectory_appearance_inputs(session, payload)
+    original_labels = [atom_labels(frame) for frame in frames]
+    rename = payload.get("rename")
+    appearance_indices = []
+    if rename is not None:
+        if not isinstance(rename, dict):
+            raise HTTPException(status_code=400, detail="Supply source and target label names.")
+        source = normalize_atom_type_label(rename.get("source", ""))
+        target = normalize_atom_type_label(rename.get("target", ""))
+        if not source or not target:
+            raise HTTPException(status_code=400, detail="Supply source and target label names.")
+        labels = [[target if name == source else name for name in frame] for frame in labels]
+    else:
+        scope = edit_frame_scope(payload)
+        try:
+            assignments = {int(index): normalize_atom_type_label(label)
+                           for index, label in payload.get("assignments", {}).items()}
+        except (AttributeError, TypeError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail="Invalid selected label assignments.") from exc
+        indices = edit_atom_indices(list(assignments), len(frames[current]))
+        if not assignments or any(not label for label in assignments.values()):
+            raise HTTPException(status_code=400, detail="Assign a nonempty label to each selected atom.")
+        if scope == "all":
+            reason = appearance_scope_reason(frames[current], labels[current], zip(frames, labels), indices, current)
+            if reason is not None:
+                raise HTTPException(status_code=409, detail=reason)
+        appearance_indices = edit_atom_indices(payload.get("label_appearance_indices", []), len(frames[current]))
+        if set(appearance_indices) - set(indices):
+            raise HTTPException(status_code=400, detail="Label appearance can only change for assigned atoms.")
+        for frame in labels if scope == "all" else [labels[current]]:
+            for index, label in assignments.items():
+                frame[index] = label
+
+    changed_frames = []
+    for index, (frame, new, old) in enumerate(zip(frames, labels, original_labels)):
+        updated = frame if new == old else set_atom_identity_arrays_on_atoms(frame, new)
+        if appearance_indices and (scope == "all" or index == current):
+            if updated is frame:
+                updated = session._copy_atoms(frame)
+            mask = np.array(frame.arrays.get(LABEL_APPEARANCE_ARRAY, np.zeros(len(frame))), dtype=bool)
+            mask[appearance_indices] = True
+            updated.set_array(LABEL_APPEARANCE_ARRAY, mask)
+        changed_frames.append(updated)
+    if all(new is old for new, old in zip(changed_frames, frames)):
+        return {**session_update_to_json(session), "history_unchanged": True}
+    if session.trajectory_source is not None:
+        session.original_frames = [session._copy_atoms(frame) for frame in frames]
+        session.release_trajectory_source()
+        session.trajectory_frames = list(frames)
+    sync_session_frame_from_payload(session, {"frame_index": current})
+    session.push_history(include_trajectory=True, appearance_only=True)
+    session.trajectory_frames = changed_frames
+    refresh_working_frame(session)
+    session.invalidate_trajectory_layout()
+    session.refresh_trajectory_identity()
+    scientific_content_changed(session, all_frames=True)
+    return session_update_to_json(session)
+
+
 @app.get("/api/frame/positions/{session_id}/{frame_index}")
 async def get_frame_positions(session_id: str, frame_index: int, precision: str = "float32"):
     session = get_session(session_id)
@@ -2940,6 +3196,7 @@ async def _replace_session_from_file(
     source_is_temporary: bool,
     volumetric_precision: str = "float32",
     runtime_mode: str | None = None,
+    structure_only: bool = False,
 ) -> tuple[Dict[str, Any], bool]:
     from .io import (
         read_fast_lammps_dump,
@@ -2949,17 +3206,25 @@ async def _replace_session_from_file(
     )
 
     requested_mode = None
-    if runtime_mode is not None and str(runtime_mode).strip():
+    if not structure_only and runtime_mode is not None and str(runtime_mode).strip():
         requested_mode = str(runtime_mode).strip().lower()
         if requested_mode not in {"view", "edit"}:
             raise HTTPException(
                 status_code=400,
                 detail="runtime_mode must be 'view' or 'edit'.",
             )
-        # Select the reader before parsing.  In particular, View mode must use
-        # the virtual LAMMPS trajectory path instead of materializing every
-        # frame as editable ASE Atoms first.
-        session.config["viz_only"] = requested_mode == "view"
+    view_import = is_viz_only(session) if requested_mode is None else requested_mode == "view"
+
+    def install_frames(frames, **options):
+        session.cleanup_temporary_files()
+        session.config["viz_only"] = view_import
+        if structure_only:
+            guest, name = session.commensurate_guest_atoms, session.commensurate_guest_name
+            options["volumetric_datasets"] = session.volumetric_datasets
+            options["initial_design_settings"] = session.config.get("initial_design_settings")
+        replace_session_frames(session, frames, **options)
+        if structure_only:
+            session.commensurate_guest_atoms, session.commensurate_guest_name = guest, name
 
     suffix = Path(display_name).suffix
     format_hint = _uploaded_format_hint(display_name, input_format)
@@ -2987,9 +3252,17 @@ async def _replace_session_from_file(
     if is_project:
         project_reader = read_project_html if is_html_project else read_project_archive
         project = await asyncio.to_thread(project_reader, source_path)
-        session.cleanup_temporary_files()
-        replace_session_from_project(session, project)
-        loaded_kind = "project"
+        if structure_only:
+            selected = _selected_frame_indices(index, len(project.frames))
+            if not selected:
+                raise ValueError("The selected frame range is empty.")
+            install_frames([project.frames[frame] for frame in selected])
+            loaded_kind = "trajectory" if len(selected) > 1 else "structure"
+            project = None
+        else:
+            session.cleanup_temporary_files()
+            replace_session_from_project(session, project)
+            loaded_kind = "project"
     elif volumetric_format:
         datasets = await asyncio.to_thread(
             read_volumetric_file,
@@ -2998,19 +3271,12 @@ async def _replace_session_from_file(
             normalize_volumetric_precision(volumetric_precision),
         )
         structure = volumetric_structure(datasets)
-        session.cleanup_temporary_files()
-        replace_session_frames(
-            session,
-            [structure],
-            volumetric_datasets=datasets,
-        )
-        loaded_kind = "volumetric"
-    elif is_viz_only(session) and is_lammps_dump:
+        install_frames([structure], volumetric_datasets=datasets)
+        loaded_kind = "structure" if structure_only else "volumetric"
+    elif view_import and is_lammps_dump:
         try:
             fast = await asyncio.to_thread(read_fast_lammps_dump, source_path, index)
-            session.cleanup_temporary_files()
-            replace_session_frames(
-                session,
+            install_frames(
                 [fast.atoms],
                 trajectory_source=fast.trajectory,
                 current_frame=fast.initial_frame,
@@ -3023,10 +3289,9 @@ async def _replace_session_from_file(
             frames = await asyncio.to_thread(
                 read_structure_frames, source_path, index, format_hint
             )
-            session.cleanup_temporary_files()
-            replace_session_frames(session, frames)
+            install_frames(frames)
         loaded_kind = "trajectory" if session.frame_count > 1 else "structure"
-    elif is_viz_only(session):
+    elif view_import:
         try:
             indexed = await asyncio.to_thread(
                 read_indexed_trajectory,
@@ -3046,12 +3311,9 @@ async def _replace_session_from_file(
             frames = await asyncio.to_thread(
                 read_structure_frames, source_path, index, format_hint
             )
-            session.cleanup_temporary_files()
-            replace_session_frames(session, frames)
+            install_frames(frames)
         else:
-            session.cleanup_temporary_files()
-            replace_session_frames(
-                session,
+            install_frames(
                 [indexed.atoms],
                 trajectory_source=indexed.trajectory,
                 current_frame=indexed.initial_frame,
@@ -3065,14 +3327,14 @@ async def _replace_session_from_file(
         frames = await asyncio.to_thread(
             read_structure_frames, source_path, index, format_hint
         )
-        session.cleanup_temporary_files()
-        replace_session_frames(session, frames)
+        install_frames(frames)
         loaded_kind = "trajectory" if session.frame_count > 1 else "structure"
 
     if requested_mode is not None:
         switch_session_mode(session, viz_only=requested_mode == "view")
     session.config["empty_workspace"] = False
-    session.config["document_name"] = display_name
+    if not structure_only:
+        session.config["document_name"] = display_name
     data = session_atoms_to_json(session)
     data["loaded_file"] = {
         "filename": display_name,
@@ -3260,6 +3522,7 @@ async def load_structure_file(
     index: str = ":",
     volumetric_precision: str = "float32",
     runtime_mode: str | None = None,
+    structure_only: bool = False,
 ):
     """Stream a browser-selected structure, trajectory, or project into a session."""
     session = get_session(session_id)
@@ -3278,9 +3541,11 @@ async def load_structure_file(
             source_is_temporary=True,
             volumetric_precision=volumetric_precision,
             runtime_mode=runtime_mode,
+            structure_only=structure_only,
         )
-        session.project_file_binding = None
-        data["metadata"]["project_file_binding"] = None
+        if not structure_only:
+            session.project_file_binding = None
+            data["metadata"]["project_file_binding"] = None
         return data
     except HTTPException:
         raise
@@ -3308,6 +3573,7 @@ async def load_structure_path(session_id: str, payload: Dict[str, Any]):
     index = str(payload.get("index") or ":")
     volumetric_precision = str(payload.get("volumetric_precision") or "float32")
     runtime_mode = payload.get("runtime_mode")
+    structure_only = payload.get("structure_only") is True
     try:
         data, _ = await _replace_session_from_file(
             session,
@@ -3318,13 +3584,14 @@ async def load_structure_path(session_id: str, payload: Dict[str, Any]):
             source_is_temporary=False,
             volumetric_precision=volumetric_precision,
             runtime_mode=str(runtime_mode) if runtime_mode is not None else None,
+            structure_only=structure_only,
         )
-        if data.get("loaded_file", {}).get("kind") == "project":
+        if not structure_only and data.get("loaded_file", {}).get("kind") == "project":
             format = "html" if source_path.suffix.lower() in {".html", ".htm"} else "vase"
             data["loaded_file"]["project_file_binding"] = bind_project_source(
                 session, source_path, format,
             )
-        else:
+        elif not structure_only:
             session.project_file_binding = None
         data["metadata"]["project_file_binding"] = current_project_binding(session)
         return data
@@ -4073,11 +4340,54 @@ async def load_visual_settings(session_id: str, request: Request):
 async def get_user_visual_defaults(session_id: str):
     get_session(session_id)
     settings = load_visual_defaults()
-    return {
+    value = {
         "schema": PREFERENCES_SCHEMA,
         "configured": settings is not None,
         "settings": settings,
     }
+    for graph in ("energy", "rdf"):
+        background = graph_background(graph)
+        if background is not None:
+            value[f"{graph}Background"] = background
+    return value
+
+
+@app.get("/api/preferences/{graph}-presets/{session_id}")
+async def get_graph_presets(graph: Literal["energy", "rdf"], session_id: str):
+    get_session(session_id)
+    return graph_presets(graph)
+
+
+@app.post("/api/preferences/{graph}-presets/{session_id}")
+async def change_graph_presets(graph: Literal["energy", "rdf"], session_id: str, payload: Dict[str, Any]):
+    from jsonschema import Draft202012Validator
+
+    get_session(session_id)
+    name = str(payload.get("name") or "").strip()
+    if not name or len(name) > 64:
+        raise HTTPException(status_code=400, detail="Enter a preset name of 1–64 characters.")
+    style = payload.get("style")
+    try:
+        if style is not None and graph == "energy":
+            style = normalize_energy_style(style)
+        elif style is not None:
+            error = next(Draft202012Validator(RDF_GRAPH_STYLE).iter_errors(style), None)
+            if error is not None:
+                field = ".".join(map(str, error.path)) or "style"
+                raise ValueError(f"{field}: {error.message}")
+        return graph_presets(graph, name, style)
+    except (ValueError, OSError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/preferences/{graph}-background/{session_id}")
+async def set_graph_background(graph: Literal["energy", "rdf"], session_id: str, payload: Dict[str, Any]):
+    get_session(session_id)
+    try:
+        style = normalize_energy_style(payload)
+        return graph_background(graph, {key: style[key] for key in ("backgroundMode", "background")})
+    except (ValueError, OSError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.post("/api/preferences/visual-defaults/{session_id}")
@@ -4170,9 +4480,10 @@ async def write_current_project(session_id: str, payload: Dict[str, Any]):
                 html_payload = dict(payload)
                 html_payload["embed_project"] = True
                 artifact = export_html_response(session, html_payload).body
-            return replace_bound_project(
+            saved = replace_bound_project(
                 session, binding_id, expected_version, requested_format, artifact,
             )
+            return {**saved, "size": len(artifact)} if isinstance(artifact, bytes) else saved
         except FileExistsError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         except PermissionError as exc:
@@ -4237,7 +4548,10 @@ async def wrap(session_id: str, payload: Dict[str, Any] | None = None):
 @app.post("/api/undo/{session_id}")
 async def undo(session_id: str):
     session = get_session(session_id)
-    require_editable(session, "Undo", allow_atom_addition=True)
+    if not (is_viz_only(session) and session.history and session.history[-1].appearance_only):
+        require_editable(session, "Undo", allow_atom_addition=True)
+    else:
+        require_no_registry_relaxation(session, "Undo")
     atoms = session.undo()
     if atoms is not None:
         session.sync_current_frame()
@@ -4247,7 +4561,10 @@ async def undo(session_id: str):
 @app.post("/api/redo/{session_id}")
 async def redo(session_id: str):
     session = get_session(session_id)
-    require_editable(session, "Redo", allow_atom_addition=True)
+    if not (is_viz_only(session) and session.redo_stack and session.redo_stack[-1].appearance_only):
+        require_editable(session, "Redo", allow_atom_addition=True)
+    else:
+        require_no_registry_relaxation(session, "Redo")
     atoms = session.redo()
     if atoms is not None:
         session.sync_current_frame()
@@ -5174,6 +5491,13 @@ def _calculate_session_rdf(session: EditorSession, payload: Dict[str, Any]):
         # permits trajectory RDF frames to be prefetched safely while the GUI
         # remains on the frame chosen by the user.
         atoms = _atom_scalar_frame_atoms(session, frame_index)
+    labels = payload.get("labels")
+    if labels is not None:
+        if not isinstance(labels, list) or len(labels) != len(atoms) or any(
+            not isinstance(label, str) or not normalize_atom_type_label(label) for label in labels
+        ):
+            raise ValueError("Displayed RDF labels must contain one nonempty label per atom.")
+        set_atom_labels(atoms, labels)
     supplied_positions = payload.get("positions")
     if supplied_positions is not None:
         positions = np.asarray(supplied_positions, dtype=float)
@@ -5193,6 +5517,7 @@ def _calculate_session_rdf(session: EditorSession, payload: Dict[str, Any]):
         pair_mode=str(payload.get("pair_mode") or "active"),
         active_pairs=payload.get("active_pairs") or [],
         frame_index=frame_index,
+        use_pbc=payload.get("use_pbc", True),
     )
 
 
@@ -5838,9 +6163,14 @@ if FASTAPI_AVAILABLE:
     @app.post("/api/export/html/{session_id}")
     async def api_export_html(session_id: str, payload: Dict[str, Any]):
         session = get_session(session_id)
-        sync_session_frame_from_payload(session, payload)
+
+        def export():
+            with session.mode_transition_lock:
+                sync_session_frame_from_payload(session, payload)
+                return export_html_response(session, payload)
+
         try:
-            return await asyncio.to_thread(export_html_response, session, payload)
+            return await asyncio.to_thread(export)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 

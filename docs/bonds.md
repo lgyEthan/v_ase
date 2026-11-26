@@ -38,6 +38,9 @@ Inspect the exact pairs and effective style in Style → Bonds.
 
 Bond visibility and bond appearance are separate from physical constraints or
 calculator connectivity.
+The **Bonds** eye in Scene hides the drawing. Its count tracks the current
+frame's bond topology, including changes to cutoffs and manual pairs while the
+drawing is hidden.
 
 ### Topology modes
 
@@ -66,5 +69,10 @@ Global or label-pair settings can control:
 
 Each label-pair row has an independent thickness. Pair records
 are preserved by `.vase`, project/view HTML, Blender, OBJ, and 3DM output.
+Enabled pair overrides update as you edit. The inspector indicates when a
+pair or atom endpoint uses an override. **Use global appearance for all bonds**
+clears those appearance overrides and leaves the bond definitions in place.
+In flat rendering, **Thickness** sets the total ribbon width and Renderer
+**Outline width** sets the stroke shared with atom rims.
 Visual bond cutoffs and repulsive-calculator contact distances are configured
 separately; a drawn bond is not an energy model.

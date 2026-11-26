@@ -2,6 +2,7 @@
 import numpy as np
 import pytest
 from ase import Atoms
+from ase.constraints import FixAtoms
 from ase.io import write
 
 from tests.test_batch_and_cell import batch_page  # noqa: F401
@@ -58,6 +59,56 @@ def test_single_file_defaults_to_new_tab_without_touching_dirty_source(batch_pag
     assert sessions[imported].working_atoms.positions[0,0]==pytest.approx(1)
     assert frame.evaluate(SOURCE_STATE)==before
     np.testing.assert_array_equal(sessions[source].working_atoms.positions,positions)
+
+
+@pytest.mark.parametrize("revision_workspace", [True], indirect=True, ids=["desktop-adapter"])
+@pytest.mark.parametrize("empty", [False, True], ids=["vasp", "zero-bytes"])
+def test_desktop_drop_opens_vasp_in_new_tab(revision_workspace, tmp_path, empty):
+    page, frame, _, _ = revision_workspace
+    source = frame.evaluate("window.__ASE_APP__.sessionId")
+    before = preserve_dirty_source(frame)
+    path = tmp_path / "Cu2O.vasp"
+    atoms = Atoms("Cu2O", positions=[[0, 0, 0], [1, 2, 3], [4, 4, 4]], cell=[7, 7, 7], pbc=True)
+    atoms.set_constraint(FixAtoms(indices=[1]))
+    if empty:
+        path.touch()
+    else:
+        write(path, atoms, format="vasp", direct=True)
+
+    frame.wait_for_function("Boolean(window.__ASE_APP__.droppedFileHandle)")
+    page.evaluate("""() => {
+        window.vaseDesktop.openDropped = async file => ({name: file.name, token: 'desktop-drop'});
+    }""")
+    frame.evaluate("""() => {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.id = 'drop-source';
+        input.hidden = true;
+        document.body.append(input);
+    }""")
+    frame.locator("#drop-source").set_input_files(path)
+    frame.evaluate("""() => {
+        const dataTransfer = new DataTransfer();
+        dataTransfer.items.add(document.getElementById('drop-source').files[0]);
+        document.body.dispatchEvent(new DragEvent('drop', {bubbles:true, cancelable:true, dataTransfer}));
+    }""")
+    assert frame.locator("#open-file-size").inner_text().startswith("0 B") is empty
+    assert frame.locator('[name="open-file-mode"]:checked').input_value() == "new-tab"
+    frame.locator("#open-file-confirm").click()
+    page.wait_for_function("!window.__vaseFileOpenQueue.running")
+    imported = page.evaluate("window.__V_ASE_WORKSPACE__.activeSessionId")
+    message = frame.locator("#toast-container").inner_text()
+    if empty:
+        assert imported == source
+        assert page.locator(".document-tab").count() == 1
+        assert "Cu2O.vasp is empty" in message
+    else:
+        assert imported != source, message
+        loaded = sessions[imported].working_atoms
+        assert loaded.get_chemical_symbols() == atoms.get_chemical_symbols()
+        np.testing.assert_allclose(loaded.positions, atoms.positions)
+        np.testing.assert_array_equal(loaded.constraints[0].get_indices(), [1])
+    assert frame.evaluate(SOURCE_STATE) == before
 
 
 @pytest.mark.parametrize('destination',['tabs','trajectory'])

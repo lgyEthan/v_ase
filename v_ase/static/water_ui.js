@@ -1,7 +1,25 @@
-import { normalizeWater } from './water_geometry.js';
+import { detectWater, normalizeWater } from './water_geometry.js';
 const field=id=>document.getElementById(`water-${id}`);
 export function installWaterUI(App){
     const p=App.prototype;
+    p.waterSurfaceAvailable = function () {
+        const atoms = this.state.atoms;
+        const config = normalizeWater(this.state.display.waterSurface);
+        const { positions, cell, pbc, molecule_ids: groups } = atoms || {};
+        const elements = atoms?.chemical_symbols || atoms?.symbols || [];
+        const cached = this.waterAvailability;
+        if (cached && cached.positions === positions && cached.cell === cell && cached.pbc === pbc
+            && cached.groups === groups && cached.elements === elements && cached.cutoff === config.ohCutoff) {
+            return cached.available;
+        }
+        let available = false;
+        if (elements.includes('O') && elements.indexOf('H') !== elements.lastIndexOf('H')) {
+            try { available = detectWater(atoms, { ...config, source: 'auto' }).molecules.length > 0; }
+            catch { /* The Water surface inspector reports detection errors. */ }
+        }
+        this.waterAvailability = { positions, cell, pbc, groups, elements, cutoff: config.ohCutoff, available };
+        return available;
+    };
     p.syncWaterControls=function(){
         const c=normalizeWater(this.state.display.waterSurface);
         for(const key of ['enabled','hideMolecules','lighting'])if(field(key))field(key).checked=c[key];

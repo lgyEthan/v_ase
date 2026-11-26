@@ -24,10 +24,16 @@ Windows Open with / Default apps. `.vasp` and other supported extensions are
 secondary Open With candidates and can be assigned manually; their existing
 defaults are retained.
 Extensionless POSCAR/CONTCAR should use File → Open (All files if filtered),
-with Reader → POSCAR / CONTCAR if auto-detection is ambiguous. OS opening
-shows the normal import dialog; it does not silently replace the active
-document. Save complete editor state as `.vase`/project HTML, and export POSCAR
-separately for VASP. Setting a default app does not convert file contents.
+with Reader → POSCAR / CONTCAR if auto-detection is ambiguous. OS opening and
+desktop drag-and-drop show the normal import dialog, with a new tab selected by
+default when the current document contains work. A zero-byte selection opened
+in a new tab reports the filename. Choose the file again if the GUI reports
+that the selection is unavailable. Save complete editor state as
+`.vase`/project HTML, and export POSCAR separately for VASP. Setting a default
+app does not convert file contents.
+
+Choose **Replace structure only** to load new frames while retaining the
+receiving tab's settings, mode, cameras, and save destination.
 
 ## Contents
 
@@ -41,11 +47,11 @@ separately for VASP. Setting a default app does not convert file contents.
 ## Installation
 
 Match the runtime, MCP adapter and Skill to the same version. For released
-0.4.14, install its runtime and select `lgyEthan/v_ase@v0.4.14` in the Skill
+0.5.1, install its runtime and select `lgyEthan/v_ase@v0.5.1` in the Skill
 installer:
 
 ```bash
-python -m pip install "v_ase-gui[mcp]==0.4.14"
+python -m pip install "v_ase-gui[mcp]==0.5.1"
 ```
 
 For current GitHub source, use a fresh Python environment and the same Skill ref:
@@ -54,13 +60,16 @@ For current GitHub source, use a fresh Python environment and the same Skill ref
 python -m pip install "v_ase-gui[mcp] @ git+https://github.com/lgyEthan/v_ase.git@main"
 ```
 
+For a local packaging candidate, install its wheel and use the canonical
+Skill from that checkout or the matching desktop bundle.
+
 If replacing a snapshot with the same version string, use a fresh environment
 or `--force-reinstall`. Inspect the live tool contract and source origin.
 
 Optional Rhino export for the release:
 
 ```bash
-python -m pip install "v_ase-gui[mcp,rhino]==0.4.14"
+python -m pip install "v_ase-gui[mcp,rhino]==0.5.1"
 ```
 
 Runtime dependencies are ASE, matscipy, FastAPI, Uvicorn, NumPy, SciPy,
@@ -77,7 +86,7 @@ the complete environment with the same interpreter instead of replacing NumPy
 alone:
 
 ```bash
-python -m pip install --upgrade --force-reinstall "v_ase-gui[mcp]==0.4.14"
+python -m pip install --upgrade --force-reinstall "v_ase-gui[mcp]==0.5.1"
 ```
 
 v_ase uses the `AGPL-3.0-or-later` license. Preserve the license and source
@@ -510,6 +519,8 @@ remain the final authority for visual-quality checks.
 
 Desktop windows close independently. Windows Alt+F4 closes its active window;
 explicit Quit checks every open window before stopping the shared backend.
+Dragging a desktop document title bar aligns nearby v_ase window edges on
+the same display. Keep dragging to release the snap.
 
 Desktop structure extensions are Open With candidates (Mac Alternate rank for recommended secondary handlers,
 Windows OpenWithProgids). Only `.vase` is a native default type; existing user

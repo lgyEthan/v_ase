@@ -1,12 +1,14 @@
 'use strict';
 
-const { app, BrowserWindow, Menu, clipboard, dialog, ipcMain, session, shell, powerSaveBlocker } = require('electron');
+const { app, BrowserWindow, Menu, clipboard, dialog, ipcMain, screen, session, shell, powerSaveBlocker } = require('electron');
 const { spawn } = require('node:child_process');
 const fs = require('node:fs');
 const fsp = require('node:fs/promises');
 const path = require('node:path');
 const readline = require('node:readline');
 const { FileVault } = require('./file-vault.cjs');
+const { attachWindowSnapping } = require('./window-snapping.cjs');
+const localBuildLabel = require('./package.json').localBuildLabel;
 app.setName('v_ase');
 
 const smoke = process.argv.includes('--smoke-test');
@@ -103,6 +105,7 @@ function createMenu(registry = {}) {
         ] },
         { label: 'Edit', submenu: [edit('Undo', 'Z'), edit('Redo', 'Z', true), { type: 'separator' },
             edit('Cut', 'X'), edit('Copy', 'C'), edit('Paste', 'V'), edit('Select all', 'A'),
+            { type: 'separator' }, item('duplicate-frame', 'Duplicate to next frame'), item('append-frame-copy', 'Duplicate frame to end'),
             {type:'separator'},item('search','Find tools…')] },
         { label: 'View', submenu: [item('appearance', 'Atom properties'), item('bonding', 'Bonds'),
             item('supercell', 'Supercell'), item('cell-transform', 'Cell transformation'), item('renderer', 'Renderer'),
@@ -118,7 +121,7 @@ function createMenu(registry = {}) {
                 if (id) clipboard.writeText(`${backendOrigin}/api/ai/command/workspace/${id}`);
             } },
             { id: 'about-runtime', label: 'About this runtime', click: () => dialog.showMessageBox(focusedWindow(), { type: 'info',
-                title: `v_ase ${app.getVersion()}`, message: `v_ase ${app.getVersion()}`,
+                title: `v_ase ${localBuildLabel || app.getVersion()}`, message: `v_ase ${localBuildLabel || app.getVersion()}`,
                 detail: 'The same v_ase GUI and Python backend, bundled with CPython 3.11.16.\n\nPython/Jupyter installations remain independent.\nSource: github.com/lgyEthan/v_ase\nLicense: AGPL-3.0-or-later' }) }] },
     ];
     Menu.setApplicationMenu(Menu.buildFromTemplate(menu));
@@ -183,6 +186,7 @@ async function launchBackend() {
     if (!fs.existsSync(executable)) throw new Error('Bundled Python is missing. Build the runtime with desktop/scripts/prepare_runtime.py.');
     const log = fs.createWriteStream(path.join(app.getPath('userData'), 'backend.log'), { flags: 'a' });
     const environment = { ...process.env, PYTHONUTF8: '1', PYTHONUNBUFFERED: '1' };
+    if (localBuildLabel) environment.V_ASE_BUILD_LABEL = localBuildLabel;
     for (const key of ['PYTHONHOME', 'PYTHONPATH', 'VIRTUAL_ENV', 'CONDA_PREFIX', 'CONDA_DEFAULT_ENV']) delete environment[key];
     // -I intentionally ignores PYTHON* environment variables; -X is required
     // so Windows reads the GUI's Unicode source in UTF-8 as macOS does.
@@ -320,6 +324,7 @@ async function createEditorWindow(url, { snapshot = null, sourceOwner = null, po
         smokeKeyboards.push({ id: win.id, keyboard });
     }
     if (position && Number.isFinite(position.x) && Number.isFinite(position.y)) win.setPosition(Math.round(position.x), Math.round(position.y));
+    attachWindowSnapping(win, windows, screen);
     win.on('close', event => { if (!exiting) { event.preventDefault(); closeWindowSafely(win); } });
     win.on('closed', () => { readyWindows.delete(win); windows.delete(win); });
     win.webContents.on('will-navigate', event => { if (!localFrame(event.url)) event.preventDefault(); });

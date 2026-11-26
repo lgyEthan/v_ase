@@ -515,14 +515,19 @@ def write_project_archive(
     settings: dict[str, Any],
     *,
     current_positions: Any | None = None,
+    frame_snapshot: tuple[list[Atoms], int] | None = None,
 ) -> Path:
     destination = Path(path)
     clean_settings = normalize_visual_settings(settings)
     # Runtime mode belongs to the document, including saves made through the
     # Python/API paths which need not supply a frontend display snapshot.
     clean_settings["documentMode"] = "view" if session.config.get("viz_only", False) else "edit"
-    frames = session_project_frames(session, current_positions=current_positions)
-    current_frame = max(0, min(int(session.current_frame), len(frames) - 1))
+    if frame_snapshot is None:
+        frames = session_project_frames(session, current_positions=current_positions)
+        current_frame = int(session.current_frame)
+    else:
+        frames, current_frame = frame_snapshot
+    current_frame = max(0, min(current_frame, len(frames) - 1))
     manifest = {
         "schema": PROJECT_SCHEMA,
         "format_version": 1,
@@ -638,6 +643,29 @@ def _validate_archive(archive: zipfile.ZipFile) -> None:
     bad_member = archive.testzip()
     if bad_member:
         raise ValueError(f"Corrupt .vase project member: {bad_member}.")
+
+
+def project_frame_identity_labels(frames, settings):
+    """Resolve saved visual labels against the persisted frame topology."""
+    source = settings.get("viewIdentityOverrides")
+    if not isinstance(source, dict):
+        return [None] * len(frames)
+    if source.get("scope") == "trajectory" and isinstance(source.get("labels"), list):
+        labels = [str(value) for value in source["labels"]]
+        if len(labels) == len(frames[0]) and all(
+            np.array_equal(atoms.numbers, frames[0].numbers) for atoms in frames
+        ):
+            return [labels] * len(frames)
+        return [None] * len(frames)
+    by_frame = source.get("frames")
+    if source.get("scope") != "frames" or not isinstance(by_frame, dict):
+        return [None] * len(frames)
+    result = []
+    for index, atoms in enumerate(frames):
+        labels = by_frame.get(str(index))
+        result.append([str(value) for value in labels]
+                      if isinstance(labels, list) and len(labels) == len(atoms) else None)
+    return result
 
 
 def read_project_archive(path: str | Path) -> VaseProject:
@@ -804,6 +832,11 @@ def read_project_archive(path: str | Path) -> VaseProject:
             frame.info.update(info)
     current_frame = max(0, min(int(structure.get("current_frame", 0)), len(frames) - 1))
     settings = normalize_visual_settings(manifest.get("settings") or {})
+    # Older View projects store visible labels only in the settings. Restore
+    # them to every applicable ASE frame before serving Edit-mode mutations.
+    for atoms, labels in zip(frames, project_frame_identity_labels(frames, settings)):
+        if labels is not None:
+            set_atom_labels(atoms, labels)
     return VaseProject(
         frames=[_copy_with_cached_results(frame) for frame in frames],
         settings=settings,

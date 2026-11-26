@@ -102,7 +102,7 @@ Desktop updates are described in [Update or uninstall](desktop.md#update-or-unin
 
 ## Source checkout
 
-For the published 0.4.14 runtime, use the Python installation above. To develop
+For the published 0.5.1 runtime, use the Python installation above. To develop
 against current GitHub source in a fresh environment:
 
 ```bash

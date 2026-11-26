@@ -156,45 +156,115 @@ def test_plain_arrows_orbit_and_alt_option_arrows_step_only_the_active_timeline(
         editor.close()
 
 
-def test_renderer_route_controls_committed_physical_scale_without_viewport_zoom_change():
-    editor = view(Atoms('H', positions=[[0, 0, 0]]), notebook=True,
+@pytest.mark.parametrize('mode', ['viewport', 'physical'])
+@pytest.mark.parametrize('projection', ['orthographic', 'perspective'])
+def test_renderer_output_scale_updates_viewport_and_export_during_input(mode, projection):
+    editor = view(Atoms('OH', positions=[[-1, 0, 0], [1, 0, 0]]), notebook=True,
                   block=False, port=find_free_port(), close_on_disconnect=False)
     try:
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch(headless=True)
             page = windows_page(browser)
             page.goto(editor.url)
-            page.wait_for_function('window.__ASE_APP__?.collaborationReady && window.__ASE_APP__.renderer.atomMeshByIndex?.size === 1')
-            before = page.evaluate('''() => ({
-                zoom:window.__ASE_APP__.renderer.currentPixelsPerAngstrom(),
-                radius:window.__ASE_APP__.renderer.atomVisualRadius(0)
-            })''')
+            page.wait_for_function('window.__ASE_APP__?.collaborationReady && window.__ASE_APP__.renderer.atomMeshByIndex?.size === 2')
+            page.evaluate('''projection => {
+                const app = window.__ASE_APP__;
+                app.applyCameraSettings({...app.currentCameraForExport(), projection,
+                    position: [0, 0, 12], target: [0, 0, 0], up: [0, 1, 0], ortho_scale: 14});
+                app.captureRenderAreaCamera();
+            }''', projection)
             page.keyboard.press('Control+Shift+a')
-            visible_controls = page.evaluate('''() => {
-                // Output is the navigation target; lighting remains in its own scrollable section.
-                const ids = ['renderer-pixels-per-angstrom', 'renderer-framing-mode'];
-                return ids.map(id => {
-                    const rect = document.getElementById(id).getBoundingClientRect();
-                    return rect.width > 0 && rect.height > 0 && rect.top >= 0
-                        && rect.bottom <= window.innerHeight;
-                });
-            }''')
-            assert visible_controls == [True, True]
-            if path := os.environ.get('V_ASE_RENDERER_QA_SCREENSHOT'):
-                page.screenshot(path=path, full_page=True)
-            page.locator('#renderer-framing-mode').select_option('physical')
-            page.locator('#renderer-pixels-per-angstrom').fill('47')
-            page.locator('#renderer-pixels-per-angstrom').press('Tab')
-            after = page.evaluate('''() => ({
-                zoom:window.__ASE_APP__.renderer.currentPixelsPerAngstrom(),
-                radius:window.__ASE_APP__.renderer.atomVisualRadius(0),
-                mode:window.__ASE_APP__.currentImageExportProfile().options.scaleMode,
-                scale:window.__ASE_APP__.currentImageExportProfile().options.pixelsPerAngstrom
-            })''')
-            assert after['zoom'] == pytest.approx(before['zoom'])
-            assert after['radius'] == pytest.approx(before['radius'])
-            assert after['mode'] == 'physical'
-            assert after['scale'] == 47
+            framing = page.locator('#renderer-framing-mode')
+            scale = page.locator('#renderer-pixels-per-angstrom')
+            assert framing.is_visible() and scale.is_visible()
+            framing.select_option(mode)
+            # Exercise the fixed output camera with its guide hidden, and the
+            # locked camera with the guide shown, for both framing modes.
+            visible = projection == 'perspective'
+            if visible:
+                page.locator('#btn-preview-image').click()
+                page.locator('#btn-camera-lock-viewport').click()
+                page.locator('#export-preview-frame').wait_for(state='visible')
+            page.evaluate('window.__ASE_APP__.resetHistoryTimeline()')
+
+            def measure():
+                return page.evaluate('''() => {
+                    const app = window.__ASE_APP__, renderer = app.renderer;
+                    const profile = app.currentImageExportProfile();
+                    const {camera: outputCamera} = renderer.exportCameraSetup(
+                        profile.width, profile.height, profile.options);
+                    const a = renderer.atomMeshByIndex.get(0).position;
+                    const b = renderer.atomMeshByIndex.get(1).position;
+                    const bondLengthInPixels = (camera, width) =>
+                        Math.abs(a.clone().project(camera).x - b.clone().project(camera).x) * width / 2;
+                    return {view: bondLengthInPixels(renderer.camera, renderer.domElement.clientWidth),
+                        output: bondLengthInPixels(outputCamera, profile.width),
+                        camera: app.cameraSettingsSnapshot(), area: app.state.exportPreviewCamera,
+                        mode: profile.options.scaleMode, atoms: app.state.atoms.positions,
+                        radius: renderer.atomVisualRadius(0), rect: renderer.lastExportPreview?.frameRect,
+                        locked: app.state.exportPreviewFollowViewport};
+                }''')
+
+            before = measure()
+            assert float(scale.input_value()) == pytest.approx(before['output'] / 2, abs=.0051)
+            requested = round(before['output'] / 2 * 1.6, 2)
+            ratio = requested / (before['output'] / 2)
+            if visible and mode == 'physical' and (path := os.environ.get('V_ASE_RENDERER_QA_SCREENSHOT')):
+                page.screenshot(path=path.replace('.png', '-before.png'))
+            scale.fill(str(requested))
+            if visible:
+                page.wait_for_function('value => Math.abs(window.__ASE_APP__.renderer.lastExportPreview.pixelsPerAngstrom - value) < 1e-5',
+                                       arg=requested)
+            after = measure()
+            assert scale.evaluate('(input) => input === document.activeElement')
+            assert after['mode'] == mode
+            assert after['view'] == pytest.approx(before['view'] * ratio)
+            assert after['output'] == pytest.approx(requested * 2)
+            for key in ('position', 'target', 'up', 'projection'):
+                assert after['camera'][key] == before['camera'][key]
+                assert after['area'][key] == before['area'][key]
+            assert after['atoms'] == before['atoms']
+            assert after['radius'] == before['radius']
+            assert after['locked'] is visible
+            if visible:
+                for key in ('left', 'top', 'width', 'height'):
+                    assert after['rect'][key] == pytest.approx(before['rect'][key], abs=.01)
+                if mode == 'physical' and (path := os.environ.get('V_ASE_RENDERER_QA_SCREENSHOT')):
+                    page.screenshot(path=path)
+
+            for invalid in ('', '-2', '5001'):
+                scale.fill(invalid)
+                assert measure() == after
+            page.keyboard.press('Control+Shift+p')
+            page.wait_for_function("window.__ASE_APP__.editorRoute === 'appearance'")
+            page.keyboard.press('Control+Shift+a')
+            page.wait_for_function("window.__ASE_APP__.editorRoute === 'export'")
+            assert float(scale.input_value()) == pytest.approx(requested)
+
+            page.evaluate('window.__ASE_APP__.performUndo()')
+            restored = measure()
+            assert restored['view'] == pytest.approx(before['view'], abs=.001)
+            assert restored['output'] == pytest.approx(before['output'])
+            assert restored['camera']['position'] == before['camera']['position']
+            page.evaluate('window.__ASE_APP__.performRedo()')
+            assert measure()['view'] == pytest.approx(after['view'], abs=.001)
+            assert measure()['output'] == pytest.approx(after['output'])
+
+            other_mode = 'viewport' if mode == 'physical' else 'physical'
+            framing.select_option(other_mode)
+            switched = measure()
+            assert switched['mode'] == other_mode
+            assert switched['view'] == pytest.approx(after['view'], abs=.001)
+            assert switched['output'] == pytest.approx(after['output'])
+
+            height = page.locator('#image-height')
+            original_height = int(height.input_value())
+            height.fill(str(original_height * 2))
+            resized = measure()
+            assert resized['view'] == pytest.approx(switched['view'], abs=.001)
+            assert resized['output'] == pytest.approx(
+                switched['output'] * (2 if other_mode == 'viewport' else 1)
+            )
             browser.close()
     finally:
         editor.close()

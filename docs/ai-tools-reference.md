@@ -1,6 +1,6 @@
 # Tools by feature
 
-This reference describes the v_ase 0.4.14 tool catalog.
+This reference describes the v_ase 0.5.1 tool catalog.
 See [scene workflows](ai-scene.md) for compact inspection and visual edits.
 
 The catalog below is generated from the same schemas used by MCP and native
@@ -299,7 +299,7 @@ revision. See [connection and recovery](ai-tools.md#read-edit-verify).
 * - `vase_refresh_displacements`
   - Optionally updates display settings, then recomputes displacement analysis for the current frame and configured reference/mapping.
 * - `vase_calculate_rdf`
-  - pairMode is active, selected, all, or none. selected filters partial curves to active bonds whose endpoints are both selected in the GUI; activePairs can provide the same label-pair filter explicitly. Fully periodic 3D cells use bulk…
+  - pairMode is active, selected, all, or none. selected filters partial curves to active bonds whose endpoints are both selected in the GUI; activePairs can provide the label-pair filter explicitly. usePbc defaults to true. Bulk uses…
 ```
 
 ## Periodic interfaces
@@ -381,13 +381,13 @@ revision. See [connection and recovery](ai-tools.md#read-edit-verify).
 * - `vase_export_pickle`
   - Export pickle from the shared GUI to a unique local artifact.
 * - `vase_export_blender`
-  - Export blender from the shared GUI to a unique local artifact. Includes the visible water envelope, mesh finish, material and trajectory. Rejects excessive geometry; lower subdivision or export fewer source frames.
+  - Export blender from the shared GUI to a unique local artifact. Uses the visible Render Area camera or the viewport camera. Carries Sun and surface settings, smooth atom spheres, the active frame and visible repeats. Omits graph…
 * - `vase_export_3dm`
   - Export 3dm from the shared GUI to a unique local artifact. Requires the optional rhino3dm dependency.
 * - `vase_export_obj`
   - Export obj from the shared GUI to a unique local artifact.
 * - `vase_export_html`
-  - Export html from the shared GUI to a unique local artifact. embedProject defaults to false for a lightweight view-only file. HTML dimensions are integers in 256..8192 and the rendered background is opaque.
+  - Export html from the shared GUI to a unique local artifact. embedProject defaults to false for a lightweight view-only file. Set options.includeGraph to control inclusion of Energy and a floating Distribution. The offline Distribution…
 * - `vase_export_project`
   - Export project from the shared GUI to a unique local artifact.
 * - `vase_export_settings`

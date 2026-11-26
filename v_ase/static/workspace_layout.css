@@ -8,8 +8,9 @@
 .panel-state-glyph {display:flex;}
 [aria-pressed="true"] > .panel-glyph-closed,[aria-pressed="false"] > .panel-glyph-open {display:none;}
 .document-strip,body.editor-shell #direct-document-bar {position:fixed;inset:0 0 auto;z-index:10000;display:flex;align-items:center;gap:4px;height:40px;padding:0 8px;border:0;border-bottom:1px solid var(--ui-line);background:var(--ui-canvas);color:var(--ui-ink);}
-.document-brand {flex:0 0 96px;display:flex;align-items:center;justify-content:center;height:100%;padding:5px 8px 5px 0;}
+.document-brand {flex:0 0 auto;display:flex;gap:7px;align-items:center;justify-content:center;height:100%;padding:5px 10px 5px 0;}
 .document-brand img {display:block;width:80px;height:auto;max-height:25px;object-fit:contain;}
+.document-version {color:var(--ui-secondary);font:500 10px var(--ui-mono,monospace);white-space:nowrap;}
 .document-tabs,.direct-tab-list {display:flex;flex:0 1 auto;align-items:stretch;min-width:0;max-width:calc(100% - 136px);height:40px;gap:4px;overflow-x:auto;overflow-y:hidden;scrollbar-width:thin;}
 body.workspace-shell .document-tab,body.editor-shell .direct-document-tab,.single-document-tab {display:flex;flex:0 1 220px;min-width:110px;max-width:244px;width:220px;height:34px;align-self:end;border:1px solid transparent;border-bottom:0;border-radius:7px 7px 0 0;background:transparent;box-shadow:none;}
 :is(.document-tab,.direct-document-tab,.single-document-tab).active {background:var(--ui-surface);border-color:var(--ui-line);}
@@ -246,6 +247,8 @@ body.editor-shell #inspector #appearance-table .appearance-label-fields {
 }
 body.editor-shell #appearance-table .appearance-label-fields > label { display: grid; grid-template-columns: minmax(74px,1fr) minmax(100px,1.1fr); gap: 8px; align-items: center; font-size: 12px; }
 body.editor-shell #appearance-table .appearance-label-fields :is(input,select) { width: 100%; min-width: 0; }
+.appearance-label-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-top: 4px; }
+.appearance-label-actions .panel-note { margin: 0 auto 0 0; }
 .appearance-label-hint { margin-bottom: 10px; font-size: 11px !important; }
 body.editor-shell.editor-search-open #editor-navigator { top: 72px; width: min(560px,calc(100vw - 32px)); border: 1px solid var(--ui-border); }
 body.editor-shell .editor-navigator-search { padding: 16px; }

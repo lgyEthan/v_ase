@@ -622,17 +622,15 @@ POST /api/analysis/rdf/{session_id}
 POST /api/analysis/rdf-csv/{session_id}
 ```
 
-Payload fields are `cutoff`, `bins`, `pairMode`, and `activePairs`. `pairMode`
-accepts `active`, `selected`, `all`, or `none`; the browser resolves `selected`
-to label pairs from active bonds whose endpoints are both selected and sends
-those pairs through `activePairs`. Full 3D PBC produces bulk `g(r)`, while a
-finite no-PBC structure produces an unordered-pair probability density. The
-response includes the retained requested/effective cutoff, unique-MIC
-reference, actual periodic-image extent/span, warnings, total curve, and
-concentration-weighted partial curves. CSV uses the same calculation path.
-The Plotly drawer adds a `g(r) = 1` bulk-limit reference for periodic RDF; the
-periodic amorphous regression checks that the long-range curve remains flat
-around that reference.
+Payload fields include `cutoff`, `bins`, `pair_mode`, `active_pairs`, and
+`use_pbc` (defaults to `true`). `pair_mode` accepts `active`, `selected`, `all`,
+or `none`. The browser resolves `selected` to label pairs from active bonds
+whose endpoints are both selected. Full 3D PBC produces bulk `g(r)`. Partial
+PBC produces image-neighbor density per atom per Å. Disabling PBC or using a
+finite input produces an unordered-pair distance probability density. The
+response includes the normalization, axis labels, cutoff, image extent/span,
+and total and partial curves. CSV uses the same calculation path. The plot
+adds a `g(r) = 1` reference for the 3D bulk result.
 
 Agent discovery and semantic state are available through:
 

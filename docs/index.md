@@ -35,8 +35,9 @@ Start with the desktop app or use v_ase from Python and Jupyter.
 Each guide includes the controls and examples for that task. If something does
 not work, start with [Troubleshooting](troubleshooting.md).
 
-This manual describes **v_ase 0.4.14**. The Python package, desktop apps and
-canonical Skill use the same release. [What's new](whats-new.md).
+This manual describes **v_ase 0.5.1**. Get the matching Python package from
+[PyPI](https://pypi.org/project/v-ase-gui/0.5.1/). The desktop download page
+lists the platform installers and their versions. [What's new](whats-new.md).
 
 ```{toctree}
 :caption: Get started

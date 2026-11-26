@@ -1,13 +1,13 @@
 // Adopt a direct/notebook editor in place. The original app and its opaque
 // browser file handle stay alive as the first tab; only later tabs use iframes.
-import { projectProvenanceFromLoad } from './project_provenance.js?v=0.4.14';
-import { captureDocumentRecovery, restoreDocumentRecovery } from './workspace_recovery.js?v=0.4.14';
-import { createWorkspaceAIBridge, handleWorkspaceAICommand } from './workspace_ai.js?v=0.4.14';
-import { installShortcutCapture } from './shortcut_capture.js?v=0.4.14';
-import { navigateWorkspaceDocument } from './workspace_navigation.js?v=0.4.14';
-import { renderSceneNavigator } from './scene_navigator.js?v=0.4.14&ui=20261111.1';
+import { projectProvenanceFromLoad } from './project_provenance.js?v=0.5.1';
+import { captureDocumentRecovery, restoreDocumentRecovery } from './workspace_recovery.js?v=0.5.1';
+import { createWorkspaceAIBridge, handleWorkspaceAICommand } from './workspace_ai.js?v=0.5.1';
+import { installShortcutCapture } from './shortcut_capture.js?v=0.5.1';
+import { navigateWorkspaceDocument } from './workspace_navigation.js?v=0.5.1';
+import { renderSceneNavigator } from './scene_navigator.js?v=0.5.1&ui=20261111.1';
 import { commandIdForEvent, editorAriaShortcut, editorShortcutLabel, resolveShortcutPlatform,
-    viewportNavigationForEvent, documentCommandIdForEvent } from './editor_commands.js?v=0.4.14&ui=20261111.1';
+    viewportNavigationForEvent, documentCommandIdForEvent } from './editor_commands.js?v=0.5.1&ui=20261111.1';
 
 export class DirectWorkspace {
     constructor(app) {
@@ -85,6 +85,10 @@ export class DirectWorkspace {
         });
         const brand=document.createElement('div'); brand.className='document-brand';
         brand.innerHTML='<img src="/static/v_ase-brand.png" alt="v_ase" width="80" height="25">';
+        const version = document.createElement('span');
+        version.className = 'document-version';
+        version.textContent = document.querySelector('meta[name="v_ase-version"]')?.content || '';
+        brand.append(version);
         const tabRoot=document.createElement('div'); tabRoot.className='direct-tab-list';
         tabRoot.setAttribute('role','tablist'); tabRoot.setAttribute('aria-label','Open structures'); tabRoot.setAttribute('aria-orientation','horizontal');
         bar.append(brand,tabRoot,add);

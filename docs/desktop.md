@@ -5,6 +5,9 @@ the scientific tools and uses your system's file dialogs and keyboard shortcuts.
 
 ## Choose a download
 
+The installers below bundle **0.4.14**. The [Python installation](installation.md#python-installation)
+provides **0.5.1**.
+
 | Your computer | Download |
 | --- | --- |
 | Apple silicon Mac (M-series), macOS 15+ | [Apple silicon installer](https://github.com/lgyEthan/v_ase/releases/download/v0.4.14/v_ase-0.4.14-mac-arm64.dmg) |
@@ -98,6 +101,8 @@ for an editable v_ase HTML project.
 
 Use the **+** button to create a tab. Drag a tab below the tab bar to move it to
 its own window, or choose **File → Move tab to new window**.
+Drag a document window by its title bar to align an edge with a nearby v_ase
+window on the same display. Keep dragging to release the alignment.
 
 `Command+W` on Mac or `Ctrl+W` on Windows closes the active tab. The last tab
 closes its window; the last window closes the app. Unsaved changes always offer

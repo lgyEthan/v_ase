@@ -117,6 +117,9 @@ def molecule_id_payload(atoms):
     return {}
 
 
+LABEL_APPEARANCE_ARRAY = "vase_use_label_appearance"
+
+
 def atoms_to_json(atoms):
     """
     Rich serialization of ASE Atoms for professional visualization.
@@ -176,6 +179,9 @@ def atoms_to_json(atoms):
     }
 
     data.update(molecule_id_payload(atoms))
+    appearance = atoms.arrays.get(LABEL_APPEARANCE_ARRAY)
+    if appearance is not None and appearance.shape == (len(atoms),):
+        data["label_appearance"] = appearance.astype(bool).tolist()
 
     # Extract constraints
     for c in atoms.constraints:

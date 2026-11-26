@@ -2,7 +2,7 @@
 from tests.ui_navigation import open_editor_route
 import pytest
 from ase import Atoms
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import expect, sync_playwright
 from v_ase.viewer import view, find_free_port
 
 @pytest.fixture
@@ -110,6 +110,49 @@ def test_tools_exclusive_and_numeric_transform_after_button(editor_page):
     assert p.locator('#tool-select').get_attribute('aria-pressed')=='true'
 
 
+def test_rotate_explains_when_it_is_unavailable_and_enables_after_edit(editor_page):
+    page = editor_page
+    rotate = page.locator('#tool-rotate')
+    hint = page.locator('#toolbar-tooltip')
+    modes = page.locator('#runtime-mode-switch')
+
+    expect(rotate).to_be_disabled()
+    rotate.hover()
+    expect(hint).to_contain_text('Select the atoms you want to transform.')
+    expect(hint).to_contain_text('To turn the view, use Orbit camera.')
+    toolbar_box = page.locator('#viewport-tools').bounding_box()
+    assert hint.bounding_box()['x'] >= toolbar_box['x'] + toolbar_box['width']
+
+    modes.get_by_role('button', name='View only', exact=True).click()
+    page.wait_for_function('window.__ASE_APP__.state.vizOnly && !window.__ASE_APP__.state.modeSwitchInFlight')
+    expect(page.locator('#tool-orbit')).to_be_enabled()
+    page.locator('#app-viewport canvas').first.focus()
+    rotate.hover()
+    expect(hint).to_contain_text('Switch to Edit structure and select atoms.')
+    page.keyboard.press('Meta+a' if page.evaluate('/Mac/i.test(navigator.platform)') else 'Control+a')
+    expect(hint).to_contain_text('Switch to Edit structure to transform the selected atoms.')
+    expect(rotate).to_be_disabled()
+    expect(rotate).to_have_attribute(
+        'aria-description',
+        'Switch to Edit structure to transform the selected atoms. To turn the view, use Orbit camera.',
+    )
+
+    modes.get_by_role('button', name='Edit structure', exact=True).click()
+    expect(rotate).to_be_enabled()
+    assert rotate.get_attribute('aria-description') is None
+    assert page.evaluate('window.__ASE_APP__.selectionCount()') == 3
+    rotate.click()
+    page.keyboard.press('z')
+    page.keyboard.type('90')
+    page.keyboard.press('Enter')
+    page.wait_for_function('''() => {
+        const app = window.__ASE_APP__;
+        const [a, b] = app.state.atoms.positions;
+        return app.transform.mode === 'IDLE'
+            && Math.abs(b[0] - a[0]) < 1e-7 && Math.abs(b[1] - a[1] - 0.75) < 1e-7;
+    }''')
+
+
 def test_open_chord_and_file_drop_offer_destinations(editor_page):
     p=editor_page
     p.evaluate('() => { window.openCommandCount=0; window.__ASE_APP__.chooseSystemStructureFile=()=>{ window.openCommandCount++; }; }')
@@ -136,14 +179,14 @@ def test_global_tool_chooser_has_complete_names_categories_and_distinct_viewport
     launcher=p.locator('#editor-search-toggle').bounding_box()
     assert nav.bounding_box()['y'] >= launcher['y']+launcher['height']
     buttons=nav.locator('[data-editor-route]')
-    assert buttons.count()==31
+    assert buttons.count()==32
     routes=[]
     for button in buttons.all():
         routes.append(button.get_attribute('data-editor-route'))
         assert button.inner_text().strip() and 'undefined' not in button.inner_text()
         assert button.locator('.command-result-path').inner_text().strip()
     assert len(routes)==len(set(routes))
-    for route in ['water','isosurfaces','project','settings','save-guide']:
+    for route in ['water','isosurfaces','trajectory-energy','project','settings','save-guide']:
         assert route in routes
     p.locator('#editor-command-search').fill('bonds')
     nav.locator('[data-editor-route="bonding"]').click()

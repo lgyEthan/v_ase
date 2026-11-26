@@ -68,8 +68,9 @@ counts, labels, and rigid-group identities.
 Periodic histograms now include the exact final cutoff edge within roundoff,
 matching the finite-distribution and NumPy histogram convention. Fractional,
 Boolean, NaN, and infinite bin counts fail clearly. Nonfinite coordinates or
-periodic cells fail before neighbor search. The existing shell normalization,
-periodic image enumeration, and partial weighting remain unchanged.
+periodic cells fail before neighbor search. A boundary-crossing slab and wire
+test verify radial neighbor density and vacuum independence. Finite Cartesian
+distances and bulk spherical-shell normalization have separate tests.
 
 ### Field arithmetic and integration
 

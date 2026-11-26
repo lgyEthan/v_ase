@@ -26,6 +26,9 @@ RUNTIME_FILES = (
     "water_layer.js", "render_quality.js", "surface_refinement.js",
     "standalone.js",
     "standalone.css",
+    "distribution_plot.js",
+    "trajectory_energy.js",
+    "trajectory_energy.css",
 )
 
 

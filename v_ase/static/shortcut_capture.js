@@ -1,4 +1,4 @@
-import { editorLockCodes, editorShortcutLabel, resolveShortcutPlatform } from './editor_commands.js?v=0.4.14&ui=20261111.1';
+import { editorLockCodes, editorShortcutLabel, resolveShortcutPlatform } from './editor_commands.js?v=0.5.1&ui=20261111.1';
 
 // A top-level document owns fullscreen/Keyboard Lock. The OS may still reserve
 // an accelerator even after lock() resolves.

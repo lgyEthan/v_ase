@@ -1,40 +1,47 @@
 import * as THREE from 'three';
-import { ASEApi } from './api.js?v=0.4.14';
-import { ASERenderer } from './renderer.js?v=0.4.14&ui=20261111.1';
-import { ASESelection } from './selection.js?v=0.4.14';
-import { ASETransform } from './transform.js?v=0.4.14';
-import { SelectedAppearanceEditor } from './selected_appearance.js?v=0.4.14';
-import { installActivityIndicators } from './ui_activity.js?v=0.4.14';
+import { ASEApi } from './api.js?v=0.5.1';
+import { ASERenderer, atomAppearanceOverride } from './renderer.js?v=0.5.1&ui=20261111.1';
+import { ASESelection } from './selection.js?v=0.5.1';
+import { ASETransform } from './transform.js?v=0.5.1';
+import { SelectedAppearanceEditor } from './selected_appearance.js?v=0.5.1';
+import { installActivityIndicators } from './ui_activity.js?v=0.5.1';
 
-import { installPolyhedra } from './polyhedra.js?v=0.4.14&ui=20261111.1';
+import { installPolyhedra } from './polyhedra.js?v=0.5.1&ui=20261111.1';
 import { installWaterUI } from './water_ui.js';
-import { installAIScene } from './ai_scene.js?v=0.4.14';
-import { AtomScalarStore } from './atom_properties.js?v=0.4.14';
-import { DirectWorkspace } from './direct_workspace.js?v=0.4.14&ui=20261111.1';
-import { navigateWorkspaceDocument } from './workspace_navigation.js?v=0.4.14';
-import { projectProvenanceFromLoad } from './project_provenance.js?v=0.4.14';
-import { installShortcutCapture } from './shortcut_capture.js?v=0.4.14';
-import { openFileInWindow } from './workspace_windows.js?v=0.4.14';
-import { installEditorInteractions } from './editor_interactions.js?v=0.4.14&ui=20261111.1';
-import { WORKBENCH_ROUTES, WORKBENCH_LABELS, mountWorkbenchTools, syncWorkbenchRoute } from './editor_ui.js?v=0.4.14&ui=20261111.1';
-import { renderSceneNavigator } from './scene_navigator.js?v=0.4.14&ui=20261111.1';
-import { installResizeHandle, refreshRangeFills, updateRangeFill, syncModalIsolation, syncBusyIsolation, hideInterfaceTooltip, syncPanelToggle } from './interface.js?v=0.4.14&ui=20261111.1';
+import { normalizeEnergyOverlay } from './trajectory_energy.js?v=0.5.1';
+import { plotlyAxisBounds } from './graph_axes_ui.js?v=0.5.1';
+import { captureFloatingRdf, composeFloatingRdf, floatingRdfGraphPresent, savedRdfGraph } from './graph_export.js?v=0.5.1';
+import { rdfPlotlyTrace } from './distribution_plot.js?v=0.5.1';
+import { installTrajectoryTools } from './trajectory_tools_ui.js?v=0.5.1';
+import { installAnalysisPlots, normalizeAnalysisPlots } from './analysis_plots.js?v=0.5.1';
+import { installViewportContextMenu } from './viewport_context.js?v=0.5.1';
+import { installAIScene } from './ai_scene.js?v=0.5.1';
+import { AtomScalarStore } from './atom_properties.js?v=0.5.1';
+import { DirectWorkspace } from './direct_workspace.js?v=0.5.1&ui=20261111.1';
+import { navigateWorkspaceDocument } from './workspace_navigation.js?v=0.5.1';
+import { projectProvenanceFromLoad } from './project_provenance.js?v=0.5.1';
+import { installShortcutCapture } from './shortcut_capture.js?v=0.5.1';
+import { openFileInWindow } from './workspace_windows.js?v=0.5.1';
+import { installEditorInteractions } from './editor_interactions.js?v=0.5.1&ui=20261111.1';
+import { WORKBENCH_ROUTES, WORKBENCH_LABELS, mountWorkbenchTools, syncWorkbenchRoute } from './editor_ui.js?v=0.5.1&ui=20261111.1';
+import { renderSceneNavigator } from './scene_navigator.js?v=0.5.1&ui=20261111.1';
+import { installResizeHandle, refreshRangeFills, updateRangeFill, syncModalIsolation, syncBusyIsolation, hideInterfaceTooltip, syncPanelToggle } from './interface.js?v=0.5.1&ui=20261111.1';
 import {
     EDITOR_COMMANDS, commandIdForEvent, resolveShortcutPlatform,
     editorShortcutLabel, editorAriaShortcut, editorShortcutSearchTerms,
     viewportNavigationForEvent, DOCUMENT_COMMANDS, documentCommandIdForEvent, documentShortcutLabel
-} from './editor_commands.js?v=0.4.14&ui=20261111.1';
+} from './editor_commands.js?v=0.5.1&ui=20261111.1';
 import {
     DEFAULT_ATOM_RADIUS_MAPPING,
     atomRadiusFactors,
     normalizeAtomRadiusMapping,
     radiusMappingPreset
-} from './radius_mapping.js?v=0.4.14';
+} from './radius_mapping.js?v=0.5.1';
 import {
     interpolateTrajectoryFrames,
     interpolatedFrameCount,
     normalizeInterpolationMultiplier
-} from './trajectory.js?v=0.4.14';
+} from './trajectory.js?v=0.5.1';
 
 const EDITOR_ROUTES = Object.freeze({
     'structure-info': { group: 'inspect', category: 'scene', title: 'Scene overview' },
@@ -56,6 +63,7 @@ const EDITOR_ROUTES = Object.freeze({
     'build-rigid': { group: 'analysis', category: 'build', title: 'Rigid translation', panel: 'registry-map', target: '#rigid-translation-controls' },
     rdf: { group: 'analysis', category: 'analyze', title: 'Distributions' },
     displacement: { group: 'analysis', category: 'analyze', title: 'Displacements' },
+    'trajectory-energy': { group: 'analysis', category: 'analyze', title: 'Energy graph' },
     forces: { group: 'analysis', category: 'style', title: 'Stored forces' },
     isosurfaces: { group: 'analysis', category: 'style', title: 'Isosurfaces', panel: 'volumetric' },
     volumetric: { group: 'analysis', category: 'analyze', title: 'Fields' },
@@ -85,6 +93,7 @@ const EDITOR_SEARCH = Object.freeze({
     volumetric: [['field import precision fp32 fp64', '#volume-import-precision'],
         ['isosurface histogram level', '#volume-level'], ['plane hkl', '#volume-plane-h']],
     displacement: [['motion vectors reference minimum image', '#displacement-reference-mode']],
+    'trajectory-energy': [['neb md trajectory energy plot graph line preset', '#energy-reference']],
     forces: [['stored forces vectors', '#chk-force-vectors']],
     export: [['renderer lighting sun', '#renderer-lighting-mode'],
         ['scale px/å pixels per angstrom physical framing', '#renderer-pixels-per-angstrom'],
@@ -276,10 +285,12 @@ class VAseApp {
             this.updateSelectionMeasurementOverlay();
         };
         this.renderer.onCameraChange = event => {
+            const rendererScaleEdit = event?.source === 'renderer-output-scale';
             this.syncAtomicScaleFromCamera({
-                forceInput: event?.source !== 'scale-input'
+                forceInput: event?.source !== 'scale-input',
+                syncPreview: !rendererScaleEdit
             });
-            if (event?.source !== 'resize' && this.collaborationReady
+            if (!rendererScaleEdit && event?.source !== 'resize' && this.collaborationReady
                 && !this.restoringDesignSettings && !this.aligningRenderCamera
                 && this.state?.exportPreviewFollowViewport) {
                 this.followRenderAreaNavigation();
@@ -336,6 +347,7 @@ class VAseApp {
                 showCell: true,
                 showAxes: true,
                 showGrid: true,
+                showAtoms: true,
                 showOverlays: true,
                 showConstraints: true,
                 showPeriodicBonds: false,
@@ -404,6 +416,7 @@ class VAseApp {
                 projectionMode: 'orthographic',
                 viewportBackground: 'white',
                 atomDisplayMode: '3d',
+                flatOutlineWidth: 0.035,
                 viewRotationStepDeg: 15,
                 lightingMode: 'modeling',
                 sunIntensity: 2.2,
@@ -413,6 +426,8 @@ class VAseApp {
                 blenderExportMode: 'instanced',
                 exportIncludeCell: true,
                 imageFramingMode: 'viewport',
+                renderFixedRatio: false,
+                energyOverlay: normalizeEnergyOverlay(null),
                 atomicScalePixelsPerAngstrom: null,
                 imageSphereQuality: 'viewport',
                 imageSmoothnessScale: 1,
@@ -452,6 +467,8 @@ class VAseApp {
                 volumetricNegativeColor: '#e05b78',
                 volumetricPlanes: [],
                 rdfCutoff: null,
+                rdfUsePbc: true,
+                analysisPlots: normalizeAnalysisPlots(null),
                 rdfBins: 200,
                 rdfPairMode: 'active',
                 registryMetric: 'short-contact',
@@ -750,12 +767,15 @@ class VAseApp {
                 document.getElementById('editor-shortcut-status')?.setAttribute('hidden', '');
             }
             this.setupEventListeners();
+            this.setupTrajectoryTools();
+            this.cleanupCallbacks.push(installViewportContextMenu(this));
             this.setupRangeNumberCompanions();
             this.setupInputCommitBehavior();
             this.setupNumberInputHoldGuards();
             await this.loadUserVisualDefaults();
             await this.refresh();
-            this.restoreProjectPresentation(this.state.atoms?.metadata?.config?.initial_design_settings);
+            const initialSettings = this.state.atoms?.metadata?.config?.initial_design_settings;
+            this.restoreProjectPresentation(initialSettings);
             const initialBinding = this.state.atoms?.metadata?.project_file_binding;
             if (initialBinding?.id) {
                 this.projectFile.format = initialBinding.format;
@@ -763,23 +783,23 @@ class VAseApp {
                 this.projectFile.serverBinding = initialBinding;
                 this.projectFile.outputProfile = initialBinding.format === 'html'
                     ? this.htmlExportProfile(
-                        this.state.atoms?.metadata?.config?.initial_design_settings?.projectSave?.html?.exportProfile
-                        || this.state.atoms?.metadata?.config?.initial_design_settings?.imageExportProfile
+                        initialSettings?.projectSave?.html?.exportProfile
+                        || initialSettings?.imageExportProfile
                         || null
                     ) : null;
             } else {
-                const settings = this.state.atoms?.metadata?.config?.initial_design_settings;
-                const savedProject = settings?.projectSave;
+                const savedProject = initialSettings?.projectSave;
                 if (['vase', 'html'].includes(savedProject?.format)) {
                     this.projectFile.format = savedProject.format;
                     this.projectFile.filename = this.state.atoms?.metadata?.config?.document_name
                         || `Untitled.${savedProject.format === 'html' ? 'html' : 'vase'}`;
                     this.projectFile.outputProfile = savedProject.format === 'html'
                         ? this.htmlExportProfile(savedProject.html?.exportProfile
-                            || settings.imageExportProfile || null) : null;
+                            || initialSettings.imageExportProfile || null) : null;
                     this.projectFile.lastSaveKind = 'download-copy';
                 }
             }
+            await this.restoreProjectRdf(initialSettings);
             this.resetVisualHistoryBaseline();
             this.markProjectSavedContent();
             this.renderSceneNavigatorObjects();
@@ -3100,30 +3120,26 @@ class VAseApp {
     }
 
     atomMaterialPreset(index, display = this.state.display) {
-        const override = display.atomMaterials?.[index] ?? display.atomMaterials?.[String(index)];
+        const override = atomAppearanceOverride(this.state.atoms, display.atomMaterials, index);
         if (override) return this.normalizedAtomMaterialPreset(override);
         const label = this.state.atoms?.symbols?.[index];
         return this.normalizedAtomMaterialPreset(display.labelMaterials?.[label]);
     }
 
     atomRadiusScaleOverride(index, display = this.state.display) {
-        const value = Number(
-            display.atomRadiusScales?.[index] ?? display.atomRadiusScales?.[String(index)]
-        );
+        const value = Number(atomAppearanceOverride(this.state.atoms, display.atomRadiusScales, index));
         return Number.isFinite(value) && value > 0 ? value : 1;
     }
 
     atomManualColor(index, display = this.state.display) {
-        const override = display.atomColors?.[index] ?? display.atomColors?.[String(index)];
+        const override = atomAppearanceOverride(this.state.atoms, display.atomColors, index);
         if (this.validHexColor(override)) return override.toLowerCase();
         const label = this.state.atoms?.symbols?.[index];
         return this.labelVisualColor(label).toLowerCase();
     }
 
     atomManualOpacity(index, display = this.state.display) {
-        const override = Number(
-            display.atomOpacities?.[index] ?? display.atomOpacities?.[String(index)]
-        );
+        const override = Number(atomAppearanceOverride(this.state.atoms, display.atomOpacities, index));
         if (Number.isFinite(override)) return Math.max(0, Math.min(1, override));
         const label = this.state.atoms?.symbols?.[index];
         const inherited = Number(display.labelOpacities?.[label]);
@@ -3166,6 +3182,7 @@ class VAseApp {
 
         const indices = this.selectedAtomIndices();
         document.body.classList.toggle('has-atom-selection', indices.length > 0);
+        this.selectedAppearanceEditor?.syncAssignmentScope();
         this.syncAppearanceScope();
         const selectionBadge = document.getElementById('workbench-selection');
         selectionBadge?.classList.toggle('hidden', indices.length <= 1);
@@ -3390,8 +3407,14 @@ class VAseApp {
     viewModeIdentityPlan() {
         const sourceLabels = [...(this.state.atoms?.symbols || [])];
         const chemicalSymbols = [...(this.state.atoms?.chemical_symbols || [])];
-        const nextLabels = [...sourceLabels];
         const nextDisplay = this.clonePlain(this.state.display);
+        if (this.loadedFrameCount() > 1) {
+            // Single-frame material consolidation cannot infer style or label
+            // membership in the other trajectory frames.
+            return { labels: sourceLabels, chemicalSymbols, display: nextDisplay,
+                labelOrder: [...this.uniqueAtomLabels()] };
+        }
+        const nextLabels = [...sourceLabels];
         nextDisplay.labelMaterials = { ...(nextDisplay.labelMaterials || {}) };
         nextDisplay.atomMaterials = {};
 
@@ -5634,7 +5657,10 @@ class VAseApp {
         actionGroup.innerHTML='<summary>Commands</summary>';
         for (const [action,label,terms] of [
             ['new','New document','new tab structure'],['open','Open structure…','open file import'],['save','Save document','save file'],
-            ['save-as','Save as…','save project new file'],['shortcuts','Keyboard shortcuts','help keys formats'],['preferences','Interface appearance','theme palette preferences appearance graphite slate stone moss']
+            ['save-as','Save as…','save project new file'],
+            ['duplicate-frame', 'Duplicate to next frame', 'trajectory add copy insert'],
+            ['append-frame-copy', 'Duplicate frame to end', 'trajectory add copy append'],
+            ['shortcuts','Keyboard shortcuts','help keys formats'],['preferences','Interface appearance','theme palette preferences appearance graphite slate stone moss']
         ]) {
             const button=document.createElement('button');button.type='button';button.dataset.commandAction=action;
             button.dataset.searchName=label;button.dataset.searchTerms=terms;button.textContent=label;
@@ -5659,7 +5685,8 @@ class VAseApp {
                         .filter(([, command]) => command.section === route)
                         .map(([id]) => editorShortcutSearchTerms(id, this.shortcutPlatform));
                     const terms = [button.dataset.searchName, button.dataset.searchTerms || '', button.textContent, route || '',
-                        ...(EDITOR_SEARCH[route] || []).map(item => item[0]), ...shortcuts]
+                        ...(EDITOR_SEARCH[route] || []).map(item => item[0]), ...shortcuts,
+                        editorShortcutSearchTerms(button.dataset.commandAction, this.shortcutPlatform)]
                         .join(' ').toLocaleLowerCase();
                     const visible = !query || query.split(/\s+/).every(word => terms.includes(word));
                     button.hidden = !visible;
@@ -6181,7 +6208,9 @@ class VAseApp {
         const caption = document.getElementById('viewport-scene-caption');
         if (caption) caption.textContent = `${[...new Set(this.state.atoms.symbols || [])].slice(0, 4).join(' · ')} · ${this.state.atoms.positions.length} atoms`;
         const entries = [
-            { id: 'atoms', label: `Atoms · ${this.state.atoms.positions.length}`, route: 'structure-info', focus: '#prop-natoms' }
+            { id: 'atoms', label: `Atoms · ${this.state.atoms.positions.length}`, route: 'structure-info', focus: '#prop-natoms',
+                checked: () => this.state.display.showAtoms !== false,
+                setVisibility: checked => this.setAtomsVisibility(checked) }
         ];
         entries.push({ id: 'constraints', label: 'Constraints', route: 'constraints',
             checked: () => this.state.display.showConstraints !== false,
@@ -6193,7 +6222,7 @@ class VAseApp {
             } },
             {id: 'grid', label: 'Grid', route: 'view', visibility: 'chk-grid'},
             {id: 'axes', label: 'Axes', route: 'view', visibility: 'chk-axes'});
-        const bondCount = this.renderer.bondPairs?.length || 0;
+        const bondCount = this.renderer.baseBondCount;
         entries.push({
             id: 'bonds', label: `Bonds · ${bondCount}`, route: 'bonding',
             focus: '#bond-mode', visibility: 'chk-bonds'
@@ -6201,9 +6230,15 @@ class VAseApp {
         if (this.hasUsableCell()) entries.push({
             id: 'cell', label: 'Cell', route: 'cell-replication', focus: '#chk-cell', visibility: 'chk-cell'
         });
-        entries.push({id:'water', label:'Water surface', route:'water', visibility:'water-enabled'});
-        if (this.state.display.polyhedraRules?.length || this.state.display.showPolyhedra) entries.push({
+        const trajectoryOverlays = this.availableTrajectoryOverlays();
+        if (this.waterSurfaceAvailable()) entries.push({id:'water', label:'Water surface', route:'water', visibility:'water-enabled'});
+        if (this.state.atoms.positions.length) entries.push({
             id: 'polyhedra', label: 'Polyhedra', route: 'polyhedra', visibility: 'poly-enabled'
+        });
+        if (trajectoryOverlays.energy) entries.push({
+            id: 'trajectory-energy', label: 'Energy graph', route: 'trajectory-energy',
+            checked: () => this.state.display.energyOverlay?.visible === true,
+            setVisibility: visible => this.setEnergyOverlay({ ...this.energyOverlaySettings(), visible })
         });
         this.volumetricDatasets().forEach(dataset => entries.push({
             id: `dataset:${dataset.id}`, label: `Field · ${dataset.name}`,
@@ -6250,12 +6285,12 @@ class VAseApp {
             checked: () => this.state.exportPreviewEnabled,
             setVisibility: checked => this.setRenderAreaVisible(checked),
             activate: () => this.setRenderAreaSelected(true) });
-        if (this.state.display.showDisplacements
-            || Number(this.state.atoms.metadata?.frame_count || 1) > 1) entries.push({
+        if (this.loadedFrameCount() > 1 || this.relaxFrameCount() > 1) entries.push({
             id: 'displacements', label: 'Displacements', route: 'scene-vectors',
             focus: '#scene-displacement-visible', visibility: 'scene-displacement-visible'
         });
-        if (this.state.display.showForceVectors || this.state.atoms.forces?.length) entries.push({
+        if (trajectoryOverlays.forces || this.state.atoms.forces?.some(vector =>
+            Array.isArray(vector) && vector.length === 3 && vector.every(Number.isFinite))) entries.push({
             id: 'forces', label: 'Force vectors', route: 'scene-vectors',
             focus: '#scene-force-visible', visibility: 'scene-force-visible'
         });
@@ -6263,7 +6298,7 @@ class VAseApp {
         const records = entries.map(entry => ({ id: entry.id, label: entry.label,
             route: entry.route, active: entry.route === this.editorRoute,
             group: ['grid', 'axes', 'cell', 'render-area'].includes(entry.id) ? 'guides'
-                : ['water', 'displacements', 'forces'].includes(entry.id) ? 'overlays' : 'objects',
+                : ['water', 'polyhedra', 'trajectory-energy', 'displacements', 'forces'].includes(entry.id) ? 'overlays' : 'objects',
             icon: ({ atoms: 'appearance', grid: 'grid', axes: 'axes', cell: 'cell-replication',
                 'render-area': 'export', displacements: 'displacement', forces: 'forces' })[entry.id] || entry.route,
             visible: entry.visibility || entry.setVisibility
@@ -6292,6 +6327,14 @@ class VAseApp {
         if (forces) forces.checked = Boolean(document.getElementById('chk-force-vectors')?.checked);
     }
 
+    setAtomsVisibility(visible) {
+        this.state.display.showAtoms = visible;
+        this.renderer.setDisplayOptions({ showAtoms: visible });
+        if (!visible) this.setHoveredAtom(null);
+        this.renderSceneNavigatorObjects();
+        this.scheduleVisualHistoryCommit('atom-layer-visibility');
+    }
+
     syncRendererProperties({ force = false } = {}) {
         this.syncFlatDisplayControls();
         const display = this.state.display;
@@ -6313,10 +6356,12 @@ class VAseApp {
         set('renderer-isosurface-smoothing', display.isosurfaceMeshSmoothing || 0);
         this.syncSurfaceQualityAvailability?.();
         set('renderer-atom-display-mode', display.atomDisplayMode || '3d');
+        set('renderer-outline-width', display.flatOutlineWidth ?? .035);
         const aa = document.getElementById('renderer-antialias');
         if (aa) aa.checked = document.getElementById('chk-antialias')?.checked !== false;
         set('renderer-framing-mode', profile.options.scaleMode);
-        set('renderer-pixels-per-angstrom', Number(profile.options.pixelsPerAngstrom).toFixed(2));
+        document.getElementById('renderer-fix-ratio').checked = this.state.display.renderFixedRatio;
+        this.syncRendererScaleInput(profile, { force });
         [['renderer-include-grid', 'includeGrid'], ['renderer-include-axes', 'includeAxes'],
             ['renderer-include-cell', 'includeCell']].forEach(([id, key]) => {
             const input = document.getElementById(id);
@@ -6332,6 +6377,66 @@ class VAseApp {
         }
         const summary = document.getElementById('renderer-image-output-summary');
         if (summary) summary.textContent = `${profile.width} × ${profile.height} px · ${profile.options.scaleMode === 'physical' ? 'Physical scale' : 'Viewport framing'}`;
+    }
+
+    rendererOutputScale(profile) {
+        if (profile.options.scaleMode === 'physical') return profile.options.pixelsPerAngstrom;
+        return this.renderer.exportCameraSetup(profile.width, profile.height, profile.options).pixelsPerAngstrom;
+    }
+
+    scaledRenderDimensions(profile, x, y) {
+        const { width, height } = profile;
+        const dimension = value => Math.round(THREE.MathUtils.clamp(value, 256, 8192));
+        if (this.state.display.renderFixedRatio) {
+            const scale = THREE.MathUtils.clamp(x === 1 ? y : x,
+                256 / Math.min(width, height), 8192 / Math.max(width, height));
+            return { width: dimension(width * scale), height: dimension(height * scale) };
+        }
+        return { width: dimension(width * x), height: dimension(height * y) };
+    }
+
+    syncRendererScaleInput(profile, { force = false } = {}) {
+        const input = document.getElementById('renderer-pixels-per-angstrom');
+        if (!input || (!force && document.activeElement === input)) return;
+        const value = this.rendererOutputScale(profile).toFixed(2);
+        if (input.value !== value) input.value = value;
+    }
+
+    applyRendererFraming(mode, scale = null) {
+        const profile = this.currentImageExportProfile();
+        const oldMode = profile.options.scaleMode;
+        const oldScale = this.rendererOutputScale(profile);
+        const scaleChanged = scale !== null && Math.abs(scale - oldScale) > 1e-9;
+        if (!scaleChanged && mode === oldMode) return;
+
+        // Viewport framing is expressed by the camera's optics. Physical
+        // framing derives its optics from the output dimensions and px/Å.
+        const nextScale = scale ?? Math.max(0.1, Math.min(5000, oldScale));
+        profile.options.scaleMode = mode;
+        profile.options.pixelsPerAngstrom = nextScale;
+        if (mode === 'viewport') {
+            const camera = this.normalizedCameraSettings(
+                profile.options.camera || this.currentCameraForExport()
+            );
+            profile.options.camera = camera;
+            const ratio = nextScale / this.rendererOutputScale(profile);
+            if (camera.projection === 'orthographic') camera.ortho_scale /= ratio;
+            else camera.zoom *= ratio;
+            this.state.exportPreviewCamera = camera;
+        }
+
+        this.state.display.imageFramingMode = mode;
+        this.setImageExportProfile(profile, { syncInputs: false });
+        this.syncProjectHtmlProfileFromRenderer();
+        if (scaleChanged && this.state.atoms?.positions?.length) {
+            const viewportScale = this.renderer.currentPixelsPerAngstrom() * nextScale / oldScale;
+            // Apply the same magnification to both views. This source skips
+            // lock-to-viewport following because the render scale is set above.
+            this.renderer.setPixelsPerAngstrom(viewportScale, {
+                optical: true, source: 'renderer-output-scale'
+            });
+        }
+        this.scheduleVisualHistoryCommit(scaleChanged ? 'renderer-output-scale' : 'renderer-output');
     }
 
     rehomeImageFrameSettings(route) {
@@ -6544,21 +6649,43 @@ class VAseApp {
             if (main) main.checked = event.target.checked;
             this.safeApplyDisplayOptions();
         });
-        const commitOutput = () => {
-            const profile = this.currentImageExportProfile();
-            profile.options.scaleMode = document.getElementById('renderer-framing-mode')?.value === 'physical'
-                ? 'physical' : 'viewport';
-            profile.options.pixelsPerAngstrom = Math.max(0.1, Math.min(5000,
-                Number(document.getElementById('renderer-pixels-per-angstrom')?.value)
-                    || profile.options.pixelsPerAngstrom));
-            this.state.display.imageFramingMode = profile.options.scaleMode;
-            this.setImageExportProfile(profile);
-            this.syncProjectHtmlProfileFromRenderer();
-            this.scheduleVisualHistoryCommit('renderer-output');
-            this.syncRendererProperties();
+        const framing = document.getElementById('renderer-framing-mode');
+        document.getElementById('renderer-fix-ratio').addEventListener('change', event => {
+            this.state.display.renderFixedRatio = event.target.checked;
+            this.scheduleVisualHistoryCommit('render-fixed-ratio');
+        });
+        document.getElementById('renderer-outline-width').addEventListener('input', event => {
+            const width = event.target.valueAsNumber;
+            if (!Number.isFinite(width) || width < 0 || width > .25) return;
+            this.state.display.flatOutlineWidth = width;
+            this.renderer.setDisplayOptions({ flatOutlineWidth: width });
+            this.scheduleVisualHistoryCommit('flat-outline-width');
+        });
+        const outputScale = document.getElementById('renderer-pixels-per-angstrom');
+        const outputMode = () => framing.value === 'physical' ? 'physical' : 'viewport';
+        framing.addEventListener('change', () => {
+            this.flushVisualHistoryCommit();
+            this.applyRendererFraming(outputMode());
+            this.flushVisualHistoryCommit();
+        });
+        const applyOutputScale = () => {
+            const value = outputScale.valueAsNumber;
+            if (!Number.isFinite(value) || value < 0.1 || value > 5000) return;
+            this.applyRendererFraming(outputMode(), value);
+            // Route changes can discard an invalid draft after a valid input.
+            // Restore the last applied value rather than the start of the edit.
+            this.controlCommitState.set(outputScale, { value: outputScale.value, dirty: false });
         };
-        ['renderer-framing-mode', 'renderer-pixels-per-angstrom'].forEach(id =>
-            document.getElementById(id)?.addEventListener('change', commitOutput));
+        outputScale.addEventListener('focus', () => this.flushVisualHistoryCommit());
+        outputScale.addEventListener('input', applyOutputScale);
+        outputScale.addEventListener('change', () => {
+            if (outputScale.value === '') {
+                this.syncRendererScaleInput(this.currentImageExportProfile(), { force: true });
+            } else {
+                applyOutputScale();
+            }
+        });
+        outputScale.addEventListener('blur', () => this.flushVisualHistoryCommit());
         const commitOverlays = () => {
             const profile = this.currentImageExportProfile();
             profile.options.includeGrid = Boolean(document.getElementById('renderer-include-grid')?.checked);
@@ -6771,6 +6898,10 @@ class VAseApp {
         if (route === 'registry-map') document.getElementById('rigid-translation-optional').open = true;
         if (route === 'scene-fields') this.renderSceneContextObjects();
         if (route === 'scene-vectors') this.syncSceneVectorControls();
+        if (route === 'rdf' || route === 'trajectory-energy') {
+            this.graphSettings?.show(route === 'rdf' ? 'rdf' : 'energy');
+            if (route === 'trajectory-energy') this.syncEnergyInspector({ open: true });
+        }
         const picker = document.getElementById('structure-section-select');
         if (picker && [...picker.options].some(option => option.value === route)) picker.value = route;
         const content = document.getElementById('inspector-content');
@@ -6838,11 +6969,16 @@ class VAseApp {
         if (this.invalidDraftInput?.isConnected && this.invalidDraftInput !== active
             && !this.commitInputValue(this.invalidDraftInput, { restoreInvalid: Boolean(command.section) })) return true;
         if (command.section) {
-            const focus = commandId === 'renderer'
+            let focus = commandId === 'renderer'
                 && this.currentImageExportProfile().options.scaleMode === 'physical'
                 ? '#renderer-pixels-per-angstrom'
                 : command.focus;
+            if (commandId === 'appearance' && this.selectedAtomIndices().length) focus = '#selected-atom-label';
             this.openEditorRoute(command.section, { focus });
+            return true;
+        }
+        if (command.action === 'duplicate-frame' || command.action === 'append-frame-copy') {
+            void this.duplicateTrajectoryFrame(command.action === 'append-frame-copy' ? 'end' : 'next');
             return true;
         }
         if (command.action === 'open') { this.chooseStructureFile(); return true; }
@@ -6874,8 +7010,9 @@ class VAseApp {
         }
         if (navigation.kind === 'frame') {
             if (this.timelineFrameCount(this.primaryTimelineSource()) > 1) {
-                this.requestFrameStep(navigation.delta)
-                    .catch(err => this.toast(`Frame change failed: ${err.message}`, 'error'));
+                const change = navigation.edge ? this.requestFrameEdge(navigation.edge)
+                    : this.requestFrameStep(navigation.delta);
+                change.catch(err => this.toast(`Frame change failed: ${err.message}`, 'error'));
             }
             return true;
         }
@@ -9115,21 +9252,26 @@ class VAseApp {
         const pairMode = ['active', 'selected', 'all', 'none'].includes(
             document.getElementById('rdf-pair-mode')?.value
         ) ? document.getElementById('rdf-pair-mode').value : 'active';
+        const usePbc = document.getElementById('rdf-use-pbc')?.checked ?? this.state.display.rdfUsePbc !== false;
         Object.assign(this.state.display, {
             rdfCutoff: Number.isFinite(cutoff) ? cutoff : null,
             rdfBins: bins,
-            rdfPairMode: pairMode
+            rdfPairMode: pairMode,
+            rdfUsePbc: usePbc
         });
         const context = this.rdfFrameContext({ source, frameIndex, positions });
         const options = {
             cutoff: Number.isFinite(cutoff) ? cutoff : null,
             bins,
             pair_mode: pairMode,
+            use_pbc: usePbc,
             active_pairs: pairMode === 'selected'
                 ? this.selectedActiveRdfPairs()
                 : this.activeRdfPairs(),
             frame_index: context.backendFrameIndex
         };
+        const labels = this.rdfFrameOverrideLabels(context.backendFrameIndex);
+        if (labels) options.labels = labels;
         if (includePositions) {
             options.positions = positions || this.currentPositionsFromScene();
         }
@@ -9361,12 +9503,13 @@ class VAseApp {
     }
 
     distributionAnalysisName() {
+        if (document.getElementById('rdf-use-pbc')?.checked === false) return 'Pair-distribution function';
         const pbc = Array.isArray(this.state.atoms?.pbc)
             ? this.state.atoms.pbc.map(Boolean)
             : [false, false, false];
         if (pbc.every(Boolean)) return 'RDF';
         if (!pbc.some(Boolean)) return 'Pair-distribution function';
-        return 'Distribution';
+        return 'Periodic pair distribution';
     }
 
     rdfSettingsSignature(
@@ -9380,6 +9523,7 @@ class VAseApp {
             cutoff: options.cutoff ?? null,
             bins: Number(options.bins) || 200,
             pairMode: options.pair_mode || 'active',
+            usePbc: options.use_pbc !== false,
             activePairs,
             source: context.source,
             sourceGeneration: context.source === 'relax'
@@ -9477,6 +9621,10 @@ class VAseApp {
         return override ? override.map(position => [...position]) : null;
     }
 
+    rdfFrameOverrideLabels(frameIndex) {
+        return this.state.viewIdentityGlobalLabels || this.state.viewIdentityFrameLabels.get(frameIndex);
+    }
+
     async precomputeRdfTrajectory(
         options,
         { showBusy = true, source = null } = {}
@@ -9534,7 +9682,7 @@ class VAseApp {
 
         const token = ++this.state.rdfPrefetchToken;
         const startedAt = performance.now();
-        const { positions: _positions, frame_index: _frameIndex, ...baseOptions } = options;
+        const { positions: _positions, frame_index: _frameIndex, labels: _labels, ...baseOptions } = options;
         let busyOwner = null;
         if (showBusy) {
             busyOwner = this.setBusy(
@@ -9559,10 +9707,12 @@ class VAseApp {
                     frameIndex,
                     initialContext.source
                 );
+                const labels = this.rdfFrameOverrideLabels(context.backendFrameIndex);
                 const response = await this.api.fetchRdf({
                     ...baseOptions,
                     frame_index: context.backendFrameIndex,
-                    ...(overridePositions ? { positions: overridePositions } : {})
+                    ...(overridePositions ? { positions: overridePositions } : {}),
+                    ...(labels ? { labels } : {})
                 });
                 if (
                     token !== this.state.rdfPrefetchToken
@@ -9732,8 +9882,9 @@ class VAseApp {
             type !== 'commensurate'
         );
         drawer.dataset.analysisType = type;
-        drawer.classList.remove('hidden');
-        this.syncAnalysisDrawerSize?.();
+        const floating = this.presentAnalysisPlot(type, title);
+        drawer.classList.toggle('hidden', floating);
+        if (!floating) this.syncAnalysisDrawerSize?.();
         return this.analysisPlotElement(type);
     }
 
@@ -9749,6 +9900,7 @@ class VAseApp {
         }
         document.getElementById('analysis-drawer')?.classList.add('hidden');
         this.state.activeAnalysisPlot = null;
+        this.presentAnalysisPlot(null);
         const drawer = document.getElementById('analysis-drawer');
         if (drawer) delete drawer.dataset.analysisType;
         const exportButton = document.getElementById('btn-analysis-export');
@@ -9769,53 +9921,72 @@ class VAseApp {
         };
     }
 
-    async plotRdf(result) {
+    async plotRdf(result, savedView = null) {
         const Plotly = await this.ensurePlotly();
-        const finite = result.analysis_kind === 'pair-distribution';
+        if (savedView && this.state.rdfResult !== result) return;
+        const bulk = !['periodic-pair-distribution', 'pair-distribution'].includes(result.analysis_kind);
         const plot = this.showAnalysisDrawer(
             'rdf',
-            result.title || (finite ? 'Pair-distribution function' : 'Radial distribution function')
+            result.title || (bulk ? 'Radial distribution function' : 'Pair-distribution function')
         );
         if (!plot) return;
-        const theme = this.plotTheme();
-        const palette = [theme.teal, theme.amber, theme.blue, '#e05b78', '#a7d46f', '#c49ae8'];
-        const traces = [{
-            x: result.radius,
-            y: result.total,
-            type: 'scatter',
-            mode: 'lines',
-            name: 'Total',
-            line: { color: theme.teal, width: 2.4 }
-        }];
-        Object.entries(result.partial || {}).forEach(([name, values], index) => {
-            traces.push({
-                x: result.radius,
-                y: values,
-                type: 'scatter',
-                mode: 'lines',
-                name: name.replace('|', ' - '),
-                line: { color: palette[(index + 1) % palette.length], width: 1.5 }
-            });
+        const { style, axes } = this.state.display.analysisPlots.rdf;
+        const inheritedTheme = this.plotTheme();
+        const graph = this.distributionPalette(style);
+        const theme = style.backgroundMode === 'theme' ? inheritedTheme
+            : { ...inheritedTheme, text: graph.ink, muted: graph.secondary, line: graph.grid };
+        this.syncDistributionPlotControls();
+        const legendHidden = savedView?.legendHidden || new Set((plot.data || [])
+            .filter(trace => trace.visible === 'legendonly').map(trace => trace.uid));
+        const traces = this.rdfSeriesStyles(result).map(series => {
+            const values = series.key === 'total' ? result.total : result.partial[series.key];
+            const trace = rdfPlotlyTrace(series, result.radius, values);
+            if (trace.visible && legendHidden.has(trace.uid)) trace.visible = 'legendonly';
+            return trace;
         });
+        const ticks = style.tickFormat === 'auto' ? '' : `.${style.tickPrecision}${style.tickFormat === 'fixed' ? 'f' : 'e'}`;
+        const revision = `${result.analysis_kind}:${result.cutoff}:${result.bins}`;
+        if (this.rdfRenderedResult !== result) {
+            this.rdfRenderedResult = result;
+            this.rdfResultRevision = (this.rdfResultRevision || 0) + 1;
+        }
+        // Retain interactive zoom on appearance edits. Recompute a partially
+        // automatic range when a new result changes its data-dependent end.
+        const axisRevision = key => {
+            const min = axes[`${key}Min`], max = axes[`${key}Max`];
+            const pinned = min !== null || max !== null;
+            return JSON.stringify([revision, this.rdfAxisApplyRevision || 0, min, max, pinned ? this.rdfResultRevision : null]);
+        };
+        const bounds = key => savedView?.ranges[key]
+            ? { range: savedView.ranges[key], autorange: false }
+            : plotlyAxisBounds(axes, key, null, traces);
         const layout = {
             autosize: true,
             margin: { l: 56, r: 18, t: 16, b: 48 },
-            paper_bgcolor: 'rgba(0,0,0,0)',
+            paper_bgcolor: style.backgroundMode === 'color' ? style.background : 'rgba(0,0,0,0)',
             plot_bgcolor: 'rgba(0,0,0,0)',
-            font: { color: theme.text, family: 'Inter, system-ui, sans-serif', size: 11 },
+            font: { color: theme.text, family: style.fontFamily, size: style.fontSize },
+            showlegend: style.legend,
+            uirevision: revision,
             xaxis: {
                 title: { text: 'r / Å' },
+                uirevision: axisRevision('x'), showticklabels: style.xTickLabels, tickformat: ticks, automargin: true,
+                ...bounds('x'),
                 gridcolor: theme.line,
+                showgrid: style.grid,
                 zeroline: false,
                 color: theme.muted
             },
             yaxis: {
-                title: { text: result.y_label || (finite ? 'Pair probability / Å⁻¹' : 'g(r)') },
+                title: { text: result.y_label || (bulk ? 'g(r)' : 'Pair probability / Å⁻¹') },
+                uirevision: axisRevision('y'), showticklabels: style.yTickLabels, tickformat: ticks, automargin: true,
+                ...bounds('y'),
                 gridcolor: theme.line,
+                showgrid: style.grid,
                 zerolinecolor: theme.line,
                 color: theme.muted
             },
-            shapes: finite ? [] : [{
+            shapes: !bulk ? [] : [{
                 type: 'line',
                 xref: 'paper',
                 x0: 0,
@@ -9825,7 +9996,7 @@ class VAseApp {
                 y1: 1,
                 line: { color: theme.muted, width: 1.2, dash: 'dot' }
             }],
-            annotations: finite ? [] : [{
+            annotations: !bulk ? [] : [{
                 xref: 'paper',
                 x: 1,
                 xanchor: 'right',
@@ -9834,12 +10005,13 @@ class VAseApp {
                 yshift: 10,
                 text: 'bulk limit  g(r) = 1',
                 showarrow: false,
-                font: { color: theme.muted, size: 10 }
+                font: { color: theme.muted, size: style.fontSize }
             }],
             legend: {
                 orientation: 'h',
                 x: 0,
-                y: 1.08,
+                y: 1.02,
+                yanchor: 'bottom',
                 bgcolor: 'rgba(0,0,0,0)'
             },
             hovermode: 'x unified'
@@ -9967,8 +10139,9 @@ class VAseApp {
         ));
         const nearest = geometry.nearest;
         const graphView = document.getElementById('commensurate-plot-view')?.value || 'overview-3d';
+        const axes = this.analysisPlotAxes('commensurate');
         if (graphView === 'stradi-2d') {
-            await Plotly.react(plot, [
+            const traces = [
                 {
                     type: 'scatter',
                     mode: 'markers',
@@ -10000,7 +10173,8 @@ class VAseApp {
                     marker: { size: 11, color: theme.blue, symbol: 'diamond-open', line: { width: 2 } },
                     hoverinfo: 'skip'
                 }
-            ], {
+            ];
+            await Plotly.react(plot, traces, {
                 autosize: true,
                 margin: { l: 62, r: 18, t: 12, b: 48 },
                 paper_bgcolor: 'rgba(0,0,0,0)',
@@ -10008,18 +10182,20 @@ class VAseApp {
                 font: { color: theme.text, family: 'Inter, system-ui, sans-serif', size: 10 },
                 xaxis: {
                     title: { text: 'mean |strain| / %' },
+                    ...plotlyAxisBounds(axes, 'x', null, traces),
                     gridcolor: theme.line,
                     zeroline: false,
                     color: theme.muted
                 },
                 yaxis: {
                     title: { text: 'atoms in common cell' },
+                    ...plotlyAxisBounds(axes, 'y', null, traces),
                     gridcolor: theme.line,
                     zeroline: false,
                     color: theme.muted
                 },
                 showlegend: false,
-                uirevision: 'commensurate-paper-projection'
+                uirevision: `commensurate-paper-projection:${JSON.stringify(axes)}`
             }, {
                 responsive: true,
                 displaylogo: false,
@@ -10182,7 +10358,7 @@ class VAseApp {
                     ticklen: 5,
                     tickcolor: theme.text,
                     nticks: 9,
-                    range: geometry.axis.x
+                    ...plotlyAxisBounds(axes, 'x', geometry.axis.x)
                 },
                 yaxis: {
                     title: { text: 'host area / A₀', font: { size: 13 } },
@@ -10203,7 +10379,7 @@ class VAseApp {
                     ticklen: 5,
                     tickcolor: theme.text,
                     nticks: 7,
-                    range: geometry.axis.yRange
+                    ...plotlyAxisBounds(axes, 'y', geometry.axis.yRange)
                 },
                 zaxis: {
                     title: { text: 'max strain / %', font: { size: 13 } },
@@ -10379,12 +10555,20 @@ class VAseApp {
         }
         if (bins && document.activeElement !== bins) bins.value = `${this.state.display.rdfBins || 200}`;
         if (mode && document.activeElement !== mode) mode.value = this.state.display.rdfPairMode || 'active';
+        const usePbc = document.getElementById('rdf-use-pbc');
+        if (usePbc) usePbc.checked = this.state.display.rdfUsePbc !== false;
+        this.syncDistributionPlotControls();
     }
 
     setupRdfAnalysis() {
         this.syncRdfControls();
-        ['rdf-cutoff', 'rdf-bins', 'rdf-pair-mode'].forEach(id => {
+        this.setupAnalysisPlots();
+        ['rdf-cutoff', 'rdf-bins', 'rdf-pair-mode', 'rdf-use-pbc'].forEach(id => {
             document.getElementById(id)?.addEventListener('input', () => {
+                if (id === 'rdf-use-pbc') {
+                    this.state.display.rdfUsePbc = document.getElementById(id).checked;
+                    this.scheduleVisualHistoryCommit('distribution-boundaries');
+                }
                 const keptOpen = this.invalidateRdfResult(
                     'Distribution settings changed; recalculating the active graph.',
                     { preserveActivePlot: true }
@@ -10775,6 +10959,8 @@ class VAseApp {
             1
         );
         const padding = span * 0.12;
+        const axes = this.analysisPlotAxes('registry');
+        const automaticAxes = Object.values(axes).every(value => value === null);
         await Plotly.react(plot, traces, {
             autosize: true,
             margin: { l: 58, r: 22, t: 20, b: 52 },
@@ -10783,7 +10969,7 @@ class VAseApp {
             font: { color: theme.text, family: 'Inter, system-ui, sans-serif', size: 11 },
             xaxis: {
                 title: { text: 'plane x / Å' },
-                range: [Math.min(...boundsX) - padding, Math.max(...boundsX) + padding],
+                ...plotlyAxisBounds(axes, 'x', [Math.min(...boundsX) - padding, Math.max(...boundsX) + padding]),
                 showgrid: true,
                 gridcolor: theme.line,
                 zeroline: true,
@@ -10793,13 +10979,13 @@ class VAseApp {
             },
             yaxis: {
                 title: { text: 'plane y / Å' },
-                range: [Math.min(...boundsY) - padding, Math.max(...boundsY) + padding],
+                ...plotlyAxisBounds(axes, 'y', [Math.min(...boundsY) - padding, Math.max(...boundsY) + padding]),
                 showgrid: true,
                 gridcolor: theme.line,
                 zeroline: true,
                 zerolinecolor: theme.muted,
                 color: theme.muted,
-                scaleanchor: 'x',
+                scaleanchor: automaticAxes ? 'x' : false,
                 scaleratio: 1,
                 constrain: 'domain'
             },
@@ -10813,7 +10999,7 @@ class VAseApp {
                 showarrow: false,
                 font: { color: theme.muted, size: 10 }
             }],
-            uirevision: `registry-plane-${hkl.join('-')}`
+            uirevision: `registry-plane-${hkl.join('-')}:${JSON.stringify(axes)}`
         }, {
             responsive: true,
             displaylogo: false,
@@ -11106,10 +11292,12 @@ class VAseApp {
                 steps,
                 calculator: requestedCalculator
             });
-            // Events and authoritative snapshots replace the mode object.
-            // Adopt the start response only if none has arrived since this run
-            // began. A previous run's terminal status must not block a new run.
-            if (this.state.registryRelaxation === modeAtStart) {
+            const current = this.state.registryRelaxation;
+            const previousRun = current && current.session_id === summary.session_id && current.run_id < summary.run_id;
+            // A refresh can replace the mode with another snapshot of the
+            // previous run. A step or finish for this run takes precedence.
+            if (current === modeAtStart || previousRun) {
+                this.invalidatePendingStructureReads();
                 this.state.registryRelaxation = this.registryRelaxationFromMessage(summary);
             }
             this.syncRegistryRelaxationControls();
@@ -11304,6 +11492,8 @@ class VAseApp {
     }
 
     refreshActiveAnalysisTheme() {
+        this.trajectoryEnergyOverlay?.draw();
+        this.syncDistributionPlotControls();
         if (this.state.activeAnalysisPlot === 'rdf' && this.state.rdfResult) {
             void this.plotRdf(this.state.rdfResult);
         } else if (this.state.activeAnalysisPlot === 'commensurate' && this.state.commensurateSearch) {
@@ -11311,8 +11501,8 @@ class VAseApp {
                 Number(this.state.display.commensurateGuestAngleDeg) || 0
             );
             void this.plotCommensurateSearch(this.state.commensurateSearch, angle);
-        } else if (this.state.activeAnalysisPlot === 'registry' && this.state.registryResult) {
-            void this.plotRegistryMap(this.state.registryResult);
+        } else if (this.state.activeAnalysisPlot === 'registry' && this.registryPlaneSource()) {
+            void this.plotRegistryPlane();
         }
     }
 
@@ -11472,7 +11662,7 @@ class VAseApp {
 
     recordStructureHistoryAction(sourcePath = '') {
         const selectedEdit = this.selectedAppearanceEditor?.transaction;
-        if (selectedEdit && sourcePath.includes('/api/atom-identity/')) {
+        if (selectedEdit && ['/api/atom-identity/', '/api/trajectory/labels/'].some(path => sourcePath.includes(path))) {
             selectedEdit.action = { kind: 'structure', sourcePath, visualBefore: selectedEdit.before };
             this.recordHistoryAction(selectedEdit.action);
             return;
@@ -11603,14 +11793,15 @@ class VAseApp {
         });
     }
 
-    applyVisualHistorySnapshot(snapshot) {
+    applyVisualHistorySnapshot(snapshot, { source } = {}) {
         if (!snapshot) return;
         const previousReplay = this.historyReplay;
         const previousRestoring = this.restoringDesignSettings;
         this.historyReplay = true;
         this.restoringDesignSettings = true;
         try {
-            this.applyDesignSettings(this.clonePlain(snapshot));
+            const opticalScale = source === 'renderer-output-scale';
+            this.applyDesignSettings(this.clonePlain(snapshot), { opticalScale });
             // applyDesignSettings merges defaults. Recovery must retain the
             // original presence/absence of optional display fields as well;
             // in particular an absent volumetric level is not a new level 0.
@@ -11629,7 +11820,7 @@ class VAseApp {
             if (!snapshot.camera && snapshot.renderArea?.editingView) {
                 this.applyCameraSettings(snapshot.renderArea.editingView, {syncScale: false});
                 const scale = Number(snapshot.renderArea.editingPixelsPerAngstrom);
-                if (Number.isFinite(scale) && scale > 0) this.renderer.setPixelsPerAngstrom(scale);
+                if (Number.isFinite(scale) && scale > 0) this.renderer.setPixelsPerAngstrom(scale, { optical: opticalScale });
                 this.syncAtomicScaleFromCamera({forceInput: true});
             }
             this.syncImageExportPreview();
@@ -11682,7 +11873,7 @@ class VAseApp {
                 await this.aiRestoreSceneState(action.before);
                 this.toast('Scene change undone.', 'success');
             } else if (action.kind === 'visual') {
-                this.applyVisualHistorySnapshot(action.before);
+                this.applyVisualHistorySnapshot(action.before, action);
                 this.toast('Visual setting undone.', 'success');
             } else {
                 this.historyReplay = true;
@@ -11747,7 +11938,7 @@ class VAseApp {
                 await this.aiRestoreSceneState(action.after);
                 this.toast('Scene change redone.', 'success');
             } else if (action.kind === 'visual') {
-                this.applyVisualHistorySnapshot(action.after);
+                this.applyVisualHistorySnapshot(action.after, action);
                 this.toast('Visual setting redone.', 'success');
             } else {
                 this.historyReplay = true;
@@ -11854,7 +12045,8 @@ class VAseApp {
 
     syncFlatDisplayControls() {
         const flat = this.state.display.atomDisplayMode === '2d';
-        const selectors = ['#renderer-sphere-quality', 'select[id*="material"]', '[data-appearance-field="material"]',
+        document.getElementById('renderer-outline-row').hidden = !flat;
+        const selectors = ['select[id*="material"]', '[data-appearance-field="material"]',
             '.renderer-lighting-group input', '.renderer-lighting-group select',
             '#export-render-mode', '#video-render-mode', '#export-sun-intensity', '#video-sun-intensity',
             '[id^="export-sun-position-"]', '[id^="export-sun-target-"]',
@@ -12175,7 +12367,7 @@ class VAseApp {
             ? `LIGHT ${this.state.sunSelected === 'target' ? 'TARGET' : 'SOURCE'}`
             : (this.state.vizOnly ? 'VIEW' : 'SELECT');
         setHtml('val-mode', this.transform.mode === 'IDLE' ? idleMode : this.transform.mode);
-        setHtml('val-energy', typeof meta.energy === 'number' ? meta.energy.toFixed(4) : "-");
+        this.syncTrajectoryEnergyStatus();
         setHtml('val-fmax', Number.isFinite(this.state.cachedFmax) ? this.state.cachedFmax.toFixed(4) : "-");
         
         const pbc = this.state.atoms.pbc.map(p => p ? 'T' : 'F').join('');
@@ -13062,6 +13254,7 @@ class VAseApp {
             clearSelection = false,
             preserveDisplay = true,
             preserveRdf = false,
+            refreshRdf = true,
             resetTrajectoryIdentity = false,
             preserveColorScaleRange = false,
             radiusScopeRemap = null,
@@ -13297,7 +13490,7 @@ class VAseApp {
         this.updateForceVectorStatus();
         this.observeCollaborationFrame();
         this.scheduleProjectDirtyStateUpdate();
-        if (refreshActiveRdf) {
+        if (refreshRdf && refreshActiveRdf) {
             this.scheduleActiveStructureAnalysisRefresh(
                 'The structure changed.',
                 0
@@ -14036,6 +14229,7 @@ class VAseApp {
         if (fps) fps.disabled = count <= 1;
         const skip = document.getElementById('movie-skip');
         if (skip) skip.disabled = count <= 1;
+        this.syncTrajectoryTools();
 
         const secondary = this.secondaryTimelineSource();
         const secondaryRow = document.getElementById('secondary-trajectory-row');
@@ -14640,8 +14834,21 @@ class VAseApp {
             intensity: Number(display.sunIntensity ?? 2.2),
             position: [...(display.sunPosition || [8, -10, 14])],
             target: [...(display.sunTarget || [0, 0, 0])],
-            color: [1.0, 0.960784, 0.87451]
+            color: [1.0, 0.960784, 0.87451],
+            background: `#${this.renderer.viewportBackgroundColor().getHexString()}`
         };
+    }
+
+    exportBlenderScene(positions, display, includeCell) {
+        const preview = this.renderer.exportPreview;
+        let camera = this.currentCameraForExport();
+        if (preview?.enabled) {
+            const composition = this.renderer.exportCompositionSnapshot(preview.width, preview.height, preview.options);
+            camera = { ...composition.camera, width: composition.width, height: composition.height };
+        }
+        return this.api.exportBlender(positions, this.state.applyConstraints, camera, display,
+            this.renderer.bondPairs || [], this.currentLightingForExport(), includeCell,
+            this.renderer.supercellBridgeBondRecords || []);
     }
 
     isReplicaReference(reference) {
@@ -16714,6 +16921,16 @@ class VAseApp {
         this.updateUI();
     }
 
+    renderAreaAxisScale(camera, factor) {
+        const axis = { X: [1, 0, 0], Y: [0, 1, 0], Z: [0, 0, 1] }[this.transform.axis];
+        if (!axis) return null;
+        const orientation = this.renderer.cameraFromSettings(camera, camera.aspect).camera.quaternion;
+        const { x, y } = new THREE.Vector3(...axis).applyQuaternion(orientation.clone().invert());
+        if (x * x + y * y < 1e-8) return null;
+        if (this.state.display.renderFixedRatio) return [factor, factor];
+        return [1 + (factor - 1) * x * x, 1 + (factor - 1) * y * y];
+    }
+
     applyRenderAreaTransformPreview() {
         const original = this.state.renderAreaTransformOriginal;
         if (!original) return;
@@ -16734,8 +16951,16 @@ class VAseApp {
         } else if (this.transform.mode === 'SCALE') {
             scale = this.transformScaleFactor();
             if (!Number.isFinite(scale) || scale <= 0) return;
-            if (profile.options.scaleMode === 'physical') profile.options.pixelsPerAngstrom /= scale;
-            this.state.transformReadout = `Render area ${this.formatScaleReadout(scale)}`;
+            const axes = this.renderAreaAxisScale(original, scale);
+            if (axes) {
+                const dimensions = this.scaledRenderDimensions(profile, ...axes);
+                scale = dimensions.height / profile.height;
+                Object.assign(profile, dimensions);
+                this.state.transformReadout = `Render area ${profile.width} × ${profile.height} px`;
+            } else {
+                if (profile.options.scaleMode === 'physical') profile.options.pixelsPerAngstrom /= scale;
+                this.state.transformReadout = `Render area ${this.formatScaleReadout(scale)}`;
+            }
         }
         this.state.exportPreviewCamera = this.normalizedCameraSettings({
             ...original,
@@ -16755,7 +16980,7 @@ class VAseApp {
             view.zoom = this.renderAreaTransformView.zoom / scale;
             this.applyCameraSettings(view, {syncScale: false});
         }
-        this.syncImageExportPreview();
+        this.setImageExportProfile(profile);
         this.transform.updateGuides(this.renderer.camera);
         this.updateCommandReadout();
     }
@@ -16779,6 +17004,7 @@ class VAseApp {
             return;
         }
         this.finishRenderAreaTransform();
+        this.syncProjectHtmlProfileFromRenderer();
         this.scheduleVisualHistoryCommit('render-area-camera');
     }
 
@@ -16799,6 +17025,7 @@ class VAseApp {
         }
         this.finishRenderAreaTransform();
         this.syncImageExportPreview();
+        this.syncRendererProperties({ force: true });
     }
 
     updateToolState() {
@@ -16817,15 +17044,36 @@ class VAseApp {
         if (title) title.textContent = `${tool.charAt(0).toUpperCase()+tool.slice(1)} selection`;
         const selectedObject = (this.state.selected.size > 0 && this.canTransformSelectedAtoms()) || this.state.renderAreaSelected
             || this.state.sunSelected || this.state.selectedVolumetricPlanes.size || this.selectedAddAtomsRegionIds().size;
+        let disabledReason = '';
+        if (!selectedObject) {
+            if (!this.state.atoms?.positions?.length) {
+                disabledReason = 'Open or build a structure, then select atoms.';
+            } else if (this.state.vizOnly) {
+                disabledReason = this.selectionCount()
+                    ? 'Switch to Edit structure to transform the selected atoms.'
+                    : 'Switch to Edit structure and select atoms.';
+            } else if (!this.state.selected.size) {
+                disabledReason = 'Select the atoms you want to transform.';
+            } else {
+                disabledReason = 'Stop active placement and select only the inserted atoms.';
+            }
+        }
         document.querySelectorAll('#viewport-tools button').forEach(button => {
             const active = button.id === `tool-${tool}`;
             button.classList.toggle('active', active);
             if (button.id !== 'tool-add') button.setAttribute('aria-pressed', String(active));
             if (['tool-move', 'tool-rotate', 'tool-scale'].includes(button.id)) {
-                button.disabled = !selectedObject;
-                button.title = selectedObject
-                    ? `${button.getAttribute('aria-label')} — drag in the viewport, Enter to apply, Esc to cancel`
-                    : 'Select an editable atom or object first';
+                const reason = disabledReason && button.id === 'tool-rotate'
+                    ? `${disabledReason} To turn the view, use Orbit camera.`
+                    : disabledReason;
+                if (button.disabled !== Boolean(reason)) button.disabled = Boolean(reason);
+                if (reason && button.dataset.disabledTooltip !== reason) {
+                    button.dataset.disabledTooltip = reason;
+                    button.setAttribute('aria-description', reason);
+                } else if (!reason && button.hasAttribute('data-disabled-tooltip')) {
+                    delete button.dataset.disabledTooltip;
+                    button.removeAttribute('aria-description');
+                }
             }
         });
     }
@@ -17286,7 +17534,7 @@ class VAseApp {
         });
         const setValue = (id, value) => {
             const element = document.getElementById(id);
-            if (element) element.value = value;
+            if (element && document.activeElement !== element) element.value = value;
         };
         setValue('bond-pair-style', style.style);
         setValue('bond-pair-material', style.material);
@@ -17315,7 +17563,7 @@ class VAseApp {
         });
     }
 
-    applyBondPairStyle({ all = false } = {}) {
+    applyBondPairStyle({ all = false, live = false } = {}) {
         const selectedKey = document.getElementById('bond-pair-style-key')?.value;
         const enabled = document.getElementById('bond-pair-style-enabled')?.checked === true;
         if (!selectedKey && !all) return;
@@ -17333,8 +17581,8 @@ class VAseApp {
             const checkbox = document.getElementById('bond-pair-style-enabled');
             if (checkbox) checkbox.checked = true;
         }
-        this.syncBondPairStyleEditor();
-        this.applyBondOptions();
+        if (live) this.safeApplyBondOptions();
+        else this.applyBondOptions();
     }
 
     resetBondPairStyle() {
@@ -17408,11 +17656,13 @@ class VAseApp {
         currentLabels.forEach((label, index) => add(label, currentElements[index]));
         this.state.trajectoryLabels = labels;
         this.state.trajectoryLabelElements = elements;
+        if (payload || reset) this.state.trajectoryLabelCounts = payload?.counts || {};
     }
 
     availableAtomLabels(symbols = this.state.atoms?.symbols || []) {
         return [...new Set([
             ...(this.state.trajectoryLabels || []),
+            ...(this.state.display.retainedLabels || []),
             ...symbols.filter(Boolean)
         ])];
     }
@@ -17484,20 +17734,18 @@ class VAseApp {
     }
 
     viewIdentityOverridesSnapshot() {
-        if (!Array.isArray(this.state.atoms?.symbols)) return null;
-        const frame = this.currentTrajectoryFrame();
-        if (this.trajectoryIdentityCompatible()) {
+        if (Array.isArray(this.state.viewIdentityGlobalLabels)) {
             return {
                 schema: 'v_ase.view_identity.v1',
                 scope: 'trajectory',
-                labels: [...this.state.atoms.symbols]
+                labels: [...this.state.viewIdentityGlobalLabels]
             };
         }
+        if (!this.state.viewIdentityFrameLabels.size) return null;
         const frames = Object.fromEntries(
             [...this.state.viewIdentityFrameLabels.entries()]
                 .map(([index, labels]) => [String(index), [...labels]])
         );
-        frames[String(frame)] = [...this.state.atoms.symbols];
         return {
             schema: 'v_ase.view_identity.v1',
             scope: 'frames',
@@ -17506,16 +17754,16 @@ class VAseApp {
     }
 
     restoreViewIdentityOverrides(source) {
+        this.clearViewIdentityOverrides();
         if (!source || !Array.isArray(this.state.atoms?.symbols)) return false;
         const frame = this.currentTrajectoryFrame();
         const atomCount = this.state.atoms.symbols.length;
-        this.clearViewIdentityOverrides();
         if (source.scope === 'trajectory' && Array.isArray(source.labels)) {
             if (source.labels.length !== atomCount) return false;
             this.state.viewIdentityGlobalLabels = [...source.labels];
         } else if (source.scope === 'frames' && source.frames && typeof source.frames === 'object') {
             Object.entries(source.frames).forEach(([index, labels]) => {
-                if (Array.isArray(labels) && labels.length === atomCount) {
+                if (Array.isArray(labels)) {
                     this.state.viewIdentityFrameLabels.set(Number(index), [...labels]);
                 }
             });
@@ -17556,9 +17804,8 @@ class VAseApp {
             );
             this.state.viewIdentityGlobalLabels = null;
         }
-        const labels = compatible
-            ? this.state.viewIdentityGlobalLabels
-            : this.state.viewIdentityFrameLabels.get(frame);
+        const labels = this.state.viewIdentityFrameLabels.get(frame)
+            || (compatible ? this.state.viewIdentityGlobalLabels : null);
         if (!Array.isArray(labels) || labels.length !== data.symbols.length) return data;
         data.symbols = [...labels];
         if (Array.isArray(data.atom_types)) data.atom_types = [...labels];
@@ -17725,7 +17972,8 @@ class VAseApp {
         newSymbol,
         { appearance = true, removeSource = true, copySource = true } = {}
     ) {
-        if (!oldSymbol || !newSymbol || oldSymbol === newSymbol) return;
+        if (!oldSymbol || oldSymbol === newSymbol) return;
+        copySource = Boolean(newSymbol) && copySource;
         const maps = [
             ...(appearance ? [
                 this.state.display.labelRadii,
@@ -17733,7 +17981,8 @@ class VAseApp {
                 this.state.display.labelOpacities
             ] : []),
             this.state.display.labelMaterials,
-            this.state.display.labelVisible
+            this.state.display.labelVisible,
+            this.state.display.labelBondStyles
         ];
         maps.forEach(map => {
             if (!map || !(oldSymbol in map)) return;
@@ -18048,17 +18297,6 @@ class VAseApp {
             nameInput.dataset.atomLabel = symbol;
             nameInput.dataset.appearanceField = 'label';
             nameInput.value = symbol;
-            nameInput.disabled = labelAtomIndices.length === 0;
-            const previewDetectedBase = () => {
-                if (this.state.vizOnly) return;
-                const next = this.normalizedTypeLabel(nameInput.value);
-                const inferredBase = this.detectedElementForLabel(next);
-                if (inferredBase) {
-                    if (typeSelect.value !== inferredBase) typeSelect.value = inferredBase;
-                    const radius = this.defaultElementRadius(inferredBase);
-                    if (Number.isFinite(radius) && radius > 0) input.value = Number(radius.toFixed(4));
-                }
-            };
             let renameRequestKey = null;
             const commitRename = async (baseOverride = null) => {
                 // Removing/re-focusing a draft during a background rebind can
@@ -18093,7 +18331,6 @@ class VAseApp {
             });
             nameInput.addEventListener('input', () => {
                 renameRequestKey = null;
-                previewDetectedBase();
             });
             nameInput.addEventListener('change', () => commitRename());
 
@@ -18195,7 +18432,9 @@ class VAseApp {
             const count = document.createElement('span');
             count.className = 'atom-type-count';
             count.textContent = String(labelAtomIndices.length);
-            count.title = `${labelAtomIndices.length} atoms`;
+            const countAcrossFrames = this.state.trajectoryLabelCounts?.[symbol] ?? labelAtomIndices.length;
+            count.title = !labelAtomIndices.length && countAcrossFrames > 0
+                ? `0 here · ${countAcrossFrames} in other frames` : `${labelAtomIndices.length} atoms`;
             row.setAttribute('role', 'group');
             [nameInput, color, visibleBox, selectBox, typeSelect, input, opacity, material]
                 .forEach(control => {
@@ -18215,6 +18454,21 @@ class VAseApp {
                     const name = document.createElement('span'); name.textContent = text;
                     label.append(name, control); fields.appendChild(label);
                 });
+            const actions = document.createElement('div');
+            actions.className = 'appearance-label-actions';
+            if (!labelAtomIndices.length && countAcrossFrames > 0) {
+                const usage = document.createElement('span');
+                usage.className = 'panel-note';
+                usage.textContent = 'Used in other frames';
+                actions.appendChild(usage);
+            }
+            const remove = document.createElement('button');
+            remove.type = 'button';
+            remove.className = 'btn';
+            remove.textContent = 'Delete label';
+            remove.addEventListener('click', () => void this.deleteTrajectoryLabel(symbol));
+            actions.appendChild(remove);
+            fields.appendChild(actions);
             row.append(summary, fields);
             root.appendChild(row);
         });
@@ -18421,6 +18675,10 @@ class VAseApp {
             this.toast('Atom type name cannot be empty.', 'warning');
             return false;
         }
+        if (!baseSymbol) {
+            if (oldSymbol === desiredLabel) return true;
+            return await this.changeTrajectoryLabelName(oldSymbol, desiredLabel);
+        }
         if (this.state.pendingLabelRenames.has(oldSymbol)) return true;
         const indices = Array.isArray(expectedIndices)
             ? [...expectedIndices]
@@ -18494,6 +18752,136 @@ class VAseApp {
         } finally {
             this.state.pendingLabelRenames.delete(oldSymbol);
         }
+    }
+
+    invalidateTrajectoryLabelAnalysis({ preserveRdf = false } = {}) {
+        if (!preserveRdf) {
+            this.invalidateRdfResult('Trajectory labels changed. Calculate the distribution again.');
+        }
+        if (this.state.display.showPolyhedra) {
+            this.renderer.setPolyhedraData(null);
+            this.schedulePolyhedra();
+        }
+    }
+
+    renameRdfLabel(source, target) {
+        const renamedKey = key => {
+            const labels = key.split('|');
+            return labels.length === 2 && labels.includes(source)
+                ? labels.map(label => label === source ? target : label).sort().join('|') : key;
+        };
+        const updateKeys = (entries = {}) => Object.fromEntries(
+            Object.entries(entries).map(([key, value]) => [renamedKey(key), value])
+        );
+        const renameResult = result => ({ ...result, partial: updateKeys(result.partial) });
+        const style = this.state.display.analysisPlots.rdf.style;
+        if (style.series) style.series = updateKeys(style.series);
+        if (this.graphSettings?.selection?.rdf) {
+            this.graphSettings.selection.rdf = renamedKey(this.graphSettings.selection.rdf);
+        }
+        // A one-to-one rename preserves all pair counts and distances. Retire
+        // requests carrying the old labels and update the keys of cached curves.
+        const state = this.state;
+        state.rdfRequestToken += 1;
+        state.rdfPrefetchToken += 1;
+        state.rdfPrefetchPromise = null;
+        clearTimeout(state.rdfSelectionRefreshTimer);
+        state.rdfSelectionRefreshTimer = null;
+        state.rdfSelectionPendingSignature = '';
+        if (state.rdfFrameCacheSignature) {
+            state.rdfFrameCacheSignature = this.rdfSettingsSignature();
+            for (const [frame, result] of state.rdfFrameCache) state.rdfFrameCache.set(frame, renameResult(result));
+        }
+        if (!state.rdfResult) return;
+        state.rdfResult = renameResult(state.rdfResult);
+        if (state.rdfResult.pair_mode === 'selected') {
+            state.rdfSelectionSignature = this.rdfPairSignature(this.selectedActiveRdfPairs());
+        }
+        this.syncDistributionPlotControls();
+        if (state.activeAnalysisPlot === 'rdf') {
+            this.setRdfReadyStatus(state.rdfResult);
+            this.plotRdf(state.rdfResult).catch(error => this.toast(error.message, 'error'));
+        }
+    }
+
+    async changeTrajectoryLabelName(source, target, { confirmed = false } = {}) {
+        if (this.state.pendingLabelRenames.has(source)) return false;
+        const merge = target !== null && this.uniqueAtomLabels().includes(target);
+        if (merge && !confirmed && !await this.showConfirmModal({
+            title: 'Merge labels?',
+            intro: 'The renamed atoms will use the destination label’s appearance and bond rules.',
+            confirmText: 'Merge labels',
+        })) { this.renderAppearanceRows(); return false; }
+        this.state.pendingLabelRenames.add(source);
+        try {
+            await this.settleScientificMutations();
+            this.flushVisualHistoryCommit();
+            const pureRename = target && !merge && !source.includes('|') && !target.includes('|');
+            const count = this.state.trajectoryLabelCounts?.[source] ?? this.labelIndices(source).length;
+            const data = target && (count || this.viewIdentityOverridesSnapshot()) ? await this.withBusy('Updating trajectory labels…', () =>
+                this.api.jsonPost('/api/trajectory/labels/{session_id}', {
+                    rename: {source, target}, frame_index: this.currentTrajectoryFrame(),
+                    view_identity_overrides: this.viewIdentityOverridesSnapshot(),
+                })) : null;
+            this.transferLabelDisplaySettings(source, target, { copySource: !merge });
+            const display = this.state.display;
+            if (display.atomColorScaleTargetLabel === source) display.atomColorScaleTargetLabel = target || '';
+            for (const rule of display.polyhedraRules || []) {
+                for (const selector of [rule.centers, rule.ligands]) {
+                    if (!selector?.labels?.includes(source)) continue;
+                    selector.labels = [...new Set(selector.labels
+                        .map(label => label === source ? target : label).filter(Boolean))];
+                    if (!selector.labels.length && !selector.elements?.length && !selector.indices?.length) rule.enabled = false;
+                }
+            }
+            display.retainedLabels = [...new Set([...(display.retainedLabels || []).filter(label => label !== source), target].filter(Boolean))];
+            if (target) this.replaceLabelOrder(source, target);
+            else this.state.labelOrder = this.state.labelOrder.filter(label => label !== source);
+            this.invalidateTrajectoryLabelAnalysis({ preserveRdf: pureRename });
+            if (data) {
+                this.clearViewIdentityOverrides();
+                this.setAtomsData(data, { preserveDisplay: false, preserveRdf: true, refreshRdf: !pureRename });
+                if (data.history_unchanged) this.scheduleVisualHistoryCommit('atom-label');
+            } else {
+                this.renderAppearanceRows();
+                this.renderPairwiseBondControls({ capture: false });
+                this.renderer.setDisplayOptions(display);
+                this.scheduleVisualHistoryCommit('atom-label');
+            }
+            if (pureRename) this.renameRdfLabel(source, target);
+            this.toast(target ? 'Updated trajectory labels.' : 'Deleted label.', 'success');
+            return true;
+        } catch (error) {
+            this.toast(error.message, 'error');
+            this.renderAppearanceRows();
+            return false;
+        } finally {
+            this.state.pendingLabelRenames.delete(source);
+        }
+    }
+
+    async deleteTrajectoryLabel(source) {
+        const count = this.state.trajectoryLabelCounts?.[source] ?? this.labelIndices(source).length;
+        if (!count) { await this.changeTrajectoryLabelName(source, null); return; }
+        const destinations = this.uniqueAtomLabels().filter(label => label !== source);
+        this.showModal(`<h2>Delete label</h2><p>Choose the label to assign to the affected atoms.</p>
+            <label class="prop-row">Destination <input id="label-delete-target" list="label-delete-destinations" autocomplete="off"></label>
+            <datalist id="label-delete-destinations"></datalist>`,
+            '<button id="modal-close" class="btn">Cancel</button><button id="label-delete-confirm" class="btn danger">Move atoms and delete</button>');
+        const input = document.getElementById('label-delete-target');
+        document.getElementById('label-delete-destinations').replaceChildren(...destinations.map(label => new Option(label)));
+        const apply = document.getElementById('label-delete-confirm');
+        const targetLabel = () => this.normalizedTypeLabel(input.value);
+        const sync = () => { apply.disabled = !targetLabel() || targetLabel() === source; };
+        input.addEventListener('input', sync);
+        apply.onclick = () => {
+            const target = targetLabel();
+            if (!target || target === source) return;
+            this.closeModal();
+            void this.changeTrajectoryLabelName(source, target, { confirmed: true });
+        };
+        sync();
+        input.focus();
     }
 
     renameAtomLabelForVisualization(
@@ -18746,7 +19134,7 @@ class VAseApp {
                 max: 0
             };
             const enabled = row.querySelector('.pairwise-bond-enabled')?.checked !== false;
-            const rawMaximum = Number(row.querySelector('.pairwise-bond-max')?.value);
+            const rawMaximum = row.querySelector('.pairwise-bond-max')?.valueAsNumber;
             const maximum = Number.isFinite(rawMaximum)
                 ? Math.max(0, rawMaximum)
                 : Math.max(0, Number(current.max) || 0);
@@ -18818,6 +19206,9 @@ class VAseApp {
     }
 
     updateBondAppearanceUI() {
+        const overrides = document.getElementById('bond-global-overrides');
+        if (overrides) overrides.hidden = !(Object.keys(this.state.display.pairwiseBondStyles || {}).length
+            || Object.keys(this.state.display.atomBondStyles || {}).length);
         const mode = document.getElementById('bond-color-mode')?.value || this.state.display.bondColorMode;
         document.getElementById('bond-custom-color-row')?.classList.toggle('hidden', mode !== 'custom');
         const rawThickness = Number(document.getElementById('bond-thickness')?.value || this.state.display.bondThickness);
@@ -18960,6 +19351,7 @@ class VAseApp {
         this.updateSelectionVisuals();
         this.updateLabelSelectionControls();
         this.updateBondModeUI();
+        this.renderSceneNavigatorObjects();
         if (this.state.exportPreviewEnabled) this.syncImageExportPreview();
         this.scheduleVisualHistoryCommit('display');
     }
@@ -19012,6 +19404,7 @@ class VAseApp {
             bondCustomColor: this.state.display.bondCustomColor,
             bondOpacity: this.state.display.bondOpacity
         });
+        this.renderSceneNavigatorObjects();
         const nextRdfPairs = rdfPairMode === 'selected'
             ? this.selectedActiveRdfPairs()
             : this.activeRdfPairs();
@@ -19124,6 +19517,8 @@ class VAseApp {
             ['/api/add-session/finish/', ['structure'], ['structure.topology', 'addAtoms.status'], 'Staged insertion content was committed.'],
             ['/api/add-session/cancel/', ['structure'], ['structure', 'addAtoms.status'], 'Staged insertion was cancelled and the baseline was restored.'],
             ['/api/atom-identity/', ['structure'], ['structure.identity'], 'Atom identity changed.'],
+            ['/api/trajectory/labels/', ['structure', 'display'], ['structure.labels', 'display'], 'Trajectory labels changed.'],
+            ['/api/trajectory/delete-frame/', ['structure', 'trajectory'], ['trajectory.frames'], 'A source frame was deleted.'],
             ['/api/constraints/', ['constraints'], ['constraints'], 'ASE constraints changed.'],
             ['/api/supercell/', ['structure'], ['structure.cell', 'structure.positions'], 'The working supercell changed.'],
             ['/api/translate/', ['structure'], ['structure.positions'], 'Atom coordinates were translated.'],
@@ -20120,6 +20515,10 @@ class VAseApp {
                 }))),
                 rdf: this.state.rdfResult ? {
                     schema: this.state.rdfResult.schema,
+                    analysisKind: this.state.rdfResult.analysis_kind,
+                    title: this.state.rdfResult.title,
+                    yLabel: this.state.rdfResult.y_label,
+                    normalization: this.state.rdfResult.normalization,
                     bins: this.state.rdfResult.bins,
                     requestedCutoff: this.state.rdfResult.requested_cutoff,
                     cutoff: this.state.rdfResult.cutoff,
@@ -22487,6 +22886,7 @@ class VAseApp {
             }
             if (binsInput && operation.bins !== undefined) binsInput.value = `${Number(operation.bins)}`;
             if (modeInput) modeInput.value = pairMode;
+            if (typeof operation.usePbc === 'boolean') document.getElementById('rdf-use-pbc').checked = operation.usePbc;
             const options = this.rdfOptions();
             if (Array.isArray(operation.activePairs)) {
                 options.active_pairs = this.clonePlain(operation.activePairs);
@@ -22882,15 +23282,7 @@ class VAseApp {
             filename = 'atoms.pkl';
             mimeType = 'application/octet-stream';
         } else if (format === 'blender') {
-            blob = await this.api.exportBlender(
-                positions,
-                this.state.applyConstraints,
-                camera,
-                display,
-                bonds,
-                this.currentLightingForExport(),
-                includeCell
-            );
+            blob = await this.exportBlenderScene(positions, display, includeCell);
             filename = 'v_ase_blender_scene.py';
             mimeType = 'text/x-python';
         } else if (format === '3dm') {
@@ -23049,7 +23441,9 @@ class VAseApp {
         onProgress = null
     ) {
         onProgress?.({ phase: 'render', ratio: 0 });
-        const source = await this.renderer.exportPNGBlob(width, height, options);
+        const graph = options.includeGraph !== false ? captureFloatingRdf(this, { width, height, options }) : null;
+        const [image, rdf] = await Promise.all([this.renderer.exportPNGBlob(width, height, options), graph]);
+        const source = rdf ? await composeFloatingRdf(image, width, height, rdf) : image;
         onProgress?.({ phase: 'capture', ratio: 1, bytes: source.size });
         return await this.api.encodeImage(source, format, onProgress);
     }
@@ -23272,6 +23666,10 @@ class VAseApp {
     async loadUserVisualDefaults() {
         try {
             const response = await this.api.fetchUserVisualDefaults();
+            this.personalEnergyBackground = response?.energyBackground || null;
+            this.personalRdfBackground = response?.rdfBackground || null;
+            this.state.display.analysisPlots = normalizeAnalysisPlots(null, this.personalRdfBackground);
+            this.state.display.energyOverlay = normalizeEnergyOverlay(null, this.personalEnergyBackground);
             this.hasPersonalVisualDefaults = response?.configured === true
                 && Boolean(response.settings);
             this.personalVisualDefaults = this.hasPersonalVisualDefaults
@@ -23424,6 +23822,35 @@ class VAseApp {
             const content = document.getElementById('inspector-content');
             if (content) content.scrollTop = Math.max(0, Number(saved.inspectorScroll) || 0);
         });
+    }
+
+    async restoreProjectRdf(settings) {
+        const profile = settings?.projectSave?.html?.exportProfile;
+        const capture = profile?.rdfGraph;
+        if (!capture || profile.options?.includeGraph === false) return;
+        const context = this.rdfFrameContext();
+        if (capture.source && capture.source !== context.source) return;
+        if (!Number.isInteger(capture.frame) || capture.frame < 0) return;
+        const options = this.rdfOptions({ source: context.source, frameIndex: context.index, includePositions: false });
+        const saved = savedRdfGraph(capture, options);
+        if (!saved) return;
+        try {
+            if (capture.frame !== context.backendFrameIndex) {
+                await this.calculateRdf({ quiet: true });
+                return;
+            }
+            const result = this.decorateRdfResult(saved.result, context);
+            const signature = this.ensureRdfFrameCache(options, context);
+            this.cacheRdfResult(result, signature, context);
+            this.state.rdfResult = result;
+            this.state.rdfAutoRefresh = true;
+            this.state.rdfSelectionSignature = options.pair_mode === 'selected'
+                ? this.rdfPairSignature(options.active_pairs) : '';
+            await this.plotRdf(result, saved);
+            if (this.state.rdfResult === result) this.setRdfReadyStatus(result);
+        } catch (error) {
+            this.setRdfStatus('warning', 'Saved distribution could not open', error.message);
+        }
     }
 
     geometryExportDisplaySnapshot() {
@@ -23621,7 +24048,9 @@ class VAseApp {
             const parsed = parseInt(value, 10);
             return Math.max(minimum, Math.min(maximum, Number.isFinite(parsed) ? parsed : fallback));
         };
-        const labels = this.availableAtomLabels();
+        const retainedLabels = Array.isArray(nextDisplay.retainedLabels)
+            ? [...new Set(nextDisplay.retainedLabels.map(label => this.normalizedTypeLabel(label)).filter(Boolean))] : [];
+        const labels = [...new Set([...(this.state.trajectoryLabels || []), ...(this.state.atoms?.symbols || []), ...retainedLabels])];
         const atomCount = this.state.atoms?.positions?.length || 0;
         const pickLabelMap = (source, fallback = {}) => {
             const result = {};
@@ -23659,7 +24088,7 @@ class VAseApp {
             const result = {};
             Object.entries(source || {}).forEach(([rawIndex, value]) => {
                 const index = Number(rawIndex);
-                if (!Number.isInteger(index) || index < 0 || index >= atomCount) return;
+                if (!Number.isSafeInteger(index) || index < 0 || (this.loadedFrameCount() < 2 && index >= atomCount)) return;
                 const normalized = normalize(value);
                 if (normalized !== null && normalized !== undefined) result[index] = normalized;
             });
@@ -23682,7 +24111,7 @@ class VAseApp {
             if (
                 Number.isInteger(index)
                 && index >= 0
-                && index < atomCount
+                && (index < atomCount || this.loadedFrameCount() > 1)
                 && ATOM_MATERIAL_PRESETS.includes(preset)
             ) {
                 atomMaterials[index] = preset;
@@ -23819,6 +24248,9 @@ class VAseApp {
             labelOpacities,
             labelVisible,
             labelMaterials,
+            retainedLabels,
+            labelBondStyles: pickLabelMap(nextDisplay.labelBondStyles),
+            selectedAppearanceFrameScope: nextDisplay.selectedAppearanceFrameScope === 'current' ? 'current' : 'all',
             atomRadiusMapping: (() => {
                 const mapping = this.normalizedAtomRadiusMapping(
                     nextDisplay.atomRadiusMapping ?? DEFAULT_ATOM_RADIUS_MAPPING
@@ -23867,6 +24299,10 @@ class VAseApp {
                 nextDisplay.atomColorScaleGamma, 1, 0.1, 5
             ),
             imageFramingMode: nextDisplay.imageFramingMode === 'physical' ? 'physical' : 'viewport',
+            energyOverlay: normalizeEnergyOverlay(nextDisplay.energyOverlay, this.personalEnergyBackground),
+            renderFixedRatio: nextDisplay.renderFixedRatio === true,
+            showAtoms: nextDisplay.showAtoms !== false,
+            flatOutlineWidth: finiteClamped(nextDisplay.flatOutlineWidth, .035, 0, .25),
             atomicScalePixelsPerAngstrom: (() => {
                 const value = Number(nextDisplay.atomicScalePixelsPerAngstrom);
                 return Number.isFinite(value) && value > 0
@@ -23953,6 +24389,8 @@ class VAseApp {
                 ? Number(nextDisplay.rdfCutoff)
                 : null,
             rdfBins: integerClamped(nextDisplay.rdfBins, 200, 8, 5000),
+            rdfUsePbc: nextDisplay.rdfUsePbc !== false,
+            analysisPlots: normalizeAnalysisPlots(nextDisplay.analysisPlots, this.personalRdfBackground),
             rdfPairMode: ['active', 'selected', 'all', 'none'].includes(nextDisplay.rdfPairMode)
                 ? nextDisplay.rdfPairMode
                 : 'active',
@@ -24013,7 +24451,7 @@ class VAseApp {
         this.renderer.requestRender();
     }
 
-    applyDesignSettings(settings, { render = true } = {}) {
+    applyDesignSettings(settings, { render = true, opticalScale = false } = {}) {
         if (!settings) return;
         const restoring = this.restoringDesignSettings;
         this.restoringDesignSettings = true;
@@ -24021,6 +24459,7 @@ class VAseApp {
         this.atomRadiusRuntime.fitToken += 1;
         const source = settings.settings || settings;
         const commensurateWasEnabled = this.state.display.commensurateGuide;
+        const { analysisPlots: previousPlots, rdfUsePbc: previousUsePbc } = this.state.display;
         if (Object.keys(source.display || source).some(key => key.startsWith('video'))) {
             // Reopened projects and history restores own their export settings;
             // a canceled draft from the previous document must not mask them.
@@ -24108,7 +24547,7 @@ class VAseApp {
         const restoreCameraScale = () => {
             if (source.camera) this.applyCameraSettings(source.camera, { syncScale: false });
             if (Number.isFinite(requestedAtomicScale) && requestedAtomicScale > 0) {
-                this.renderer.setPixelsPerAngstrom(requestedAtomicScale);
+                this.renderer.setPixelsPerAngstrom(requestedAtomicScale, { optical: opticalScale });
             } else {
                 this.syncAtomicScaleFromCamera({ forceInput: true });
             }
@@ -24139,6 +24578,7 @@ class VAseApp {
             this.updateSelectionVisuals();
             this.updateBondModeUI();
             this.updateUI();
+            this.restoreAnalysisPlot(previousPlots, this.state.display.rdfUsePbc !== previousUsePbc);
             this.scheduleDisplacementAnalysisRefresh();
             if (this.state.display.showForceVectors) {
                 this.updateForceVectorsForCurrentFrame().catch(error => {
@@ -24156,6 +24596,8 @@ class VAseApp {
         }
         this.syncImageExportPreview();
         this.syncRendererProperties({ force: true });
+        this.syncTrajectoryTools();
+        this.syncEnergyInspector();
         this.syncRendererFormatProperties();
         this.scheduleVisualHistoryCommit('visual-settings');
         } finally {
@@ -24164,12 +24606,12 @@ class VAseApp {
         }
     }
 
-    showConfirmModal({ title, intro, items, confirmText = 'Yes', cancelText = 'No', danger = false }) {
+    showConfirmModal({ title, intro, items = [], confirmText = 'Yes', cancelText = 'No', danger = false }) {
         const list = items.map(item => `<li>${item}</li>`).join('');
         this.showModal(`
             <h2>${title}</h2>
             <p class="modal-intro">${intro}</p>
-            <ul class="confirm-list">${list}</ul>
+            ${list ? `<ul class="confirm-list">${list}</ul>` : ''}
         `, `
             <button id="modal-cancel-confirm" class="btn">${cancelText}</button>
             <button id="modal-confirm-action" class="btn ${danger ? 'danger' : 'primary'}">${confirmText}</button>
@@ -24938,7 +25380,7 @@ class VAseApp {
             source: this.currentCollaborationActor(),
             categories: ['display', 'selection'],
             changedPaths: ['display.hiddenAtomReferences'],
-            summary: `${references.length} visual atom instance${references.length === 1 ? '' : 's'} hidden in View mode.`
+            summary: `${references.length} visual atom instance${references.length === 1 ? '' : 's'} hidden.`
         });
         this.toast(
             `Hidden ${references.length} visual atom instance${references.length === 1 ? '' : 's'}. The ASE structure was not changed.`,
@@ -26414,8 +26856,8 @@ class VAseApp {
     }
 
     async chooseSaveDestination(filename, mimeType = 'application/octet-stream') {
-        const picker = this.filePickerAdapter?.showSaveFilePicker?.bind(this.filePickerAdapter)
-            || (window.isSecureContext && !navigator.webdriver
+        const nativePicker = this.filePickerAdapter?.showSaveFilePicker?.bind(this.filePickerAdapter);
+        const picker = nativePicker || (window.isSecureContext && !navigator.webdriver
                 ? window.showSaveFilePicker?.bind(window) : null);
         if (picker) {
             try {
@@ -26426,6 +26868,7 @@ class VAseApp {
                 return { handle, browserDownload: false };
             } catch (err) {
                 if (err?.name === 'AbortError') return null;
+                if (nativePicker) throw err;
                 console.warn('showSaveFilePicker failed; falling back to browser download.', err);
             }
         }
@@ -26527,6 +26970,11 @@ class VAseApp {
                 backgroundColor: source.options?.backgroundColor || '#ffffff'
             }
         });
+        const distribution = floatingRdfGraphPresent(this);
+        const energy = this.loadedFrameCount() > 1;
+        normalized.options.includeGraph = typeof source.options?.includeGraph === 'boolean'
+            ? source.options.includeGraph : distribution || (energy && this.energyOverlaySettings().visible);
+        normalized.options.includeEnergyGraph = energy && (this.energyOverlaySettings().visible || !distribution);
         return {...normalized, kind: 'html'};
     }
 
@@ -26542,7 +26990,7 @@ class VAseApp {
         };
     }
 
-    async renderHtmlCompositionPreview(profile = null, { poster = false } = {}) {
+    async renderHtmlCompositionPreview(profile = null, { poster = false, previewCache = null } = {}) {
         const contract = this.htmlExportContract(profile);
         const sourceLongEdge = Math.max(contract.width, contract.height);
         const targetLongEdge = poster
@@ -26551,14 +26999,33 @@ class VAseApp {
         const scale = targetLongEdge / sourceLongEdge;
         const width = Math.max(1, Math.round(contract.width * scale));
         const height = Math.max(1, Math.round(contract.height * scale));
-        const options = {...contract.options};
+        const {includeGraph, includeEnergyGraph, ...options} = contract.options;
         if (options.scaleMode === 'physical') {
             options.pixelsPerAngstrom = Math.max(
                 0.1,
                 Number(options.pixelsPerAngstrom || 100) * scale
             );
         }
-        const blob = await this.renderer.exportPNGBlob(width, height, options);
+        const energyTask = includeGraph && includeEnergyGraph ? this.captureHtmlEnergyGraph(contract) : null;
+        const rdfTask = includeGraph ? captureFloatingRdf(this, contract) : null;
+        const key = previewCache ? JSON.stringify({width, height, options}) : null;
+        const reuse = previewCache && previewCache.key === key;
+        const preview = reuse ? previewCache.blob : this.renderer.exportPNGBlob(width, height, options);
+        if (previewCache && !reuse) Object.assign(previewCache, {key, blob: preview});
+        let blob, energy, distribution;
+        try { [blob, energy, distribution] = await Promise.all([preview, energyTask, rdfTask]); }
+        catch (error) {
+            if (previewCache?.blob === preview) delete previewCache.key;
+            throw error;
+        }
+        if (energy) {
+            contract.energyGraph = energy.capture;
+            blob = await this.compositeHtmlEnergyGraph(blob, width, height, energy);
+        }
+        if (distribution) {
+            contract.rdfGraph = distribution.capture;
+            blob = await composeFloatingRdf(blob, width, height, distribution);
+        }
         return {
             url: await this.blobToDataUrl(blob),
             aspect: contract.width / Math.max(1, contract.height),
@@ -26627,6 +27094,7 @@ class VAseApp {
             const savedScientificSignature = this.projectScientificSignature();
             const savedVisualSignature = this.projectVisualSignature();
             let saved = false;
+            let savedBytes = null;
             let serverResult = null;
             if (destination.serverBinding) {
                 if (!buildServerPayload) throw new Error('Server project saving is unavailable for this format.');
@@ -26638,8 +27106,10 @@ class VAseApp {
                     expected_version: destination.serverBinding.version
                 });
                 saved = Boolean(serverResult?.version);
+                savedBytes = serverResult?.size;
             } else {
                 const blob = await this.withBusy(busyMessage, buildBlob);
+                savedBytes = blob.size;
                 if (destination.handle && destination.expectedContentVersion) {
                     const current = await destination.handle.getFile();
                     if (current.size !== destination.expectedContentVersion.size
@@ -26681,12 +27151,14 @@ class VAseApp {
             this.projectFile.error = null;
             this.updateProjectDirtyState();
             this.notifyWorkspaceDocument();
+            const size = format === 'html' && Number.isFinite(savedBytes)
+                ? ` · ${this.formatFileSize(savedBytes)}` : '';
             this.toast(
                 serverResult
-                    ? `Saved ${this.projectFile.filename} to its opened server file.`
+                    ? `Saved ${this.projectFile.filename} to its opened file${size}.`
                     : destination.handle
-                    ? `Saved ${this.projectFile.filename}.`
-                    : `Downloaded ${this.projectFile.filename} as a copy; this browser has no retained writable target.`,
+                    ? `Saved ${this.projectFile.filename}${size}.`
+                    : `Downloaded a copy · ${this.projectFile.filename}${size}.`,
                 'success'
             );
             return true;
@@ -26795,6 +27267,7 @@ class VAseApp {
     }
 
     showHtmlExportModal({ projectSave = false, saveAs = false } = {}) {
+        const settledFrame = this.stopPlayback().then(() => this.timelineStepQueue);
         const title = projectSave ? 'Save Project' : 'Export HTML View';
         const intro = projectSave
             ? 'Save the complete editable state as a compact v_ase project, or include an offline interactive rendered view in an HTML file.'
@@ -26827,7 +27300,7 @@ class VAseApp {
             <div id="html-rendering-options" ${projectSave ? 'hidden' : ''}>
                 <div class="html-export-layout">
                     <figure class="html-view-preview loading">
-                        <img id="html-export-preview" alt="Exact exported HTML structure frame">
+                        <img id="html-export-preview" alt="HTML export preview">
                         <figcaption id="html-export-preview-caption">Shared export frame</figcaption>
                     </figure>
                     <div class="html-export-controls">
@@ -26857,6 +27330,13 @@ class VAseApp {
                             <input id="html-include-cell" type="checkbox"
                                    ${initialProfile.options.includeCell ? 'checked' : ''}>
                         </label>
+                        <label class="check-row" for="html-include-graph">
+                            <span>Include graph</span>
+                            <input id="html-include-graph" type="checkbox"
+                                   ${initialProfile.options.includeGraph ? 'checked' : ''}
+                                   ${this.loadedFrameCount() < 2 && !floatingRdfGraphPresent(this) ? 'disabled' : ''}>
+                        </label>
+                        <small id="html-graph-note" class="panel-note" hidden>No visible distribution or saved trajectory energies to include.</small>
                     </div>
                 </div>
                 ${projectSave ? '' : `
@@ -26895,6 +27375,7 @@ class VAseApp {
         const confirmButton = document.getElementById('html-export-confirm');
         let previewGeneration = 0;
         let previewTimer = null;
+        const previewCache = {};
 
         const readProfile = () => {
             const current = projectSave && this.projectFile.format === 'html'
@@ -26907,6 +27388,7 @@ class VAseApp {
                     includeGrid: Boolean(document.getElementById('html-include-grid')?.checked),
                     includeAxes: Boolean(document.getElementById('html-include-axes')?.checked),
                     includeCell: Boolean(document.getElementById('html-include-cell')?.checked),
+                    includeGraph: Boolean(document.getElementById('html-include-graph')?.checked),
                     transparentBackground: false
                 }
             });
@@ -26971,10 +27453,15 @@ class VAseApp {
                 previewCaption.textContent = `Shared export frame  ${profile.width} x ${profile.height}`;
             }
             try {
-                const rendered = await this.renderHtmlCompositionPreview(profile);
-                if (generation !== previewGeneration || !document.getElementById('html-export-preview')) return;
+                await settledFrame;
+                if (generation !== previewGeneration || !previewImage?.isConnected) return;
+                const rendered = await this.renderHtmlCompositionPreview(profile, {previewCache});
+                if (generation !== previewGeneration || !previewImage.isConnected) return;
                 previewImage.src = rendered.url;
                 previewImage.style.aspectRatio = `${rendered.aspect}`;
+                const hasGraphs = Boolean(rendered.contract.energyGraph || rendered.contract.rdfGraph);
+                previewImage.dataset.includesGraph = String(hasGraphs);
+                document.getElementById('html-graph-note').hidden = !profile.options.includeGraph || hasGraphs;
                 previewFigure?.classList.remove('loading');
             } catch (error) {
                 if (generation !== previewGeneration) return;
@@ -26997,7 +27484,7 @@ class VAseApp {
         interactiveViewer?.addEventListener('change', () => {
             syncProjectOption({ refresh: true });
         });
-        ['html-include-grid', 'html-include-axes', 'html-include-cell'].forEach(id => {
+        ['html-include-grid', 'html-include-axes', 'html-include-cell', 'html-include-graph'].forEach(id => {
             document.getElementById(id)?.addEventListener('change', schedulePreview);
         });
         syncProjectOption();
@@ -27039,6 +27526,7 @@ class VAseApp {
                 this.applyDisplayOptions();
                 const saved = await this.saveBlobFromAction(
                     async () => {
+                        await settledFrame;
                         const rendered = await this.renderHtmlCompositionPreview(
                             profile,
                             { poster: true }
@@ -27084,7 +27572,7 @@ class VAseApp {
     }
 
     async showOpenFilesModal(entries, options = {}) {
-        const { queueFileOpen } = await import('./file_open_batch.js?v=0.4.14&ui=20261111.2');
+        const { queueFileOpen } = await import('./file_open_batch.js?v=0.5.1&ui=20261111.2');
         return queueFileOpen(this, entries, options);
     }
 
@@ -27166,6 +27654,13 @@ class VAseApp {
                     </span>
                 </label>
                 <label class="open-file-mode">
+                    <input type="radio" name="open-file-mode" value="structure-only">
+                    <span>
+                        <strong>Replace structure only</strong>
+                        <small>Load the selected frames into this tab and keep its camera, appearance, and render settings.</small>
+                    </span>
+                </label>
+                <label class="open-file-mode">
                     <input type="radio" name="open-file-mode" value="new-window">
                     <span><strong>Open in new window</strong><small>Use a separate workspace window.</small></span>
                 </label>
@@ -27215,10 +27710,12 @@ class VAseApp {
             const mode = document.querySelector('input[name="open-file-mode"]:checked')?.value || defaultOpenMode;
             const labels = {
                 replace: 'Replace',
+                'structure-only': 'Replace Structure',
                 append: 'Add Frames',
                 'new-tab': 'Open New Tab', 'new-window': 'Open New Window'
             };
             if (confirm) confirm.textContent = hasDocument ? labels[mode] : 'Open';
+            document.querySelector('.open-file-runtime').hidden = mode === 'structure-only';
         };
         syncConfirmLabel();
         document.querySelectorAll('input[name="open-file-mode"]').forEach(input => {
@@ -27240,6 +27737,8 @@ class VAseApp {
                 await this.appendStructureFile(file, inputFormat, index, runtimeMode);
             } else if (mode === 'new-tab') {
                 await this.openStructureFileInNewTab(file, inputFormat, index, runtimeMode, { handle });
+            } else if (mode === 'structure-only') {
+                await this.loadStructureFile(file, inputFormat, index, null, { structureOnly: true });
             } else {
                 await this.loadStructureFile(file, inputFormat, index, runtimeMode, { handle });
             }
@@ -27248,7 +27747,9 @@ class VAseApp {
         return completed;
     }
 
-    async loadStructureFile(file, inputFormat = '', index = ':', runtimeMode = null, { path = null, handle = null, throwErrors = false, confirmedIntent = false } = {}) {
+    async loadStructureFile(file, inputFormat = '', index = ':', runtimeMode = null, {
+        path = null, handle = null, throwErrors = false, confirmedIntent = false, structureOnly = false
+    } = {}) {
         const loadGeneration = ++this.projectLoadGeneration;
         try {
             if (!confirmedIntent && this.updateProjectDirtyState()
@@ -27271,13 +27772,15 @@ class VAseApp {
                 `Reading ${file.name}...`,
                 () => path ? this.api.jsonPost('/api/file/load-path/{session_id}', {
                     path, input_format: inputFormat || null, index,
-                    volumetric_precision: this.volumetricImportPrecision(), runtime_mode: runtimeMode
+                    volumetric_precision: this.volumetricImportPrecision(), runtime_mode: runtimeMode,
+                    structure_only: structureOnly
                 }) : this.api.loadStructureFile(
                     file,
                     inputFormat,
                     index,
                     this.volumetricImportPrecision(),
-                    runtimeMode
+                    runtimeMode,
+                    { structureOnly }
                 )
             );
             if (loadGeneration !== this.projectLoadGeneration) return false;
@@ -27291,14 +27794,14 @@ class VAseApp {
             const isProject = data.loaded_file?.kind === 'project' || Boolean(data.project);
             const projectSettings = data.project?.settings || data.metadata?.config?.initial_design_settings;
             const settings = isProject ? projectSettings : inheritedSettings;
-            if (!isProject && settings?.display?.atomRadiusMapping?.scope === 'indices') {
+            if (!structureOnly && !isProject && settings?.display?.atomRadiusMapping?.scope === 'indices') {
                 settings.display.atomRadiusMapping = {
                     ...settings.display.atomRadiusMapping,
                     enabled: false,
                     indices: []
                 };
             }
-            if (!isProject && settings?.display?.atomColorScaleScope === 'selected') {
+            if (!structureOnly && !isProject && settings?.display?.atomColorScaleScope === 'selected') {
                 settings.display.atomColorScaleIndices = [];
                 settings.display.atomColorScaleTargetLabel = '';
             }
@@ -27316,6 +27819,7 @@ class VAseApp {
                 label: ''
             };
             this.renderer.needsInitialCameraFit = !settings?.camera;
+            if (!structureOnly) this.invalidateRdfResult();
             this.setAtomsData(data, {
                 clearSelection: true,
                 preserveDisplay: !isProject,
@@ -27337,8 +27841,20 @@ class VAseApp {
             if (runtimeMode === 'view' || runtimeMode === 'edit') {
                 await this.switchRuntimeMode(runtimeMode === 'view');
             }
-            if (isProject) this.restoreProjectPresentation(settings);
+            if (isProject) {
+                this.restoreProjectPresentation(settings);
+                await this.restoreProjectRdf(settings);
+                if (loadGeneration !== this.projectLoadGeneration) return false;
+            }
             this.resetVisualHistoryBaseline();
+            if (structureOnly) {
+                this.projectFile.structureRevision += 1;
+                await this.settleScientificMutations();
+                this.updateProjectDirtyState();
+                this.notifyWorkspaceDocument();
+                this.toast(`Replaced the structure with ${file.name}.`, 'success');
+                return true;
+            }
             this.adoptProjectProvenance(projectProvenanceFromLoad(data, {
                 filename: file.name, file, handle
             }), { deferBaseline: true });
@@ -27518,7 +28034,10 @@ class VAseApp {
                 <span>${primary}1–8 / ${primary}9</span><label>Document tab by position / last document tab</label>
                 <span>Middle drag</span><label>Orbit viewport</label>
                 <span>Shift + middle drag</span><label>Pan viewport</label>
+                <span>Right-click / Shift+F10</span><label>Open actions for the viewport object and atom selection</label>
+                <span>Right-drag</span><label>Pan viewport</label>
                 <span>Space</span><label>Play or pause the selected timeline</label>
+                <span>Home / End</span><label>Pause and jump to the first or last frame in the selected timeline</label>
                 <span>&uarr; / &darr; / &larr; / &rarr;</span><label>Orbit or tilt the structure view using the configured camera step</label>
                 <span>${timelineModifier}+&larr; / ${timelineModifier}+&rarr;</span><label>Previous or next frame in the selected timeline</label>
                 <span>Tab / Esc</span><label>Open the control panel while it is collapsed</label>
@@ -27719,6 +28238,7 @@ class VAseApp {
             if (heightInput) heightInput.value = `${normalized.height}`;
         }
         if (syncPreview && this.state.exportPreviewEnabled) this.syncImageExportPreview();
+        else this.syncRendererScaleInput(normalized);
         const summary = document.getElementById('renderer-image-output-summary');
         if (summary) summary.textContent = `${normalized.width} × ${normalized.height} px · ${normalized.options.scaleMode === 'physical' ? 'Physical scale' : 'Viewport framing'}`;
         return normalized;
@@ -27742,6 +28262,7 @@ class VAseApp {
             this.state.exportPreviewProfile = profile;
         } else {
             this.state.imageExportProfile = this.normalizedImageExportProfile(profile);
+            this.syncRendererScaleInput(this.state.imageExportProfile);
         }
         this.renderer.setExportPreview({
             enabled,
@@ -28763,6 +29284,10 @@ class VAseApp {
     }
 
     async completeTrajectoryFrameUpdate() {
+        const bonds = this.sceneNavigatorEntries?.get('bonds');
+        if (bonds && bonds.label !== `Bonds · ${this.renderer.baseBondCount}`) {
+            this.renderSceneNavigatorObjects();
+        }
         // Position updates already move selection outlines and constraint guides.
         // Rebuilding those geometries for an unchanged selection dominated large
         // trajectory playback, especially when no atoms were selected.
@@ -29052,14 +29577,24 @@ class VAseApp {
         }
     }
 
-    requestFrameStep(delta) {
-        const source = this.primaryTimelineSource();
+    requestTimelineChange(change, source = this.primaryTimelineSource()) {
         if (this.timelineFrameCount(source) <= 1) return Promise.resolve();
         this.timelineStepQueue = this.timelineStepQueue
             .catch(() => {})
             .then(() => this.stopPlayback())
-            .then(() => this.stepFrame(delta, source));
+            .then(() => change(source));
         return this.timelineStepQueue;
+    }
+
+    requestFrameStep(delta) {
+        return this.requestTimelineChange(source => this.stepFrame(delta, source));
+    }
+
+    requestFrameEdge(edge, source = this.primaryTimelineSource()) {
+        return this.requestTimelineChange(timeline => {
+            const index = edge === 'last' ? this.timelineFrameCount(timeline) - 1 : 0;
+            return timeline === 'relax' ? this.loadRelaxFrame(index) : this.loadFrame(index);
+        }, source);
     }
 
     currentPlaybackFps() {
@@ -29322,13 +29857,9 @@ class VAseApp {
             try {
                 this.applyDisplayOptions();
                 const saved = await this.saveBlobFromAction(
-                    () => this.api.exportBlender(
+                    () => this.exportBlenderScene(
                         this.backendPositionsPayload(),
-                        this.state.applyConstraints,
-                        this.currentCameraForExport(),
                         this.geometryExportDisplaySnapshot(),
-                        this.renderer.bondPairs || [],
-                        this.currentLightingForExport(),
                         this.state.display.exportIncludeCell !== false
                     ),
                     'v_ase_blender_scene.py',
@@ -29409,16 +29940,25 @@ class VAseApp {
             this.renderer.domElement.focus({ preventScroll: true });
         });
         ['image-width', 'image-height'].forEach(id => {
-            document.getElementById(id)?.addEventListener('input', () => {
-                const dimensions = this.imageOutputDimensions();
+            document.getElementById(id)?.addEventListener('input', event => {
+                const value = event.target.valueAsNumber;
+                if (!Number.isFinite(value) || value < 256 || value > 8192) return;
                 const profile = this.currentImageExportProfile();
+                const width = id === 'image-width';
+                const dimensions = this.scaledRenderDimensions(profile,
+                    width ? value / profile.width : 1, width ? 1 : value / profile.height);
                 this.setImageExportProfile({
                     ...profile,
                     width: dimensions.width,
                     height: dimensions.height
                 }, { syncInputs: false });
-                if (this.editorRoute === 'export') this.syncProjectHtmlProfileFromRenderer();
+                if (this.state.display.renderFixedRatio) {
+                    const other = document.getElementById(width ? 'image-height' : 'image-width');
+                    other.value = width ? dimensions.height : dimensions.width;
+                }
+                if (['export', 'render-image'].includes(this.editorRoute)) this.syncProjectHtmlProfileFromRenderer();
             });
+            document.getElementById(id)?.addEventListener('change', () => this.syncRendererProperties());
         });
         document.getElementById('btn-export-video').onclick = () => {
             this.showExportVideoModal();
@@ -29699,6 +30239,7 @@ class VAseApp {
             fields?.querySelectorAll('input, select').forEach(control => {
                 control.disabled = !event.target.checked;
             });
+            this.applyBondPairStyle();
         };
         document.getElementById('bond-pair-color-mode').onchange = event => {
             document.getElementById('bond-pair-custom-color-row')?.classList.toggle(
@@ -29714,6 +30255,19 @@ class VAseApp {
             const value = Number(document.getElementById('bond-pair-opacity').value);
             const output = document.getElementById('bond-pair-opacity-value');
             if (output) output.textContent = `${Math.round(Math.max(0.05, Math.min(1, value)) * 100)}%`;
+        };
+        for (const id of ['bond-pair-style', 'bond-pair-material', 'bond-pair-thickness',
+            'bond-pair-color-mode', 'bond-pair-custom-color', 'bond-pair-opacity']) {
+            const control = document.getElementById(id);
+            control.addEventListener(control.tagName === 'SELECT' ? 'change' : 'input', () => {
+                if (document.getElementById('bond-pair-style-enabled').checked) this.applyBondPairStyle({ live: true });
+            });
+        }
+        document.getElementById('btn-use-global-bonds').onclick = () => {
+            this.state.display.pairwiseBondStyles = {};
+            this.state.display.atomBondStyles = {};
+            this.renderer.setDisplayOptions({ atomBondStyles: {} });
+            this.applyBondOptions();
         };
         document.getElementById('btn-bond-pair-apply').onclick = () => this.applyBondPairStyle();
         document.getElementById('btn-bond-pair-apply-all').onclick = () => this.applyBondPairStyle({ all: true });
@@ -29819,6 +30373,18 @@ class VAseApp {
             const source = document.getElementById('secondary-trajectory-row')?.dataset.source;
             if (source) this.queueFrameLoad(e.target.value, source);
         });
+        for (const id of ['frame-slider', 'secondary-frame-slider']) {
+            document.getElementById(id)?.addEventListener('keydown', event => {
+                const edge = viewportNavigationForEvent(event)?.edge;
+                if (!edge) return;
+                event.preventDefault();
+                event.stopPropagation();
+                const source = id === 'frame-slider' ? this.primaryTimelineSource()
+                    : document.getElementById('secondary-trajectory-row')?.dataset.source;
+                if (source) this.requestFrameEdge(edge, source)
+                    .catch(error => this.toast(`Frame change failed: ${error.message}`, 'error'));
+            });
+        }
         document.getElementById('movie-fps').oninput = () => {
             this.restartPlayback().catch(err => this.toast(`Movie playback failed: ${err.message}`, 'error'));
         };
@@ -29977,7 +30543,7 @@ class VAseApp {
         }, { passive: true });
 
         canvas.addEventListener('pointerdown', (e) => {
-            if (e.button !== 0) return; // Left click only
+            if (e.button !== 0 || this.renderer.controls.isContextModifier?.(e)) return;
             if (document.activeElement && document.activeElement !== canvas) document.activeElement.blur?.();
             canvas.focus({ preventScroll: true });
             if (this.orbitToolActive && this.transform.mode === 'IDLE') {
@@ -30080,7 +30646,7 @@ class VAseApp {
         });
 
         canvas.addEventListener('pointerup', (e) => {
-            if (e.button !== 0) return;
+            if (e.button !== 0 || this.renderer.controls.isContextModifier?.(e)) return;
             if (this.pointerTransformGesture === 'dragging') {
                 this.pointerTransformGesture = null;
                 if (canvas.hasPointerCapture?.(e.pointerId)) canvas.releasePointerCapture(e.pointerId);
@@ -30533,6 +31099,8 @@ class VAseApp {
 }
 
 installPolyhedra(VAseApp);
+installTrajectoryTools(VAseApp);
+installAnalysisPlots(VAseApp);
 installWaterUI(VAseApp);
 installAIScene(VAseApp);
 installActivityIndicators(VAseApp);

@@ -248,6 +248,7 @@ def test_focused_agent_schema_is_small_typed_and_progressively_disclosed():
         "summary", "structure", "appearance", "bonding",
         "render", "analysis", "full",
     }
+    assert "cellOrigin" in summary["describe_profiles"]["summary"]["fields"]
     assert operation["scope"] == "operation"
     assert operation["name"] == "configure-bonds"
     assert operation["schema"]["properties"]["name"] == {
@@ -479,6 +480,7 @@ def test_skill_documents_offline_html_handoff_contract():
     for required in (
         '`html`',
         "view-only",
+        "`document.documentElement.dataset.vAseMode === 'view-only'`",
         "embedded `.vase`",
         "file://",
         "zero network requests",
@@ -955,6 +957,9 @@ def test_skill_documents_volumetric_and_rdf_end_to_end_contracts():
         "2,000,000",
         "concentration-weighted",
         "fully periodic 3D",
+        "`periodic-pair-distribution`",
+        "`use_pbc=false`",
+        "Dock graph below the viewport",
         "V_ASE_MAX_VOLUMETRIC_POINTS",
     ):
         assert required in documented, required

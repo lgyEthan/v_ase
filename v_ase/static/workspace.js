@@ -1,13 +1,13 @@
-import { restoreWindowDocument } from './workspace_windows.js?v=0.4.14';
-import { projectProvenanceFromLoad } from './project_provenance.js?v=0.4.14';
-import { captureDocumentRecovery, restoreDocumentRecovery } from './workspace_recovery.js?v=0.4.14';
-import { createWorkspaceAIBridge, handleWorkspaceAICommand } from './workspace_ai.js?v=0.4.14';
-import { installShortcutCapture } from './shortcut_capture.js?v=0.4.14';
-import { navigateWorkspaceDocument } from './workspace_navigation.js?v=0.4.14';
-import { installInterfaceControls } from './interface.js?v=0.4.14&ui=20261111.1';
-import { renderSceneNavigator } from './scene_navigator.js?v=0.4.14&ui=20261111.1';
+import { restoreWindowDocument } from './workspace_windows.js?v=0.5.1';
+import { projectProvenanceFromLoad } from './project_provenance.js?v=0.5.1';
+import { captureDocumentRecovery, restoreDocumentRecovery } from './workspace_recovery.js?v=0.5.1';
+import { createWorkspaceAIBridge, handleWorkspaceAICommand } from './workspace_ai.js?v=0.5.1';
+import { installShortcutCapture } from './shortcut_capture.js?v=0.5.1';
+import { navigateWorkspaceDocument } from './workspace_navigation.js?v=0.5.1';
+import { installInterfaceControls } from './interface.js?v=0.5.1&ui=20261111.1';
+import { renderSceneNavigator } from './scene_navigator.js?v=0.5.1&ui=20261111.1';
 import { commandIdForEvent, editorAriaShortcut, editorShortcutLabel, resolveShortcutPlatform,
-    viewportNavigationForEvent, documentCommandIdForEvent } from './editor_commands.js?v=0.4.14&ui=20261111.1';
+    viewportNavigationForEvent, documentCommandIdForEvent } from './editor_commands.js?v=0.5.1&ui=20261111.1';
 
 class VAseWorkspace {
     constructor() {
@@ -435,9 +435,17 @@ class VAseWorkspace {
         };
         try {
             const hasServerPath = typeof message.serverPath === 'string' && message.serverPath.length > 0;
-            const hasUpload = message.file instanceof Blob && message.file.size > 0;
-            if (!hasServerPath && !hasUpload) {
-                throw new Error('The selected file is empty or unavailable.');
+            if (!hasServerPath) {
+                const filename = message.fileName || 'The selected file';
+                let size;
+                try {
+                    // Desktop drops pass the editor iframe's File by reference.
+                    // The native size getter accepts Blobs from either window.
+                    size = Reflect.get(Blob.prototype, 'size', message.file);
+                } catch {
+                    throw new Error(`${filename} is unavailable. Choose it again.`);
+                }
+                if (size === 0) throw new Error(`${filename} is empty.`);
             }
             documentState = await this.request(
                 `/api/workspace/${encodeURIComponent(this.workspaceId)}/sessions`,

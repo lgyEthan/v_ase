@@ -1,7 +1,7 @@
-# Radial and finite pair distributions
+# Radial and pair distributions
 
 Use pair statistics to inspect local spacing, coordination shells, and chemical
-ordering. Open **Analysis > Radial / Pair Distribution** after loading a structure
+ordering. Open **Analyze > Distributions** after loading a structure
 or selecting a trajectory frame.
 
 ```{contents} On this page
@@ -15,11 +15,13 @@ or selecting a trajectory frame.
 | --- | --- | --- |
 | Periodic in all three axes | Bulk `g(r)`, dimensionless | Pair density divided by uniform bulk density |
 | No periodic axes | Finite pair probability density, Å⁻¹ | Probability of an unordered pair distance in each radial interval |
-| Some periodic axes | Explicit error | A slab or wire needs a geometry-specific boundary correction |
+| One or two periodic axes | Periodic pair distribution, neighbors per atom per Å | Radial neighbor density including images along the periodic axes |
 
 Vacuum in a fully periodic slab still contributes to the cell volume. Enabling
-all PBC flags does not turn a slab into homogeneous bulk: its `g(r)` normalization
-will depend on that vacuum. Do not change PBC just to bypass the partial-PBC error.
+all PBC flags for a slab makes its bulk `g(r)` normalization depend on that
+vacuum. **Use periodic boundaries (PBC)** is on by default and honors the
+structure's periodic axes. Clear it to analyze the stored Cartesian distances
+as a finite structure.
 
 ## Calculate and interpret a plot
 
@@ -27,8 +29,31 @@ will depend on that vacuum. Do not change PBC just to bypass the partial-PBC err
    when only some atoms are selected or a display supercell is visible.
 2. Set a positive **Cutoff / Å** and an integer number of **Bins** from 8 to 5000.
 3. Choose **Total only**, **All label pairs**, or the active/selected bond-pair filter.
-4. Click **Calculate & Plot**. Verify the title, units, cutoff, and frame.
+4. Click **Calculate & Plot** to use the last placement. A new plot opens in
+   the results drawer. Verify the title, units, cutoff, and frame.
 5. Export CSV to save the actual plotted total and partial curves.
+
+Use **Move graph to viewport** in the results drawer and **Dock graph below the
+viewport** in the floating header. Registry maps and commensurate plots use the
+same controls. Drag the title to move the graph. Drag the lower-right grip to
+resize it and snap the dragged right or bottom edge to another floating graph,
+including across a gap. The title and grip also accept arrow keys.
+Click a Distribution or Energy graph to open **Graph settings** in the right
+sidebar. **Data series** selects the curve whose legend name, line and markers
+you are editing. Background, grid, legend visibility, font family and size, and
+tick-label visibility and number format apply to the whole graph. The four
+**Axis limits** apply as you type. A blank bound uses Auto. Configured limits
+also apply after recalculation. Commensurate plots remember separate limits
+for their 3D and 2D views.
+
+Renaming a label to a new name updates the affected curve names and keeps the
+calculated distances, series styles, and graph placement. A saved style preset
+can be applied to another graph of the same type.
+
+A floating distribution appears in image renders and in the HTML preview,
+poster, and offline viewer when **Include graph** is selected. The offline plot
+contains the distribution from the frame analyzed at export and supports zoom
+and legend toggles.
 
 The histogram includes distances on its final edge within floating-point
 tolerance. For periodic data, the search includes every image inside the
@@ -36,8 +61,9 @@ requested sphere, including nonzero images of the same basis atom. A large
 cutoff is allowed and does not depend on displayed replication, but it samples
 repeated copies of this finite configuration rather than independent data.
 
-The automatic cutoff is half the smallest cell-face height, a conservative
-unique-image reference. Increasing the bin count sharpens radial resolution
+The automatic periodic cutoff is half the smallest height in the periodic
+lattice. For a finite structure it uses the diagonal of the atomic bounding box.
+Increasing the bin count sharpens radial resolution
 while increasing noise. This is an instantaneous frame statistic; obtain an
 ensemble or time average separately if that is the desired observable.
 
@@ -51,7 +77,7 @@ Download {download}`cuzr-rdf.traj <assets/examples/cuzr-rdf.traj>` and open it:
 v_ase gui cuzr-rdf.traj
 ```
 
-1. Open **Analysis > Radial / Pair Distribution**.
+1. Open **Analyze > Distributions**.
 2. Set cutoff **11 Å**, bins **180**, and **All label pairs**.
 3. Click **Calculate & Plot**. Compare total, Cu–Cu, Cu–Zr and Zr–Zr curves.
 4. Check the label counts and volume before interpreting the normalization.
@@ -85,6 +111,11 @@ For a finite structure, each unordered pair is counted once and divided by
 `N(N−1)/2` and bin width. The integral is one only when the cutoff includes all
 pairs. Same-label partials use `Nα(Nα−1)/2`; a singleton label has a zero curve.
 
+For a slab or wire, divide directed image-neighbor counts by `N` and bin width.
+The integral is the mean neighbor count within the cutoff. The partial curves
+sum to the total when all pairs are included. Distances use all three Cartesian
+coordinates and images repeat along the specified periodic axes.
+
 ## Compute and export in Python
 
 This example creates an ideal random periodic reference and writes an RDF CSV.
@@ -103,8 +134,8 @@ Path("argon-rdf.csv").write_bytes(rdf_csv(result))
 print(result.title, result.y_label, result.cutoff)
 ```
 
-For a molecule, read it with ASE and leave its PBC false. The same function
-returns a finite pair distribution with the corresponding CSV column title.
+For a finite pair distribution on any input, call `calculate_rdf` with
+`use_pbc=False`. The CSV header identifies the reported quantity.
 
 ## Common interpretation mistakes
 
@@ -117,6 +148,6 @@ See [trajectories](trajectories.md) for frame synchronization and
 [scientific validation](scientific-validation.md) for the enumeration and
 normalization regressions.
 
-The graph labels the horizontal distance axis in Å and the vertical quantity
-as g(r) or finite-system pair probability. Axis titles remain visible in short
-windows and both interface appearances. CSV data and normalization are unchanged.
+The horizontal axis shows distance in Å and the vertical axis names the current
+quantity. Axis titles remain visible in short windows and both interface
+appearances.

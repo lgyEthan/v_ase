@@ -5,6 +5,9 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
+import subprocess
+import sys
 
 import numpy as np
 import pytest
@@ -44,6 +47,7 @@ class _BodyRequest:
 def _html_export_fixture(
     *, embed_project=True, atom_colorscale=False, custom_colormap=False,
     view_identity=False, atom_radius_mapping=False, presentation=None,
+    poster_color=(242, 246, 244),
 ):
     first = Atoms(
         "CuO",
@@ -186,7 +190,7 @@ def _html_export_fixture(
             "exponent": 1, "scope": "all", "indices": [],
         }
     poster_buffer = io.BytesIO()
-    Image.new("RGB", (640, 360), (242, 246, 244)).save(
+    Image.new("RGB", (640, 360), poster_color).save(
         poster_buffer,
         format="PNG",
         optimize=True,
@@ -914,6 +918,22 @@ def test_static_html_poster_is_the_only_visible_preview_surface_without_javascri
             assert np.array_equal(border[0, 0], border[360, 640])
         context.close()
         browser.close()
+
+
+@pytest.mark.skipif(sys.platform != "darwin" or not shutil.which("qlmanage"), reason="Requires macOS Quick Look")
+def test_macos_background_thumbnail_paints_the_embedded_poster(tmp_path):
+    response, _, _ = _html_export_fixture(poster_color=(12, 72, 207))
+    document = tmp_path / "thumbnail.html"
+    document.write_bytes(response.body)
+
+    subprocess.run(
+        ["qlmanage", "-t", "-x", "-s", "192", "-f", "2", "-o", str(tmp_path), str(document)],
+        check=True, capture_output=True, text=True, timeout=45,
+    )
+    with Image.open(tmp_path / "thumbnail.html.png") as result:
+        pixels = np.asarray(result.convert("RGB"))
+    poster_pixels = (pixels[..., 0] < 64) & (pixels[..., 2] > 150)
+    assert np.count_nonzero(poster_pixels) > poster_pixels.size / 10
 
 
 @pytest.mark.parametrize('presentation', [None,[], 'invalid', {'interfaceTheme': []},

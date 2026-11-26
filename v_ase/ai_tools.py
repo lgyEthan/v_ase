@@ -182,7 +182,7 @@ def tool_catalog() -> dict[str, ToolSpec]:
     add(ToolSpec("vase_inspect_image", "Inspect an image artifact produced by this connection. MCP returns image content directly; native hosts embed the validated artifact bytes as an image, never as text.",
                  _object({"uri": {"type": "string", "minLength": 1}}, ["uri"]), "local"))
     common_display = {key: AI_CONTROL_SCHEMA["properties"]["display"]["properties"][key]
-                      for key in ("atomDisplayMode", "showBonds", "showCell", "showAxes", "showGrid",
+                      for key in ("atomDisplayMode", "showAtoms", "flatOutlineWidth", "showBonds", "showCell", "showAxes", "showGrid",
                                   "showOverlays", "viewportBackground", "atomRadiusScale")}
     style_schema = _object({**common_display, **GUARDS}, GUARD_REQUIRED)
     style_schema["anyOf"] = [{"required": [key]} for key in common_display]
@@ -238,6 +238,7 @@ def tool_catalog() -> dict[str, ToolSpec]:
         if fmt == "html":
             for key in ("width", "height"):
                 props[key]["minimum"] = 256
+            props["options"]["properties"]["includeGraph"] = BOOLEAN
         if fmt in {"video", "html"}:
             props["options"]["properties"]["transparentBackground"] = {"const": False}
         add(ToolSpec("vase_export_" + fmt.replace("-", "_"), f"Export {fmt} from the shared GUI to a unique local artifact. " + contract.get("notes", ""), _object(props), "export", export_format=fmt))

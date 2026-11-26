@@ -4,6 +4,10 @@ import { createViewportGrid } from './viewport_grid.js?ui=20261111.1';
 import { installWaterRenderer } from './water_layer.js';
 import { installRenderQuality, normalizeSegments } from './render_quality.js';
 
+export function atomAppearanceOverride(atoms, overrides, index) {
+    return atoms?.label_appearance?.[index] ? undefined : overrides?.[index];
+}
+
 function numberArrayEqual(first = [], second = []) {
     if (first === second) return true;
     if (first.length !== second.length) return false;
@@ -214,8 +218,8 @@ class BlenderTumbleControls {
         if (!this.enabled) return;
         if (event.button === 1) {
             this.startGesture(event, event.shiftKey ? 'pan' : 'rotate');
-        } else if (event.button === 2) {
-            this.startGesture(event, 'pan');
+        } else if (event.button === 2 || this.isContextModifier?.(event)) {
+            this.startGesture(event, 'pending-pan');
         }
     }
 
@@ -223,7 +227,7 @@ class BlenderTumbleControls {
         if (this.state !== 'idle') this.endGesture(null, { force: true });
         this.finishWheelGesture();
         event.preventDefault();
-        this.onGestureStart?.({ source: state });
+        if (state !== 'pending-pan') this.onGestureStart?.({ source: state });
         this.state = state;
         this.activePointerId = event.pointerId;
         this.activeButton = event.button;
@@ -272,6 +276,11 @@ class BlenderTumbleControls {
         event.preventDefault();
         const dx = event.clientX - this.lastPointer.x;
         const dy = event.clientY - this.lastPointer.y;
+        if (this.state === 'pending-pan') {
+            if (Math.hypot(dx, dy) < 5) return;
+            this.state = 'pan';
+            this.onGestureStart?.({ source: 'pan' });
+        }
         this.lastPointer.set(event.clientX, event.clientY);
         if (dx === 0 && dy === 0) return;
         if (this.state === 'rotate') {
@@ -457,7 +466,11 @@ class BlenderTumbleControls {
         this.activePointerId = null;
         this.activeButton = null;
         this.activeButtonsMask = 0;
-        if (completedState !== 'idle') this.onGestureEnd?.({ source: completedState });
+        if (completedState === 'pending-pan') {
+            if (!force && event && Math.hypot(event.clientX - this.lastPointer.x, event.clientY - this.lastPointer.y) < 5) {
+                this.onContextClick?.(event);
+            }
+        } else if (completedState !== 'idle') this.onGestureEnd?.({ source: completedState });
     }
 
     update() {
@@ -746,10 +759,12 @@ export class ASERenderer {
         this.needsInitialCameraFit = true;
         this.customColors = {};
         this.atomColorScaleColors = null;
+        this.flatOutlineWidthUniform = { value: 0.035 };
         this.displayOptions = {
             showCell: true,
             showAxes: true,
             showGrid: true,
+            showAtoms: true,
             showBonds: true,
             showPeriodicBonds: false,
             cellThickness: 0.04,
@@ -789,6 +804,7 @@ export class ASERenderer {
             projectionMode: 'orthographic',
             viewportBackground: 'white',
             atomDisplayMode: '3d',
+            flatOutlineWidth: 0.035,
             viewRotationStepDeg: 15,
             showOverlays: true,
             showConstraints: true,
@@ -830,6 +846,7 @@ export class ASERenderer {
         };
         this.shadowModeActive = false;
         this.bondPairs = [];
+        this.baseBondCount = 0;
         this.supercellBridgeBondRecords = [];
         this.cellEdgeGeometry = new THREE.CylinderGeometry(1, 1, 1, 10, 1, false);
         this.cellEdgeDummy = new THREE.Object3D();
@@ -1551,10 +1568,7 @@ export class ASERenderer {
             : Number(this.atomsData?.visual?.radii?.[index]);
         const scaleValue = Number(this.displayOptions?.atomRadiusScale);
         const scale = Number.isFinite(scaleValue) && scaleValue > 0 ? scaleValue : 0.6;
-        const atomScaleValue = Number(
-            this.displayOptions?.atomRadiusScales?.[index]
-            ?? this.displayOptions?.atomRadiusScales?.[String(index)]
-        );
+        const atomScaleValue = Number(atomAppearanceOverride(this.atomsData, this.displayOptions?.atomRadiusScales, index));
         const atomScale = Number.isFinite(atomScaleValue) && atomScaleValue > 0
             ? atomScaleValue
             : 1;
@@ -1629,8 +1643,7 @@ export class ASERenderer {
     atomVisualColor(index, explicitColor = null) {
         const scaleColor = this.atomColorScaleColors?.[index];
         if (this.validHexColor(scaleColor)) return scaleColor;
-        const atomColor = this.displayOptions?.atomColors?.[index]
-            ?? this.displayOptions?.atomColors?.[String(index)];
+        const atomColor = atomAppearanceOverride(this.atomsData, this.displayOptions?.atomColors, index);
         if (this.validHexColor(atomColor)) return atomColor;
         const label = this.atomsData?.symbols?.[index];
         const labelColor = this.displayOptions?.labelColors?.[label];
@@ -1641,10 +1654,7 @@ export class ASERenderer {
     }
 
     atomVisualOpacity(index) {
-        const atomOpacity = Number(
-            this.displayOptions?.atomOpacities?.[index]
-            ?? this.displayOptions?.atomOpacities?.[String(index)]
-        );
+        const atomOpacity = Number(atomAppearanceOverride(this.atomsData, this.displayOptions?.atomOpacities, index));
         if (Number.isFinite(atomOpacity)) return Math.max(0, Math.min(1, atomOpacity));
         const label = this.atomsData?.symbols?.[index];
         const configured = Number(this.displayOptions?.labelOpacities?.[label]);
@@ -1662,8 +1672,7 @@ export class ASERenderer {
     }
 
     atomMaterialPreset(index) {
-        const atomOverride = this.displayOptions?.atomMaterials?.[index]
-            ?? this.displayOptions?.atomMaterials?.[String(index)];
+        const atomOverride = atomAppearanceOverride(this.atomsData, this.displayOptions?.atomMaterials, index);
         if (atomOverride) return this.normalizedAtomMaterialPreset(atomOverride);
         const label = this.atomsData?.symbols?.[index];
         return this.normalizedAtomMaterialPreset(this.displayOptions?.labelMaterials?.[label]);
@@ -1855,8 +1864,9 @@ export class ASERenderer {
                 // No radial fade: both ends and the center remain crisp.
                 vec2 fixedMark = normalize(vFlatViewNormal).xy;
                 vec2 fixedDiagonal = vec2(fixedMark.x + fixedMark.y, fixedMark.x - fixedMark.y) * 0.70710678;
-                float fixedDistance = min(max(abs(fixedDiagonal.x) - 0.66, abs(fixedDiagonal.y) - 0.052),
-                    max(abs(fixedDiagonal.y) - 0.66, abs(fixedDiagonal.x) - 0.052));
+                float fixedHalfWidth = clamp(max(0.012, vAseFlatOutlineWidth) / (2.0 * max(vFlatWorldRadius, 0.00001)), 0.0, 0.16);
+                float fixedDistance = min(max(abs(fixedDiagonal.x) - 0.66, abs(fixedDiagonal.y) - fixedHalfWidth),
+                    max(abs(fixedDiagonal.y) - 0.66, abs(fixedDiagonal.x) - fixedHalfWidth));
                 float fixedAA = max(fwidth(fixedDistance) * 0.5, 0.0005);
                 float fixedStroke = 1.0 - smoothstep(-fixedAA, fixedAA, fixedDistance);
                 diffuseColor.rgb = mix(diffuseColor.rgb, ${outlineColor}, fixedStroke);
@@ -1865,27 +1875,28 @@ export class ASERenderer {
         const outlineCode = outline
             ? `
                 float flatFacing = abs(normalize(vFlatViewNormal).z);
-                float flatEdgeAA = max(fwidth(flatFacing) * 0.25, 0.0015);
-                float flatInterior = smoothstep(
-                    0.40 - flatEdgeAA,
-                    0.40 + flatEdgeAA,
-                    flatFacing
-                );
+                float flatInset = vFlatWorldRadius * (1.0 - sqrt(max(0.0, 1.0 - flatFacing * flatFacing)));
+                float flatEdgeAA = max(fwidth(flatInset) * 0.5, 0.00001);
+                float flatWidth = min(vAseFlatOutlineWidth, vFlatWorldRadius * 0.85);
+                float flatInterior = flatWidth > 0.0 ? smoothstep(flatWidth - flatEdgeAA, flatWidth + flatEdgeAA, flatInset) : 1.0;
                 diffuseColor.rgb = mix(${outlineColor}, diffuseColor.rgb, flatInterior);
             `
             : '';
         material.onBeforeCompile = shader => {
+            shader.uniforms.vAseFlatOutlineWidth = this.flatOutlineWidthUniform;
             if (outline) {
                 shader.vertexShader = shader.vertexShader
                     .replace(
                         '#include <common>',
-                        '#include <common>\nvarying vec3 vFlatViewNormal;'
+                        '#include <common>\nvarying vec3 vFlatViewNormal; varying float vFlatWorldRadius;'
                     )
                     .replace(
                         '#include <begin_vertex>',
                         `
                         vec3 vAseFlatObjectNormal = normal;
+                        vec3 vAseFlatPosition = position;
                         #ifdef USE_INSTANCING
+                            vAseFlatPosition = mat3(instanceMatrix) * position;
                             mat3 vAseFlatInstanceNormal = mat3(instanceMatrix);
                             vAseFlatObjectNormal /= vec3(
                                 dot(vAseFlatInstanceNormal[0], vAseFlatInstanceNormal[0]),
@@ -1895,12 +1906,13 @@ export class ASERenderer {
                             vAseFlatObjectNormal = vAseFlatInstanceNormal * vAseFlatObjectNormal;
                         #endif
                         vFlatViewNormal = normalize(normalMatrix * vAseFlatObjectNormal);
+                        vFlatWorldRadius = length(mat3(modelMatrix) * vAseFlatPosition);
                         #include <begin_vertex>
                         `
                     );
                 shader.fragmentShader = shader.fragmentShader.replace(
                     '#include <common>',
-                    '#include <common>\nvarying vec3 vFlatViewNormal;'
+                    '#include <common>\nuniform float vAseFlatOutlineWidth; varying vec3 vFlatViewNormal; varying float vFlatWorldRadius;'
                 );
             }
             shader.fragmentShader = shader.fragmentShader.replace(
@@ -1913,7 +1925,7 @@ export class ASERenderer {
             );
         };
         material.customProgramCacheKey = () => [
-            'v-ase-flat-atom-v4-crisp-fixed',
+            'v-ase-flat-atom-v5-outline-width',
             isFixed ? 'fixed' : 'normal',
             this.viewportBackgroundMode === 'white' ? 'dark-outline' : 'light-outline'
         ].join(':');
@@ -1990,7 +2002,7 @@ export class ASERenderer {
         });
     }
 
-    applyAtomVisibility(changedSymbols = null) {
+    applyAtomVisibility(changedSymbols = null, { rebuildBonds = false } = {}) {
         const affectedIndices = changedSymbols?.length
             ? changedSymbols.flatMap(symbol => this.atomIndicesByLabel.get(symbol) || [])
             : null;
@@ -2016,13 +2028,15 @@ export class ASERenderer {
                 outline.visible = this.atomGlyphVisible(idx);
             });
             this.constraintMarkGroup.children.forEach(group => {
-                const idx = group.userData.constraintGuideFor;
-                group.visible = this.atomReferenceVisible(idx);
+                if (Number.isInteger(group.userData.constraintGuideFor)) {
+                    group.visible = this.atomReferenceVisible(group.userData.constraintGuideFor);
+                }
             });
             this.constraintGuideGroup.children.forEach(group => {
                 group.visible = this.constraintGuideVisible(group);
             });
-            if (this.displayOptions.showBonds) this.refreshBondsForCurrentPositions();
+            if (rebuildBonds) this.rebuildBonds();
+            else if (this.displayOptions.showBonds) this.refreshBondsForCurrentPositions();
             if (this.supercellGroup.children.length) this.updateSupercellPositions();
             if (this.hookeanGroup.children.length) this.updateHookeanPositions();
             this.refreshStudioSunForStructure();
@@ -2039,13 +2053,15 @@ export class ASERenderer {
             outline.visible = this.atomGlyphVisible(idx);
         });
         this.constraintMarkGroup.children.forEach(group => {
-            const idx = group.userData.constraintGuideFor;
-            group.visible = this.atomReferenceVisible(idx);
+            if (Number.isInteger(group.userData.constraintGuideFor)) {
+                group.visible = this.atomReferenceVisible(group.userData.constraintGuideFor);
+            }
         });
         this.constraintGuideGroup.children.forEach(group => {
             group.visible = this.constraintGuideVisible(group);
         });
-        if (this.displayOptions.showBonds) this.refreshBondsForCurrentPositions();
+        if (rebuildBonds) this.rebuildBonds();
+        else if (this.displayOptions.showBonds) this.refreshBondsForCurrentPositions();
         if (this.supercellGroup.children.length) this.updateSupercellPositions();
         if (this.hookeanGroup.children.length) this.updateHookeanPositions();
         this.refreshStudioSunForStructure();
@@ -2810,26 +2826,27 @@ export class ASERenderer {
             renderSize.y || this.renderer?.domElement?.clientHeight
                 || this.container?.clientHeight || window.innerHeight || 1
         );
-        if (this.camera?.isOrthographicCamera) {
-            const worldHeight = Math.abs(this.camera.top - this.camera.bottom) /
-                Math.max(this.camera.zoom || 1, 1e-6);
+        return this.cameraPixelsPerAngstrom(this.camera, this.controls?.target, height);
+    }
+
+    cameraPixelsPerAngstrom(camera, target, height) {
+        if (camera?.isOrthographicCamera) {
+            const worldHeight = Math.abs(camera.top - camera.bottom) / Math.max(camera.zoom || 1, 1e-6);
             return worldHeight > 1e-9 ? height / worldHeight : 1;
         }
-        const target = this.controls?.target || new THREE.Vector3();
-        const distance = Math.max(1e-6, this.camera.position.distanceTo(target));
-        const effectiveFov = this.camera?.getEffectiveFOV?.() || this.camera?.fov || 50;
+        const distance = Math.max(1e-6, camera.position.distanceTo(target || new THREE.Vector3()));
+        const effectiveFov = camera.getEffectiveFOV();
         const worldHeight = 2 * distance * Math.tan(THREE.MathUtils.degToRad(effectiveFov) / 2);
         return worldHeight > 1e-9 ? height / worldHeight : 1;
     }
 
-    setPixelsPerAngstrom(value, { requestRender = true, notify = true, source = 'api' } = {}) {
-        const targetScale = Math.max(0.1, Math.min(5000, Number(value) || 1));
+    setPixelsPerAngstrom(value, { requestRender = true, notify = true, source = 'api', optical = false } = {}) {
+        const targetScale = optical ? Number(value) : Math.max(0.1, Math.min(5000, Number(value) || 1));
         const currentScale = Math.max(1e-9, this.currentPixelsPerAngstrom());
-        if (this.camera?.isOrthographicCamera) {
-            this.camera.zoom = Math.max(
-                1e-4,
-                Math.min(1e5, (this.camera.zoom || 1) * targetScale / currentScale)
-            );
+        if (this.camera?.isOrthographicCamera || (optical && this.camera?.isPerspectiveCamera)) {
+            const zoom = (this.camera.zoom || 1) * targetScale / currentScale;
+            if (!Number.isFinite(zoom) || zoom <= 0) return currentScale;
+            this.camera.zoom = optical ? zoom : Math.max(1e-4, Math.min(1e5, zoom));
             this.camera.updateProjectionMatrix();
         } else if (this.camera?.isPerspectiveCamera) {
             const target = this.controls?.target || new THREE.Vector3();
@@ -2920,12 +2937,8 @@ export class ASERenderer {
         let renderHeight = outputHeight;
         let offsetX = 0;
         let offsetY = 0;
-        let pixelsPerAngstrom = configured && camera.isOrthographicCamera
-            ? outputHeight / Math.max(1e-9, Math.abs(camera.top - camera.bottom))
-            : this.currentPixelsPerAngstrom();
-
         if (scaleMode === 'physical') {
-            pixelsPerAngstrom = Math.max(0.1, Math.min(5000, Number(options.pixelsPerAngstrom) || 100));
+            const pixelsPerAngstrom = Math.max(0.1, Math.min(5000, Number(options.pixelsPerAngstrom) || 100));
             const worldWidth = outputWidth / pixelsPerAngstrom;
             const worldHeight = outputHeight / pixelsPerAngstrom;
             if (camera.isOrthographicCamera) {
@@ -2957,7 +2970,7 @@ export class ASERenderer {
             camera,
             target,
             scaleMode,
-            pixelsPerAngstrom,
+            pixelsPerAngstrom: this.cameraPixelsPerAngstrom(camera, target, outputHeight),
             renderWidth,
             renderHeight,
             offsetX,
@@ -4078,12 +4091,16 @@ export class ASERenderer {
             atomBondStyles: cloneAtomBondStyleRecord(
                 options.atomBondStyles || this.displayOptions.atomBondStyles || {}
             ),
+            labelBondStyles: cloneAtomBondStyleRecord(options.labelBondStyles || this.displayOptions.labelBondStyles),
             hiddenAtomReferences: [...(options.hiddenAtomReferences || this.displayOptions.hiddenAtomReferences || [])],
             supercell: [...(options.supercell || this.displayOptions.supercell || [1, 1, 1])],
             translation: [...(options.translation || this.displayOptions.translation || [0, 0, 0])],
             sunPosition: [...(options.sunPosition || this.displayOptions.sunPosition || [8, -10, 14])],
             sunTarget: [...(options.sunTarget || this.displayOptions.sunTarget || [0, 0, 0])]
         };
+        const outlineWidth = Number(this.displayOptions.flatOutlineWidth);
+        this.flatOutlineWidthUniform.value = Number.isFinite(outlineWidth)
+            ? Math.max(0, Math.min(.25, outlineWidth)) : .035;
         this.hiddenAtomReferenceSet = new Set(this.displayOptions.hiddenAtomReferences);
         const antiAliasingChanged = previous.antiAliasing !== this.displayOptions.antiAliasing;
         const sphereQualityChanged = previous.sphereQuality !== this.displayOptions.sphereQuality;
@@ -4206,10 +4223,14 @@ export class ASERenderer {
         if (this.axesHelper) this.axesHelper.visible = this.displayOptions.showAxes;
         if (this.gridGroup) this.gridGroup.visible = this.displayOptions.showGrid;
         this.applyOverlayVisibility();
-        const bondsChanged = previous.showBonds !== this.displayOptions.showBonds ||
-            previous.showPeriodicBonds !== this.displayOptions.showPeriodicBonds ||
+        const bondTopologyChanged = previous.showPeriodicBonds !== this.displayOptions.showPeriodicBonds ||
             previous.bondMode !== this.displayOptions.bondMode ||
             previous.bondCutoffScale !== this.displayOptions.bondCutoffScale ||
+            !flatPairArrayEqual(previous.manualBondPairs, this.displayOptions.manualBondPairs) ||
+            !scalarRecordEqual(previous.pairwiseBondCutoffs, this.displayOptions.pairwiseBondCutoffs) ||
+            !bondRangeRecordEqual(previous.pairwiseBondRanges, this.displayOptions.pairwiseBondRanges) ||
+            visibilityChanged || hiddenReferencesChanged;
+        const bondsChanged = bondTopologyChanged || previous.showBonds !== this.displayOptions.showBonds ||
             previous.bondStyle !== this.displayOptions.bondStyle ||
             previous.bondMaterial !== this.displayOptions.bondMaterial ||
             atomDisplayModeChanged ||
@@ -4219,15 +4240,13 @@ export class ASERenderer {
             previous.bondOpacity !== this.displayOptions.bondOpacity ||
             !bondStyleRecordEqual(previous.pairwiseBondStyles, this.displayOptions.pairwiseBondStyles) ||
             !atomBondStyleRecordEqual(previous.atomBondStyles, this.displayOptions.atomBondStyles) ||
-            (colorChanged && this.displayOptions.bondColorMode === 'split') ||
-            !flatPairArrayEqual(previous.manualBondPairs, this.displayOptions.manualBondPairs) ||
-            !scalarRecordEqual(previous.pairwiseBondCutoffs, this.displayOptions.pairwiseBondCutoffs) ||
-            !bondRangeRecordEqual(previous.pairwiseBondRanges, this.displayOptions.pairwiseBondRanges) ||
-            visibilityChanged ||
-            hiddenReferencesChanged;
-        if (bondsChanged) this.invalidateBondNeighborCache();
+            !atomBondStyleRecordEqual(previous.labelBondStyles, this.displayOptions.labelBondStyles) ||
+            colorChanged;
+        if (bondTopologyChanged) this.invalidateBondNeighborCache();
         if (visibilityChanged || hiddenReferencesChanged) {
-            this.applyAtomVisibility(hiddenReferencesChanged ? null : changedVisibilityLabels);
+            this.applyAtomVisibility(hiddenReferencesChanged ? null : changedVisibilityLabels, {
+                rebuildBonds: true
+            });
         }
         else if (bondsChanged) this.rebuildBonds();
         if (supercellChanged) this.rebuildSupercell();
@@ -4271,14 +4290,26 @@ export class ASERenderer {
         // shells refer to the unrotated atom scene and must never leak into a
         // cells-only (or materialized preview-atom) lattice view.
         // Selection is interaction feedback, independent of scientific overlays.
-        const baseSelectionVisible = !this.commensurateSupercellPreview;
+        const atomsVisible = this.displayOptions.showAtoms !== false;
+        const baseSelectionVisible = !this.commensurateSupercellPreview && atomsVisible;
+        this.atomMeshes.visible = baseSelectionVisible;
+        for (const child of this.supercellGroup.children) {
+            if (child.userData.supercellInstanced) child.visible = atomsVisible;
+        }
+        for (const child of this.commensurateSupercellGroup.children) {
+            if (child.userData.commensuratePreviewAtoms) child.visible = atomsVisible;
+        }
+        for (const child of this.polyhedraGroup?.children || []) {
+            if (child.userData.polyhedraAtomReferences) child.visible = atomsVisible;
+        }
         if (this.selectionOutlines) this.selectionOutlines.visible = baseSelectionVisible;
         if (this.replicaSelectionOutlines) {
             this.replicaSelectionOutlines.visible = baseSelectionVisible;
         }
         if (this.constraintGuideGroup) this.constraintGuideGroup.visible = this.displayOptions.showConstraints !== false;
         if (this.constraintMotionGuideGroup) this.constraintMotionGuideGroup.visible = this.displayOptions.showConstraints !== false;
-        if (this.constraintMarkGroup) this.constraintMarkGroup.visible = this.displayOptions.showConstraints !== false;
+        if (this.constraintMarkGroup) this.constraintMarkGroup.visible = !atomsVisible
+            && !this.commensurateSupercellPreview && this.displayOptions.showConstraints !== false;
         if (this.hookeanGroup) this.hookeanGroup.visible = this.displayOptions.showConstraints !== false;
         if (this.displacementGroup) {
             this.displacementGroup.visible = visible && this.displayOptions.showDisplacements === true;
@@ -4322,6 +4353,7 @@ export class ASERenderer {
                 atomBondStyles: cloneAtomBondStyleRecord(
                     displayOptions.atomBondStyles || this.displayOptions.atomBondStyles || {}
                 ),
+                labelBondStyles: cloneAtomBondStyleRecord(displayOptions.labelBondStyles || this.displayOptions.labelBondStyles),
                 supercell: [...(displayOptions.supercell || this.displayOptions.supercell || [1, 1, 1])]
             };
         }
@@ -5107,8 +5139,12 @@ export class ASERenderer {
     }
 
     refreshBondsForCurrentPositions() {
-        if (!this.displayOptions.showBonds) return;
         const topology = this.inferCurrentBondTopology();
+        if (!this.displayOptions.showBonds) {
+            // Manual pairs are independent of positions and are counted on rebuild.
+            if (topology.pairs) this.baseBondCount = topology.pairs.length;
+            return;
+        }
         const nextBridgeRecords = topology.bridgeRecords;
         if (this.displayOptions.bondMode === 'manual') {
             if (this.supercellBridgeBondRecordsEqual(
@@ -5834,7 +5870,8 @@ export class ASERenderer {
         this.domElement.dataset.requestedBondStyle = this.displayOptions.bondStyle || 'cylinder';
         this.domElement.dataset.bondColorMode = this.displayOptions.bondColorMode || 'split';
         this.domElement.dataset.bondThickness = String(this.bondThickness());
-        if (!this.displayOptions.showBonds || !this.atomsData) {
+        if (!this.atomsData) {
+            this.baseBondCount = 0;
             this.requestRender();
             return;
         }
@@ -5848,12 +5885,18 @@ export class ASERenderer {
             precomputedBridgeRecords = topology.bridgeRecords;
         }
         const hookeanExcluded = this.hookeanBondExclusions();
-        this.bondPairs = precomputedPairs || (this.displayOptions.bondMode === 'manual'
+        const pairs = precomputedPairs || (this.displayOptions.bondMode === 'manual'
             ? this.displayOptions.manualBondPairs.filter(([i, j]) =>
                 this.atomMeshByIndex.has(i) && this.atomMeshByIndex.has(j) &&
                 this.atomLabelVisible(i) && this.atomLabelVisible(j) &&
                 !hookeanExcluded.has(this.hookeanPairKey(i, j)))
             : this.inferBondPairs());
+        this.baseBondCount = pairs.length;
+        if (!this.displayOptions.showBonds) {
+            this.requestRender();
+            return;
+        }
+        this.bondPairs = pairs;
         this.domElement.dataset.bondCount = String(this.bondPairs.length);
         const segments = this.bondPairs.flatMap(([i, j]) => this.bondSegmentsForPair(i, j));
         const segmentsByAppearance = new Map();
@@ -6472,6 +6515,7 @@ export class ASERenderer {
                 opacity: group.opacity,
                 sharedGeometry: true
             };
+            mesh.visible = this.displayOptions.showAtoms !== false;
             group.rows.forEach((row, instanceId) => {
                 const radius = this.commensuratePreviewRadius(preview, row);
                 this.instanceDummy.position.set(...positions[row]);
@@ -7101,17 +7145,18 @@ export class ASERenderer {
             : 'standard';
     }
 
+    bondEndpointOverride(index) {
+        const label = this.atomsData?.symbols?.[index];
+        return atomAppearanceOverride(this.atomsData, this.displayOptions.atomBondStyles, index)
+            ?? this.displayOptions.labelBondStyles?.[label];
+    }
+
     bondAppearance(i, j, endpointIndex = null) {
         const left = this.atomsData?.symbols?.[i] || '';
         const right = this.atomsData?.symbols?.[j] || '';
         const override = this.displayOptions.pairwiseBondStyles?.[this.labelPairKey(left, right)];
         const source = override && typeof override === 'object' ? override : {};
-        const endpoint = endpointIndex === null
-            ? null
-            : (
-                this.displayOptions.atomBondStyles?.[endpointIndex]
-                ?? this.displayOptions.atomBondStyles?.[String(endpointIndex)]
-            );
+        const endpoint = endpointIndex === null ? null : this.bondEndpointOverride(endpointIndex);
         const endpointSource = endpoint && typeof endpoint === 'object' ? endpoint : {};
         const opacity = Number(endpointSource.opacity ?? source.opacity ?? this.displayOptions.bondOpacity);
         const thickness = Number(source.thickness ?? this.displayOptions.bondThickness);
@@ -7142,9 +7187,8 @@ export class ASERenderer {
         const base = this.bondAppearance(i, j);
         const leftAppearance = this.bondAppearance(i, j, i);
         const rightAppearance = this.bondAppearance(i, j, j);
-        const endpointStyles = this.displayOptions.atomBondStyles || {};
-        const leftOverride = endpointStyles[i] ?? endpointStyles[String(i)];
-        const rightOverride = endpointStyles[j] ?? endpointStyles[String(j)];
+        const leftOverride = this.bondEndpointOverride(i);
+        const rightOverride = this.bondEndpointOverride(j);
         if (
             base.colorMode === 'custom'
             && !leftOverride
@@ -7240,19 +7284,26 @@ export class ASERenderer {
             ? 'dark'
             : 'light';
         material.onBeforeCompile = shader => {
+            shader.uniforms.vAseFlatOutlineWidth = this.flatOutlineWidthUniform;
             shader.vertexShader = shader.vertexShader
                 .replace(
                     '#include <common>',
-                    '#include <common>\nvarying vec2 vVAseBondUv;'
+                    '#include <common>\nvarying vec2 vVAseBondUv; varying float vVAseBondWidth;'
                 )
                 .replace(
                     '#include <begin_vertex>',
-                    'vVAseBondUv = uv;\n#include <begin_vertex>'
+                    `vVAseBondUv = uv;
+                    vec3 vAseBondAxis = vec3(1.0, 0.0, 0.0);
+                    #ifdef USE_INSTANCING
+                        vAseBondAxis = mat3(instanceMatrix) * vAseBondAxis;
+                    #endif
+                    vVAseBondWidth = length(mat3(modelMatrix) * vAseBondAxis);
+                    #include <begin_vertex>`
                 );
             shader.fragmentShader = shader.fragmentShader
                 .replace(
                     '#include <common>',
-                    '#include <common>\nvarying vec2 vVAseBondUv;'
+                    '#include <common>\nuniform float vAseFlatOutlineWidth; varying vec2 vVAseBondUv; varying float vVAseBondWidth;'
                 )
                 .replace(
                     '#include <color_fragment>',
@@ -7261,19 +7312,17 @@ export class ASERenderer {
                     // Width-only ink: color halves meet without a false end
                     // cap at their midpoint. Only the one-pixel transition is
                     // antialiased, independent of bond length and export scale.
-                    float vAseBondEdge = min(vVAseBondUv.x, 1.0 - vVAseBondUv.x);
-                    float vAseBondAA = max(fwidth(vVAseBondUv.x) * 0.5, 0.000001);
-                    float vAseBondInterior = smoothstep(
-                        0.060 - vAseBondAA,
-                        0.060 + vAseBondAA,
-                        vAseBondEdge
-                    );
+                    float vAseBondEdge = min(vVAseBondUv.x, 1.0 - vVAseBondUv.x) * vVAseBondWidth;
+                    float vAseBondAA = max(fwidth(vAseBondEdge) * 0.5, 0.00001);
+                    float vAseBondStroke = min(vAseFlatOutlineWidth, vVAseBondWidth * 0.45);
+                    float vAseBondInterior = vAseBondStroke > 0.0
+                        ? smoothstep(vAseBondStroke - vAseBondAA, vAseBondStroke + vAseBondAA, vAseBondEdge) : 1.0;
                     diffuseColor.rgb = mix(${outlineColor}, diffuseColor.rgb, vAseBondInterior);
                     `
                 );
         };
         material.customProgramCacheKey = () => [
-            'v-ase-flat-bond-v2-crisp-sides',
+            'v-ase-flat-bond-v3-outline-width',
             this.viewportBackgroundMode === 'white' ? 'dark-outline' : 'light-outline'
         ].join(':');
         material.needsUpdate = true;
@@ -7630,6 +7679,7 @@ export class ASERenderer {
                 sharedMaterial: true,
                 replicaOpacity: 1
             };
+            mesh.visible = this.displayOptions.showAtoms !== false;
             let instanceId = 0;
             shifts.forEach((shift, shiftIndex) => {
                 group.indices.forEach(index => {
@@ -7734,7 +7784,6 @@ export class ASERenderer {
     needsSupercellBridgeBonds(repeats = this.displayOptions.supercell || [1, 1, 1]) {
         const pbc = this.atomsData?.pbc || [false, false, false];
         return Boolean(
-            this.displayOptions.showBonds &&
             !this.displayOptions.showPeriodicBonds &&
             this.hasValidCell() &&
             pbc.some((periodic, axis) => periodic && Number(repeats[axis]) > 1)
@@ -7745,7 +7794,7 @@ export class ASERenderer {
         repeats = this.displayOptions.supercell || [1, 1, 1],
         candidatePairs = null
     ) {
-        if (!this.needsSupercellBridgeBonds(repeats)) return [];
+        if (!this.displayOptions.showBonds || !this.needsSupercellBridgeBonds(repeats)) return [];
         const hookeanExcluded = this.hookeanBondExclusions();
         const count = this.atomsData?.positions?.length || 0;
         const pairs = this.displayOptions.bondMode === 'manual'
@@ -8359,6 +8408,7 @@ export class ASERenderer {
         const light = background?.isColor
             ? 0.2126 * background.r + 0.7152 * background.g + 0.0722 * background.b > 0.45
             : this.viewportBackgroundMode === 'white';
+        this.prepareHiddenAtomConstraintMarks(camera, light);
         this.constraintMaterials.planeBand.color.setHex(light ? 0x008e99 : 0x36d8df);
         this.constraintMaterials.planeEdge.color.setHex(light ? 0x007481 : 0x188b9b);
         this.constraintMaterials.planeFace.color.setHex(light ? 0x91cbd4 : 0x79bbc6);
@@ -8390,6 +8440,42 @@ export class ASERenderer {
                 }
             });
         });
+    }
+
+    prepareHiddenAtomConstraintMarks(camera, light) {
+        const group = this.constraintMarkGroup;
+        if (!group.visible) return;
+        const fixed = this.atomsData?.constraints?.fixed_indices || [];
+        let mesh = group.children[0];
+        if (mesh?.instanceMatrix?.count !== fixed.length * 2) {
+            this.clearGroup(group);
+            if (!fixed.length) return;
+            mesh = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1),
+                new THREE.MeshBasicMaterial({ depthWrite: false, toneMapped: false }),
+                fixed.length * 2);
+            mesh.frustumCulled = false;
+            group.add(mesh);
+        }
+        if (!mesh) return;
+        mesh.material.color.setHex(light ? 0x23272d : 0xeff2f5);
+        const marker = new THREE.Object3D();
+        const axis = new THREE.Vector3(0, 0, 1);
+        let instance = 0;
+        fixed.forEach(index => {
+            const atom = this.atomMeshByIndex.get(index);
+            if (!atom || !this.atomReferenceVisible(index)) return;
+            const radius = this.atomVisualRadius(index);
+            marker.position.copy(atom.position);
+            marker.scale.set(radius * 1.32, Math.min(radius * .3, Math.max(.02, this.flatOutlineWidthUniform.value)), 1);
+            for (const sign of [-1, 1]) {
+                marker.quaternion.copy(camera.quaternion).multiply(
+                    new THREE.Quaternion().setFromAxisAngle(axis, sign * Math.PI / 4));
+                marker.updateMatrix();
+                mesh.setMatrixAt(instance++, marker.matrix);
+            }
+        });
+        mesh.count = instance;
+        mesh.instanceMatrix.needsUpdate = true;
     }
 
     clearConstraintMotionGuides() {
@@ -9031,7 +9117,9 @@ export class ASERenderer {
         const capture = this.beginExportCapture(width, height, options);
         try {
             this.renderExportCaptureFrame(capture);
-            const blob = await new Promise((resolve, reject) => {
+            // toBlob copies the canvas bitmap before encoding it asynchronously.
+            // Restore and repaint the viewport before the browser can show the export view.
+            return new Promise((resolve, reject) => {
                 this.renderer.domElement.toBlob(
                     result => result
                         ? resolve(result)
@@ -9039,9 +9127,9 @@ export class ASERenderer {
                     'image/png'
                 );
             });
-            return blob;
         } finally {
             this.endExportCapture(capture);
+            this.renderNow();
         }
     }
 
@@ -9373,6 +9461,7 @@ ASERenderer.prototype.drawPolyhedraAtomsAndBonds = function (offsets) {
         const mesh=new THREE.InstancedMesh(new THREE.SphereGeometry(1,segments,Math.max(8,Math.floor(segments*.65))),
             this.createInstancedAtomMaterial(group.isFixed,group.preset,group.opacity),group.sites.length);
         mesh.userData.polyhedraAtomReferences=group.sites;mesh.userData.fixed=group.isFixed;mesh.userData.opacity=group.opacity;mesh.name='coordination-ligand-images';
+        mesh.visible=d.showAtoms!==false;
         const dummy=new THREE.Object3D();
         group.sites.forEach((site,i)=>{
             dummy.position.copy(site.position);dummy.scale.setScalar(this.atomVisualRadius(site.index));dummy.updateMatrix();

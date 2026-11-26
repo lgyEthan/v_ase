@@ -40,6 +40,11 @@ uses the existing modal/panel behavior.
 - **Left Drag**: Box select; the yellow marquee shows the active selection area.
 - **Middle Mouse**: Orbit camera.
 - **Shift + Middle Mouse**: Pan camera.
+- **Right Click**: Show actions for the object under the pointer and a
+  separate group for a different atom selection. On macOS, Control-click
+  also opens the menu. With the canvas focused, use **Shift+F10** or the
+  **Menu** key, then arrows and Enter.
+- **Right Drag**: Pan camera.
 - **Scroll**: Zoom in/out.
 
 Middle mouse orbit is an unrestricted Blender-style tumble; it does not clamp at
@@ -80,7 +85,10 @@ apply to browser-hosted sessions.
 | **⌘Z** | **Ctrl+Z** | **Undo** | Restore the previous structure or visualization-setting action. Camera navigation is intentionally excluded. |
 | **⌘Shift+Z** | **Ctrl+Shift+Z** | **Redo** | Reapply the next structure or visualization-setting action after undo. |
 | **⌘Shift+B** | **Ctrl+Shift+B** | **Supercell** | Open Style → Cell → Supercell. |
-| **⌘Shift+P** | **Ctrl+Shift+P** | **Atom properties** | Open Style → Atoms, including color and radius mappings. |
+| **⌘Shift+P** | **Ctrl+Shift+P** | **Atom properties** | Focus the Selected atoms label, or focus Atom size when there is no selection. |
+| **⌘T** | **Ctrl+T** | **Duplicate to next frame** | In Edit, copy the current structure directly after the active frame and open the copy. Starts a trajectory when there is one frame. |
+| **⌘Shift+T** | **Ctrl+Shift+T** | **Duplicate frame to end** | Put the copy after all other frames and open it. |
+| **Home / End** | **Home / End** | **First / last frame** | Pause and jump to the corresponding end of the active timeline. |
 | **⌘B** | **Ctrl+B** | **Bonding** | Open Style → Bonds. |
 | **⌘Shift+A** | **Ctrl+Shift+A** | **Renderer** | Open Render → Renderer with lighting, quality, framing and output px/Å; focus framing or scale. Select All uses the unshifted chord. |
 | **⌘E** | **Ctrl+E** | **Cell transformation** | Open Build → Cell matrix in either mode; View shows disabled physical controls and a Switch to Edit action. |

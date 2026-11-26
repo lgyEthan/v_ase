@@ -98,7 +98,8 @@ def main():
     subprocess.run([str(interpreter), "-I", "-m", "pip", "check"], check=True)
     subprocess.run([str(interpreter), "-I", "-c",
                     f"from v_ase._version import __version__; assert __version__ == {version!r}; "
-                    "import ase, matscipy, skimage, rhino3dm, mcp; print('Runtime verified:', __version__)"], check=True)
+                    "import ase, matscipy, skimage, rhino3dm, mcp; "
+                    "from dscribe.descriptors import SOAP; print('Runtime verified:', __version__)"], check=True)
     if key == ("Darwin", "x86_64"):
         extension = next((runtime / "python").glob("lib/python3.11/site-packages/cryptography/hazmat/bindings/_rust*.so"))
         links = subprocess.check_output(["otool", "-L", str(extension)], text=True)

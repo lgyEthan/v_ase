@@ -1,5 +1,21 @@
 # Coordination polyhedra
 
+## Contents
+
+- [Automatic coordination](#automatic-coordination)
+- [Custom rules](#custom-rules)
+- [Appearance](#appearance)
+- [Verify geometry and rendering](#verify-geometry-and-rendering)
+
+## Automatic coordination
+
+Inspect the rule breakdown for the distances and observed ligand count when
+automatic coordination finds no hull. A Cu site with two O neighbors falls
+below the four-neighbor automatic minimum.
+
+The **Overlays → Polyhedra** row is available whenever the editor contains
+atoms. Its eye controls visibility, and its label opens the rules inspector.
+
 Use `configure-polyhedra` / `vase_configure_polyhedra` in View or Edit. This is
 presentation and geometric analysis: do not enable a calculator or edit atoms.
 Supply center and ligand selectors by elements, visual labels or known atom
@@ -31,6 +47,8 @@ operations. Si→O 2.0 Å and Mg→O 2.5 Å produce 16 tetrahedra and 12 octahed
 automatic rules also give 28 hulls and 136 incidences. Hydroxyl oxygen labels
 do not supply hydrogen coordinates; never invent them.
 
+## Custom rules
+
 `rules` replaces the full rule list. Omit it when only toggling the feature.
 Each rule has a unique `id`, `centers` and `max_distance` in Å. Optional ligands,
 minimum distance, periodicity and minimum/maximum coordination select its sites.
@@ -42,6 +60,8 @@ distance search, but must obey the ligand selector and allowed PBC directions.
 Example: `centers={"elements":["Ti"]}`, `ligands={"elements":["O"]}`,
 `max_distance=2.2` produces TiO6 hulls for the provided cubic SrTiO3 fixture.
 This cutoff is an example, not an automatic universal Ti–O bond rule.
+
+## Appearance
 
 For a color-only request, use `style-polyhedra` / `vase_style_polyhedra` with
 `rule_ids`, `color` and/or `opacity`. It preserves all selectors and other rules;
@@ -59,6 +79,8 @@ complete periodic cages. `show_center_bonds=true` adds optional center–ligand
 connectors independently of ordinary bonds, using bond color/width styles.
 They remain visible with `atom_mode=none` if explicitly enabled. In 2D connectors
 are unlit; 3D material settings remain stored. `respect_visibility` follows hidden-center labels/references.
+
+## Verify geometry and rendering
 
 Read `vase_scene_snapshot(sections=["polyhedra"], limit=4)` after the update.
 It reports resolved appearance, base/image identities, world and screen positions,

@@ -3,7 +3,9 @@
 export const EDITOR_COMMANDS = Object.freeze({
     search: { code: 'KeyF', shift: false, label: 'Find tools and commands', action: 'search' },
     supercell: { code: 'KeyB', shift: true, label: 'Open Style → Cell → Supercell', section: 'cell-replication', focus: '#super-x' },
-    appearance: { code: 'KeyP', shift: true, label: 'Open Style → Atoms', section: 'appearance', focus: '#atom-radius-scale-number' },
+    appearance: { code: 'KeyP', shift: true, label: 'Open atom properties or edit selected labels', section: 'appearance', focus: '#atom-radius-scale-number' },
+    'duplicate-frame': { code: 'KeyT', shift: false, label: 'Duplicate to next frame', action: 'duplicate-frame' },
+    'append-frame-copy': { code: 'KeyT', shift: true, label: 'Duplicate frame to end', action: 'append-frame-copy' },
     bonding: { code: 'KeyB', shift: false, label: 'Open Style → Bonds', section: 'bonding', focus: '#bond-mode' },
     renderer: { code: 'KeyA', shift: true, label: 'Open Render → Renderer and output scale', section: 'export', focus: '#renderer-framing-mode' },
     'cell-transform': { code: 'KeyE', shift: false, label: 'Open Build → Cell tools → Transform cell', section: 'cell-transform', focus: '#matrix-00' },
@@ -120,6 +122,8 @@ export function viewportNavigationForEvent(event) {
         if (code === 'ArrowRight') return { kind: 'frame', delta: 1 };
         return null;
     }
+    const edge = { Home: 'first', End: 'last' }[event.key || code];
+    if (edge) return { kind: 'frame', edge };
     const cellAxis = { KeyA: 'a', KeyB: 'b', KeyC: 'c', a: 'a', b: 'b', c: 'c' }[code];
     if (cellAxis) return event.repeat ? null : { kind: 'cell-axis', axis: cellAxis };
     const directions = {

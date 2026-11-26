@@ -2039,15 +2039,14 @@ AI_OPERATION_PARAMETERS = {
     "calculate-rdf": {
         "mode": "view-or-edit",
         "required": [],
-        "optional": ["cutoff", "bins", "pairMode", "activePairs"],
+        "optional": ["cutoff", "bins", "pairMode", "activePairs", "usePbc"],
         "notes": (
             "pairMode is active, selected, all, or none. selected filters partial "
             "curves to active bonds whose endpoints are both selected in the GUI; "
-            "activePairs can provide the same label-pair filter explicitly. Fully "
-            "periodic 3D cells use bulk RDF normalization, while finite no-PBC "
-            "structures use an unordered-pair probability density. Every periodic "
-            "image inside the requested cutoff is counted; the cutoff is not reduced "
-            "to a fixed supercell or MIC radius."
+            "activePairs can provide the label-pair filter explicitly. usePbc "
+            "defaults to true. Bulk uses g(r), partial PBC uses neighbor density "
+            "per atom, and finite Cartesian distances use pair probability density. "
+            "Periodic results count every image inside the requested cutoff."
         ),
     },
 }
@@ -2066,7 +2065,14 @@ AI_EXPORT_PARAMETERS = {
     },
     "poscar": {"optional": [], "notes": "ASE rejects Cartesian directional constraints that cannot be represented as POSCAR selective dynamics for the current cell. Constraints are never silently removed; use project or pickle to preserve them."},
     "pickle": {"optional": []},
-    "blender": {"optional": ["includeCell"], "notes": "Includes the visible water envelope, mesh finish, material and trajectory. Rejects excessive geometry; lower subdivision or export fewer source frames."},
+    "blender": {
+        "optional": ["includeCell"],
+        "notes": (
+            "Uses the visible Render Area camera or the viewport camera. Carries Sun and surface settings, "
+            "smooth atom spheres, the active frame and visible repeats. Omits graph overlays. "
+            "Includes the visible water envelope. Lower subdivision or export fewer frames if geometry is excessive."
+        ),
+    },
     "3dm": {
         "optional": ["includeCell"],
         "notes": "Requires the optional rhino3dm dependency.",
@@ -2074,7 +2080,12 @@ AI_EXPORT_PARAMETERS = {
     "obj": {"optional": ["includeCell"]},
     "html": {
         "optional": ["width", "height", "options", "embedProject"],
-        "notes": "embedProject defaults to false for a lightweight view-only file. HTML dimensions are integers in 256..8192 and the rendered background is opaque.",
+        "notes": (
+            "embedProject defaults to false for a lightweight view-only file. Set options.includeGraph to control "
+            "inclusion of Energy and a floating Distribution. The offline Distribution follows source frames. Reset saved view "
+            "restores the camera, plot bounds and legend. Editable HTML restores the captured Distribution when reopened. "
+            "HTML dimensions are integers in 256..8192 and the background is opaque."
+        ),
     },
     "project": {"optional": []},
     "settings": {"optional": []},
@@ -2115,7 +2126,7 @@ AI_DESCRIBE_PROFILES = {
         "options": [],
         "fields": [
             "protocol", "profile", "units", "document", "documentId", "mode", "frame",
-            "frameCount", "playback", "atomCount", "labelCounts", "elementCounts", "cell",
+            "frameCount", "playback", "atomCount", "labelCounts", "elementCounts", "cell", "cellOrigin",
             "pbc", "selection", "relaxation", "identityGroups", "calculator",
             "collaboration", "stateFingerprint", "availableProfiles", "interaction",
         ],
@@ -2222,6 +2233,7 @@ RDF_PROPERTIES = {
     "cutoff": {"type": ["number", "null"], "exclusiveMinimum": 0},
     "bins": {"type": "integer", "minimum": 1},
     "pairMode": {"enum": ["active", "selected", "all", "none"]},
+    "usePbc": {"type": "boolean", "default": True},
     "activePairs": {"type": "array", "items": {
         "type": "array", "items": STRING, "minItems": 2, "maxItems": 2,
     }},
@@ -2427,24 +2439,29 @@ def _ai_apply_method_schema() -> Dict[str, Any]:
     properties['display']['properties']['waterSurface'] = {
         'type': 'object',
         'description': 'H2O envelope. Read the water guide and full display schema.'}
+    properties['display']['properties']['energyOverlay'] = {
+        'type': 'object', 'description': 'Graph placement, axis limits, style and optional NEB layers. Read the trajectories guide.'}
+    properties['display']['properties']['analysisPlots'] = {
+        'type': 'object', 'description': 'Analysis plot placement, axis limits and distribution styling. Read the RDF guide.'}
     for key in ('atomSmoothness', 'isosurfaceInterpolation', 'waterInterpolation', 'isosurfaceMeshSmoothing', 'waterMeshSmoothing'):
         properties['display']['properties'][key] = {'type': 'integer'}
-    operation_names = sorted(AI_OPERATION_PARAMETERS)
+    operation_name = {"$ref": "#/$defs/operationName"}
     properties["operation"] = {
         "description": (
             "One operation; request its focused schema for fields."
         ),
         "oneOf": [
-            {"type": "string", "enum": operation_names},
+            operation_name,
             {
                 "type": "object",
                 "required": ["name"],
-                "properties": {"name": {"enum": operation_names}},
+                "properties": {"name": operation_name},
             },
         ],
     }
     return {
         "$schema": AI_CONTROL_SCHEMA["$schema"],
+        "$defs": {"operationName": {"type": "string", "enum": sorted(AI_OPERATION_PARAMETERS)}},
         "title": "v_ase apply command",
         "type": "object",
         "additionalProperties": False,

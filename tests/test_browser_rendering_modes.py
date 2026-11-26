@@ -3698,8 +3698,8 @@ def test_selected_label_appearance_is_field_scoped_and_follows_trajectory():
                     && app.state.display.labelColors.C_2 === '#33aa77'
                     && app.state.display.labelOpacities.C_2 === 0.3
                     && app.renderer.atomVisualRadius(1) / app.renderer.atomVisualRadius(0) === 1.5
-                    && app.state.display.atomBondStyles['1'].material === 'metal'
-                    && app.state.display.atomBondStyles['1'].opacity === 0.3;
+                    && app.renderer.bondEndpointOverride(1)?.material === 'metal'
+                    && app.renderer.bondEndpointOverride(1)?.opacity === 0.3;
             }""")
             state = page.evaluate("""() => {
                 const app = window.__ASE_APP__;
@@ -3756,8 +3756,8 @@ def test_selected_label_appearance_is_field_scoped_and_follows_trajectory():
                     && display.labelMaterials.C_2 === 'metal'
                     && display.labelColors.C_2 === '#33aa77'
                     && display.labelRadii.C_2 / display.labelRadii.C_site === 1.5
-                    && display.atomBondStyles['1'].material === 'metal'
-                    && display.atomBondStyles['1'].opacity === 0.6;
+                    && display.labelBondStyles.C_2?.material === 'metal'
+                    && display.labelBondStyles.C_2?.opacity === 0.6;
             }""")
             page.uncheck("#selected-atom-update-bonds")
             page.select_option("#selected-atom-material", "rubber")
@@ -3766,7 +3766,7 @@ def test_selected_label_appearance_is_field_scoped_and_follows_trajectory():
             page.wait_for_function("""() => {
                 const display = window.__ASE_APP__.state.display;
                 return display.labelMaterials.C_2 === 'rubber'
-                    && display.atomBondStyles['1'].material === 'metal';
+                    && display.labelBondStyles.C_2?.material === 'metal';
             }""")
 
             page.locator("#app-viewport canvas").focus()
@@ -3781,7 +3781,7 @@ def test_selected_label_appearance_is_field_scoped_and_follows_trajectory():
                     radiusScale: app.state.display.labelRadii.C_2 / app.state.display.labelRadii.C_site,
                     color: app.renderer.atomVisualColor(1),
                     snapshotColor: snapshot.labelColors.C_2,
-                    snapshotBondMaterial: snapshot.atomBondStyles['1'].material,
+                    snapshotBondMaterial: snapshot.labelBondStyles.C_2.material,
                 };
             }""")
             assert persisted == {
@@ -4164,8 +4164,9 @@ def test_view_mode_incompatible_trajectory_relabels_current_frame_and_opens_moda
             }""")
             page.fill("#selected-atom-label", "H_anchor")
             page.locator('#selected-atom-label').press('Tab')
+            page.get_by_role('button', name='Apply to this frame').click()
             page.evaluate('window.__ASE_APP__.settleScientificMutations()')
-            assert page.evaluate('window.__ASE_APP__.viewIdentityOverridesSnapshot().scope') == 'frames'
+            assert page.evaluate('window.__ASE_APP__.state.atoms.symbols[0]') == 'H_anchor'
 
             page.evaluate("document.activeElement?.blur()")
             page.keyboard.press("Alt+ArrowRight")
@@ -5556,6 +5557,12 @@ def test_repository_host_guest_fixture_matches_in_the_live_browser(monkeypatch):
             }""")
             candidate = result["candidate"]
             assert result["guestAtoms"] == 1
+            page.locator('#btn-analysis-float').click()
+            page.locator('#analysis-floating #commensurate-plot').wait_for()
+            assert page.locator('#analysis-floating #commensurate-plot-view').input_value() == 'stradi-2d'
+            page.locator('#btn-analysis-dock').click()
+            page.locator('#analysis-drawer #commensurate-plot').wait_for()
+            assert page.locator('#analysis-drawer #commensurate-plot-view').input_value() == 'stradi-2d'
             assert abs(candidate["angle_deg"]) == pytest.approx(
                 reference["absolute_angle_deg"], abs=1e-8
             )
@@ -8741,13 +8748,14 @@ def test_viz_only_replica_selection_measurements_and_atomic_label_commit():
             label_input = page.locator('.atom-label-input[data-atom-label="Cu2"]')
             label_input.fill('Cu')
             label_input.press('Enter')
+            page.get_by_role('button', name='Merge labels', exact=True).click()
             page.wait_for_function("""() => {
                 const labels = window.__ASE_APP__.state.atoms.symbols;
                 return labels[0] === 'Cu' && labels[1] === 'Cu';
             }""")
             toasts = page.locator('#toast-container .toast').all_inner_texts()
             assert all('already exists' not in text for text in toasts)
-            assert sum('Merged Cu2 into label Cu' in text for text in toasts) == 1
+            assert sum('Updated trajectory labels.' in text for text in toasts) == 1
             assert all('atoms found' not in text for text in toasts)
 
             open_editor_route(page, 'cell-replication')

@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <meta name="v_ase-version" content="{{EDITOR_BUILD_VERSION}}">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>v_ase</title>
     <script>
@@ -60,16 +61,16 @@
     } catch {}
 })();
     </script>
-    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.4.14&ui=20261111.2">
-    <link id="editor-style" rel="stylesheet" href="static/editor.css?v=0.4.14">
-    <link id="direct-workspace-style" rel="stylesheet" href="static/direct_workspace.css?v=0.4.14">
-    <link id="interface-style" rel="stylesheet" href="static/interface.css?v=0.4.14&ui=20261111.1">
-    <link id="workspace-layout-style" rel="stylesheet" href="static/workspace_layout.css?v=0.4.14&ui=20261111.1">
+    <link id="app-style" rel="stylesheet" href="static/style.css?v=0.5.1&ui=20261111.2">
+    <link id="editor-style" rel="stylesheet" href="static/editor.css?v=0.5.1">
+    <link id="direct-workspace-style" rel="stylesheet" href="static/direct_workspace.css?v=0.5.1">
+    <link id="interface-style" rel="stylesheet" href="static/interface.css?v=0.5.1&ui=20261111.1">
+    <link id="workspace-layout-style" rel="stylesheet" href="static/workspace_layout.css?v=0.5.1&ui=20261111.1">
     <script>
         window.__V_ASE_MOCK__ = new URLSearchParams(window.location.search).has('v_ase_mock');
         const threeModulePath = window.location.protocol === 'file:'
             ? './vendor/three.module.js'
-            : '/static/vendor/three.module.js?v=0.4.14';
+            : '/static/vendor/three.module.js?v=0.5.1';
         const importMap = document.createElement('script');
         importMap.type = 'importmap';
         importMap.textContent = JSON.stringify({
@@ -87,11 +88,12 @@
             document.getElementById('ui-palettes-style').href = './ui_palettes.css';
         }
     </script>
-    <link id="ui-palettes-style" rel="stylesheet" href="/static/ui_palettes.css?v=0.4.14&ui=20261111.1">
+    <link id="ui-palettes-style" rel="stylesheet" href="/static/ui_palettes.css?v=0.5.1&ui=20261111.1">
+    <link rel="stylesheet" href="/static/trajectory_energy.css?v=0.5.1">
 </head>
 <body class="editor-shell" data-viewport-background="white">
     <header id="editor-document-strip" class="document-strip" aria-label="Documents">
-        <div class="document-brand"><img src="static/v_ase-brand.png" alt="v_ase" width="80" height="25"></div>
+        <div class="document-brand"><img src="static/v_ase-brand.png" alt="v_ase" width="80" height="25"><span class="document-version">{{EDITOR_BUILD_VERSION}}</span></div>
         <div class="single-document-tab active" role="tablist" aria-label="Open structures" aria-orientation="horizontal">
             <button id="editor-single-tab" type="button" role="tab" aria-selected="true"><span class="document-symbol" aria-hidden="true"></span><span id="editor-document-name" class="editor-document-name">Untitled</span></button>
             <button id="editor-single-close" class="document-close" type="button" aria-label="Close document">×</button>
@@ -122,10 +124,10 @@
         </aside>
         <div id="viewport-tools" class="viewport-tools" role="toolbar" aria-label="Selection and editing tools">
             <button id="tool-select" type="button" aria-label="Select atoms" title="Select atoms">Select</button>
-            <button id="tool-move" type="button" aria-label="Move selection" title="Move selection (G)">Move</button>
+            <button id="tool-move" type="button" aria-label="Move selection" title="Move selection (G). Drag in the viewport. Enter applies and Esc cancels.">Move</button>
             <button id="tool-orbit" type="button" aria-label="Orbit camera" title="Orbit camera by dragging">Orbit</button>
-            <button id="tool-rotate" type="button" aria-label="Rotate selection" title="Rotate selection (R)">Rotate</button>
-            <button id="tool-scale" type="button" aria-label="Scale selection" title="Scale selection (S)">Scale</button>
+            <button id="tool-rotate" type="button" aria-label="Rotate selection" title="Rotate selection (R). Drag in the viewport. Enter applies and Esc cancels.">Rotate</button>
+            <button id="tool-scale" type="button" aria-label="Scale selection" title="Scale selection (S). Drag in the viewport. Enter applies and Esc cancels.">Scale</button>
             <button id="tool-measure" type="button" aria-label="Measure ordered selection" title="Measure ordered selection">Measure</button>
             <button id="tool-add" type="button" aria-label="Add atoms and molecules" title="Add atoms and molecules">Add atoms</button>
         </div>
@@ -135,6 +137,20 @@
             <button id="viewport-transform-apply" type="button" title="Apply transform (Enter)" aria-label="Apply transform">✓</button>
             <button id="viewport-transform-cancel" type="button" title="Cancel transform (Escape)" aria-label="Cancel transform">×</button>
         </div>
+        <section id="analysis-floating" class="analysis-floating" hidden aria-labelledby="analysis-floating-title">
+            <header class="analysis-floating-header">
+                <strong id="analysis-floating-title" tabindex="0" title="Drag or use arrow keys to move the graph">Analysis graph</strong>
+                <div class="analysis-floating-actions">
+                    <button id="btn-analysis-appearance" type="button" aria-label="Graph settings" title="Graph settings"></button>
+                    <button id="btn-analysis-floating-export" type="button" aria-label="Save graph data as CSV" title="Save graph data as CSV"></button>
+                    <button id="btn-analysis-dock" type="button" aria-label="Dock graph below the viewport" title="Dock graph below the viewport"></button>
+                    <button id="btn-analysis-floating-close" type="button" aria-label="Close analysis graph" title="Close analysis graph"></button>
+                </div>
+            </header>
+            <div id="analysis-floating-options" class="analysis-floating-options" hidden></div>
+            <div class="analysis-floating-content"></div>
+            <button id="analysis-floating-resize" class="energy-overlay-resize" type="button" aria-label="Resize analysis graph" title="Resize analysis graph"></button>
+        </section>
         <button id="btn-fit-view" type="button" title="Fit structure to view (F)">Fit view</button>
         <div id="viewport-camera-tools" class="viewport-camera-tools" aria-label="Camera and lighting controls">
             <div class="camera-presets" role="group" aria-label="Camera direction">
@@ -202,7 +218,7 @@
         <button id="editor-sidebar-toggle" class="toolbar-icon-button" type="button" aria-label="Toggle navigator" aria-pressed="true" title="Toggle navigator"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16"/></svg></button>
         <div class="logo">
             <span class="interface-wordmark" aria-label="v_ase">v<span>_</span>ase</span>
-            <span class="version">0.4.14</span>
+            <span class="version">{{EDITOR_BUILD_VERSION}}</span>
         </div>
         <div class="document-menu-anchor"><button id="editor-menu-toggle" class="toolbar-icon-button" type="button" aria-label="Document menu" aria-expanded="false" aria-controls="editor-menu-bar" title="Document menu"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg></button>
         <nav id="editor-menu-bar" class="editor-menu-bar" aria-label="Document commands">
@@ -497,6 +513,7 @@
                 <button type="button" data-editor-route="selection" data-inspector-group="inspect">Inspect &amp; measure</button>
                 <button type="button" data-editor-route="rdf">Distributions</button>
                 <button type="button" data-editor-route="displacement" data-inspector-group="analysis">Displacements</button>
+                <button type="button" data-editor-route="trajectory-energy">Trajectory energy</button>
                 <button type="button" data-editor-route="forces">Stored forces</button>
                 <button type="button" data-editor-route="volumetric">Fields</button>
                 <button type="button" data-editor-route="registry-map">Rigid translation</button>
@@ -1229,11 +1246,18 @@
                     <option value="none">Total only</option>
                 </select>
             </div>
+            <label class="check-row" for="rdf-use-pbc" title="Count periodic images along the structure's periodic axes. Clear to use stored Cartesian coordinates.">
+                <span>Use periodic boundaries (PBC)</span><input id="rdf-use-pbc" type="checkbox" checked>
+            </label>
             <button id="btn-rdf-calculate" class="btn-block" type="button">Calculate &amp; Plot</button>
             <div id="rdf-status" class="analysis-status" data-state="idle">
                 <span class="analysis-status-title">Ready</span>
-                <span class="analysis-status-detail">Bulk g(r) for 3D periodic cells; finite pair probability for non-periodic structures.</span>
+                <span class="analysis-status-detail">The vertical axis shows bulk g(r), neighbors per atom, or finite pair probability according to the boundaries.</span>
             </div>
+            <details class="inline-subpanel rdf-graph-appearance" id="rdf-graph-appearance">
+                <summary>Graph settings</summary>
+                <div id="rdf-graph-settings-host"></div>
+            </details>
         </details>
 
         <details class="panel-section" open data-panel="registry-map" data-panel-group="analysis">
@@ -1448,6 +1472,11 @@
             <div id="selected-appearance" class="selected-appearance">
                 <div class="selected-appearance-head">
                     <span id="selected-appearance-count">None</span>
+                </div>
+                <div id="selected-frame-scope" hidden>
+                    <div class="prop-row"><label for="selected-frame-scope-value">Apply to</label>
+                        <select id="selected-frame-scope-value"><option value="all">All frames</option><option value="current">Current frame only</option></select></div>
+                    <p id="selected-frame-scope-reason" class="panel-note" aria-live="polite" hidden></p>
                 </div>
                 <div class="selected-appearance-fields">
                     <label class="selected-appearance-field" for="selected-atom-label">
@@ -1886,6 +1915,89 @@
             </div>
         </details>
 
+        <details class="panel-section" data-panel="trajectory-energy" data-panel-group="analysis">
+            <summary class="section-header">Trajectory energy</summary>
+            <div id="energy-graph-settings-host">
+                <div id="graph-settings" role="group" aria-label="Graph settings">
+                    <div class="prop-row"><label for="graph-series">Data series</label><select id="graph-series"></select></div>
+                    <details class="inline-subpanel energy-settings-group" open>
+                        <summary>Series appearance</summary>
+                        <div class="prop-row"><label for="graph-series-name">Legend name</label>
+                            <input type="text" maxlength="64" id="graph-series-name"></div>
+                        <div class="prop-row"><label for="energy-data-mode">Show series</label>
+                            <select id="energy-data-mode"><option value="line">Line</option><option value="line-markers">Line and markers</option><option value="markers">Markers</option><option value="hidden">Hidden</option></select></div>
+                        <div class="prop-row"><label for="energy-line-style">Line style</label>
+                            <select id="energy-line-style"><option value="solid">Solid</option><option value="dash">Dashed</option><option value="dot">Dotted</option><option value="dash-dot">Dash-dot</option></select></div>
+                        <div class="prop-row"><label for="energy-line-color">Line color</label><input type="color" id="energy-line-color"></div>
+                        <div class="prop-row"><label for="energy-line-width">Line width</label>
+                            <span class="unit-input"><input type="number" id="energy-line-width" min="0.75" max="5" step="0.25"><span>px</span></span></div>
+                        <div class="prop-row"><label for="energy-marker-color">Marker color</label><input type="color" id="energy-marker-color"></div>
+                        <div class="prop-row"><label for="energy-marker-shape">Marker shape</label>
+                            <select id="energy-marker-shape"><option value="circle">Circle</option><option value="square">Square</option><option value="diamond">Diamond</option></select></div>
+                        <div class="prop-row"><label for="energy-marker-size">Marker size</label>
+                            <span class="unit-input"><input type="number" id="energy-marker-size" min="2" max="16" step="0.5"><span>px</span></span></div>
+                    </details>
+                    <details class="inline-subpanel energy-settings-group" open>
+                        <summary>Background, grid &amp; legend</summary>
+                        <div class="prop-row"><label for="energy-background-mode">Background</label>
+                            <select id="energy-background-mode"><option value="theme">Match theme</option><option value="color">Custom color</option><option value="transparent">Transparent</option></select></div>
+                        <div class="prop-row" id="energy-background-color-row" hidden><label for="energy-background-color">Background color</label><input type="color" id="energy-background-color"></div>
+                        <label class="check-row" for="energy-grid"><span>Graph grid</span><input id="energy-grid" type="checkbox"></label>
+                        <label class="check-row" for="graph-legend"><span>Show legend</span><input id="graph-legend" type="checkbox"></label>
+                        <button type="button" id="btn-energy-default-background" class="btn">Set background as default</button>
+                    </details>
+                    <details class="inline-subpanel energy-settings-group">
+                        <summary>Font &amp; tick labels</summary>
+                        <div class="prop-row"><label for="graph-font-family">Font family</label>
+                            <select id="graph-font-family"><option value="system-ui">System</option><option>Arial</option><option>Georgia</option><option value="monospace">Monospace</option></select></div>
+                        <div class="prop-row"><label for="graph-font-size">Font size</label>
+                            <span class="unit-input"><input type="number" id="graph-font-size" min="8" max="24" step="1"><span>px</span></span></div>
+                        <label class="check-row" for="graph-x-tick-labels"><span>X tick labels</span><input id="graph-x-tick-labels" type="checkbox"></label>
+                        <label class="check-row" for="graph-y-tick-labels"><span>Y tick labels</span><input id="graph-y-tick-labels" type="checkbox"></label>
+                        <div class="prop-row"><label for="graph-tick-format">Tick format</label>
+                            <select id="graph-tick-format"><option value="auto">Automatic</option><option value="fixed">Fixed decimal</option><option value="scientific">Scientific</option></select></div>
+                        <div class="prop-row"><label for="graph-tick-precision">Decimal places</label>
+                            <input type="number" id="graph-tick-precision" min="0" max="8" step="1"></div>
+                    </details>
+                    <details class="inline-subpanel energy-settings-group">
+                        <summary>Axis limits</summary>
+                        <div id="energy-graph-axes"></div>
+                    </details>
+                    <div data-energy-only>
+                    <div class="prop-row"><label for="energy-reference">Energy</label>
+                        <select id="energy-reference" title="Relative energy uses the first saved frame energy as zero."><option value="first">Relative to first</option><option value="absolute">Absolute</option></select></div>
+                        <label class="check-row" for="energy-cursor"><span>Current frame marker</span><input id="energy-cursor" type="checkbox"></label>
+                    </div>
+                    <details class="inline-subpanel energy-settings-group" id="energy-neb-settings" data-energy-only>
+                        <summary>NEB</summary>
+                        <p class="panel-note">Uses saved energies and per-atom forces from one ordered band.</p>
+                        <div class="prop-row"><label for="energy-neb-images">Last images</label>
+                            <input type="number" id="energy-neb-images" min="2" step="1" placeholder="All" title="Leave empty to fit all loaded images. Enter a band length to fit the last images."></div>
+                        <label class="check-row" for="energy-neb-mic" title="Use the cell's periodic axes to measure the shortest displacement between successive images. Turn off to use the stored Cartesian coordinates.">
+                            <span>Minimum image (PBC)</span><input id="energy-neb-mic" type="checkbox" checked></label>
+                        <label class="check-row" for="energy-neb-fit"><span>Force-based fit</span><input id="energy-neb-fit" type="checkbox"></label>
+
+                        <label class="check-row" for="energy-neb-tangents"><span>Force tangents</span><input id="energy-neb-tangents" type="checkbox"></label>
+                        <div class="prop-row" id="energy-tangent-properties"><label for="energy-tangent-scale">Tangent length</label>
+                            <span class="unit-input"><input type="number" id="energy-tangent-scale" min="0.1" max="4" step="0.1"><span>×</span></span></div>
+                        <p class="panel-note" id="energy-neb-status" role="status" hidden></p>
+                    </details>
+                    <details class="inline-subpanel energy-settings-group" open>
+                        <summary>Style presets</summary>
+                        <div class="prop-row"><label for="energy-presets">Style preset</label><select id="energy-presets"><option value="">Choose preset</option></select></div>
+                        <div class="energy-preset-actions">
+                            <button type="button" id="btn-save-energy-preset" class="btn">Save preset…</button>
+                            <button type="button" id="btn-delete-energy-preset" class="btn" disabled>Delete preset</button>
+                        </div>
+                    </details>
+                    <div class="energy-preset-actions">
+                        <button type="button" id="btn-export-energy-image" class="btn" title="Save the graph as a 2× PNG">Export image…</button>
+                        <button type="button" id="btn-export-energy-csv" class="btn">Export CSV…</button>
+                    </div>
+                </div>
+            </div>
+        </details>
+
         <details class="panel-section" data-panel="polyhedra" data-panel-group="structure">
             <summary class="section-header">Coordination Polyhedra</summary>
             <p class="panel-note">Build faces around specified centers and surrounding atoms. Cutoffs are independent of displayed bonds.</p>
@@ -2009,6 +2121,10 @@
                 Enter zero-based atom index pairs. Valid rows update immediately.
             </p>
             <div class="panel-subhead bond-style-subhead">Appearance</div>
+            <div id="bond-global-overrides" class="bond-overrides-note" hidden>
+                <p class="panel-note">Some bonds use label-pair or atom-endpoint overrides.</p>
+                <button id="btn-use-global-bonds" type="button" class="btn">Use global appearance for all bonds</button>
+            </div>
             <div class="prop-row">
                 <label for="bond-style">Style</label>
                 <select id="bond-style">
@@ -2284,9 +2400,11 @@
                         <label for="image-height">Height</label><span class="unit-input"><input type="number" id="image-height" value="1080" step="1" min="256" max="8192"><span>px</span></span>
                     </div>
                     <div class="prop-row"><label for="renderer-framing-mode">Framing</label>
-                        <select id="renderer-framing-mode"><option value="viewport">Viewport</option><option value="physical">Physical scale</option></select></div>
+                        <select id="renderer-framing-mode" title="Viewport preserves the camera span when output height changes. Physical scale preserves pixels per angstrom."><option value="viewport">Viewport</option><option value="physical">Physical scale</option></select></div>
                     <div class="prop-row"><label for="renderer-pixels-per-angstrom">Output scale</label>
-                        <span class="unit-input"><input id="renderer-pixels-per-angstrom" type="number" min="0.1" max="5000" step="0.1" aria-label="Output pixels per angstrom"><span>px/Å</span></span></div>
+                        <span class="unit-input"><input id="renderer-pixels-per-angstrom" type="number" min="0.1" max="5000" step="0.1" title="Zooms the live view as you change the output scale." aria-label="Output pixels per angstrom"><span>px/Å</span></span></div>
+                    <div class="prop-row"><label for="renderer-fix-ratio">Fix ratio</label>
+                        <input id="renderer-fix-ratio" type="checkbox" title="Keep width and height proportional when resizing the render area."></div>
                     </div>
                     <div class="renderer-subsection">
                         <div class="render-camera-heading"><span class="mapping-subhead">Camera</span>
@@ -2328,6 +2446,8 @@
                     <div class="panel-subhead">Quality</div>
                     <div class="prop-row"><label for="renderer-atom-display-mode">Atom rendering</label>
                         <select id="renderer-atom-display-mode"><option value="3d">3D spheres</option><option value="2d">2D flat</option></select></div>
+                    <div class="prop-row" id="renderer-outline-row" hidden><label for="renderer-outline-width">Outline width</label>
+                        <span class="unit-input"><input id="renderer-outline-width" type="number" min="0" max="0.25" step="0.005" title="Shared 2D stroke width for atoms and bonds"><span>Å</span></span></div>
                     <div class="prop-row"><label for="renderer-sphere-quality">Atom &amp; bond segments</label>
                         <input id="renderer-sphere-quality" type="number" min="8" max="128" step="2" inputmode="numeric"></div>
                     <p class="panel-note">8–128 segments. Shared by canvas and output. Close-ups gain detail up to this limit; distant atoms stay lightweight.</p>
@@ -2431,6 +2551,8 @@
             </div>
             <div class="analysis-drawer-actions">
                 <button id="btn-results-back" type="button">Back to viewport</button>
+                <button id="btn-analysis-float" class="btn icon-btn" type="button" aria-label="Move graph to viewport" title="Move graph to viewport" hidden></button>
+                <button id="btn-analysis-settings" class="btn icon-btn" type="button" aria-label="Graph settings" title="Graph settings"></button>
                 <select id="commensurate-plot-view" class="analysis-view-select hidden"
                         aria-label="Commensurate graph view" title="Commensurate graph view">
                     <option value="overview-3d">Angle × cell size × strain</option>
@@ -2475,6 +2597,7 @@
                 <button id="btn-play" title="Play/Pause">▶</button>
                 <button id="btn-frame-next" title="Next frame (Alt/Option+→)">›</button>
                 <span id="frame-label">1 / 1</span>
+                <button id="btn-match-trajectory" type="button" aria-label="Match trajectory atom indices" hidden>Match</button>
             </div>
             <input type="range" id="frame-slider" min="0" max="0" value="0">
             <div class="timeline-fps">
@@ -2586,7 +2709,7 @@
         }
         const modulePath = (window.location.protocol === 'file:' || window.location.pathname.endsWith('/static/index.html'))
             ? './main.js'
-            : './static/main.js?v=0.4.14&ui=20261111.2';
+            : './static/main.js?v=0.5.1&ui=20261111.2';
         import(modulePath).catch(error => {
             console.error('v_ase failed to initialize:', error?.stack || error);
         });

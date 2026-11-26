@@ -127,3 +127,33 @@ def clear_visual_defaults() -> bool:
         else:
             _write_preferences(preferences)
         return existed
+
+
+def graph_presets(graph, name=None, style=None):
+    """Read, save, or remove a named chart style in the current user profile."""
+    key = "trajectory_energy_presets" if graph == "energy" else "rdf_presets"
+    with _preferences_lock:
+        preferences = _read_preferences()
+        presets = preferences.get(key)
+        if not isinstance(presets, dict):
+            presets = {}
+        if name is not None:
+            if style is None:
+                presets.pop(name, None)
+            else:
+                presets[name] = style
+            preferences[key] = presets
+            _write_preferences(preferences)
+        return presets
+
+
+def graph_background(graph, background=None):
+    """Read or update the user's default graph background."""
+    key = "trajectory_energy_background" if graph == "energy" else "rdf_background"
+    with _preferences_lock:
+        preferences = _read_preferences()
+        if background is not None:
+            preferences[key] = background
+            _write_preferences(preferences)
+        stored = preferences.get(key)
+        return stored if isinstance(stored, dict) else None

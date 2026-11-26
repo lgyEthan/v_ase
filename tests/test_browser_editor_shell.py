@@ -404,11 +404,15 @@ def test_selected_radius_slow_drag_is_one_undo_action():
                 slider.dispatchEvent(new PointerEvent('pointerup',{bubbles:true}));
                 slider.dispatchEvent(new Event('change',{bubbles:true}));
                 await app.settleScientificMutations();
-                return {actions:app.undoTimeline.filter(item=>item.source==='selected-label-appearance' || item.sourcePath?.includes('/api/atom-identity/')).length,
-                    radius:app.renderer.atomVisualRadius(0)};
+                const actions=app.undoTimeline.filter(item=>item.source==='selected-label-appearance'
+                    || item.sourcePath?.includes('/api/trajectory/labels/')).length;
+                const radius=app.renderer.atomVisualRadius(0);
+                await app.performUndo();
+                return {actions,radius,restoredRadius:app.renderer.atomVisualRadius(0),label:app.state.atoms.symbols[0]};
             }""")
             assert result['actions'] == 1
-            assert result['radius'] > 0
+            assert result['radius'] == pytest.approx(result['restoredRadius'] * 1.5)
+            assert result['label'] == 'H'
             browser.close()
     finally:
         editor.close()

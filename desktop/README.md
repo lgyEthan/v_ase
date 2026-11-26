@@ -1,6 +1,6 @@
 # v_ase Desktop
 
-Native macOS and Windows windows around the published v_ase 0.4.14 GUI. Scientific
+Native macOS and Windows windows around the v_ase GUI. Scientific
 editing, rendering, serialization and Python/Jupyter APIs stay in the Python
 distribution. The host adds OS file dialogs, guarded native file handles,
 document shortcuts, single-instance file opening and safe Quit.
@@ -21,6 +21,12 @@ the host with `VASE_DEV_PYTHON` pointing to that environment. Running the normal
 runtime preparation helper still installs the published wheel; it does not
 turn a host build into a new scientific release. Do not label a source test or
 an ad-hoc local app as a new published/notarized desktop installer.
+
+Local candidates use a wheel built from the checkout and bundle DScribe for
+SOAP trajectory matching. Set a private build label such as `0.0.1a` through
+`localBuildLabel` in the packaged host metadata. The current Python release is 0.5.1.
+The desktop lockfile pins the compatible Numba and llvmlite wheels for each Mac
+architecture so SOAP matching is also available on Intel Mac.
 
 ## Build on the target platform
 
@@ -51,7 +57,7 @@ substitutes a local scientific package or changes the published wheel.
 
 
 The helper verifies a pinned official python-build-standalone archive against
-its SHA-256, installs published `v_ase-gui[mcp,rhino]==0.4.14` and locked binary
+its SHA-256, installs published `v_ase-gui[mcp,rhino]==0.5.1` and locked binary
 dependencies, runs `pip check`, and checks scientific imports. The full
 relocatable Python preserves dynamic ASE readers and package resources. It
 never installs into the user's Python environment.

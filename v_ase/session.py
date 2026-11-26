@@ -78,6 +78,7 @@ class SessionHistoryState:
     volumetric_datasets: Optional[List[Any]] = None
     includes_atom_addition: bool = False
     atom_addition: Any = None
+    appearance_only: bool = False
 
 
 @dataclass
@@ -450,6 +451,7 @@ class EditorSession:
         include_original: bool = False,
         include_volumetric: bool = False,
         include_atom_addition: bool = True,
+        appearance_only: bool = False,
     ):
         """Save the mutation's complete affected scope for Undo."""
         self.invalidate_scientific_content(
@@ -462,6 +464,7 @@ class EditorSession:
             include_volumetric=include_volumetric,
             include_atom_addition=include_atom_addition,
         ))
+        self.history[-1].appearance_only = appearance_only
         if len(self.history) > 50:
             # An Add Atoms session owns one baseline entry that Cancel must be
             # able to restore even after many placement/region actions. Keep
@@ -500,6 +503,7 @@ class EditorSession:
             include_volumetric=state.volumetric_datasets is not None,
             include_atom_addition=state.includes_atom_addition,
         ))
+        self.redo_stack[-1].appearance_only = state.appearance_only
         self._restore_history_state(state)
         return self.working_atoms
 
@@ -515,6 +519,7 @@ class EditorSession:
             include_volumetric=state.volumetric_datasets is not None,
             include_atom_addition=state.includes_atom_addition,
         ))
+        self.history[-1].appearance_only = state.appearance_only
         self._restore_history_state(state)
         return self.working_atoms
 
@@ -539,6 +544,8 @@ class EditorSession:
 
     def refresh_trajectory_identity(self) -> Dict[str, Any]:
         """Cache ordered labels and their ASE elements for the whole trajectory."""
+        from .trajectory_tools import trajectory_match_compatible
+
         if self.trajectory_source is not None:
             template = getattr(self.trajectory_source, "template_atoms", None)
             frames = [template] if isinstance(template, Atoms) else [self.working_atoms]
@@ -547,20 +554,23 @@ class EditorSession:
 
         labels: List[str] = []
         elements: Dict[str, List[str]] = {}
+        counts: Dict[str, int] = {}
         for frame in frames:
             if not isinstance(frame, Atoms):
                 continue
             frame_labels = atom_labels(frame)
             frame_elements = frame.get_chemical_symbols()
             for label, element in zip(frame_labels, frame_elements):
+                counts[label] = counts.get(label, 0) + 1
                 if label not in elements:
                     labels.append(label)
                     elements[label] = []
                 if element not in elements[label]:
                     elements[label].append(element)
 
-        payload = {"labels": labels, "elements": elements}
+        payload = {"labels": labels, "elements": elements, "counts": counts}
         self.config["trajectory_identity"] = payload
+        self.config["trajectory_match_compatible"] = trajectory_match_compatible(frames)
         return payload
 
     def sync_current_frame(self):

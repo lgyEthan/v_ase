@@ -1,4 +1,4 @@
-import { editorIcon } from './editor_interactions.js?v=0.4.14&ui=20261111.1';
+import { editorIcon } from './editor_interactions.js?v=0.5.1&ui=20261111.1';
 
 // A presentation of the editor's actual scene entries. Both the standalone
 // navigator and workspace parent use the same rows; actions stay in the editor.
@@ -33,6 +33,7 @@ export function renderSceneNavigator(root, entries, onAction) {
         const guides = document.createElement('section'); guides.className = 'scene-object-group'; guides.dataset.sceneGroup = 'guides';
         guides.innerHTML = '<h3 class="scene-group-heading">Guides</h3>';
         const overlays = document.createElement('details'); overlays.className = 'scene-object-group scene-overlays'; overlays.dataset.sceneGroup = 'overlays';
+        overlays.open = true;
         overlays.innerHTML = '<summary class="scene-group-heading">Overlays</summary>';
         root.append(objects, guides, overlays);
     }

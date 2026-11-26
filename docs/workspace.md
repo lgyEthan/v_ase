@@ -43,6 +43,12 @@ segment belongs to the left side of the stage toolbar.
 Results identify their category. **Camera** on the canvas groups presets,
 rotation steps, grid and lighting; **Fit view** stays separate.
 
+**Right-click** an atom, bond, cell edge or other viewport object to open
+its actions. A separate section gives actions for a different atom selection.
+Opening or dismissing the menu keeps that selection. Editing a label opens
+the Selected atoms field, and blank space offers Add atoms & molecules.
+Right-drag pans the viewport.
+
 **Style → Display & guides** offers **Graphite** (neutral default), **Slate**,
 **Stone** and **Moss**, independently of **System / Light / Dark**. Preferences
 persist locally and update the entire workspace together. They change interface
@@ -122,6 +128,10 @@ During atom/molecule placement, **Cancel** removes the current placement session
 [Adding atoms and molecules](build-atoms.md).
 
 ## Project restoration
+
+Projects with older saved View label overrides restore those labels to their
+applicable trajectory frames. A saved substrate label follows its atom while
+editing coordinates, switching modes, and stepping between compatible frames.
 
 Opening a project restores its saved structure and presentation. Adding its
 frames to an existing trajectory keeps the receiving document's visual settings.

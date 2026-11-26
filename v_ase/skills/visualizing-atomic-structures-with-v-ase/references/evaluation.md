@@ -506,12 +506,13 @@ Run all scenarios, not only static document checks:
    - on a finite no-PBC cluster, require `analysisKind="pair-distribution"`,
      title `Pair-distribution function`, full-range probability integral one,
      shorter-cutoff integral equal to the included unordered-pair fraction,
-     and matching label-pair CSV columns; continue to reject partial PBC;
+     and matching label-pair CSV columns;
    - generate the README amorphous pairwise example and require total, Cu-Cu,
      Cu-Zr, and Zr-Zr curves even when first-seen label order is nonlexical;
-   - reject partial PBC, retain an explicit long triclinic cutoff, verify the
-     returned image extent/span, render the Plotly drawer, and export matching
-     CSV columns and row count.
+   - compare the neighbor-density result for a partial-periodic slab or wire
+     to Cartesian distances with PBC off. Verify cutoff, mean coordination,
+     image span, labels, and matching CSV columns. Move the distribution, registry
+     map, and commensurate plots into the viewport and dock them again;
    - compare the common pair adapter with ASE for scalar, per-atom-radius, and
      label-pair cutoffs across cell-free, finite, wire, slab, full-rank
      partial-PBC, orthogonal, and strongly skewed triclinic cells; include
@@ -532,9 +533,10 @@ Run all scenarios, not only static document checks:
      back coordinates or restore an obsolete running state;
    - rebuild atom appearance during rotation (2D mode and opacity), then
      confirm or cancel; compare both viewport and backend coordinates;
-   - repeat registry optimization in a completed mode, and delay its HTTP start
-     response until after the completion event; completion must stay terminal
-     and the next run must become active;
+   - repeat registry optimization in a completed mode and refresh the previous
+     run while the new start request is pending. The new run must become active.
+     Delay its HTTP start response until after the completion event and verify
+     that completion stays terminal;
    - close a server while its broadcaster is idle, then run a second viewer's
      optimization; completion must arrive. With concurrent server event loops,
      require ordered updates and correct document/workspace routing on both;
@@ -564,11 +566,19 @@ Run all scenarios, not only static document checks:
      movement during the cross-fade;
    - on macOS, generate a real Quick Look thumbnail for project-embedded HTML,
      require a nonblank structure poster, then open the same file from
-     `file://`, rotate it, and recover the embedded project through v_ase;
+     `file://`, rotate it, and recover the embedded project through v_ase.
+     Include a floating Distribution with a zoomed axis and a hidden legend
+     series, then confirm that the editable viewer restores both settings.
+     On macOS, also generate a background thumbnail with `qlmanage -t -x`
+     and inspect the poster pixels. In the offline viewer, seek to a different frame, verify its actual RDF
+     values, zoom or pan, and use the header reset to recover the saved bounds
+     and legend while retaining the active frame;
    - execute a real notebook using `%v_ase inline`, `%v_ase browser`, and
      `%v_ase auto`; confirm inline produces one iframe while browser mode
      creates the ordinary external workspace session;
-   - syntax-check Blender output and inspect camera, bonds, cell, and light;
+   - run the Blender script and inspect the actual render, camera framing and
+     roll, bonds, cell, Sun direction and shadow mode. Verify smooth faces in
+     both atom object modes and confirm that graph overlays are absent;
    - probe MOV/AVI dimensions, FPS, and frame count.
    - verify image progress is monotonic, reports an ETA, emits 100 exactly
      once, and reaches it only after the destination write.
@@ -796,6 +806,10 @@ Every browser render test must check:
 - an explicitly opened server `.vase` and project HTML save to the same bound
   source, detect external changes, and never authorize a raw upload or other
   nearby file for write-back; Save As adopts a distinct file only on success;
+- hold HTML poster encoding in both framing modes and verify that the live
+  viewport keeps its camera, buffer dimensions, rendered scale and crop;
+- hide the Scene Bonds drawing, then change frames and cutoffs. The count
+  tracks topology while no bond meshes are drawn;
 - the native file picker confirms one file with Enter and does not immediately
   reopen from a trailing key event;
 - the output guide projects the exported crop without redrawing the scene;
@@ -1014,3 +1028,30 @@ the exact camera and image export profile, reopen the project and render with
 omitted arguments. Require equal dimensions and pixels in the same renderer,
 zero visible bonds for no-bond references, an unchanged scientific fingerprint,
 reversible style refinement and stale-revision rejection.
+
+## Trajectory scope and graph regression
+
+In a saved project, select an index and check scope with one frame of a
+different size, one with a different composition, and one with a different
+effective label. Delete the first two incompatible frames and then the
+last. Check that **All frames** activates after the final deletion and
+deactivates on Undo. Compare stored energy, forces and custom atom arrays
+before and after reopening the edited project.
+
+Rename a per-label row in frames that contain the old name at different
+indices. Verify the new name, its rules, and the destination style after
+merging. Test cancellation of a current-frame assignment with a label-based
+distribution already computed. Confirm the assignment and verify that the
+distribution is invalidated and the other frames retain their appearance.
+
+Click Energy and Distribution graphs to open their shared settings. Verify
+that styling one data series updates its legend and leaves the other curves
+alone. Check graph-wide typography, tick labels and four live bounds. For
+distributions and registry maps check axis limits in both drawer and viewport
+placement. Type an RDF X minimum with an automatic maximum and check the
+actual plotted range before leaving the field and after recalculation. Clear
+the field to restore Auto. Rename a label to a new name and verify the
+unchanged curve data, placement and updated legend. Float the Distribution,
+include graphs in HTML, and inspect the offline plot and poster. Resize the
+lower of two floating graphs toward the upper graph's right edge and verify
+alignment and release after dragging farther.

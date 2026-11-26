@@ -1,0 +1,124 @@
+.trajectory-energy-overlay {
+    position: absolute;
+    z-index: 5;
+    display: flex;
+    flex-direction: column;
+    box-sizing: border-box;
+    overflow: hidden;
+    border: 1px solid var(--energy-border, #cad0d8);
+    border-radius: calc(8px * var(--energy-scale, 1));
+    background: var(--energy-background, #f7f8fa);
+    color: var(--energy-ink, #242a31);
+    font: calc(12px * var(--energy-scale, 1)) system-ui;
+    box-shadow: 0 3px 12px #0002;
+}
+.trajectory-energy-overlay[data-background="transparent"] { box-shadow: none; }
+.trajectory-energy-overlay [hidden], .trajectory-energy-overlay[hidden] { display: none; }
+.energy-overlay-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    min-height: calc(26px * var(--energy-scale, 1));
+    padding: 0 calc(9px * var(--energy-scale, 1));
+    border-bottom: 1px solid var(--energy-grid, #cad0d8);
+    font-weight: 600;
+    user-select: none;
+}
+.is-editable .energy-overlay-header { cursor: grab; touch-action: none; }
+.is-editable .energy-overlay-header:active { cursor: grabbing; }
+.energy-overlay-header output {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--energy-secondary, #5e6774);
+    font-size: calc(11px * var(--energy-scale, 1));
+    font-variant-numeric: tabular-nums;
+    font-weight: 400;
+}
+#btn-energy-graph-settings {
+    display: grid;
+    flex: none;
+    place-items: center;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    border: 1px solid transparent;
+    border-radius: 5px;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+}
+#btn-energy-graph-settings:hover { border-color: currentColor; }
+#btn-energy-graph-settings .editor-icon { width: 15px; height: 15px; }
+.energy-overlay-header output { margin-left: auto; }
+#graph-settings [hidden] { display: none; }
+#graph-settings > .energy-preset-actions { margin-top: 12px; }
+.energy-chart { position: relative; flex: 1 1 0; min-height: 0; }
+.energy-chart canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+.energy-chart canvas[tabindex="0"] { cursor: ew-resize; }
+.energy-chart canvas:focus-visible, .energy-overlay-header:focus-visible, .energy-overlay-resize:focus-visible {
+    outline: 2px solid var(--ui-accent, #3778c6);
+    outline-offset: -2px;
+}
+.energy-chart-guide {
+    position: absolute;
+    width: calc(1px * var(--energy-scale, 1));
+    background: var(--energy-secondary, #5e6774);
+    opacity: .48;
+    pointer-events: none;
+}
+.energy-chart-marker {
+    position: absolute;
+    width: calc(9px * var(--energy-scale, 1));
+    height: calc(9px * var(--energy-scale, 1));
+    transform: translate(-50%, -50%);
+    border: 1px solid var(--energy-background, #f7f8fa);
+    border-radius: 50%;
+    pointer-events: none;
+}
+.energy-chart-empty {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    padding: 10px;
+    color: var(--ui-secondary, #5e6774);
+    text-align: center;
+}
+.energy-overlay-resize {
+    position: absolute;
+    right: 1px;
+    bottom: 1px;
+    width: 17px;
+    height: 17px;
+    border: 0;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--ui-secondary, #5e6774);
+    cursor: nwse-resize;
+    touch-action: none;
+}
+.energy-overlay-resize::after {
+    content: '';
+    position: absolute;
+    inset: 5px 3px 3px 5px;
+    border-right: 1px solid currentColor;
+    border-bottom: 1px solid currentColor;
+}
+.energy-preset-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.energy-preset-actions > button { flex: 1 1 max-content; }
+.energy-settings-group { margin-top: 12px; }
+#energy-background-color-row[hidden] { display: none; }
+#html-graph-note[hidden] { display: none; }
+#energy-neb-status[data-error="true"] { color: var(--ui-warning); }
+#energy-neb-images { min-width: 0; }
+.trajectory-strip .timeline-head:has(#btn-match-trajectory:not([hidden])) {
+    grid-template-columns: minmax(86px, 1fr) repeat(3, minmax(24px, 31px)) max-content max-content;
+}
+.trajectory-strip button#btn-match-trajectory {
+    width: auto;
+    padding-inline: 7px;
+    font: 500 12px var(--ui-font, system-ui);
+    white-space: nowrap;
+}

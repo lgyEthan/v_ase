@@ -3,7 +3,12 @@
 Rotate a selected fragment around a chosen point. Use this to turn a ligand,
 tilt an adsorbate or construct a layer twist.
 
-**Where:** **Edit > Build > Transform & cell match**.
+To rotate coordinates, switch to **Edit structure**, select the atoms, then
+click **Rotate selection** in the left toolbar or press `R`. Hover the disabled
+button to see what is needed. To turn the view, choose **Orbit camera** in the
+same toolbar and drag. Orbit works in both document modes without a selection.
+
+**Exact controls:** **Build > Transform & cell match**.
 **Shortcut:** `R`, optional `X`/`Y`/`Z`, angle in degrees, then `Enter`.
 
 ## Choose the pivot before rotating

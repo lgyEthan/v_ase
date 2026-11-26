@@ -3,6 +3,7 @@
 ## Contents
 
 - Frames and properties
+- Match indices and inspect energy
 - Scalar coloring and vectors
 - Movies and scientific fidelity
 - Coordinate fidelity
@@ -25,7 +26,86 @@ Read a scalar's values/range only when needed. Stored forces and charges are
 stored data, not a request to evaluate a calculator. Missing values are missing,
 not zero. `all_frames` can be large; prefer a range query or the relevant frame.
 
+## Match indices and inspect energy
+
+To add a frame in the desktop editor, right-click the viewport or timeline
+and choose **Duplicate to next frame**. Copy before making the next geometry
+edit. **Duplicate frame to end** appends instead. The copy becomes active.
+The desktop shortcuts are Command/Ctrl+T and Command/Ctrl+Shift+T. These are
+editor controls for changing the loaded trajectory.
+
+**Delete current frame** in the same menu removes a source frame in Edit
+mode. The next frame becomes active, or the preceding frame if the removed
+one was last. The final remaining frame stays open as a single structure.
+Undo restores the removed frame with its arrays and saved calculator data.
+
+The **Selected atoms → Apply to** control defaults to **All frames** when
+frame counts and element compositions match and the selected indices have
+matching elements, effective labels and any available atom IDs. Differences
+outside the selected labels are allowed. The eligibility check follows edits,
+frame deletion and Undo/Redo. **Current frame only** requires confirmation
+and invalidates label-dependent RDF and Polyhedra results on success.
+Saved energies, forces and frame-specific assignments remain associated
+with their structures. Explicit scope preference is saved in the project.
+
+In **Per-label appearance**, rename the row to replace its label by name
+across all frames, including trajectories with inconsistent index layouts.
+Rules and display settings move with a rename. A confirmed merge uses
+the destination's settings. Expand a row to delete it. A label with usage
+in any frame requires a destination for its atoms. A globally empty label
+remains reusable until explicitly deleted.
+
+In **Edit structure**, the timeline's **Match** control assigns atoms by
+element against the first source frame. Every frame must have the same
+element multiplicities. **Minimum image** uses the reference cell and its
+PBC mask. **Cartesian distance** uses direct distances. **SOAP + translation**
+uses DScribe environments to propose translation candidates and ranks their
+minimum-image assignments by species-balanced RMS. Matching only reorders the atoms;
+no translations or rotations are applied. Coordinate arrays, per-atom
+properties, constraints, and cached results follow the permutation. One Undo
+restores the original order. DScribe is bundled on desktop and available as the
+`soap` extra in Python.
+
+**Overlays → Energy graph** uses stored energy in eV, with the saved NEB path
+length when available. Missing values are gaps. The graph marker follows loaded
+frames. Click or drag the graph to seek, drag its header to move it, or resize
+at its lower-right corner. Resizing can snap the right or bottom edge to the
+corresponding edge of another floating graph. Click the graph, its header or
+its Scene row to open the shared **Graph settings** inspector. Select samples,
+ASE fit or tangents in **Data series** to change the legend name, lines or
+markers. Background, grid, cursor, font and tick labels are graph-wide. **Axis
+limits** controls each bound and applies valid limits as you type. A blank
+bound stays automatic. The viewport and HTML graph show the requested range.
+Graph appearance can be saved as a named preset.
+The inspector can also save the background as a per-user default for new
+documents. **Export image** saves the styled graph as PNG and **Export CSV**
+saves the numerical values, including any enabled fitted or tangent series.
+
+The optional **NEB** inspector section fits the loaded band or its last
+selected number of images with ASE's `fit_images`. It uses stored energies
+and per-atom forces with common atom order. **Minimum image (PBC)** is enabled
+by default and requires consistent periodic axes and cell vectors. Set
+`energy_overlay.neb.mic` to `false` for a Cartesian path axis and tangent spans.
+ASE projects forces using stored Cartesian directions in both modes. Choose
+this option separately from atom-index matching. Enable
+the fitted line and force tangents independently. Tangent length scales about
+the image and preserves the slope. The fit uses its own path in Å and keeps
+the source frame indices for scrubbing.
+
+The typed `vase_apply_scene` display patch accepts `energy_overlay` with
+`style`, `layout`, `axes` and `neb` fields. Use the full display schema for their
+bounds. Set `vase_export_html(options={"include_graph": true})` to include
+the graph explicitly. The preview, poster and interactive view use the same
+placement relative to the exported frame. Opening the export dialog pauses
+the trajectory. The Energy marker and timeline stay synchronized offline.
+An already calculated Distribution joins the export when it is floated.
+
 ## Scalar coloring and vectors
+
+**Home** and **End** jump to the ends of the selected timeline. The Scene
+navigator opens Overlays by default and offers Energy graph for saved energy on a trajectory, Displacements
+for trajectories, Force vectors when available, and Water surface for detected
+H₂O. The entries follow changes in the loaded data.
 
 Use the discovered `set-atom-colorscale` tool. Set field, map, range mode, scope
 and bounds explicitly when comparing panels. Fixed bounds support cross-frame

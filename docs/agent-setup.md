@@ -4,22 +4,21 @@ Install the scientific Skill so your agent knows how to use v_ase, then connect
 MCP so it can call the live tools. The Skill installer does not install the
 scientific Python runtime or register an MCP server.
 
-This guide describes the synchronized **0.4.14** Python, desktop and Skill release.
-Match the Skill and runtime channel below; development snapshots should use the
-same commit rather than relying only on a shared version number.
+This guide describes the **0.5.1** Python and Skill release. Match your installed
+runtime to the Skill tag below. For a development snapshot, use its exact commit.
 
 ## Choose a matching runtime and Skill
 
 | Your runtime | Skill source |
 | --- | --- |
-| Released desktop app or PyPI **0.4.14** | `lgyEthan/v_ase@v0.4.14` |
+| PyPI **0.5.1** | `lgyEthan/v_ase@v0.5.1` |
+| Desktop app or PyPI **0.4.14** | `lgyEthan/v_ase@v0.4.14` |
 | Older desktop app or PyPI **0.4.13** | `lgyEthan/v_ase@v0.4.13` |
 | Current Python development source | The same commit or `lgyEthan/v_ase` for matching `main` |
 | A specific release tag or source commit | The same ref in `owner/repo@REF` |
 
-The commands below install the 0.4.14 release. The
-[release page](https://github.com/lgyEthan/v_ase/releases/tag/v0.4.14) contains
-matching desktop downloads.
+The commands below install the [0.5.1 release](https://github.com/lgyEthan/v_ase/releases/tag/v0.5.1).
+See [Desktop downloads](desktop.md) for the version bundled with each installer.
 
 ## Install the Skill with npx
 
@@ -28,7 +27,7 @@ without Node.js. Choose the coding clients you use; this example targets all
 three and makes the Skill available across projects:
 
 ```bash
-npx skills@latest add lgyEthan/v_ase@v0.4.14 \
+npx skills@latest add lgyEthan/v_ase@v0.5.1 \
   --skill visualizing-atomic-structures-with-v-ase \
   -a claude-code codex cursor -g -y
 ```
@@ -63,7 +62,7 @@ clients; ChatGPT web/app uses the [connected MCP/plugin workflow](chatgpt-local.
 For the release, use a Python environment with Python 3.10 or newer:
 
 ```bash
-python -m pip install "v_ase-gui[mcp]==0.4.14"
+python -m pip install "v_ase-gui[mcp]==0.5.1"
 v_ase --version
 ```
 

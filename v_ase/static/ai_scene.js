@@ -288,6 +288,7 @@ export function installAIScene(App) {
             units: {length: 'angstrom', screen: 'output pixels; top-left origin', angle: 'degree'},
             readiness, render: effective,
             display: {atomMode: r.atomDisplayMode(), atomRadiusScale: d.atomRadiusScale,
+                showAtoms: d.showAtoms !== false, flatOutlineWidth: d.flatOutlineWidth,
                 atomRadiusMapping: copy(d.atomRadiusMapping),
                 showPolyhedra: Boolean(d.showPolyhedra), polyhedraAtomMode: d.polyhedraAtomMode || 'all',
                 polyhedraBondedOnly: Boolean(d.polyhedraBondedOnly),
@@ -347,7 +348,7 @@ export function installAIScene(App) {
                 for (const index of candidates) {
                     const world = r.toVisualAtomPosition(r.getAtomPosition(index).add(shift));
                     const radius = r.atomVisualRadius(index);
-                    const enabled = (base ? r.atomMeshes.visible : r.supercellGroup.visible)
+                    const enabled = d.showAtoms !== false && (base ? r.atomMeshes.visible : r.supercellGroup.visible)
                         && r.atomReferenceVisible(index, base ? null : offset)
                         && (r.atomMeshByIndex.get(index)?.visible !== false) && r.atomVisualOpacity(index) > 0;
                     const intersectsFrustum = view.frustum.intersectsSphere(new THREE.Sphere(world, radius));
@@ -363,7 +364,7 @@ export function installAIScene(App) {
             for(const site of r.polyhedraExtraAtoms || []) {
                 if(!filter(site.index))continue;
                 const world=site.position.clone().add(r.visualTranslationVector()),radius=r.atomVisualRadius(site.index);
-                const enabled=Boolean(r.polyhedraGroup?.visible && r.polyhedraDataValid);
+                const enabled=d.showAtoms !== false && Boolean(r.polyhedraGroup?.visible && r.polyhedraDataValid);
                 const intersectsFrustum=view.frustum.intersectsSphere(new THREE.Sphere(world,radius));
                 if(visibleOnly&&(!enabled||!intersectsFrustum))continue;
                 rows.add(()=>({reference:{index:site.index,cellOffset:site.cellOffset},
@@ -658,6 +659,37 @@ export function installAIScene(App) {
             throw fail('Selecting planes follows the GUI selection rules and clears atoms. Supply only one selection target.');
         }
         if (patch.display) {
+            if (plain(patch.display.energyOverlay)) {
+                const previous = this.energyOverlaySettings();
+                const overlay = patch.display.energyOverlay;
+                patch.display.energyOverlay = {
+                    ...previous, ...overlay,
+                    axes: { ...previous.axes, ...overlay.axes },
+                    layout: { ...previous.layout, ...overlay.layout },
+                    style: { ...previous.style, ...overlay.style },
+                    neb: { ...previous.neb, ...overlay.neb },
+                };
+            }
+            if (plain(patch.display.analysisPlots)) {
+                const plots = { ...this.state.display.analysisPlots };
+                for (const [key, value] of Object.entries(patch.display.analysisPlots)) {
+                    const previous = plots[key];
+                    plots[key] = { ...previous, ...value,
+                        axes: { ...previous.axes, ...value.axes },
+                        layout: { ...previous.layout, ...value.layout } };
+                    if (value.projectionAxes) {
+                        plots[key].projectionAxes = { ...previous.projectionAxes, ...value.projectionAxes };
+                    }
+                    if (key === 'rdf') {
+                        const previousSeries = previous.style.series;
+                        const series = Object.entries(value.style?.series || {}).map(([id, edit]) =>
+                            [id, { ...previousSeries?.[id], ...edit }]);
+                        plots[key].style = { ...previous.style, ...value.style,
+                            series: { ...previousSeries, ...Object.fromEntries(series) } };
+                    }
+                }
+                patch.display.analysisPlots = plots;
+            }
             if (plain(patch.display.atomRadiusMapping)) {
                 patch.display.atomRadiusMapping = this.normalizedAtomRadiusMapping({
                     ...this.state.display.atomRadiusMapping,

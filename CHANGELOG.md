@@ -1,8 +1,72 @@
 # Changelog
 
-## Unreleased
+## 0.5.1
 
-No changes yet.
+Released 2026-11-26.
+
+- Keep the saved PNG visible in background Finder thumbnails on macOS.
+  Saving an existing editable HTML project again updates its poster layout.
+- Share one HTML writer across Save, Save As and Export. Compress the offline
+  viewer and per-frame graph data when gzip reduces the final file size.
+- Restore floating distributions when reopening editable HTML. Update the
+  offline Plotly distribution on each trajectory frame and restore saved camera,
+  axes and legend visibility with Reset saved view.
+- Export the saved camera, lighting and materials to Blender with smooth atom
+  spheres. Compose chart overlays into the HTML poster and still renders.
+
+- Snap the dragged right and bottom edges of floating graphs during resizing.
+- Open Overlays by default. Open the shared Energy and Distribution settings
+  from either graph, with independent curve styles and graph-wide typography,
+  tick labels, and live axis limits.
+- Preserve Distribution results and curve styles on a name-only label change.
+  Keep configured bounds after recalculation and include floating distributions
+  in still renders and the HTML preview, poster, and offline viewer.
+- Keep the live framing steady while saving an HTML project's poster.
+- Keep the Scene Bonds count tied to the current topology when its drawing is hidden.
+- Keep floating and docking controls in graph toolbars and add independent
+  X and Y axis limits to energy and analysis graphs.
+- Snap nearby edges while dragging document windows or floating plots.
+- Delete source frames with one Undo. Give selected atom appearance edits
+  explicit frame scope and rename or delete label rows across a trajectory.
+- Explain why Move, Rotate and Scale are disabled and point to Orbit camera for
+  changing the viewpoint.
+- Apply Renderer scale edits immediately to the live view and the output in
+  both framing modes. Keep the current magnification when switching modes.
+- Fix desktop drag-and-drop into a new tab. Report zero-byte files and
+  unavailable selections by name.
+- Match trajectory atom indices to the first frame with minimum-image,
+  Cartesian, or SOAP-assisted translation matching. Keep per-atom arrays,
+  constraints and saved calculator results with their atoms.
+- Add a resizable, movable trajectory energy overlay with synchronized
+  playback, user style presets, and offline HTML export.
+- Match the HTML preview, static poster, and interactive energy graph. Add
+  an Include graph option, graph background and series controls, personal
+  background defaults, and standalone PNG and CSV exports. Offer ASE
+  force-based NEB fits and individually styled force tangents, with a
+  toggle between minimum-image and Cartesian displacements.
+- Show the active registry run when a structure refresh arrives during startup.
+- Jump to the first or last active trajectory frame with Home or End.
+- Float and dock distributions, registry maps and commensurate plots, with
+  movable, resizable windows and distribution appearance controls.
+- Calculate pair distributions for slabs, wires and finite coordinates with
+  an explicit PBC option, and show overlay entries as their data become available.
+- Report the observed ligand count and required coordination for empty polyhedra rules.
+- Add **Replace structure only** to the Open File dialog. Keep the active
+  tab's presentation, cameras, render settings, and project destination.
+- Resize the selected render frame along a projected axis and add an opt-in
+  **Fix ratio** control. Show Polyhedra in Overlays and the build version next
+  to the desktop and browser logo.
+- Restore saved View labels into editable trajectory frames when loading
+  older project and HTML files.
+- Apply enabled label-pair bond styles live, keep the last cutoff through
+  incomplete edits, and show when pair or endpoint overrides take precedence.
+- Share a configurable 2D outline width across atoms and bond ribbons. Keep
+  segment quality adjustable in 2D. Let the Scene Atoms eye hide glyphs while
+  retaining bonds and constraint guides.
+- Duplicate the current frame next or at the end from Edit, global search,
+  the timeline context menu, and the desktop keyboard. Open viewport actions
+  with a right-click and pan with a right-drag. Focus the Selected atoms label
+  directly with the existing atom properties shortcut when a selection exists.
 
 ## 0.4.14
 

@@ -1,7 +1,26 @@
 """Live label appearance, merging and a single undo for the initial split."""
 import pytest
-from tests.test_browser_camera_property_persistence import page
+from ase import Atoms
+from playwright.sync_api import sync_playwright
 from tests.ui_navigation import open_editor_route
+from v_ase.viewer import find_free_port, view
+
+
+@pytest.fixture
+def page(request):
+    atoms = Atoms('HOC', positions=[[0, 0, 0], [2, 0, 0], [4, 0, 0]])
+    structures = [atoms, atoms.copy(), atoms.copy()] if getattr(request, 'param', None) == 'trajectory' else atoms
+    editor = view(structures, notebook=True, block=False, port=find_free_port(), close_on_disconnect=False)
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            page = browser.new_page(viewport={'width': 1440, 'height': 900})
+            page.goto(editor.url)
+            page.wait_for_function('window.__ASE_APP__?.collaborationReady')
+            yield page
+            browser.close()
+    finally:
+        editor.close()
 
 
 def select(page, indices):
@@ -84,6 +103,7 @@ def test_cancel_label_draft_and_merge_then_edit_do_not_change_target_atoms(page)
     assert page.evaluate('window.__ASE_APP__.state.atoms.symbols[0]') == 'C'
 
 
+@pytest.mark.parametrize('page', ['trajectory'], indirect=True)
 def test_multiple_elements_split_together_with_collision_and_one_undo(page):
     page.evaluate("window.__ASE_APP__.aiApply({mode:'edit'})")
     open_editor_route(page, 'appearance')
@@ -100,7 +120,7 @@ def test_multiple_elements_split_together_with_collision_and_one_undo(page):
     assert page.evaluate('window.__ASE_APP__.state.atoms.symbols') == ['H','O','H_2']
     page.evaluate('window.__ASE_APP__.performRedo()')
     page.evaluate('window.__ASE_APP__.loadFrame(1)')
-    assert page.evaluate('window.__ASE_APP__.state.atoms.symbols') == ['H_3']
+    assert page.evaluate('window.__ASE_APP__.state.atoms.symbols') == ['H_3','O_2','H_2']
     page.evaluate('window.__ASE_APP__.loadFrame(2)')
     assert page.evaluate('window.__ASE_APP__.state.atoms.symbols') == ['H_3','O_2','H_2']
-    assert page.evaluate('window.__ASE_APP__.state.atoms.chemical_symbols') == ['C','O','H']
+    assert page.evaluate('window.__ASE_APP__.state.atoms.chemical_symbols') == ['H','O','C']

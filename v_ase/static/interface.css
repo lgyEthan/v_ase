@@ -400,6 +400,7 @@ body.editor-shell .viewport-tool-group { gap: 3px; padding: 5px 0; }
 body.editor-shell .viewport-tool-group + .viewport-tool-group { border-color: var(--ui-line); }
 body.editor-shell .viewport-tools button { width: 34px; height: 34px; min-height: 34px; border-radius: 7px; color: var(--ui-secondary); }
 body.editor-shell .viewport-tools button:hover:not(:disabled) { background: var(--ui-hover); color: var(--ui-ink); }
+body.editor-shell .viewport-tools button:disabled[data-disabled-tooltip] { cursor: help; }
 body.editor-shell .viewport-tools button[aria-pressed="true"] { color: var(--ui-accent); background: var(--ui-accent-wash); }
 body.editor-shell .viewport-tools button.active::before { display: none; }
 body.editor-shell .viewport-tools button:active:not(:disabled) { background: var(--ui-pressed); }
@@ -715,3 +716,60 @@ body.editor-shell .empty-workspace .btn.primary { background: #315fbe; color: #f
 .standalone-shell .fps-label input { background: var(--ui-field); border-color: var(--ui-border); border-radius: 6px; color: var(--ui-ink); font: 12px var(--ui-font); }
 .standalone-shell #boot-error { background: var(--ui-surface); color: var(--ui-danger); border-color: var(--ui-danger); border-radius: 12px; box-shadow: var(--ui-shadow-dialog); }
 @media (prefers-reduced-motion: reduce) { .standalone-shell * { animation: none !important; transition: none !important; } }
+
+.viewport-context-menu {
+    position: fixed;
+    z-index: 1050;
+    pointer-events: auto;
+    width: max-content;
+    min-width: min(248px, calc(100vw - 16px));
+    padding: 4px;
+    overflow: auto;
+    overscroll-behavior: contain;
+    border: 1px solid var(--ui-border);
+    border-radius: 10px;
+    background: var(--ui-elevated);
+    box-shadow: var(--ui-shadow-popover);
+    color: var(--ui-ink);
+    font: 13px/1.4 var(--ui-font);
+    animation: viewport-context-enter var(--ui-fast) ease-out both;
+}
+.viewport-context-menu[hidden], #renderer-outline-row[hidden] { display: none !important; }
+.viewport-context-group + .viewport-context-group {
+    margin-top: 4px;
+    padding-top: 4px;
+    border-top: 1px solid var(--ui-line);
+}
+.viewport-context-title {
+    overflow-wrap: anywhere;
+    padding: 5px 9px 3px;
+    color: var(--ui-secondary);
+    font-size: 11px;
+    font-weight: 600;
+}
+.viewport-context-menu button {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    width: 100%;
+    min-height: 27px;
+    padding: 4px 9px;
+    border: 0;
+    border-radius: 5px;
+    background: transparent;
+    color: inherit;
+    box-shadow: none;
+    font: inherit;
+    text-align: left;
+}
+.viewport-context-menu button:is(:hover, :focus):not(:disabled) {
+    outline: none;
+    background: var(--ui-accent-wash);
+    color: var(--ui-ink);
+}
+.viewport-context-menu button:active:not(:disabled) { background: var(--ui-pressed); }
+.viewport-context-menu button:disabled { opacity: .45; }
+.viewport-context-menu kbd { color: var(--ui-secondary); font: 11px var(--ui-font); white-space: nowrap; }
+@keyframes viewport-context-enter { from { opacity: .6; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .viewport-context-menu { animation: none; } }

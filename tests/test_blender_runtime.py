@@ -33,6 +33,8 @@ def test_generated_scene_renders_principled_atom_colors_bonds_cell_and_sun(tmp_p
         "bondThickness": 0.18,
         "bondColorMode": "split",
         "labelColors": {"Cu": "#c47a2c", "O": "#e51c23"},
+        "labelMaterials": {"Cu": "metal", "O": "rubber"},
+        "labelOpacities": {"Cu": 0.75},
         "lightingMode": "studio-shadow",
     }
     data["bonds"] = [{
@@ -68,8 +70,16 @@ for mat in atom_materials:
     assert bsdf is not None
     color = bsdf.inputs["Base Color"].default_value
     assert max(color[:3]) - min(color[:3]) > 0.10
+    if mat.name.startswith('atom Cu'):
+        assert abs(color[0] - 0.5520114) < 1e-5
+        assert abs(bsdf.inputs['Roughness'].default_value - 0.18) < 1e-5
+        assert abs(bsdf.inputs['Metallic'].default_value - 0.90) < 1e-5
+        assert abs(bsdf.inputs['Alpha'].default_value - 0.75) < 1e-5
+    else:
+        assert abs(bsdf.inputs['Roughness'].default_value - 0.88) < 1e-5
 sun = bpy.data.objects.get("v_ase_studio_sun")
 assert sun is not None and sun.data.type == "SUN"
+assert sun.data.use_shadow
 assert abs(sun.data.energy - 3.4) < 1e-5
 assert tuple(round(value, 6) for value in sun["v_ase_target"]) == (1.0, 0.0, 0.0)
 assert bpy.data.objects.get("v_ase_sun_source") is not None
@@ -131,6 +141,12 @@ def test_blender_radius_mapping_changes_per_frame_without_radius_groups(tmp_path
     atoms = Atoms("H2", positions=[[0, 0, 0], [2, 0, 0]])
     data = atoms_to_json(atoms)
     data["display"] = {"showBonds": False, "blenderExportMode": mode}
+    data['camera'] = {
+        'position': [0, 0, 8], 'target': [0, 0, 0], 'up': [1, 0, 0],
+        'width': 900, 'height': 600, 'fov': 49.0, 'zoom': 1.8,
+        'projection': 'orthographic' if mode == 'objects' else 'perspective',
+        'ortho_scale': 4,
+    }
     data["atom_radius_factors"] = [0.0, 1.0]
     first = atoms_to_json(atoms)
     second = atoms_to_json(atoms)
@@ -138,10 +154,19 @@ def test_blender_radius_mapping_changes_per_frame_without_radius_groups(tmp_path
     second["atom_radius_factors"] = [1.0, 0.5]
     data["frames"] = [first, second]
     validation = '''
+from bpy_extras.object_utils import world_to_camera_view
+
 scene = bpy.context.scene
+assert (scene.render.resolution_x, scene.render.resolution_y) == (900, 600)
+origin = world_to_camera_view(scene, scene.camera, Vector((0, 0, 0)))
+projection = world_to_camera_view(scene, scene.camera, Vector((1, 0, 0)))
+view_height = 4 if scene.camera.data.type == 'ORTHO' else 16 * math.tan(math.radians(49) / 2) / 1.8
+assert abs(origin.x - 0.5) < 1e-6 and abs(origin.y - 0.5) < 1e-6
+assert abs(projection.x - 0.5) < 1e-6 and abs(projection.y - 0.5 - 1 / view_height) < 1e-6
 scene.frame_set(1)
 if BLENDER_OBJECT_MODE == "objects":
     atom_objects = [bpy.data.objects[f"atom_{index:04d}_H"] for index in range(2)]
+    assert all(obj.data.polygons and all(p.use_smooth for p in obj.data.polygons) for obj in atom_objects)
     assert abs(atom_objects[0].scale.x) < 1e-8
     assert abs(atom_objects[1].scale.x - get_atom_radius(1, FRAMES[0])) < 1e-8
     scene.frame_set(2)
@@ -158,6 +183,15 @@ else:
     radii = [point.value for point in group.data.attributes["radius"].data]
     assert abs(radii[0] - get_atom_radius(0, FRAMES[1])) < 1e-7
     assert abs(radii[1] - get_atom_radius(1, FRAMES[1])) < 1e-7
+    tree = group.modifiers[0].node_group
+    output = next(node for node in tree.nodes if node.type == 'GROUP_OUTPUT')
+    input_socket = output.inputs['Geometry']
+    instance_socket = input_socket.links[0].from_socket
+    realize = tree.nodes.new('GeometryNodeRealizeInstances')
+    tree.links.new(instance_socket, realize.inputs['Geometry'])
+    tree.links.new(realize.outputs['Geometry'], input_socket)
+    mesh = group.evaluated_get(bpy.context.evaluated_depsgraph_get()).data
+    assert mesh.polygons and all(p.use_smooth for p in mesh.polygons)
 '''
     script_path = tmp_path / f"mapped_{mode}.py"
     script_path.write_text(_blender_script(data) + validation, encoding="utf-8")

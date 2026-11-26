@@ -268,15 +268,32 @@ def test_all_pairwise_rdf_keeps_mixed_pair_when_label_order_is_not_sorted():
     }
 
 
-def test_rdf_refuses_partial_pbc_instead_of_reporting_boundary_biased_curve():
+@pytest.mark.parametrize("periodic", [[True, True, False], [True, False, False]])
+def test_partial_pbc_counts_physical_images_without_vacuum_normalization(periodic):
     atoms = Atoms(
-        "H4",
-        positions=np.eye(4, 3),
-        cell=[10, 10, 20],
-        pbc=[True, True, False],
+        "CuO",
+        positions=[[.25, 0, 0], [7.75, 0, 0]],
+        cell=[[8, 0, 0], [1, 8, 0], [0, 0, 20]],
+        pbc=periodic,
     )
-    with pytest.raises(ValueError, match="periodic boundaries in x, y, and z"):
-        calculate_rdf(atoms, cutoff=3.0)
+    result = calculate_rdf(atoms, cutoff=2.07, bins=20, pair_mode="all")
+    assert safe_rdf_cutoff(atoms) <= 4
+    assert result.analysis_kind == "periodic-pair-distribution"
+    assert result.y_label == "Neighbors per atom / Å"
+    assert result.periodic_image_extent == (1, 0, 0)
+    assert np.flatnonzero(result.total).tolist() == [4]
+    assert result.total.sum() * (result.cutoff / result.bins) == pytest.approx(1)
+    np.testing.assert_allclose(sum(result.partial.values()), result.total)
+    with_vacuum = atoms.copy()
+    with_vacuum.cell[2, 2] = 60
+    np.testing.assert_allclose(calculate_rdf(with_vacuum, cutoff=2.07, bins=20).total, result.total)
+    assert "total_neighbors_per_atom_per_angstrom" in rdf_csv(result).decode().splitlines()[0]
+
+    cartesian = calculate_rdf(atoms, cutoff=8.03, bins=80, use_pbc=False)
+    assert cartesian.analysis_kind == "pair-distribution"
+    assert cartesian.periodic_image_extent == (0, 0, 0)
+    assert np.flatnonzero(cartesian.total).tolist() == [74]
+    assert atoms.pbc.tolist() == periodic
 
 
 def test_finite_structure_reports_normalized_pair_distribution_without_cell():

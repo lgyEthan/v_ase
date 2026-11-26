@@ -104,7 +104,8 @@ No API key or external service is required. A hosted model without local shell
 and browser access can propose a command plan, but a local agent must execute
 and verify it.
 
-For published desktop/PyPI 0.4.14, use its matching Skill tag instead. See
+For a packaged runtime, use its matching Skill tag, such as `v0.5.1` for the
+0.5.1 Python release. See
 [Skill and runtime setup](agent-setup.md).
 
 ## Start a live session

@@ -32,8 +32,26 @@ the editable project data.
 The recipient can open it in a browser without Python. To continue editing,
 open the same file with **File → Open** in v_ase. Project HTML is larger than
 `.vase` because it also includes the viewer and preview image.
+The editing view keeps its zoom and framing during Save. The embedded poster
+uses the saved output camera and framing.
 
 ## HTML View
+
+**Include graph** under **Scene overlays** controls the Energy graph and any
+floating Distribution for both HTML View and Project HTML. The preview and
+embedded poster show the same graph placement and style as the interactive output. A graph positioned
+inside the visible Render Area keeps its location relative to that crop.
+Graphs extending outside the frame are fitted inside it. Opening the dialog
+pauses playback so the preview uses the same frame as the saved composition.
+Click or drag on the offline Energy graph to seek source frames. The offline
+Plotly Distribution shows the curve for each displayed frame. Plot zoom, pan
+and legend choices persist while you seek or play the trajectory. **Reset saved
+view** restores the camera, plot bounds and legend for the frame you are on.
+Opening editable HTML in v_ase restores the saved floating Distribution and
+its appearance. Save, Save As and HTML export use lossless gzip where it
+reduces the embedded viewer or curve data. The HTML includes an offline fallback
+decoder and retains the full-resolution PNG for Finder and Quick Look.
+Save an older editable HTML project again to update its Finder thumbnail.
 
 Choose **Render → Interactive HTML → HTML View** for an offline viewing copy with orbit, pan,
 zoom and trajectory playback. The default does not include editable project data.
@@ -50,8 +68,9 @@ a `.vase` project continues saving as `.vase`. Exporting an image or movie does
 not change that destination.
 
 Some browsers cannot write back to the original file and download a new copy
-instead. v_ase tells you when this happens. The desktop app uses normal file
-saving. If the original file has changed outside v_ase, choose **Save As** to
+instead. v_ase labels a download as a copy and reports the saved HTML size.
+In the desktop app, **Save** writes to the file opened through the system
+picker. If the original file has changed outside v_ase, choose **Save As** to
 keep your current work separately before deciding which copy to use.
 
 ## Reopening the saved workspace

@@ -25,8 +25,10 @@ bond definitions. Hiding **Show bonds** only hides lines; it does not erase the
 filter's topology. For automatic/pairwise rules all eligible periodic images
 count independently; manual pairs use their direct/minimum-image connections.
 The existing **Center–ligand connectors** checkbox controls drawing, separately.
-Omitted-center status reports the atom, measured neighbor count and reason;
-adjust its cutoff, count range or bonded-neighbor filter rather than changing atoms.
+The rule breakdown shows the observed ligand count and the minimum required
+when a neighborhood has too few vertices. For example, a Cu site with two
+O neighbors yields no hull under an automatic rule requiring four. The
+breakdown also identifies coplanar sites when the rule allows solid hulls only.
 
 For the 76-site vermiculite CIF (`C 1 c 1`, four supplied symmetry operations),
 periodic **Si → O / 2.0 Å** and **Mg → O / 2.5 Å** rules yield **16 SiO₄

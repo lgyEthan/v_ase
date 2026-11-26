@@ -166,18 +166,30 @@ export function installPolyhedra(App) {
         input('complex').hidden=!complex;
     };
     proto.showPolyhedraSummary = function(data) {
+        const omitted = data.diagnostics || [];
         const list=input('breakdown');
         if(list)list.replaceChildren(...(data.ruleSummaries||[]).map(rule=>{
             const item=document.createElement('li');
             const cn=Object.entries(rule.coordinationCounts).map(([n,count])=>`${count} × CN ${n}`).join(', ');
-            item.textContent=`${rule.name} · ≤ ${Number(rule.maxDistance).toFixed(2)} Å · ${cn||'0 hulls'}${rule.omittedCount?` · ${rule.omittedCount} omitted`:''}`;
+            const limits = data.rules?.find(entry => entry.id === rule.ruleId);
+            const failures = omitted.filter(entry => entry.ruleId === rule.ruleId);
+            let reason = rule.omittedCount ? `${rule.omittedCount} omitted` : '';
+            if (!cn && failures.length) {
+                const counts = failures.map(entry => entry.neighborCount);
+                const most = Math.max(...counts);
+                if (most < limits?.minCoordination) {
+                    reason = `up to ${most} ligand${most === 1 ? '' : 's'} per center · requires at least ${limits.minCoordination}`;
+                } else if (failures.some(entry => entry.status === 'planar-disabled')) {
+                    reason = 'ligand sites are coplanar · use Allow planar faces for this rule';
+                }
+            }
+            item.textContent=`${rule.name} · ≤ ${Number(rule.maxDistance).toFixed(2)} Å · ${cn||'0 hulls'}${reason ? ` · ${reason}` : ''}`;
             return item;
         }));
-        const omitted=data.diagnostics||[];
         if(input('status'))input('status').textContent=!data.rules?.length
             ? 'No supported element pairs found. Add a custom rule with center and ligand elements or atom indices.'
             : !data.centerCount ? 'No centers match the enabled rules. Check their center elements, labels or indices.'
-            : `${data.polyhedronCount} polyhedra · ${data.centerCount} centers · ${omitted.length} omitted.${omitted.length?` First omitted: atom ${omitted[0].center}, ${omitted[0].neighborCount} neighbors (${omitted[0].status}). Adjust the cutoff, coordination range or bonded-neighbor filter.`:''}`;
+            : `${data.polyhedronCount} polyhedra · ${data.centerCount} centers · ${omitted.length} omitted.${omitted.length ? ' See ligand counts and rule limits below.' : ''}`;
     };
     proto.schedulePolyhedra = function () {
         const runtime=this.polyhedraRuntime;

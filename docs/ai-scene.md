@@ -2,7 +2,7 @@
 
 Use the same source channel for the GUI, MCP adapter and scientific Skill.
 Follow [agent setup](agent-setup.md) for current GitHub source or the published
-0.4.14 release; the live schema remains authoritative.
+0.5.1 release; the live schema remains authoritative.
 
 ```{contents} On this page
 :local:

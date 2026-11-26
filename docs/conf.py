@@ -64,7 +64,7 @@ html_theme_options = {
     "titles_only": True,
 }
 html_context = {
-    "vase_unreleased_source": False,  # main and the release tag describe 0.4.14.
+    "vase_unreleased_source": True,
     "display_github": True,
     "github_user": "lgyEthan",
     "github_repo": "v_ase",

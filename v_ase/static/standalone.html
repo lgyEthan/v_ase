@@ -63,45 +63,131 @@
 
     <script id="v-ase-scene-data" type="application/vnd.v-ase.view+json" data-encoding="base64">{{SCENE_DATA_BASE64}}</script>
     <script id="v-ase-project-data" type="application/vnd.v-ase.project+zip" data-encoding="base64">{{PROJECT_DATA_BASE64}}</script>
-    <script id="v-ase-three-source" type="application/vnd.v-ase.module+base64" data-encoding="base64">{{THREE_SOURCE_BASE64}}</script>
-    <script id="v-ase-renderer-source" type="application/vnd.v-ase.module+base64" data-encoding="base64">{{RENDERER_SOURCE_BASE64}}</script>
-    <script id="v-ase-water-geometry" type="application/vnd.v-ase.module+base64">{{WATER_GEOMETRY_SOURCE_BASE64}}</script>
-    <script id="v-ase-surface-refinement" type="application/vnd.v-ase.module+base64">{{SURFACE_REFINEMENT_SOURCE_BASE64}}</script>
-    <script id="v-ase-render-quality" type="application/vnd.v-ase.module+base64">{{RENDER_QUALITY_SOURCE_BASE64}}</script>
-    <script id="v-ase-water-layer" type="application/vnd.v-ase.module+base64">{{WATER_LAYER_SOURCE_BASE64}}</script>
-    <script id="v-ase-bsp-source" type="application/vnd.v-ase.module+base64">{{BSP_SOURCE_BASE64}}</script>
-    <script id="v-ase-grid-source" type="application/vnd.v-ase.module+base64">{{GRID_SOURCE_BASE64}}</script>
-    <script id="v-ase-viewer-source" type="application/vnd.v-ase.module+base64" data-encoding="base64">{{VIEWER_SOURCE_BASE64}}</script>
+    {{OFFLINE_PAYLOADS}}
+    <!-- pako gzip fallback
+    {{GZIP_FALLBACK_LICENSE}}
+    -->
     <script type="module">
-        const encoded = id => document.getElementById(id).textContent.trim();
-        const decodeText = value => {
+        const encoded = id => document.getElementById(id)?.textContent.trim() || '';
+        const decodeBytes = value => {
             const binary = atob(value);
             const bytes = new Uint8Array(binary.length);
             for (let index = 0; index < binary.length; index++) bytes[index] = binary.charCodeAt(index);
-            return new TextDecoder().decode(bytes);
+            return bytes;
         };
+        const readText = bytes => new TextDecoder('utf-8', { fatal: true }).decode(bytes);
         const moduleUrl = source => URL.createObjectURL(new Blob([source], { type: 'text/javascript' }));
+        let fallback;
+        const inflateFallback = () => {
+            if (!fallback) {
+                const url = moduleUrl(readText(decodeBytes(encoded('v-ase-gzip-fallback'))));
+                fallback = import(url).finally(() => URL.revokeObjectURL(url));
+            }
+            return fallback;
+        };
+        const ungzip = async (bytes, length) => {
+            const output = new Uint8Array(length);
+            let offset = 0;
+            const append = chunk => {
+                if (chunk.length > length - offset) throw new Error('Embedded payload exceeds its recorded size.');
+                output.set(chunk, offset);
+                offset += chunk.length;
+            };
+            if (typeof DecompressionStream === 'function' && typeof Blob.prototype.stream === 'function') {
+                const reader = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip')).getReader();
+                try {
+                    for (;;) {
+                        const { value, done } = await reader.read();
+                        if (done) break;
+                        append(value);
+                    }
+                } catch (error) {
+                    await reader.cancel().catch(() => {});
+                    throw error;
+                } finally {
+                    reader.releaseLock();
+                }
+            } else {
+                const { Inflate } = await inflateFallback();
+                const inflater = new Inflate({ windowBits: 31 });
+                inflater.onData = append;
+                if (!inflater.push(bytes, true) || !inflater.ended || inflater.err) {
+                    throw new Error('Embedded gzip payload is incomplete or invalid.');
+                }
+            }
+            if (offset !== length) throw new Error('Embedded payload does not match its recorded size.');
+            return output;
+        };
+        const unpack = async id => {
+            const element = document.getElementById(id);
+            if (!element) return '';
+            const length = Number(element.dataset.bytes);
+            if (!Number.isSafeInteger(length) || length < 0) throw new Error(`Invalid length for ${id}.`);
+            const bytes = decodeBytes(element.textContent.trim());
+            if (element.dataset.encoding === 'base64+gzip') return readText(await ungzip(bytes, length));
+            if (element.dataset.encoding === 'base64' && bytes.length === length) return readText(bytes);
+            throw new Error(`Invalid embedded data for ${id}.`);
+        };
+        const loadPlotly = async () => {
+            const script = document.createElement('script');
+            script.src = moduleUrl(await unpack('v-ase-plotly-source'));
+            try {
+                await new Promise((resolve, reject) => {
+                    script.onload = resolve;
+                    script.onerror = () => reject(new Error('The embedded distribution renderer could not start.'));
+                    document.head.append(script);
+                });
+            } finally {
+                URL.revokeObjectURL(script.src);
+            }
+        };
         try {
-            const threeUrl = moduleUrl(decodeText(encoded('v-ase-three-source')));
-            const bspUrl = moduleUrl(decodeText(encoded('v-ase-bsp-source')));
-            const gridUrl = moduleUrl(decodeText(encoded('v-ase-grid-source')).replace(/from\s+['"]three['"]/, `from '${threeUrl}'`));
-            const waterGeometryUrl = moduleUrl(decodeText(encoded('v-ase-water-geometry')));
-            const waterLayerUrl = moduleUrl(decodeText(encoded('v-ase-water-layer')).replace(/from\s+['"]three['"]/, `from '${threeUrl}'`).replace(/from\s+['"]\.\/water_geometry\.js['"]/, `from '${waterGeometryUrl}'`));
-            const refinementUrl = moduleUrl(decodeText(encoded('v-ase-surface-refinement')));
-            const qualityUrl = moduleUrl(decodeText(encoded('v-ase-render-quality')).replace(/from\s+['"]three['"]/, `from '${threeUrl}'`).replace(/from\s+['"]\.\/surface_refinement\.js['"]/, `from '${refinementUrl}'`));
-            const rendererSource = decodeText(encoded('v-ase-renderer-source')).replace(
+            const [three, bsp, grid, waterGeometry, waterLayer, refinement, quality, renderer, energy, distribution, viewer] =
+                await Promise.all(['three-source', 'bsp-source', 'grid-source', 'water-geometry', 'water-layer',
+                    'surface-refinement', 'render-quality', 'renderer-source', 'energy-source', 'distribution-source',
+                    'viewer-source'].map(id => unpack(`v-ase-${id}`)));
+            const threeUrl = moduleUrl(three);
+            const bspUrl = moduleUrl(bsp);
+            const gridUrl = moduleUrl(grid.replace(/from\s+['"]three['"]/, `from '${threeUrl}'`));
+            const waterGeometryUrl = moduleUrl(waterGeometry);
+            const waterLayerUrl = moduleUrl(waterLayer.replace(/from\s+['"]three['"]/, `from '${threeUrl}'`).replace(/from\s+['"]\.\/water_geometry\.js['"]/, `from '${waterGeometryUrl}'`));
+            const refinementUrl = moduleUrl(refinement);
+            const qualityUrl = moduleUrl(quality.replace(/from\s+['"]three['"]/, `from '${threeUrl}'`).replace(/from\s+['"]\.\/surface_refinement\.js['"]/, `from '${refinementUrl}'`));
+            const rendererSource = renderer.replace(
                 /from\s+['"]three['"]/,
                 `from '${threeUrl}'`
             ).replace(/from\s+['"]\.\/polyhedra_bsp\.js['"]/, `from '${bspUrl}'`)
                 .replace(/from\s+['"]\.\/viewport_grid\.js(?:\?[^'"]*)?['"]/, `from '${gridUrl}'`).replace(/from\s+['"]\.\/water_layer\.js['"]/, `from '${waterLayerUrl}'`).replace(/from\s+['"]\.\/render_quality\.js['"]/, `from '${qualityUrl}'`);
             const rendererUrl = moduleUrl(rendererSource);
-            const viewerSource = decodeText(encoded('v-ase-viewer-source'))
+            const energyUrl = moduleUrl(energy);
+            const distributionUrl = moduleUrl(distribution);
+            const viewerSource = viewer
                 .replace(/from\s+['"]three['"]/, `from '${threeUrl}'`)
+                .replace(/from\s+['"]\.\/trajectory_energy\.js['"]/, `from '${energyUrl}'`)
+                .replace(/from\s+['"]\.\/distribution_plot\.js['"]/, `from '${distributionUrl}'`)
                 .replace(/from\s+['"]\.\/renderer\.js['"]/, `from '${rendererUrl}'`);
             const viewerUrl = moduleUrl(viewerSource);
-            const scene = JSON.parse(decodeText(encoded('v-ase-scene-data')));
-            const viewer = await import(viewerUrl);
-            viewer.startStandaloneViewer(scene, encoded('v-ase-project-data'));
+            const scene = JSON.parse(readText(decodeBytes(encoded('v-ase-scene-data'))));
+            let rdfFrames = [];
+            if (scene.exportProfile?.rdfGraph) {
+                try {
+                    const [packedFrames] = await Promise.all([unpack('v-ase-rdf-frames'), loadPlotly()]);
+                    if (packedFrames) {
+                        rdfFrames = JSON.parse(packedFrames);
+                        if (!Array.isArray(rdfFrames) || rdfFrames.length !== scene.frames.length) {
+                            throw new Error('Distribution data does not match the trajectory.');
+                        }
+                    }
+                } catch (error) {
+                    delete scene.exportProfile.rdfGraph;
+                    const panel = document.getElementById('boot-error');
+                    panel.textContent = 'The saved distribution could not be loaded.';
+                    panel.hidden = false;
+                    console.warn('The saved distribution could not be loaded.', error);
+                }
+            }
+            const module = await import(viewerUrl);
+            module.startStandaloneViewer(scene, encoded('v-ase-project-data'), rdfFrames);
         } catch (error) {
             const panel = document.getElementById('boot-error');
             panel.hidden = false;

@@ -137,12 +137,25 @@ def test_delayed_structure_read_cannot_restart_finished_registry_optimization(li
     if completed_first_run:
         page.evaluate('async () => await window.__ASE_APP__.runRegistryRelaxation({fmax:1000,steps:2})')
         page.wait_for_function('window.__ASE_APP__.state.registryRelaxation?.status === "converged"')
+        page.evaluate('''() => {
+            const app = window.__ASE_APP__;
+            const send = app.api.runRegistryRelaxation.bind(app.api);
+            app.api.runRegistryRelaxation = async (payload) => {
+                const previous = app.state.registryRelaxation;
+                await app.refresh();
+                const refreshed = app.state.registryRelaxation;
+                window.receivedPreviousRun = refreshed !== previous && refreshed.run_id === previous.run_id;
+                return await send(payload);
+            };
+        }''')
     calculator = PausedCalculator()
     backend.registry_relaxation.baseline_atoms.calc = calculator
     try:
         page.evaluate('''() => {window.registryRun=window.__ASE_APP__.runRegistryRelaxation({fmax:1000,steps:2});}''')
         assert calculator.started.wait(5)
         page.evaluate('async () => await window.registryRun')
+        if completed_first_run:
+            assert page.evaluate('window.receivedPreviousRun')
         assert page.evaluate('window.__ASE_APP__.state.registryRelaxation.is_relaxing')
         defer_structure_read(page)
         calculator.release.set()

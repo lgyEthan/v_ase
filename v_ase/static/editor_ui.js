@@ -1,4 +1,4 @@
-import { editorIcon } from './editor_interactions.js?v=0.4.14&ui=20261111.1';
+import { editorIcon } from './editor_interactions.js?v=0.5.1&ui=20261111.1';
 // The workbench is a presentation adapter. Route IDs and mounted scientific
 // controls belong to the editor; no project state is stored here.
 export const WORKBENCH_ROUTES = Object.freeze({
@@ -16,7 +16,7 @@ export const WORKBENCH_LABELS = Object.freeze({
     'cell-transform': 'Cell matrix', constraints: 'Constraints',
     'build-match': 'Match cells', 'scientific-tools': 'Relax',
     'build-rigid': 'Rigid translation', selection: 'Measure',
-    rdf: 'Distributions', displacement: 'Displacements', forces: 'Forces',
+    rdf: 'Distributions', displacement: 'Displacements', forces: 'Forces', 'trajectory-energy': 'Energy graph',
     volumetric: 'Fields', 'registry-map': 'Registry', export: 'Renderer',
     'render-image': 'Image', 'render-video': 'Video',
     'render-html': 'Interactive HTML', 'render-geometry': 'Geometry'
@@ -39,6 +39,7 @@ const descriptions = Object.freeze({
     selection: 'Inspect atom properties and measure ordered selections',
     rdf: 'Pair, bond and angular distributions',
     displacement: 'Compare positions against a reference',
+    'trajectory-energy': 'Appearance and presets for the trajectory energy overlay',
     forces: 'Inspect stored forces and their vectors',
     volumetric: 'Import and process fields, isosurfaces and planes',
     'registry-map': 'Calculate a rigid-translation landscape',
@@ -135,6 +136,7 @@ export function mountWorkbenchTools() {
 
 
 export function workbenchForRoute(route) {
+    if (route === 'trajectory-energy') return 'analyze';
     return Object.keys(WORKBENCH_ROUTES).find(group => WORKBENCH_ROUTES[group].includes(route))
         || (['project','settings','save-guide'].includes(route) ? 'render' : 'style');
 }

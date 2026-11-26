@@ -226,7 +226,7 @@ export class ASEApi {
         else if (expect === 'arrayBuffer') result = await res.arrayBuffer();
         else if (expect === 'text') result = await res.text();
         else result = await res.json();
-        if (emitMutation) this.emitMutationCallbacks(path, options);
+        if (emitMutation && !result?.history_unchanged) this.emitMutationCallbacks(path, options);
         return result;
         } catch (error) {
             failure = error;
@@ -269,6 +269,10 @@ export class ASEApi {
             '/api/supercell/matrix/',
             '/api/commensurate/apply/',
             '/api/registry-relax/finish/',
+            '/api/trajectory/match/',
+            '/api/trajectory/duplicate/',
+            '/api/trajectory/delete-frame/',
+            '/api/trajectory/labels/',
             '/api/translate/'
         ].some(prefix => path.includes(prefix));
     }
@@ -1571,11 +1575,12 @@ export class ASEApi {
         }, { expect: 'blob' });
     }
 
-    async exportBlender(positions, applyConstraint = true, camera = null, display = null, bondPairs = null, lighting = null, includeCell = true) {
+    async exportBlender(positions, applyConstraint = true, camera = null, display = null, bondPairs = null, lighting = null, includeCell = true, bondBridges = null) {
         const body = this.framePayload({ positions, apply_constraint: applyConstraint });
         if (camera) body.camera = camera;
         if (display) body.display = display;
         if (bondPairs) body.bond_pairs = bondPairs;
+        if (bondBridges?.length) body.bond_bridges = bondBridges;
         if (lighting) body.lighting = lighting;
         body.include_cell = includeCell !== false;
         return await this.request(`/api/export/blender/{session_id}`, {
@@ -1931,7 +1936,8 @@ export class ASEApi {
         inputFormat = '',
         index = ':',
         volumetricPrecision = 'float32',
-        runtimeMode = null
+        runtimeMode = null,
+        { structureOnly = false } = {}
     ) {
         const params = new URLSearchParams({
             filename: file?.name || 'structure',
@@ -1942,6 +1948,7 @@ export class ASEApi {
         if (runtimeMode === 'view' || runtimeMode === 'edit') {
             params.set('runtime_mode', runtimeMode);
         }
+        if (structureOnly) params.set('structure_only', 'true');
         return await this.request(`/api/file/load/{session_id}?${params.toString()}`, {
             method: 'POST',
             headers: {'Content-Type': file?.type || 'application/octet-stream'},

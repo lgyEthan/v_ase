@@ -492,11 +492,10 @@ Base-atom selections survive frame changes and are removed only when the new
 frame does not contain the selected index or its label is hidden. Measurements
 are recomputed from the newly displayed positions.
 
-An open radial or finite pair-distribution drawer follows both source frames
-and operation-specific relaxation frames. Coordinate previews and committed
-`G`/`R`/`S` edits invalidate only the affected cached curve; the drawer and
-previous curve remain visible until the current displayed coordinates finish
-recalculation.
+An open distribution plot follows both source frames and operation-specific
+relaxation frames, in the drawer or over the viewport. Coordinate previews
+and committed `G`/`R`/`S` edits invalidate the affected cached curve and keep
+the previous curve visible during recalculation.
 
 Displacement arrows begin at the currently visible atom position, repeat over
 the displayed supercell, and retain the physical vector returned by the

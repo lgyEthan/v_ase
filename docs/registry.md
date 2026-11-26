@@ -49,7 +49,9 @@ translation in either:
 - bounded Cartesian x/y/z translation.
 
 All selected atoms preserve internal geometry. The optimization timeline can
-be scrubbed before Finish or Cancel. Plane and Cartesian modes have explicit
+be scrubbed before Finish or Cancel. Run again to start another optimization
+in the same mode. The controls follow the current run as soon as it starts.
+Plane and Cartesian modes have explicit
 bounds; invariant-geometry and finite-difference checks protect the rigid
 contract.
 

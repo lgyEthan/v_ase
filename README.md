@@ -13,12 +13,14 @@ data, available as a desktop app, in your browser and in Jupyter.
 [![License: AGPL v3+](https://img.shields.io/badge/license-AGPL--3.0--or--later-2f855a.svg)](LICENSE)
 
 [Download for Mac or Windows](https://github.com/lgyEthan/v_ase/releases/tag/v0.4.14) ·
+[0.5.1 release](https://github.com/lgyEthan/v_ase/releases/tag/v0.5.1) ·
 [Install with Python](#get-v_ase) ·
 [User guide](https://v-ase.readthedocs.io/en/latest/) ·
 [Example files](https://v-ase.readthedocs.io/en/latest/example-inputs.html)
 
-**v_ase 0.4.14** synchronizes the Python package, desktop apps, documentation
-and scientific Skill. Use the [agent setup guide](https://v-ase.readthedocs.io/en/latest/agent-setup.html)
+**v_ase 0.5.1** includes the new trajectory, graph and HTML saving workflows
+in the Python package and corresponding scientific Skill. Use the
+[agent setup guide](https://v-ase.readthedocs.io/en/latest/agent-setup.html)
 to install the matching runtime and Skill.
 Source pushes verify that source; desktop installer packaging is an explicit
 maintainer step after its matching scientific wheel is published.
@@ -31,6 +33,8 @@ Scene sidebar, a framed scientific canvas and a precise inspector. Choose
 Its title's disclosure lists only that category. **Find tools…** (**⌘F / Ctrl+F**)
 searches every category, including Water, Isosurfaces and project settings.
 **View only** and **Edit structure** form an explicit mode selector at the stage's left.
+To rotate atoms, switch to **Edit structure** and select them. Hover a greyed
+out transform for its availability hint. **Orbit camera** turns the viewpoint in either mode.
 The desktop uses its native menu bar; browsers retain one compact command menu.
 
 Opening a file defaults to **Open in new tab** when a structure is already open.
@@ -55,6 +59,8 @@ accidentally delete scientific atoms. Add atoms exposes XYZ coordinates; constra
 editing shows the selection scope and the controls relevant to that selection.
 
 **Render → Image** exposes exact dimensions, framing, background and format.
+In **Renderer** (⌘Shift+A / Ctrl+Shift+A), typing an output scale zooms the live
+structure and updates the render framing in both **Viewport** and **Physical scale**.
 **Preview framing** shows the existing render area; **Advanced render settings**
 contains shared lighting and quality. Export leaves the real image thumbnail and
 **Save a copy**, which reuses the completed image bytes.
@@ -198,7 +204,8 @@ Registry maps compare geometric contact or bond-strain scores while preserving
 the fragment's internal structure; they are not potential-energy maps.
 Rigid translation relaxation keeps completion visible even when an older
 structure read or start response arrives late. Running it again starts a new
-optimization in the same mode; Finish and Cancel remain explicit actions.
+optimization in the same mode and shows its progress as soon as the server
+accepts it. Finish and Cancel remain explicit actions.
 Notifications stay with their server's event loop when several local viewers
 are open or viewers are closed and reopened.
 
@@ -212,6 +219,16 @@ for numbered tabs (9 is last). In Edit, deleting a trajectory selection asks
 whether to change the current frame or the same indices in every frame;
 the complete change is undoable.
 
+Use **Home** and **End** to pause the active timeline and jump to its first
+or last frame.
+
+Right-click a viewport object for its actions. If the pointer is over a
+different object, the menu also has a group for the selected atoms. Right-drag
+pans the camera. Use **⌘T / Ctrl+T** to duplicate the current structure into
+the next frame, or add **Shift** to put the copy at the end. The copy becomes
+the active frame. **⌘Shift+P / Ctrl+Shift+P** focuses the selected atoms'
+label field, or the radius field when no atoms are selected.
+
 ## Atoms, bonds and coordination
 
 ### Give scientific groups their own appearance
@@ -219,6 +236,12 @@ the complete change is undoable.
 Separate substrate, surface and adsorbate atoms with labels—even when they
 share an element. Set each group's color, radius, opacity and material, and
 choose which atom pairs form visible bonds.
+The **Atoms** eye in Scene hides just the atom glyphs and leaves bonds,
+constraint marks and the cell visible. Bond appearance updates live, including
+enabled label-pair overrides. The Bonds inspector indicates when overrides
+are active and offers **Use global appearance for all bonds**.
+The **Bonds** eye controls the drawing. The count stays visible and follows the
+current frame and bond definitions.
 
 ![Substrate copper is separated into a label and styled independently of the surface oxide](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_cu5o4_view_appearance.gif)
 
@@ -268,9 +291,16 @@ for editing groups without creating unintended measurements.
 
 ### Compare local structure with pair distributions
 
-Plot total and label-resolved radial distributions for periodic systems, or
-pair-distance distributions for finite structures. Axes retain their quantity and
-Å units in compact results. Export the curves as CSV.
+Plot bulk *g(r)* for 3D periodic cells, the neighbor density by distance for
+slabs and wires, or pair-distance probabilities for finite structures. **Use
+periodic boundaries (PBC)** is on by default. Float distribution graphs,
+registry maps or commensurate plots over the viewport and dock them below again.
+Drag a floating plot by its title. Drag its lower-right grip to snap the right
+or bottom edge to another floating graph. Click the graph to open **Graph
+settings**. Select **Data series** to set a curve's legend name, line and
+markers. Background, grid, fonts, tick labels and axis limits apply to the
+whole graph. Valid limits update as you type, and an empty limit stays
+automatic. Export the styled graph as PNG or the curves as CSV.
 
 ![Total and label-resolved Cu-Zr radial distribution curves beside the atomic structure](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_rdf.png)
 
@@ -328,14 +358,14 @@ you have open. Watch its edits, inspect the result, and continue refining it by 
 Install the scientific Skill for Claude Code, Codex and Cursor:
 
 ```bash
-npx skills@latest add lgyEthan/v_ase@v0.4.14 \
+npx skills@latest add lgyEthan/v_ase@v0.5.1 \
   --skill visualizing-atomic-structures-with-v-ase \
   -a claude-code codex cursor -g -y
 ```
 
 This installs the guide and its references. Connect the MCP server separately
 to enable actual tools. Choose only the clients you use; omit `-g` for a
-project installation. For the **0.4.14** release, use `lgyEthan/v_ase@v0.4.14` so
+project installation. For the **0.5.1** release, use `lgyEthan/v_ase@v0.5.1` so
 the Skill matches the runtime. [Skill and MCP setup](https://v-ase.readthedocs.io/en/latest/agent-setup.html).
 
 You can also ask an agent to set up v_ase by reading
@@ -373,11 +403,15 @@ Choose flat 2D with crisp, uniformly colored bonds or shaded 3D, tune materials
 and lighting, and compose a render
 area independently of your editing view. Set output resolution and physical
 scale for figures, or export a selected trajectory range as a movie or GIF.
+In **2D flat**, **Outline width** sets a shared stroke width for the atoms and
+bond ribbons. **Atom & bond segments** remains available for flat rendering.
 
 ![Standard, Metal and Rubber materials compared on identical copper clusters](https://raw.githubusercontent.com/lgyEthan/v_ase/main/docs/assets/github/readme_materials.png)
 
 Continue working in **Blender** with editable atoms, bonds and water-surface
-meshes, including trajectory animation. **OBJ/MTL** and **Rhino 3DM** provide
+meshes, including trajectory animation. Blender opens with the exported camera,
+Sun and surface materials. Atom spheres use Shade Smooth in both export modes.
+The 3D scene excludes graph overlays. **OBJ/MTL** and **Rhino 3DM** provide
 additional geometry exports; ASE structure formats keep the scientific data usable elsewhere.
 
 CSV exports preserve UTF-8 bytes and report stable semantic media types even
@@ -397,13 +431,15 @@ when the HTTP server includes a charset parameter.
 | Publish a figure or animation | Export an image, movie or GIF from **Render**. |
 
 Projects restore their saved appearance, including when replacing a
-commensurate-cell preview. [Saving projects](https://v-ase.readthedocs.io/en/latest/save-projects.html)
+commensurate-cell preview. The editing view keeps its framing as HTML saves its
+poster at the output camera's scale. [Saving projects](https://v-ase.readthedocs.io/en/latest/save-projects.html)
 
 ## Get v_ase
 
 ### Desktop app
 
-Python is included. Download the installer for your computer:
+Python is included in the **0.4.14** desktop installers below. The Python
+installation provides **0.5.1**.
 
 | Computer | Download | Install |
 | --- | --- | --- |
@@ -411,14 +447,63 @@ Python is included. Download the installer for your computer:
 | Mac with Intel, macOS 15+ | [Intel DMG](https://github.com/lgyEthan/v_ase/releases/download/v0.4.14/v_ase-0.4.14-mac-x64.dmg) | Open the DMG and drag **v_ase** into **Applications**. |
 | Windows 10/11, Intel or AMD 64-bit | [Windows installer](https://github.com/lgyEthan/v_ase/releases/download/v0.4.14/v_ase-0.4.14-win-x64.exe) | Run the installer, then open **v_ase** from Start. |
 
-Open files with **File → Open**, Finder/Explorer, or drag-and-drop. Select
-several files to open **separate tabs** or **one trajectory** in the same window.
+Open files with **File → Open**, Finder/Explorer, or drag-and-drop. A drop
+defaults to a new tab when a document is open. Importing a `.vasp` file retains
+its Selective Dynamics constraints. Select several files to open **separate
+tabs** or **one trajectory** in the same window.
+Use **Replace structure only** to keep your tab's camera, appearance, and
+render settings while loading new frames. The build version appears beside
+the v_ase logo.
 Use **A/B/C** to view along the unit-cell vectors (press again to reverse);
 **X/Y/Z** uses Cartesian axes. [Opening files](https://v-ase.readthedocs.io/en/latest/data-input.html) ·
 [Shortcuts](https://v-ase.readthedocs.io/en/latest/shortcuts.html).
 Canvas axis guides remain visible in oblique orthographic cell views, with
 normal atom occlusion and unchanged saved camera framing.
 [Installation help and updates](https://v-ase.readthedocs.io/en/latest/desktop.html).
+
+In an editable trajectory, **Match** aligns each frame's atom order to the
+first frame. Minimum image is the default. Cartesian and SOAP + translation
+are available from the same dialog. **Overlays → Energy graph** reads saved
+NEB or MD energies, follows playback, and seeks frames when you drag its
+marker. Click the graph or its Scene row to open the same **Graph settings**
+used by Distributions. Select a data series to style samples, the fit, or
+force tangents. Export the graph
+as PNG or CSV. The optional **NEB** section uses ASE to fit a saved band and
+can plot force tangents at each image. Its **Minimum image (PBC)** option is
+on by default. Turn it off to fit the stored Cartesian coordinates after
+matching indices. **Include graph** adds the Energy and floating Distribution
+graphs to the HTML preview, poster and offline viewer. Reopening editable HTML
+in v_ase restores the saved Distribution curves, zoom and legend visibility.
+In offline HTML, the Plotly Distribution follows each trajectory frame and
+keeps zoom and pan during playback. **Reset saved view** restores the camera,
+plot bounds and legend. Saving compresses the embedded runtime and per-frame
+graph data while retaining the full-resolution Finder poster.
+Save an older HTML project again to refresh its Finder thumbnail with the
+current viewer.
+**Overlays → Polyhedra**
+is available when a structure is open. [Trajectory tools](docs/data-input.md#trajectory-tools).
+
+The timeline context menu can duplicate or delete the current source frame.
+Undo restores a deleted frame and its data. **Selected atoms → Apply to**
+offers all compatible frames or the current frame. **Per-label appearance**
+can rename a label across the whole trajectory, even when its atom indices
+change. A name-only change updates the Distribution legend while keeping its
+curves and bounds. [Frame and label editing](docs/trajectories.md#frame-identity-and-selection).
+
+Distributions, registry maps and commensurate plots can move into the viewport
+or dock below it from their graph toolbar. Set individual axis limits in
+**Graph settings**. Floating plots snap during moves and resizes. Desktop
+document windows snap during moves. [Graph controls](docs/rdf.md#calculate-and-interpret-a-plot).
+
+The Scene navigator opens Overlays by default and shows Water surface for detected H₂O, Energy graph for
+trajectories with saved energies, Displacements for trajectories and Force
+vectors when forces are available. These entries update as the document changes.
+The Polyhedra inspector reports the observed ligand count and rule limits when
+no hull forms.
+
+Use **S** and **X/Y/Z** on the selected render area to resize it along a
+projected axis. Turn on **Fix ratio** to resize proportionally.
+[Render area controls](docs/render-images.md#move-or-resize-the-render-area).
 
 ### Python and Jupyter
 

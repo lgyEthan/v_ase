@@ -39,6 +39,8 @@ profile, including dimensions and physical px/Å framing. Renderer-page changes
 to shared lighting, quality and output scale update that profile; Cancel in a
 one-shot export dialog leaves the committed profile unchanged. Save waits for
 pending physical application and playback/frame work before taking its snapshot.
+The poster uses the stored output framing. Its encoding preserves the editing
+view's framing, including with the output camera locked to the viewport.
 Close and Replace use the same pending-science settlement decision; a failed
 apply cannot silently close. Invalid scientific form drafts stop Save before
 destination selection. Undo/Redo restores the HTML-specific project output

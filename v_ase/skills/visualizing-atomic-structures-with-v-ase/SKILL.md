@@ -10,8 +10,8 @@ CLI and native function adapters share the same scientific backend.
 Install the complete Skill in the client's documented local directory; keep
 personal client configuration outside shared projects and release artifacts.
 The optional `npx skills` installer is documented in
-`references/agent-setup.md`. Match the Skill's Git ref to its runtime; this guide describes v_ase 0.4.14.
-Use the matching `v0.4.14` tag for a released runtime. Installing a Skill does not register MCP.
+`references/agent-setup.md`. Match the Skill's Git ref to its runtime; this guide describes v_ase 0.5.1.
+Use the matching `v0.5.1` tag for a released runtime. Installing a Skill does not register MCP.
 The optional macOS/Windows desktop host uses the same GUI and API. To attach
 to an existing desktop document, use Help → Copy agent connection URL and the
 normal CLI/HTTP contract. Keep the app open; do not start another viewer or
@@ -66,7 +66,9 @@ asks deletion scope for trajectories. All-frame deletion uses identical base
 indices even across element/count changes, skips absent indices and is one
 complete undo action. Inspect structure identity before choosing all frames. Command/Ctrl+A selects all. For semantic camera control,
 use the existing compose-view cell-direction contract, not synthetic key events.
-Objects visibility is shared by viewport and rendering. `display.showConstraints`
+Scene visibility is shared by viewport and rendering. With
+`vase_style_scene(show_atoms=false)`, bonds, cell and constraint marks remain
+available while the atom glyphs are hidden. `display.showConstraints`
 controls scientific marks independently of `applyConstraints` enforcement; hidden
 marks stay hidden in images/video. FixedLine length and thickness track live mapped
 radii, including interpolated trajectory samples, without requiring a reload.
@@ -86,15 +88,35 @@ but panel toggles never recenter user/saved views.
 frame, cameras, appearance, selection and panel presentation in a new tab when
 another document is open. Ordinary GUI File → Open and drops also default to a
 new tab when a document contains work; replacement/append require an explicit
-choice. An empty tab opens one file directly. Multi-file GUI opening offers separate tabs or one new
+choice. In the desktop app, a zero-byte new-tab import reports the filename.
+An unavailable selection asks the user to choose the file again. An empty tab
+opens one file directly. Multi-file GUI opening offers separate tabs or one new
 trajectory; the latter imports structures only, has no source save authority,
 and starts unsaved. See the grouped-import safeguards in `references/cli-and-environments.md`.
+**Replace structure only** keeps the active tab's presentation and project
+destination when importing frames. Saved View labels restore to compatible
+frames on project reopen, including when the document is opened in Edit mode.
 For a `newDocument` readiness timeout in a controlled browser, use the
 document-preserving GUI fallback in `references/collaboration.md`.
 Desktop Command/Ctrl+W closes the last tab's window
 and quits only after the last window, with normal dirty-document guards.
+The timeline context menu includes **Delete current frame** in Edit mode.
+The **Selected atoms** inspector scopes label and appearance changes to
+compatible indices across all frames or to the current frame, with a
+confirmation for the current-frame change. Use **Per-label appearance** for
+renaming a label across the whole trajectory by name.
 For rotation/scaling, the GUI label “Selection COM” currently denotes an
 unweighted coordinate centroid; use an explicit pivot for a mass-weighted center.
+Atom rotation in the left toolbar requires **Edit structure** and selected
+atoms. Its disabled hint explains the next step. To change the viewpoint, use
+**Orbit camera** in either mode or the semantic `compose-view` operation.
+In the human Renderer panel (Command/Ctrl+Shift+A), an **Output scale** edit
+zooms the live view and updates the output in **Viewport** and **Physical
+scale**. Camera and output options remain explicit in semantic calls.
+With the camera selected, **S** plus **X/Y/Z** resizes the frame along the
+projected world axis. **Fix ratio** is optional and starts off.
+For floating graphs, resize with the lower-right grip to snap a right or
+bottom edge to another graph. Energy and distribution limits apply as typed.
 
 For a ChatGPT plugin, use its registered MCP connection. The person's computer
 runs v_ase; cloud-side localhost is not that computer. Consult the setup guide
@@ -126,6 +148,8 @@ load the full catalog or reread a long reference to find one parameter.
 ## Make the smallest sufficient change
 
 Use the initially available `vase_style_scene` for common display toggles.
+In flat 2D, use `flat_outline_width` in Å for the shared atom and ribbon
+outline. Use the bond thickness when changing the overall ribbon width.
 For related advanced visual/frame changes, use one `vase_apply_scene` transaction.
 Its typed `patch` contains `display`, `frame`, `camera`, `render_area`, `quality`,
 `selection`, `plane_selection` or `clear_selections`. Omitted fields survive.
@@ -257,6 +281,19 @@ for the common settings.
 The image result offers Save a copy of the completed image. Analysis charts retain
 quantity/unit titles in compact layouts; RDF uses distance in Å and g(r) or finite
 pair probability. These presentation labels do not change calculations or CSV data.
+Overlays starts expanded. Click an Energy or Distribution graph to open the
+shared inspector. Use **Data series** for curve appearance and legend names,
+and graph-wide typography, tick formatting and live **Axis limits**. A pure
+label rename keeps calculated distribution values. HTML **Include graph**
+captures the visible floating Distribution alongside Energy when enabled.
+Reopen embedded project HTML to recover the Distribution with its plotted
+bounds and legend visibility. The offline Plotly Distribution follows the
+trajectory. **Reset saved view** restores the camera, plot bounds and legend
+on the current frame. Save compresses the embedded viewer and curves while
+retaining the Finder poster. Resave older HTML projects to update the Finder
+thumbnail. Blender exports the visible Render Area camera or the
+active viewport camera, with editable Sun and surface properties. Atom spheres
+use Shade Smooth and the Blender scene contains no graph overlays.
 The inspector, result drawer and bond-column separators accept arrow keys,
 Shift for larger steps, Home/End and double-click reset. Keyboard steps commit
 immediately. Escape, pointer cancellation or focus loss restores the starting
@@ -293,6 +330,7 @@ string `"Z"` (the default), not a three-number vector; explicit indices also
 select the guest layer so subsequent styling preserves its preview.
 Search and the document-menu launcher above the canvas expose File/Edit/View/Preferences/Help/Reset.
 Bonds defaults to editable pair specifications; reset restores suggested cutoffs.
+The Scene Bonds count tracks the current bond definitions even when the eye is off.
 The legacy automatic bonding mode remains readable through the semantic API,
 while the GUI converts its suggestions to explicit editable pairs. Do not confuse
 these visual bond cutoffs with the independent relaxation-calculator cutoffs. F fits the real camera when the
@@ -300,6 +338,7 @@ viewport has focus. On narrow screens the workbench stacks below the viewport. P
 Save reuses a retained writable browser or explicitly opened server project
 target, Save As chooses a new one, and a download-only browser creates a copy rather than
 silently overwriting the source. A changed tab uses Save/Discard/Cancel on close.
+HTML Save retains the editing view's scale and uses the output camera for the poster.
 External changes to an opened server project are conflicts, not implicit
 overwrite permission. Do not assume uploaded raw structures are writable
 project destinations. A direct/notebook editor adopts a multi-tab workspace in
@@ -389,9 +428,9 @@ Parameter definitions belong in tools, not copied JSON manuals.
 | rendering | Reference figures, cameras and effective bonds | [Deterministic rendering](references/deterministic-rendering.md) |
 | polyhedra | 2D/3D faces, periodic ligand sites, connectors, color and opacity | [Polyhedra](references/polyhedra.md) |
 | structures | Load, build, edit, wrap, transform and replicate | [Structures](references/structures.md) |
-| trajectories | Frames, stored scalar colors, displacement/force vectors | [Trajectories](references/trajectories.md) |
+| trajectories | Frames, index matching, saved energy, ASE NEB fits and tangents, graph PNG/CSV, scalar colors, vectors | [Trajectories](references/trajectories.md) |
 | volumetric | DFT grids, signed surfaces, sections and combinations | [Volumetric data](references/volumetric.md) |
-| rdf | Normalization, periodic images and RDF export | [RDF](references/rdf.md) |
+| rdf | Bulk, partial-PBC and finite distributions, floating plots and CSV | [RDF](references/rdf.md) |
 | interfaces | Commensurate cells, registry maps and rigid translations | [Interfaces](references/interfaces.md) |
 | insertion | Random/homogeneous atoms, molecules and repulsion | [Insertion](references/insertion.md) |
 | constraints | Fixed atoms, directional constraints and relaxation | [Constraints](references/constraints.md) |

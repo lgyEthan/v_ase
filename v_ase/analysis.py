@@ -96,14 +96,14 @@ def safe_rdf_cutoff(atoms: Atoms) -> float:
         span = np.ptp(np.asarray(atoms.positions, dtype=float), axis=0)
         cutoff = float(np.linalg.norm(span))
         return max(cutoff, 1e-8)
-    if not np.all(pbc):
-        raise ValueError(
-            "RDF normalization currently requires periodic boundaries in x, y, and z. "
-            "A partial-PBC slab or wire needs a geometry-specific boundary correction "
-            "and is not reported as either bulk g(r) or a finite pair distribution."
-        )
     cell = np.asarray(atoms.cell.array, dtype=float)
-    if cell.shape != (3, 3) or not np.all(np.isfinite(cell)) or abs(float(np.linalg.det(cell))) <= 1e-12:
+    if not np.all(pbc):
+        vectors = cell[pbc]
+        if not np.all(np.isfinite(cell)) or np.linalg.matrix_rank(vectors, tol=1e-12) != len(vectors):
+            raise ValueError("Periodic pair distributions require independent, finite periodic cell vectors.")
+        reciprocal = np.linalg.pinv(vectors)
+        return 0.5 / float(np.linalg.norm(reciprocal, axis=0).max())
+    if not np.all(np.isfinite(cell)) or abs(float(np.linalg.det(cell))) <= 1e-12:
         raise ValueError("RDF requires a finite three-dimensional unit cell.")
     return 0.5 * float(np.min(_cell_face_heights(cell)))
 
@@ -280,14 +280,18 @@ def calculate_rdf(
     pair_mode: str = "active",
     active_pairs: Iterable[Any] | None = None,
     frame_index: int = 0,
+    use_pbc: bool = True,
 ) -> RdfResult:
-    """Compute a periodic total and label-resolved instantaneous RDF.
+    """Compute the instantaneous distance distribution for the chosen boundaries.
 
-    The histogram uses directed neighbors and the simulation-cell number
-    density.  Partial curves follow the concentration weighting convention
-    ``g = sum(c_a*c_b*g_ab)`` with a factor of two for mixed pairs.
+    Bulk g(r) uses simulation-cell number density. Partial PBC uses the radial
+    neighbor count per atom, and finite structures use unordered-pair probability.
     """
-
+    if not isinstance(use_pbc, (bool, np.bool_)):
+        raise ValueError("Use PBC must be true or false.")
+    if not use_pbc and atoms.pbc.any():
+        atoms = atoms.copy()
+        atoms.pbc = False
     safe_cutoff = safe_rdf_cutoff(atoms)
     requested = float(cutoff) if cutoff is not None else safe_cutoff
     if not np.isfinite(requested) or requested <= 0:
@@ -316,7 +320,7 @@ def calculate_rdf(
             frame_index=frame_index,
         )
 
-    # Matscipy enumerates all periodic cell shifts required by the scalar cutoff.
+    # The neighbor search enumerates shifts along the declared periodic axes.
     # With self_interaction=False it removes only the zero-shift i == j pair,
     # while retaining physically distinct copies of the same basis atom.
     coordinate_scale = max(
@@ -345,12 +349,19 @@ def calculate_rdf(
     )
     edges = np.linspace(0.0, effective, clean_bins + 1, dtype=float)
     radius = 0.5 * (edges[:-1] + edges[1:])
-    shell_volume = (4.0 * np.pi / 3.0) * (edges[1:] ** 3 - edges[:-1] ** 3)
-    cell_volume = abs(float(np.linalg.det(np.asarray(atoms.cell.array, dtype=float))))
     natoms = len(atoms)
+    bulk = bool(np.all(pbc))
+    if bulk:
+        shell_volume = (4.0 * np.pi / 3.0) * (edges[1:] ** 3 - edges[:-1] ** 3)
+        cell_volume = abs(float(np.linalg.det(atoms.cell.array)))
+        shell_factor = shell_volume / cell_volume
+        total_normalization = (float(natoms) ** 2) * shell_factor
+    else:
+        # Integrating the total gives the mean coordination inside the cutoff.
+        # Use the same denominator for each partial so their sum is the total.
+        total_normalization = natoms * np.diff(edges)
 
     total_histogram = np.histogram(distances, bins=edges)[0].astype(float)
-    total_normalization = (float(natoms) ** 2 / cell_volume) * shell_volume
     total = np.divide(
         total_histogram,
         total_normalization,
@@ -385,7 +396,7 @@ def calculate_rdf(
             )
             pair_population = float(2 * counts[left] * counts[right])
         histogram = np.histogram(distances[mask], bins=edges)[0].astype(float)
-        normalization = (pair_population / cell_volume) * shell_volume
+        normalization = pair_population * shell_factor if bulk else total_normalization
         partial[pair_key(left, right)] = np.divide(
             histogram,
             normalization,
@@ -405,10 +416,11 @@ def calculate_rdf(
         warnings=tuple(warnings),
         periodic_image_extent=periodic_image_extent,
         periodic_image_span=periodic_image_span,
-        analysis_kind="radial-distribution",
-        title="Radial distribution function",
-        y_label="g(r)",
-        normalization="bulk number-density normalized radial distribution",
+        analysis_kind="radial-distribution" if bulk else "periodic-pair-distribution",
+        title="Radial distribution function" if bulk else "Periodic pair distribution",
+        y_label="g(r)" if bulk else "Neighbors per atom / Å",
+        normalization=("bulk number-density normalized radial distribution" if bulk
+                       else "periodic-image neighbor count per atom per angstrom"),
         frame_index=int(frame_index),
     )
 
@@ -419,11 +431,10 @@ def rdf_csv(result: RdfResult) -> bytes:
     stream = io.StringIO(newline="")
     writer = csv.writer(stream)
     partial_names = list(result.partial)
-    total_column = (
-        "total_pair_probability_per_angstrom"
-        if result.analysis_kind == "pair-distribution"
-        else "total_g_r"
-    )
+    total_column = {
+        "pair-distribution": "total_pair_probability_per_angstrom",
+        "periodic-pair-distribution": "total_neighbors_per_atom_per_angstrom",
+    }.get(result.analysis_kind, "total_g_r")
     writer.writerow(["r_angstrom", total_column, *partial_names])
     for row_index, radius in enumerate(result.radius):
         writer.writerow(

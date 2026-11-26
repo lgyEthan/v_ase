@@ -6,6 +6,7 @@ from .neighbors import find_mic
 import base64
 import binascii
 import copy
+import gzip
 import html
 import io
 import json
@@ -627,6 +628,23 @@ def _base64_text(source: bytes | str) -> str:
     return base64.b64encode(source).decode("ascii")
 
 
+def _html_offline_payload(script_id: str, media_type: str, source: bytes, *, compress: bool = True) -> str:
+    """Write a self-describing inert payload. No lossy transforms are applied."""
+    encoding = "base64"
+    payload = source
+    if source and compress:
+        packed = gzip.compress(source, compresslevel=6, mtime=0)
+        raw_size = 4 * ((len(source) + 2) // 3)
+        packed_size = 4 * ((len(packed) + 2) // 3) + len("+gzip")
+        if packed_size < raw_size:
+            payload = packed
+            encoding += "+gzip"
+    return (
+        f'<script id="{script_id}" type="{media_type}" data-encoding="{encoding}" '
+        f'data-bytes="{len(source)}">{_base64_text(payload)}</script>'
+    )
+
+
 def _validated_html_poster(value: Any) -> str:
     source = str(value or "").strip()
     match = re.fullmatch(
@@ -647,6 +665,126 @@ def _validated_html_poster(value: Any) -> str:
     return f"data:image/{subtype};base64,{encoded}"
 
 
+def _html_graph_panel(graph: Any) -> Dict[str, Any] | None:
+    if not isinstance(graph, dict) or not isinstance(graph.get("layout"), dict):
+        return None
+    try:
+        reference_width = float(graph["referenceWidth"])
+        reference_height = float(graph["referenceHeight"])
+        layout = {key: float(graph["layout"][key]) for key in ("x", "y", "width", "height")}
+    except (KeyError, TypeError, ValueError, OverflowError):
+        return None
+    if not (math.isfinite(reference_width) and math.isfinite(reference_height)
+            and min(reference_width, reference_height) > 0
+            and min(layout["width"], layout["height"]) > 0
+            and all(0 <= value <= 1 for value in layout.values())):
+        return None
+    capture = {"layout": layout, "referenceWidth": reference_width, "referenceHeight": reference_height}
+    palette = graph.get("palette")
+    if isinstance(palette, dict):
+        colors = {key: palette.get(key) for key in ("background", "ink", "secondary", "border", "grid")}
+        if all(isinstance(color, str) and (re.fullmatch(r"#[0-9A-Fa-f]{6}", color)
+               or key == "background" and color == "transparent") for key, color in colors.items()):
+            capture["palette"] = colors
+    return capture
+
+
+def _html_rdf_chart(graph: Any) -> Dict[str, Any] | None:
+    panel = _html_graph_panel(graph)
+    if panel is None:
+        return None
+    chart = graph.get("chart")
+    if not isinstance(chart, dict) or not isinstance(chart.get("layout"), dict):
+        return None
+    traces = chart.get("data")
+    if not isinstance(traces, list) or not traces:
+        return None
+    data = []
+    for trace in traces:
+        if not isinstance(trace, dict) or trace.get("type") != "scatter":
+            return None
+        x, y = trace.get("x"), trace.get("y")
+        if not isinstance(x, list) or not isinstance(y, list) or not x or len(x) != len(y):
+            return None
+        if not all(type(value) in (float, int) and math.isfinite(value) for axis in (x, y) for value in axis):
+            return None
+        record = {key: trace[key] for key in ("uid", "name", "mode", "visible", "line", "marker") if key in trace}
+        data.append({**record, "type": "scatter", "x": x, "y": y})
+    layout = chart["layout"]
+    layout_keys = ("margin", "font", "paper_bgcolor", "plot_bgcolor", "showlegend", "xaxis", "yaxis", "shapes",
+                   "annotations", "legend", "hovermode")
+    frame = graph.get("frame")
+    header = graph.get("headerHeight")
+    analysis_options = graph.get("analysisOptions")
+    theme = graph.get("seriesTheme")
+    return {
+        **panel, "title": str(graph.get("title") or "Distribution")[:160],
+        "headerHeight": header if type(header) in (float, int) and 4 <= header <= 80 else 32,
+        "frame": frame if type(frame) is int and frame >= 0 else 0,
+        "source": "relax" if graph.get("source") == "relax" else "loaded",
+        "resultMetadata": graph.get("resultMetadata") if isinstance(graph.get("resultMetadata"), dict) else {},
+        "analysisOptions": analysis_options if isinstance(analysis_options, dict) else {},
+        "seriesTheme": {key: theme[key] for key in ("teal", "amber", "blue")
+                        if isinstance(theme, dict) and re.fullmatch(r"#[0-9a-fA-F]{6}", str(theme.get(key)))},
+        "chart": {"data": data, "layout": {key: layout[key] for key in layout_keys if key in layout}},
+    }
+
+
+def _html_rdf_frames(capture, atoms_frames, frame_labels, display):
+    """Use the editor's RDF calculation on the exact structures in the offline view."""
+    if not capture or len(atoms_frames) <= 1:
+        return []
+    from .analysis import calculate_rdf
+    from .io import set_atom_labels
+
+    traces = capture["chart"]["data"]
+    options = capture["analysisOptions"]
+    cutoff = options.get("cutoff", display.get("rdfCutoff"))
+    try:
+        cutoff = None if cutoff is None or cutoff == "" else float(cutoff)
+    except (TypeError, ValueError):
+        cutoff = None
+    pair_mode = options.get("pair_mode", display.get("rdfPairMode", "active"))
+    active_pairs = options.get("active_pairs")
+    if not isinstance(active_pairs, list):
+        active_pairs = []
+        for trace in traces:
+            uid = trace.get("uid")
+            if not isinstance(uid, str) or not re.fullmatch(r"rdf_(?:[0-9a-f]{1,6}_)*[0-9a-f]{1,6}", uid):
+                continue
+            try:
+                pair = "".join(chr(int(part, 16)) for part in uid[4:].split("_")).split("|")
+            except ValueError:
+                continue
+            if len(pair) == 2 and all(pair):
+                active_pairs.append(pair)
+    bins = len(traces[0]["x"])
+    saved_radius = np.asarray(traces[0]["x"])
+    result = []
+    for atoms, labels in zip(atoms_frames, frame_labels):
+        if labels is not None:
+            atoms = atoms.copy()
+            set_atom_labels(atoms, labels)
+        try:
+            frame = calculate_rdf(
+                atoms, cutoff=cutoff, bins=bins, pair_mode=str(pair_mode), active_pairs=active_pairs,
+                use_pbc=options.get("use_pbc", display.get("rdfUsePbc", True)) is not False,
+            )
+        except ValueError:
+            result.append(None)  # Some frames, such as a lone nonperiodic atom, have no distribution.
+            continue
+        record = {
+            "title": frame.title,
+            "yLabel": frame.y_label,
+            "total": frame.total.tolist(),
+            "partial": {key: curve.tolist() for key, curve in frame.partial.items()},
+        }
+        if not np.array_equal(frame.radius, saved_radius):
+            record["radius"] = frame.radius.tolist()
+        result.append(record)
+    return result
+
+
 def _html_export_profile(value: Any, settings: Dict[str, Any]) -> Dict[str, Any]:
     source = value if isinstance(value, dict) else {}
     def dimension(name: str, fallback: int) -> int:
@@ -659,11 +797,17 @@ def _html_export_profile(value: Any, settings: Dict[str, Any]) -> Dict[str, Any]
     width = dimension("width", 1920)
     height = dimension("height", 1080)
     options = source.get("options") if isinstance(source.get("options"), dict) else {}
+    display = settings.get("display", settings)
+    energy = display.get("energyOverlay") if isinstance(display, dict) else None
+    include_graph = options.get("includeGraph")
+    if not isinstance(include_graph, bool):
+        include_graph = (isinstance(energy, dict) and energy.get("visible") is True) or "rdfGraph" in source
     normalized_options = dict(options)
     normalized_options.update({
         "includeGrid": options.get("includeGrid") is True,
         "includeAxes": options.get("includeAxes") is not False,
         "includeCell": options.get("includeCell") is not False,
+        "includeGraph": include_graph,
         "transparentBackground": False,
     })
     composition = (
@@ -682,7 +826,7 @@ def _html_export_profile(value: Any, settings: Dict[str, Any]) -> Dict[str, Any]
                 "options": normalized_options,
                 "camera": camera,
             }
-    return {
+    profile = {
         "kind": "html",
         "width": width,
         "height": height,
@@ -690,6 +834,12 @@ def _html_export_profile(value: Any, settings: Dict[str, Any]) -> Dict[str, Any]
         "options": normalized_options,
         "composition": composition,
     }
+    if include_graph:
+        if options.get("includeEnergyGraph") is not False and (energy_capture := _html_graph_panel(source.get("energyGraph"))):
+            profile["energyGraph"] = energy_capture
+        if rdf_capture := _html_rdf_chart(source.get("rdfGraph")):
+            profile["rdfGraph"] = rdf_capture
+    return profile
 
 
 def _safe_export_stem(value: Any, fallback: str = "v_ase_view") -> str:
@@ -836,33 +986,12 @@ def _html_atom_color_scale_frames(
     return payloads
 
 
-def _html_view_identity_labels(
-    frame_objects,
-    settings: Dict[str, Any],
-) -> list[list[str] | None]:
-    """Return structure-specific View labels without changing ASE elements."""
-    source = settings.get("viewIdentityOverrides")
-    if not isinstance(source, dict):
-        return [None] * len(frame_objects)
-    if source.get("scope") == "trajectory" and isinstance(source.get("labels"), list):
-        labels = [str(value) for value in source["labels"]]
-        return [labels if len(labels) == len(atoms) else None for atoms in frame_objects]
-    frames = source.get("frames")
-    if source.get("scope") != "frames" or not isinstance(frames, dict):
-        return [None] * len(frame_objects)
-    result: list[list[str] | None] = []
-    for index, atoms in enumerate(frame_objects):
-        values = frames.get(str(index))
-        labels = [str(value) for value in values] if isinstance(values, list) else None
-        result.append(labels if labels is not None and len(labels) == len(atoms) else None)
-    return result
-
-
 def export_html_response(session, payload: Dict[str, Any]):
     """Build one offline, view-only HTML document with optional project recovery."""
     from .project import (
         PROJECT_SCHEMA,
         normalize_visual_settings,
+        project_frame_identity_labels,
         session_project_frames,
         write_project_archive,
     )
@@ -887,7 +1016,7 @@ def export_html_response(session, payload: Dict[str, Any]):
                 project_file.name,
                 session,
                 settings,
-                current_positions=payload.get("positions"),
+                frame_snapshot=(frame_objects, current_frame),
             )
             project_bytes = Path(project_file.name).read_bytes()
         finally:
@@ -906,7 +1035,7 @@ def export_html_response(session, payload: Dict[str, Any]):
             selection.append(index)
     selection = sorted(set(selection))
     frames = [atoms_to_json(frame) for frame in frame_objects]
-    identity_labels = _html_view_identity_labels(frame_objects, settings)
+    identity_labels = project_frame_identity_labels(frame_objects, settings)
     for frame, labels in zip(frames, identity_labels):
         if labels is not None:
             frame["symbols"] = labels
@@ -922,7 +1051,7 @@ def export_html_response(session, payload: Dict[str, Any]):
         frame_objects,
         settings,
         selection,
-        current_frame=int(session.current_frame),
+        current_frame=current_frame,
     )
     for frame, color_scale in zip(frames, color_scale_frames):
         if color_scale is not None:
@@ -936,7 +1065,16 @@ def export_html_response(session, payload: Dict[str, Any]):
                 atom_radius_factors_for_atoms(frame_atoms, radius_mapping).tolist()
             )
     export_profile = _html_export_profile(payload.get("export_profile"), settings)
+    rdf_frames = _html_rdf_frames(export_profile.get("rdfGraph"), frame_objects, identity_labels, display_settings)
     poster_data_url = _validated_html_poster(payload.get("poster_data_url"))
+    energy_overlay = display_settings.get("energyOverlay")
+    energy = None
+    if (len(frame_objects) > 1 and export_profile["options"]["includeGraph"]
+            and export_profile["options"].get("includeEnergyGraph") is not False):
+        from .trajectory_tools import energy_neb_options, trajectory_energy_series
+        graph_data = trajectory_energy_series(frame_objects, **energy_neb_options(energy_overlay))
+        if any(value is not None for value in graph_data["values"]) or graph_data.get("neb"):
+            energy = graph_data
     scene = {
         "schema": HTML_VIEW_SCHEMA,
         "createdWith": {"application": "v_ase", "version": __version__},
@@ -954,6 +1092,7 @@ def export_html_response(session, payload: Dict[str, Any]):
         "hasPoster": bool(poster_data_url),
         "selection": selection,
         "frames": frames,
+        "trajectoryEnergy": energy,
         "displacements": _html_view_displacements(frame_objects, settings),
     }
 
@@ -985,7 +1124,7 @@ def export_html_response(session, payload: Dict[str, Any]):
         "{{DOCUMENT_TITLE}}": html.escape(document_name, quote=True),
         "{{STANDALONE_CSS}}": "\n".join(
             (static_dir / name).read_text(encoding="utf-8")
-            for name in ("standalone.css", "interface.css", "ui_palettes.css")
+            for name in ("standalone.css", "interface.css", "ui_palettes.css", "trajectory_energy.css")
         ),
         "{{VIEWER_FRAME_STYLE}}": (
             f"aspect-ratio:{export_width}/{export_height};"
@@ -1003,22 +1142,39 @@ def export_html_response(session, payload: Dict[str, Any]):
         "{{PROJECT_DATA_BASE64}}": _base64_text(project_bytes) if embed_project else "",
         "{{POSTER_DATA_URL}}": poster_data_url,
         "{{POSTER_HIDDEN}}": "" if poster_data_url else "hidden",
-        "{{THREE_SOURCE_BASE64}}": _base64_text(
-            (static_dir / "vendor" / "three.module.js").read_bytes()
-        ),
-        "{{BSP_SOURCE_BASE64}}": _base64_text((static_dir / "polyhedra_bsp.js").read_bytes()),
-        "{{WATER_GEOMETRY_SOURCE_BASE64}}": _base64_text((static_dir / "water_geometry.js").read_bytes()),
-        "{{SURFACE_REFINEMENT_SOURCE_BASE64}}": _base64_text((static_dir / "surface_refinement.js").read_bytes()),
-        "{{RENDER_QUALITY_SOURCE_BASE64}}": _base64_text((static_dir / "render_quality.js").read_bytes()),
-        "{{WATER_LAYER_SOURCE_BASE64}}": _base64_text((static_dir / "water_layer.js").read_bytes()),
-        "{{GRID_SOURCE_BASE64}}": _base64_text((static_dir / "viewport_grid.js").read_bytes()),
-        "{{RENDERER_SOURCE_BASE64}}": _base64_text(
-            (static_dir / "renderer.js").read_bytes()
-        ),
-        "{{VIEWER_SOURCE_BASE64}}": _base64_text(
-            (static_dir / "standalone.js").read_bytes()
-        ),
     }
+    modules = {
+        "three-source": "vendor/three.module.js",
+        "bsp-source": "polyhedra_bsp.js",
+        "water-geometry": "water_geometry.js",
+        "surface-refinement": "surface_refinement.js",
+        "render-quality": "render_quality.js",
+        "water-layer": "water_layer.js",
+        "grid-source": "viewport_grid.js",
+        "renderer-source": "renderer.js",
+        "viewer-source": "standalone.js",
+        "energy-source": "trajectory_energy.js",
+        "distribution-source": "distribution_plot.js",
+        "gzip-fallback": "vendor/pako-inflate-3.0.2.mjs",
+    }
+    module_type = "application/vnd.v-ase.module"
+    offline_payloads = [
+        _html_offline_payload(f"v-ase-{name}", module_type, (static_dir / filename).read_bytes(),
+                              compress=name != "gzip-fallback")
+        for name, filename in modules.items()
+    ]
+    if "rdfGraph" in export_profile:
+        import plotly
+
+        bundle = Path(plotly.__file__).resolve().parent / "package_data" / "plotly.min.js"
+        offline_payloads.append(_html_offline_payload("v-ase-plotly-source", module_type, bundle.read_bytes()))
+    if rdf_frames:
+        offline_payloads.append(_html_offline_payload(
+            "v-ase-rdf-frames", "application/vnd.v-ase.rdf+json",
+            json.dumps(rdf_frames, ensure_ascii=False, allow_nan=False, separators=(",", ":")).encode("utf-8"),
+        ))
+    replacements["{{OFFLINE_PAYLOADS}}"] = "\n    ".join(offline_payloads)
+    replacements["{{GZIP_FALLBACK_LICENSE}}"] = (static_dir / "vendor" / "PAKO_LICENSE").read_text(encoding="utf-8")
     for marker, value in replacements.items():
         template = template.replace(marker, value)
     if "{{" in template or "}}" in template:
@@ -1461,6 +1617,14 @@ def _cad_scene_data(session, payload: Dict[str, Any]):
     atom_colors = display.get("atomColors") or {}
     atom_opacities = display.get("atomOpacities") or {}
     atom_materials = display.get("atomMaterials") or {}
+    label_appearance = set(np.flatnonzero(data.get("label_appearance", [])))
+    fixed_atoms = set(data["constraints"]["fixed_indices"]) if display.get("showConstraints", True) else set()
+
+    def atom_override(mapping, index, fallback=None):
+        if index in label_appearance:
+            return fallback
+        return mapping.get(str(index), mapping.get(index, fallback))
+
     from .atom_radius import atom_radius_factors_for_atoms, normalize_atom_radius_mapping
 
     radius_mapping = normalize_atom_radius_mapping(display.get("atomRadiusMapping"), strict=True)
@@ -1483,16 +1647,14 @@ def _cad_scene_data(session, payload: Dict[str, Any]):
         established = _valid_hex_color(color_map.get(label), _valid_hex_color(fallback))
         if index < len(scale_colors):
             return _valid_hex_color(scale_colors[index], established)
-        override = atom_colors.get(str(index), atom_colors.get(index))
+        override = atom_override(atom_colors, index)
         if override is not None:
             return _valid_hex_color(override, established)
         return established
 
     def atom_opacity(index, label):
         try:
-            value = float(atom_opacities.get(
-                str(index), atom_opacities.get(index, opacity_map.get(label, 1.0))
-            ))
+            value = float(atom_override(atom_opacities, index, opacity_map.get(label, 1.0)))
         except (TypeError, ValueError):
             value = 1.0
         if not np.isfinite(value):
@@ -1513,7 +1675,7 @@ def _cad_scene_data(session, payload: Dict[str, Any]):
             source_radius = 0.5
         radius = source_radius * radius_scale
         try:
-            radius *= float(atom_radius_scales.get(str(index), atom_radius_scales.get(index, 1.0)))
+            radius *= float(atom_override(atom_radius_scales, index, 1.0))
         except (TypeError, ValueError):
             pass
         if not np.isfinite(radius) or radius <= 0:
@@ -1522,7 +1684,7 @@ def _cad_scene_data(session, payload: Dict[str, Any]):
         if radius <= 0:
             continue
         material_preset = _atom_material_preset(
-            atom_materials.get(str(index), atom_materials.get(index, label_materials.get(label)))
+            atom_override(atom_materials, index, label_materials.get(label))
         )
         for offset in offsets:
             shifted = position + _offset_vector(offset, cell) + visual_translation
@@ -1535,6 +1697,7 @@ def _cad_scene_data(session, payload: Dict[str, Any]):
                 "color": color,
                 "opacity": atom_opacity(index, label),
                 "material": material_preset,
+                "fixed": index in fixed_atoms,
                 "cell_offset": list(offset),
             })
 
@@ -1542,6 +1705,7 @@ def _cad_scene_data(session, payload: Dict[str, Any]):
     custom_bond_color = _valid_hex_color(display.get("bondCustomColor"), "#c8ccd0")
     pair_bond_styles = display.get("pairwiseBondStyles") or {}
     atom_bond_styles = display.get("atomBondStyles") or {}
+    label_bond_styles = display.get("labelBondStyles") or {}
     try:
         bond_diameter = float(display.get("bondThickness", 0.25))
     except (TypeError, ValueError):
@@ -1565,8 +1729,8 @@ def _cad_scene_data(session, payload: Dict[str, Any]):
         pair_key = "-".join(sorted((str(left), str(right))))
         pair = pair_bond_styles.get(pair_key)
         pair = pair if isinstance(pair, dict) else {}
-        endpoint_style = atom_bond_styles.get(str(endpoint), atom_bond_styles.get(endpoint, {})) \
-            if endpoint is not None else {}
+        endpoint_style = atom_override(atom_bond_styles, endpoint,
+            label_bond_styles.get(labels[endpoint], {})) if endpoint is not None else {}
         endpoint_style = endpoint_style if isinstance(endpoint_style, dict) else {}
         try:
             diameter = max(0.02, min(0.6, float(pair.get("thickness", bond_diameter))))
@@ -1721,7 +1885,7 @@ def _cad_scene_data(session, payload: Dict[str, Any]):
                     for b in bond_specs[first:]:b['source']='polyhedra-coordination-connector'
     return {
         "polyhedra": polyhedra,
-        "atoms": atom_specs,
+        "atoms": atom_specs if display.get("showAtoms") is not False else [],
         "bonds": bond_specs,
         "cell_edges": _scene_cell_edges(cell, repetitions, data.get("cell_origin", [0., 0., 0.])) if include_cell else [],
         "cell_color": _valid_hex_color(display.get("cellColor"), "#d6bd67"),
@@ -2488,7 +2652,7 @@ import math
 import json
 import bpy
 from bpy.app.handlers import persistent
-from mathutils import Vector
+from mathutils import Matrix, Vector
 
 # A re-run replaces this generated scene; retire its old callbacks first.
 for handler in list(bpy.app.handlers.frame_change_post):
@@ -2509,7 +2673,9 @@ BOND_CUSTOM_COLOR = DISPLAY.get("bondCustomColor", "#c8ccd0")
 BOND_MATERIAL = DISPLAY.get("bondMaterial", "standard")
 DISPLAY_PAIR_BOND_STYLES = DISPLAY.get("pairwiseBondStyles", {{}})
 DISPLAY_ATOM_BOND_STYLES = DISPLAY.get("atomBondStyles", {{}})
+DISPLAY_LABEL_BOND_STYLES = DISPLAY.get("labelBondStyles", {{}})
 BLENDER_OBJECT_MODE = DISPLAY.get("blenderExportMode", "instanced")
+FLAT_DISPLAY = DISPLAY.get("atomDisplayMode") == "2d"
 CELL_COLOR = DISPLAY.get("cellColor", "#d6bd67")
 CELL_MATERIAL = DISPLAY.get("cellMaterial", "unlit")
 try:
@@ -2530,6 +2696,8 @@ ATOM_COLORS = VISUAL.get("colors", [])
 ATOM_RADII = VISUAL.get("radii", VISUAL.get("covalent_radii", []))
 ATOM_RADIUS_FACTORS = DATA.get("atom_radius_factors", [])
 ATOM_LABELS = DATA.get("symbols", [])
+LABEL_APPEARANCE = DATA.get("label_appearance", [])
+FIXED_ATOMS = set(DATA.get("constraints", {{}}).get("fixed_indices", [])) if DISPLAY.get("showConstraints", True) else set()
 DISPLAY_LABEL_COLORS = DISPLAY.get("labelColors", DISPLAY.get("elementColors", {{}}))
 DISPLAY_LABEL_RADII = DISPLAY.get("labelRadii", DISPLAY.get("elementRadii", {{}}))
 DISPLAY_LABEL_OPACITIES = DISPLAY.get("labelOpacities", {{}})
@@ -2542,8 +2710,8 @@ DISPLAY_ATOM_MATERIALS = DISPLAY.get("atomMaterials", {{}})
 DISPLAY_ATOM_COLOR_SCALE_COLORS = DISPLAY.get("atomColorScaleColors", []) \
     if DISPLAY.get("atomColorScaleEnabled") else []
 MATERIAL_PRESETS = {{
-    "standard": {{"roughness": 0.28, "metalness": 0.0, "specular": 1.0, "clearcoat": 0.04, "clearcoat_roughness": 0.22}},
-    "metal": {{"roughness": 0.11, "metalness": 0.96, "specular": 1.0, "clearcoat": 0.03, "clearcoat_roughness": 0.08}},
+    "standard": {{"roughness": 0.24, "metalness": 0.0, "specular": 1.0, "clearcoat": 0.08, "clearcoat_roughness": 0.18}},
+    "metal": {{"roughness": 0.18, "metalness": 0.90, "specular": 1.0, "clearcoat": 0.12, "clearcoat_roughness": 0.16}},
     "rubber": {{"roughness": 0.88, "metalness": 0.0, "specular": 0.16, "clearcoat": 0.0, "clearcoat_roughness": 0.8}},
     "unlit": {{"roughness": 1.0, "metalness": 0.0, "specular": 0.0, "clearcoat": 0.0, "clearcoat_roughness": 1.0}},
 }}
@@ -2551,11 +2719,19 @@ try:
     ATOM_RADIUS_SCALE = max(0.01, float(DISPLAY.get("atomRadiusScale", 0.6)))
 except (TypeError, ValueError):
     ATOM_RADIUS_SCALE = 0.6
+try:
+    SPHERE_SEGMENTS = max(8, min(128, int(DISPLAY.get("atomSmoothness") or 32)))
+except (TypeError, ValueError):
+    SPHERE_SEGMENTS = 32
 FALLBACK_COLOR = (0.8, 0.8, 0.8, 1.0)
 FALLBACK_RADIUS = 0.7
 
 def clamp01(value):
     return max(0.0, min(1.0, float(value)))
+
+def srgb_to_linear(channel):
+    value = clamp01(channel)
+    return value / 12.92 if value <= 0.04045 else ((value + 0.055) / 1.055) ** 2.4
 
 def hex_to_rgba(value):
     if isinstance(value, str):
@@ -2574,12 +2750,17 @@ def hex_to_rgba(value):
         return (clamp01(value[0]), clamp01(value[1]), clamp01(value[2]), clamp01(value[3]) if len(value) > 3 else 1.0)
     return FALLBACK_COLOR
 
+def atom_override(mapping, index, fallback=None):
+    if 0 <= index < len(LABEL_APPEARANCE) and LABEL_APPEARANCE[index]:
+        return fallback
+    return mapping.get(str(index), mapping.get(index, fallback))
+
 def get_atom_color(index):
     if 0 <= index < len(DISPLAY_ATOM_COLOR_SCALE_COLORS):
         color = DISPLAY_ATOM_COLOR_SCALE_COLORS[index]
         if color:
             return hex_to_rgba(color)
-    atom_color = DISPLAY_ATOM_COLORS.get(str(index), DISPLAY_ATOM_COLORS.get(index))
+    atom_color = atom_override(DISPLAY_ATOM_COLORS, index)
     if atom_color:
         return hex_to_rgba(atom_color)
     if 0 <= index < len(ATOM_LABELS):
@@ -2592,9 +2773,7 @@ def get_atom_color(index):
 
 def get_atom_radius(index, frame_data=None, fallback=FALLBACK_RADIUS):
     try:
-        atom_scale = max(0.01, float(DISPLAY_ATOM_RADIUS_SCALES.get(
-            str(index), DISPLAY_ATOM_RADIUS_SCALES.get(index, 1.0)
-        )))
+        atom_scale = max(0.01, float(atom_override(DISPLAY_ATOM_RADIUS_SCALES, index, 1.0)))
     except (TypeError, ValueError):
         atom_scale = 1.0
     base_radius = None
@@ -2625,7 +2804,7 @@ def get_atom_radius(index, frame_data=None, fallback=FALLBACK_RADIUS):
 
 def get_atom_opacity(index):
     try:
-        override = DISPLAY_ATOM_OPACITIES.get(str(index), DISPLAY_ATOM_OPACITIES.get(index))
+        override = atom_override(DISPLAY_ATOM_OPACITIES, index)
         if override is not None:
             return clamp01(override)
     except (TypeError, ValueError):
@@ -2638,44 +2817,83 @@ def get_atom_opacity(index):
     return 1.0
 
 def get_atom_material_preset(index):
-    value = DISPLAY_ATOM_MATERIALS.get(str(index), DISPLAY_ATOM_MATERIALS.get(index))
+    if FLAT_DISPLAY:
+        return "unlit"
+    value = atom_override(DISPLAY_ATOM_MATERIALS, index)
     if value not in MATERIAL_PRESETS and 0 <= index < len(ATOM_LABELS):
         value = DISPLAY_LABEL_MATERIALS.get(ATOM_LABELS[index])
     return value if value in MATERIAL_PRESETS else "standard"
 
-def material(name, color, alpha=1.0, preset="standard"):
+def fixed_atom_texture(nodes, links, base_color, rgba):
+    coordinates = nodes.new("ShaderNodeTexCoord")
+    mapping = nodes.new("ShaderNodeMapping")
+    mapping.inputs["Rotation"].default_value[2] = 0.08
+    links.new(coordinates.outputs["Window"], mapping.inputs["Vector"])
+    etch = nodes.new("ShaderNodeTexBrick")
+    etch.label = "Etched fixed-atom surface"
+    etch.offset = 0.0
+    etch.inputs["Color1"].default_value = rgba
+    etch.inputs["Color2"].default_value = (*(channel * 0.94 for channel in rgba[:3]), 1.0)
+    etch.inputs["Mortar"].default_value = (*(channel * 0.30 + 0.055 for channel in rgba[:3]), 1.0)
+    etch.inputs["Scale"].default_value = 95.0
+    etch.inputs["Brick Width"].default_value = 0.55
+    etch.inputs["Row Height"].default_value = 0.55
+    etch.inputs["Mortar Size"].default_value = 0.026
+    etch.inputs["Mortar Smooth"].default_value = 0.05
+    links.new(mapping.outputs["Vector"], etch.inputs["Vector"])
+    links.new(etch.outputs["Color"], base_color)
+
+def material(name, color, alpha=1.0, preset="standard", fixed=False):
     mat = bpy.data.materials.new(name)
-    rgba = (clamp01(color[0]), clamp01(color[1]), clamp01(color[2]), clamp01(alpha))
+    rgba = (*map(srgb_to_linear, color[:3]), clamp01(alpha))
     preset = preset if preset in MATERIAL_PRESETS else "standard"
     surface = MATERIAL_PRESETS[preset]
     mat.diffuse_color = rgba
     mat.use_nodes = True
-    bsdf = mat.node_tree.nodes.get("Principled BSDF")
-    if bsdf is not None:
+    nodes = mat.node_tree.nodes
+    links = mat.node_tree.links
+    bsdf = nodes.get("Principled BSDF")
+    if preset == "unlit":
+        nodes.remove(bsdf)
+        emission = nodes.new("ShaderNodeEmission")
+        emission.inputs["Color"].default_value = rgba
+        output = nodes.get("Material Output")
+        shader = emission.outputs["Emission"]
+        if rgba[3] < 1.0:
+            transparent = nodes.new("ShaderNodeBsdfTransparent")
+            mix = nodes.new("ShaderNodeMixShader")
+            mix.inputs[0].default_value = rgba[3]
+            links.new(transparent.outputs[0], mix.inputs[1])
+            links.new(shader, mix.inputs[2])
+            shader = mix.outputs[0]
+        links.new(shader, output.inputs["Surface"])
+    elif bsdf is not None:
         base_color = bsdf.inputs.get("Base Color")
         if base_color is not None:
             base_color.default_value = rgba
+            if fixed:
+                fixed_atom_texture(nodes, links, base_color, rgba)
         alpha_input = bsdf.inputs.get("Alpha")
         if alpha_input is not None:
             alpha_input.default_value = rgba[3]
         roughness = bsdf.inputs.get("Roughness")
         if roughness is not None:
-            roughness.default_value = surface["roughness"]
+            roughness.default_value = 1.0 if fixed else surface["roughness"]
         metallic = bsdf.inputs.get("Metallic")
         if metallic is not None:
-            metallic.default_value = surface["metalness"]
+            metallic.default_value = surface["metalness"] * (0.45 if fixed else 1.0)
         specular = bsdf.inputs.get("Specular IOR Level") or bsdf.inputs.get("Specular")
         if specular is not None:
-            specular.default_value = min(1.0, surface["specular"] * 0.5)
+            specular.default_value = surface["specular"] * (0.275 if fixed else 0.5)
         clearcoat = bsdf.inputs.get("Coat Weight") or bsdf.inputs.get("Clearcoat")
         if clearcoat is not None:
-            clearcoat.default_value = surface["clearcoat"]
+            clearcoat.default_value = surface["clearcoat"] * (0.35 if fixed else 1.0)
         clearcoat_roughness = (
             bsdf.inputs.get("Coat Roughness")
             or bsdf.inputs.get("Clearcoat Roughness")
         )
         if clearcoat_roughness is not None:
-            clearcoat_roughness.default_value = surface["clearcoat_roughness"]
+            clearcoat_roughness.default_value = max(0.62 if fixed else 0, surface["clearcoat_roughness"])
     if alpha < 1.0:
         try:
             mat.surface_render_method = "DITHERED"
@@ -2706,7 +2924,7 @@ MAT_CELL = material(
     "v_ase unit cell",
     hex_to_rgba(CELL_COLOR),
     0.88,
-    "metal" if CELL_MATERIAL == "metal" else "standard",
+    CELL_MATERIAL,
 )
 
 def get_bond_mat(color, preset="standard", opacity=1.0):
@@ -2723,9 +2941,8 @@ def get_bond_appearance(i, j, endpoint=None):
     right = ATOM_LABELS[j] if 0 <= j < len(ATOM_LABELS) else str(j)
     pair = DISPLAY_PAIR_BOND_STYLES.get("-".join(sorted((left, right))), {{}})
     pair = pair if isinstance(pair, dict) else {{}}
-    endpoint_style = DISPLAY_ATOM_BOND_STYLES.get(
-        str(endpoint), DISPLAY_ATOM_BOND_STYLES.get(endpoint, {{}})
-    ) if endpoint is not None else {{}}
+    endpoint_style = atom_override(DISPLAY_ATOM_BOND_STYLES, endpoint,
+        DISPLAY_LABEL_BOND_STYLES.get(ATOM_LABELS[endpoint], {{}})) if endpoint is not None else {{}}
     endpoint_style = endpoint_style if isinstance(endpoint_style, dict) else {{}}
     try:
         thickness = max(0.02, min(0.6, float(pair.get("thickness", BOND_THICKNESS))))
@@ -2740,9 +2957,9 @@ def get_bond_appearance(i, j, endpoint=None):
     color_mode = "custom" if pair.get("colorMode", BOND_COLOR_MODE) == "custom" else "split"
     color = endpoint_style.get("color", pair.get("color", BOND_CUSTOM_COLOR))
     return {{
-        "style": "flat" if pair.get("style", BOND_STYLE) == "flat" else "cylinder",
+        "style": "flat" if FLAT_DISPLAY or pair.get("style", BOND_STYLE) == "flat" else "cylinder",
         "thickness": thickness,
-        "material": preset,
+        "material": "unlit" if FLAT_DISPLAY else preset,
         "opacity": opacity,
         "color_mode": color_mode,
         "custom_color": color,
@@ -2770,36 +2987,37 @@ def bond_pieces(i, j, start, end):
         ))
     return pieces
 
-def get_atom_mat(index, symbol):
-    color = get_atom_color(index)
-    preset = get_atom_material_preset(index)
-    opacity = get_atom_opacity(index)
-    key = f"{{symbol}}_{{preset}}_{{color[0]:.4f}}_{{color[1]:.4f}}_{{color[2]:.4f}}_a{{opacity:.4f}}"
+def atom_material(symbol, color, preset, opacity, fixed):
+    key = (symbol, preset, color, opacity, fixed)
     if key not in ATOM_MATS:
         ATOM_MATS[key] = material(
             f"atom {{symbol}} {{preset}} alpha {{opacity:.4f}}",
             color,
             opacity,
             preset,
+            fixed,
         )
     return ATOM_MATS[key]
 
+def atom_material_key(index, symbol):
+    return (symbol, get_atom_color(index), get_atom_material_preset(index), get_atom_opacity(index), index in FIXED_ATOMS)
+
+def create_smooth_sphere(material, radius=1.0):
+    bpy.ops.mesh.primitive_uv_sphere_add(segments=SPHERE_SEGMENTS, ring_count=SPHERE_SEGMENTS // 2,
+                                        radius=radius, location=(0, 0, 0))
+    source = bpy.context.object
+    mesh = source.data
+    mesh.materials.append(material)
+    for polygon in mesh.polygons:
+        polygon.use_smooth = True
+    bpy.data.objects.remove(source, do_unlink=True)
+    return mesh
+
 def get_atom_mesh(index, symbol):
-    color = get_atom_color(index)
-    preset = get_atom_material_preset(index)
-    opacity = get_atom_opacity(index)
-    material_key = f"{{symbol}}_{{preset}}_{{color[0]:.4f}}_{{color[1]:.4f}}_{{color[2]:.4f}}_a{{opacity:.4f}}"
-    mesh_key = material_key
+    mesh_key = atom_material_key(index, symbol)
     if mesh_key not in ATOM_MESHES:
-        bpy.ops.mesh.primitive_uv_sphere_add(segments=32, ring_count=16, radius=1.0, location=(0, 0, 0))
-        source = bpy.context.object
-        source.name = f"v_ase_atom_mesh_source_{{mesh_key}}"
-        mesh = source.data
-        mesh.name = f"v_ase_atom_mesh_{{mesh_key}}"
-        mesh.materials.append(get_atom_mat(index, symbol))
-        for polygon in mesh.polygons:
-            polygon.use_smooth = True
-        bpy.data.objects.remove(source, do_unlink=True)
+        mesh = create_smooth_sphere(atom_material(*mesh_key))
+        mesh.name = f"v_ase_atom_mesh_{{symbol}}"
         ATOM_MESHES[mesh_key] = mesh
     return ATOM_MESHES[mesh_key]
 
@@ -2816,6 +3034,13 @@ def geometry_node_group(name):
         group.inputs.new("NodeSocketGeometry", "Geometry")
         group.outputs.new("NodeSocketGeometry", "Geometry")
     return group
+
+def smooth_face_node(nodes):
+    node = nodes.new("GeometryNodeSetShadeSmooth")
+    if hasattr(node, "domain"):
+        node.domain = "FACE"
+    node.inputs["Shade Smooth"].default_value = True
+    return node
 
 def add_instanced_atom_group(symbol, indices, positions):
     name = f"atoms_{{safe_name(symbol)}}"
@@ -2842,7 +3067,7 @@ def add_instanced_atom_group(symbol, indices, positions):
     node_out = nodes.new("NodeGroupOutput")
     sphere = nodes.new("GeometryNodeMeshIcoSphere")
     set_material = nodes.new("GeometryNodeSetMaterial")
-    shade_smooth = nodes.new("GeometryNodeSetShadeSmooth")
+    shade_smooth = smooth_face_node(nodes)
     instances = nodes.new("GeometryNodeInstanceOnPoints")
     radius_input = nodes.new("GeometryNodeInputNamedAttribute")
     radius_input.data_type = "FLOAT"
@@ -2852,9 +3077,7 @@ def add_instanced_atom_group(symbol, indices, positions):
     subdivisions = {{"low": 1, "medium": 2, "high": 3, "ultra": 4, "auto": 3}}.get(quality, 3)
     sphere.inputs["Radius"].default_value = 1.0
     sphere.inputs["Subdivisions"].default_value = subdivisions
-    set_material.inputs["Material"].default_value = get_atom_mat(indices[0], symbol)
-    if "Shade Smooth" in shade_smooth.inputs:
-        shade_smooth.inputs["Shade Smooth"].default_value = True
+    set_material.inputs["Material"].default_value = atom_material(*atom_material_key(indices[0], symbol))
     links.new(node_in.outputs["Geometry"], instances.inputs["Points"])
     links.new(sphere.outputs["Mesh"], set_material.inputs["Geometry"])
     links.new(set_material.outputs["Geometry"], shade_smooth.inputs["Geometry"])
@@ -2871,12 +3094,10 @@ def add_instanced_atoms(positions, symbols):
     grouped = {{}}
     for index, symbol in enumerate(symbols):
         if not poly_atom_visible(index): continue
-        color = get_atom_color(index)
-        preset = get_atom_material_preset(index)
-        key = (str(symbol), preset, tuple(round(value, 6) for value in color[:3]))
+        key = atom_material_key(index, symbol)
         grouped.setdefault(key, []).append(index)
     groups = []
-    for (symbol, _preset, _color), indices in grouped.items():
+    for (symbol, *_), indices in grouped.items():
         groups.append(add_instanced_atom_group(symbol, indices, positions))
     return groups
 
@@ -2953,11 +3174,45 @@ def look_at_axis(obj, direction):
     quat = direction.to_track_quat("Z", "Y")
     obj.rotation_euler = quat.to_euler()
 
-def look_at_camera(obj, target):
-    direction = Vector(target) - obj.location
-    if direction.length == 0:
+def look_at_camera(obj, target, up):
+    backward = obj.location - Vector(target)
+    if backward.length_squared <= 1e-12:
         return
-    obj.rotation_euler = direction.to_track_quat("-Z", "Y").to_euler()
+    backward.normalize()
+    right = Vector(up).cross(backward)
+    obj.rotation_mode = "QUATERNION"
+    if right.length_squared <= 1e-12:
+        obj.rotation_quaternion = (-backward).to_track_quat("-Z", "Y")
+        return
+    right.normalize()
+    obj.rotation_quaternion = Matrix((right, backward.cross(right), backward)).transposed().to_quaternion()
+
+def configure_camera_frame(scene, camera, settings):
+    try:
+        width, height = int(settings.get("width", 0)), int(settings.get("height", 0))
+        aspect = float(settings.get("aspect", 0))
+        if width <= 0 or height <= 0:
+            if math.isfinite(aspect) and aspect > 0:
+                width = round(1920 * min(1.0, aspect))
+                height = round(1920 / max(1.0, aspect))
+        if width > 0 and height > 0:
+            scene.render.resolution_x = width
+            scene.render.resolution_y = height
+            scene.render.resolution_percentage = 100
+            scene.render.pixel_aspect_x = scene.render.pixel_aspect_y = 1.0
+        # v_ase expresses both orthographic span and perspective FOV vertically.
+        camera.sensor_fit = "VERTICAL"
+        if settings.get("projection") == "orthographic":
+            camera.type = "ORTHO"
+            camera.ortho_scale = max(0.001, float(settings.get("ortho_scale") or 10.0))
+        else:
+            fov = math.radians(float(settings.get("fov", 50.0)))
+            zoom = max(1e-6, float(settings.get("zoom", 1.0)))
+            camera.angle_y = 2.0 * math.atan(math.tan(fov / 2.0) / zoom)
+        camera.clip_start = max(0.001, float(settings.get("near", camera.clip_start)))
+        camera.clip_end = max(camera.clip_start + 0.001, float(settings.get("far", camera.clip_end)))
+    except (TypeError, ValueError, OverflowError):
+        pass
 
 def add_scene_camera():
     position = CAMERA.get("position")
@@ -2966,20 +3221,9 @@ def add_scene_camera():
         bpy.ops.object.camera_add(location=position)
         obj = bpy.context.object
         obj.name = "v_ase_view_camera"
-        look_at_camera(obj, target)
-        try:
-            if CAMERA.get("projection") == "orthographic":
-                obj.data.type = "ORTHO"
-                obj.data.ortho_scale = max(0.1, float(CAMERA.get("ortho_scale") or 10.0))
-            else:
-                obj.data.angle = math.radians(float(CAMERA.get("fov", 50.0)))
-        except (TypeError, ValueError):
-            pass
-        try:
-            obj.data.clip_start = max(0.001, float(CAMERA.get("near", obj.data.clip_start)))
-            obj.data.clip_end = max(obj.data.clip_start + 1.0, float(CAMERA.get("far", obj.data.clip_end)))
-        except (TypeError, ValueError):
-            pass
+        up = CAMERA.get("up", (0, 0, 1))
+        look_at_camera(obj, target, up)
+        configure_camera_frame(bpy.context.scene, obj.data, CAMERA)
         bpy.context.scene.camera = obj
         return obj
 
@@ -2989,8 +3233,41 @@ def add_scene_camera():
     bpy.context.scene.camera = obj
     return obj
 
+def add_fill_sun(name, position, target, energy, color=(1.0, 1.0, 1.0)):
+    light = bpy.data.lights.new(name, type="SUN")
+    obj = bpy.data.objects.new(name, light)
+    bpy.context.collection.objects.link(obj)
+    obj.location = position
+    look_at_camera(obj, target, (0, 0, 1))
+    light.energy = energy
+    light.color = tuple(srgb_to_linear(channel) for channel in color)
+    light.use_shadow = False
+    return obj
+
 def add_scene_lighting():
     mode = LIGHTING.get("mode", DISPLAY.get("lightingMode", "modeling"))
+    world = bpy.data.worlds.get("v_ase world") or bpy.data.worlds.new("v_ase world")
+    bpy.context.scene.world = world
+    world.use_nodes = True
+    nodes = world.node_tree.nodes
+    links = world.node_tree.links
+    nodes.clear()
+    background = nodes.new("ShaderNodeBackground")
+    output = nodes.new("ShaderNodeOutputWorld")
+    color = hex_to_rgba(LIGHTING.get("background", "#ffffff"))
+    environment = nodes.new("ShaderNodeBackground")
+    environment.label = "Reflection environment"
+    environment.inputs["Color"].default_value = (0.34, 0.39, 0.46, 1.0)
+    environment.inputs["Strength"].default_value = 0.22
+    background.label = "Camera background"
+    background.inputs["Color"].default_value = (*map(srgb_to_linear, color[:3]), 1.0)
+    background.inputs["Strength"].default_value = 1.0
+    path = nodes.new("ShaderNodeLightPath")
+    rays = nodes.new("ShaderNodeMixShader")
+    links.new(path.outputs["Is Camera Ray"], rays.inputs[0])
+    links.new(environment.outputs[0], rays.inputs[1])
+    links.new(background.outputs[0], rays.inputs[2])
+    links.new(rays.outputs[0], output.inputs["Surface"])
     if mode in ("studio", "studio-shadow"):
         position = LIGHTING.get("position", DISPLAY.get("sunPosition", (8, -10, 14)))
         target = LIGHTING.get("target", DISPLAY.get("sunTarget", (0, 0, 0)))
@@ -3027,38 +3304,47 @@ def add_scene_lighting():
         obj.location = (0, 0, 0)
         obj.data.energy = intensity
         if isinstance(color, (list, tuple)) and len(color) >= 3:
-            obj.data.color = tuple(clamp01(value) for value in color[:3])
+            obj.data.color = tuple(srgb_to_linear(value) for value in color[:3])
         direction = target - position
-        if direction.length <= 1e-10:
-            direction = Vector((0, 0, -1))
-        obj.rotation_euler = direction.to_track_quat("-Z", "Y").to_euler()
-        track = obj.constraints.new(type="TRACK_TO")
-        track.name = "Aim at v_ase target"
-        track.target = target_handle
-        track.track_axis = "TRACK_NEGATIVE_Z"
-        track.up_axis = "UP_Y"
+        if direction.length > 1e-10:
+            obj.rotation_euler = direction.to_track_quat("-Z", "Y").to_euler()
+            track = obj.constraints.new(type="TRACK_TO")
+            track.name = "Aim at v_ase target"
+            track.target = target_handle
+            track.track_axis = "TRACK_NEGATIVE_Z"
+            track.up_axis = "UP_Y"
+        else:
+            direction = Vector((0, 0, -1))  # A new Sun points down its local -Z.
         obj["v_ase_mode"] = mode
         obj["v_ase_target"] = target[:]
         obj["v_ase_direction"] = direction.normalized()[:]
         obj["v_ase_intensity"] = intensity
-        if hasattr(obj.data, "angle"):
-            obj.data.angle = math.radians(2.0 if mode == "studio-shadow" else 0.5)
-
-        world = bpy.context.scene.world
-        if world is not None:
-            world.use_nodes = True
-            background = world.node_tree.nodes.get("Background")
-            if background is not None:
-                background.inputs["Color"].default_value = (0.075, 0.085, 0.095, 1.0)
-                background.inputs["Strength"].default_value = 0.24
+        obj.data.use_shadow = mode == "studio-shadow"
+        obj.data.angle = math.radians(2.0 if obj.data.use_shadow else 0.5)
+        if hasattr(obj.data, "use_shadow_jitter"):
+            obj.data.use_shadow_jitter = obj.data.use_shadow
+        add_fill_sun("v_ase studio sky fill", (0, 1, 0), (0, 0, 0), 0.45, (0.97, 0.98, 1.0))
+        add_fill_sun("v_ase studio ground fill", (0, -1, 0), (0, 0, 0), 0.26, (0.71, 0.76, 0.81))
         return obj
 
-    bpy.ops.object.light_add(type="AREA", location=(5, -6, 8))
-    obj = bpy.context.object
-    obj.name = "v_ase_area_light"
-    obj.data.energy = 450
-    obj.data.size = 5
-    return obj
+    for index, (position, energy) in enumerate((
+        ((10, 20, 10), 0.22), ((-10, -20, 10), 0.14),
+        ((12, -14, 8), 0.12), ((-12, 14, -8), 0.10),
+    ), start=1):
+        add_fill_sun(f"v_ase modeling fill {{index}}", position, (0, 0, 0), energy + 0.15)
+    return add_fill_sun("v_ase camera light", bpy.context.scene.camera.location,
+                        CAMERA.get("target", (0, 0, 0)), 0.88)
+
+def show_camera_view():
+    for screen in bpy.data.screens:
+        for area in screen.areas:
+            if area.type == "VIEW_3D":
+                space = area.spaces.active
+                space.region_3d.view_perspective = "CAMERA"
+                space.shading.use_scene_lights = True
+                space.shading.use_scene_world = True
+                space.shading.type = "RENDERED"
+                space.overlay.show_overlays = False
 
 def add_cylinder_between(name, start, end, radius, mat):
     start = Vector(start); end = Vector(end)
@@ -3338,33 +3624,29 @@ for render_engine in ("BLENDER_EEVEE_NEXT", "BLENDER_EEVEE"):
         break
     except (TypeError, ValueError):
         continue
-try:
-    scene.view_settings.look = "AgX - Medium High Contrast"
-except (TypeError, ValueError):
-    pass
+scene.view_settings.view_transform = "Standard"
+scene.view_settings.look = "None"
 
 POLY_OBJECTS = []
+POLY_FRAME = None
 POLY_CENTER_INDICES = set(p["center"] for p in DATA.get("polyhedra", []))
 
 def poly_atom_visible(index):
     mode = DISPLAY.get("polyhedraAtomMode", "all") if DISPLAY.get("showPolyhedra") else "all"
     return mode == "all" or (mode == "centers" and index in POLY_CENTER_INDICES)
 
-def add_polyhedron_atom_groups(specs):
+def add_scene_atom_groups(specs):
     groups={{}}
     for spec in specs:
         if spec['opacity']<=0:continue
-        key=(spec['symbol'],spec['radius'],spec['color'],spec['material'],spec['opacity'])
+        key=(spec['label'],spec['radius'],spec['color'],spec['material'],spec['opacity'],spec.get('fixed', False))
         groups.setdefault(key,[]).append(spec)
     result=[]
-    for (symbol,radius,color,preset,alpha),rows in groups.items():
+    for (symbol,radius,color,preset,alpha,fixed),rows in groups.items():
         name='v_ase_coordination_atoms_'+safe_name(symbol)
+        mat = atom_material(symbol, hex_to_rgba(color), 'unlit' if FLAT_DISPLAY else preset, alpha, fixed)
         if BLENDER_OBJECT_MODE=='objects':
-            bpy.ops.mesh.primitive_uv_sphere_add(segments=32,ring_count=16,radius=radius)
-            source=bpy.context.object;mesh=source.data
-            mesh.materials.append(get_bond_mat(color,'unlit' if DISPLAY.get('atomDisplayMode')=='2d' else preset,alpha))
-            for polygon in mesh.polygons:polygon.use_smooth=True
-            bpy.data.objects.remove(source,do_unlink=True)
+            mesh = create_smooth_sphere(mat, radius)
             for row in rows:
                 obj=bpy.data.objects.new(name+'_'+str(row['index'])+'_'+str(row['cell_offset']),mesh)
                 obj.location=row['position'];bpy.context.collection.objects.link(obj)
@@ -3377,12 +3659,14 @@ def add_polyhedron_atom_groups(specs):
         obj['v_ase_atom_indices']=[row['index'] for row in rows]
         obj['v_ase_cell_offsets']=json.dumps([row['cell_offset'] for row in rows])
         obj['v_ase_atom_radius']=radius
+        obj['v_ase_atom_group'] = True
+        obj['v_ase_atom_count'] = len(rows)
+        obj['v_ase_label'] = symbol
         group=geometry_node_group(name);nodes=group.nodes;links=group.links
         source=nodes.new('NodeGroupInput');output=nodes.new('NodeGroupOutput');sphere=nodes.new('GeometryNodeMeshIcoSphere')
         sphere.inputs['Radius'].default_value=radius;sphere.inputs['Subdivisions'].default_value=3
-        material_node=nodes.new('GeometryNodeSetMaterial');material_node.inputs['Material'].default_value=get_bond_mat(color,'unlit' if DISPLAY.get('atomDisplayMode')=='2d' else preset,alpha)
-        smooth=nodes.new('GeometryNodeSetShadeSmooth');instances=nodes.new('GeometryNodeInstanceOnPoints')
-        if 'Shade Smooth' in smooth.inputs:smooth.inputs['Shade Smooth'].default_value=True
+        material_node=nodes.new('GeometryNodeSetMaterial');material_node.inputs['Material'].default_value=mat
+        smooth=smooth_face_node(nodes);instances=nodes.new('GeometryNodeInstanceOnPoints')
         links.new(sphere.outputs['Mesh'],material_node.inputs['Geometry']);links.new(material_node.outputs['Geometry'],smooth.inputs['Geometry'])
         links.new(smooth.outputs['Geometry'],instances.inputs['Instance']);links.new(source.outputs['Geometry'],instances.inputs['Points'])
         links.new(instances.outputs['Instances'],output.inputs['Geometry'])
@@ -3392,7 +3676,11 @@ def add_polyhedron_atom_groups(specs):
 
 @persistent
 def update_polyhedra(scene, *_):
-    global POLY_OBJECTS
+    global POLY_OBJECTS, POLY_FRAME
+    frames = DATA.get("polyhedra_frames")
+    frame = max(0, min(len(frames) - 1, scene.frame_current - 1)) if frames else 0
+    if POLY_FRAME == frame:
+        return
     for obj in POLY_OBJECTS:
         data_block=obj.data
         node_groups=[modifier.node_group for modifier in obj.modifiers if modifier.type=='NODES' and modifier.node_group]
@@ -3403,13 +3691,12 @@ def update_polyhedra(scene, *_):
             if isinstance(data_block,bpy.types.Mesh): bpy.data.meshes.remove(data_block)
             elif isinstance(data_block,bpy.types.Curve): bpy.data.curves.remove(data_block)
     POLY_OBJECTS=[]
-    frames=DATA.get("polyhedra_frames")
-    records=frames[max(0,min(len(frames)-1,scene.frame_current-1))] if frames else DATA.get("polyhedra",[])
+    records = frames[frame] if frames else DATA.get("polyhedra", [])
     if 'polyhedra_atoms' in DATA:
         def frame_records(name):
             sequence=DATA.get(name+'_frames')
-            return sequence[max(0,min(len(sequence)-1,scene.frame_current-1))] if sequence else DATA.get(name,[])
-        POLY_OBJECTS.extend(add_polyhedron_atom_groups(frame_records('polyhedra_atoms')))
+            return sequence[frame] if sequence else DATA.get(name,[])
+        POLY_OBJECTS.extend(add_scene_atom_groups(frame_records('polyhedra_atoms')))
         bond_groups={{}}
         for bond in frame_records('polyhedra_bonds'):
             if bond['opacity']<=0:continue
@@ -3427,9 +3714,9 @@ def update_polyhedra(scene, *_):
                     obj=add_curve_segments('v_ase_coordination_bonds',part,radius,mat)
                     if obj:POLY_OBJECTS.append(obj)
         sequence=DATA.get('polyhedra_cell_frames')
-        cell_edges=sequence[max(0,min(len(sequence)-1,scene.frame_current-1))] if sequence else DATA.get('polyhedra_cell_edges',[])
+        cell_edges=sequence[frame] if sequence else DATA.get('polyhedra_cell_edges',[])
         if cell_edges:
-            obj=add_curve_segments('v_ase_coordination_cell',[(e['start'],e['end']) for e in cell_edges],float(DISPLAY.get('cellThickness',.04))/2,get_bond_mat(DISPLAY.get('cellColor','#d6bd67'),'unlit'))
+            obj=add_curve_segments('v_ase_coordination_cell',[(e['start'],e['end']) for e in cell_edges],CELL_THICKNESS/2,MAT_CELL)
             if obj:POLY_OBJECTS.append(obj)
     batches={{}}
     for poly in records:
@@ -3452,6 +3739,7 @@ def update_polyhedra(scene, *_):
         if group["edges"]:
             obj=add_curve_segments("v_ase_polyhedra_edges_"+rule,group["edges"],edge_radius,get_bond_mat(edge_color,"unlit"))
             POLY_OBJECTS.append(obj)
+    POLY_FRAME = frame
 
 if 'polyhedra_atoms' in DATA or DATA.get("polyhedra") or DATA.get("polyhedra_frames"):
     update_polyhedra(bpy.context.scene)
@@ -3527,7 +3815,7 @@ positions = DATA["positions"]
 symbols = DATA["symbols"]
 atoms = []
 atom_groups = []
-if "polyhedra_atoms" not in DATA and BLENDER_OBJECT_MODE == "objects":
+if "polyhedra_atoms" not in DATA and DISPLAY.get("showAtoms", True) and BLENDER_OBJECT_MODE == "objects":
     for idx, (symbol, pos) in enumerate(zip(symbols, positions)):
         obj = bpy.data.objects.new(f"atom_{{idx:04d}}_{{symbol}}", get_atom_mesh(idx, symbol))
         obj.name = f"atom_{{idx:04d}}_{{symbol}}"
@@ -3539,7 +3827,7 @@ if "polyhedra_atoms" not in DATA and BLENDER_OBJECT_MODE == "objects":
             obj.hide_render = True
         bpy.context.collection.objects.link(obj)
         atoms.append(obj)
-elif "polyhedra_atoms" not in DATA:
+elif "polyhedra_atoms" not in DATA and DISPLAY.get("showAtoms", True):
     atom_groups = add_instanced_atoms(positions, symbols)
 
 if INCLUDE_CELL and "polyhedra_atoms" not in DATA:
@@ -3635,8 +3923,10 @@ for item in constraints.get("hookean", []):
             radius_end=0.18,
         )
 
-add_scene_lighting()
 add_scene_camera()
+add_scene_lighting()
+scene.frame_set(max(1, min(scene.frame_end, int(DATA.get("current_frame", 0)) + 1)))
+show_camera_view()
 '''
 
 
@@ -3645,11 +3935,15 @@ def export_blender_response(session, payload: Dict[str, Any]):
     if getattr(session, "trajectory_frames", None):
         session.sync_current_frame()
     data = atoms_to_json(atoms)
+    data["current_frame"] = int(getattr(session, "current_frame", 0))
     source_frames = getattr(session, "trajectory_frames", []) or []
     if len(source_frames) <= 1:
         source_frames = []
     frames = []
-    display = payload.get("display") or {}
+    display = {
+        key: value for key, value in (payload.get("display") or {}).items()
+        if key not in {"energyOverlay", "analysisPlots", "rdfCutoff", "rdfBins", "rdfPairMode", "rdfUsePbc"}
+    }
     if display:
         data["display"] = display
     from .atom_radius import atom_radius_factors_for_atoms, normalize_atom_radius_mapping
@@ -3658,11 +3952,16 @@ def export_blender_response(session, payload: Dict[str, Any]):
     if radius_mapping["enabled"]:
         data["atom_radius_factors"] = atom_radius_factors_for_atoms(atoms, radius_mapping).tolist()
     water_enabled = bool((display.get("waterSurface") or {}).get("enabled"))
-    if display.get("showPolyhedra") or water_enabled:
+    repetitions, _ = _normalized_supercell(display, data)
+    if display.get("showPolyhedra") or water_enabled or max(repetitions) > 1 or payload.get("bond_bridges"):
         from types import SimpleNamespace
-        def poly_scene(frame_atoms):
+
+        def poly_scene(frame_atoms, *, current=False):
             isolated=SimpleNamespace(working_atoms=frame_atoms,config={},trajectory_frames=[])
-            scene = _cad_scene_data(isolated,{'display':display,'include_cell':payload.get('include_cell',True)})
+            scene_options = {"display": display, "include_cell": payload.get("include_cell", True)}
+            if current:
+                scene_options.update(bond_pairs=payload.get("bond_pairs"), bond_bridges=payload.get("bond_bridges"))
+            scene = _cad_scene_data(isolated, scene_options)
             if water_enabled:
                 from .water_export import water_scene
                 scene['water'] = water_scene(frame_atoms, display, scene)
@@ -3672,15 +3971,15 @@ def export_blender_response(session, payload: Dict[str, Any]):
             return {**{k:v for k,v in record.items() if k not in mesh},
                     'vertexCount':len(record['vertices']),
                     'mesh':base64.b85encode(zlib.compress(json.dumps(mesh,separators=(',',':')).encode(),6)).decode('ascii')}
-        scene=poly_scene(atoms)
+        scene=poly_scene(atoms, current=True)
         data['polyhedra']=scene['polyhedra'];data['polyhedra_atoms']=scene['atoms'];data['polyhedra_bonds']=scene['bonds']
         data['polyhedra_cell_edges']=scene['cell_edges']
         if water_enabled:
             data['water_surface'] = pack_water(scene['water'])
             data['water_surface_frames'] = []
         all_polyhedra=[];all_atoms=[];all_bonds=[];all_cells=[];vertex_budget=0
-        for frame_atoms in source_frames:
-            scene=poly_scene(frame_atoms)
+        for frame_index, frame_atoms in enumerate(source_frames):
+            scene=poly_scene(frame_atoms, current=frame_index == data["current_frame"])
             vertex_budget+=sum(len(mesh['vertices']) for mesh in scene['polyhedra'])+len(scene['atoms'])+len(scene.get('water',{}).get('vertices',[]))
             if vertex_budget>2000000:raise ValueError('Blender surface animation exceeds two million sites/vertices. Export fewer frames, repetitions, or lower surface subdivision.')
             # Bound geometry before retaining another full serialized frame.

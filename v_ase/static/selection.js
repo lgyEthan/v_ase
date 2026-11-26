@@ -17,6 +17,7 @@ export class ASESelection {
     }
 
     pick(e, atomGroup, supercellGroup = null, includeReplicas = false) {
+        if (this.renderer.displayOptions.showAtoms === false) return null;
         const context = this.projectionContext(e);
         const mouse = this.getMouse(e, context);
         this.raycaster.setFromCamera(mouse, context.camera);
@@ -56,6 +57,7 @@ export class ASESelection {
     }
 
     pickHover(e, atomGroup, supercellGroup) {
+        if (this.renderer.displayOptions.showAtoms === false) return null;
         const context = this.projectionContext(e);
         const mouse = this.getMouse(e, context);
         this.raycaster.setFromCamera(mouse, context.camera);
@@ -106,6 +108,7 @@ export class ASESelection {
 
     boxSelect(rect, atomGroup, camera, supercellGroup = null, includeReplicas = false) {
         const selected = new Set();
+        if (this.renderer.displayOptions.showAtoms === false) return selected;
         const pos = new THREE.Vector3();
         const context = this.renderer.interactionProjectionContext(
             (rect.left + rect.right) * 0.5,

@@ -42,14 +42,18 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_static_version_strings_match_package_version():
+    from v_ase.server import get_index, get_workspace_index
+
     pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     version = pyproject["project"]["version"]
-    index_html = (ROOT / "v_ase/static/index.html").read_text(encoding="utf-8")
+    index_html = asyncio.run(get_index()).body.decode()
+    workspace_html = asyncio.run(get_workspace_index()).body.decode()
 
     assert f'style.css?v={version}' in index_html
     assert f'three.module.js?v={version}' in index_html
     assert f'main.js?v={version}' in index_html
     assert f'<span class="version">{version}</span>' in index_html
+    assert f'<span class="document-version">{version}</span>' in workspace_html
     assert "0.0.28" not in index_html
 
 
@@ -640,8 +644,8 @@ def test_frontend_has_radius_controls_loading_overlay_and_modern_panel_styles():
     assert "return this.reconcileLabelOrder(this.state.atoms?.symbols || []);" in main_js
     assert "naturalTypeCompare" in main_js
     assert ".sort((a, b) => this.naturalTypeCompare(a, b))" in main_js
-    assert "previewDetectedBase" in main_js
-    assert "typeSelect.value = inferredBase" in main_js
+    assert "changeTrajectoryLabelName(oldSymbol, desiredLabel)" in main_js
+    assert "commitRename(typeSelect.value)" in main_js
     assert "nameInput.value = this.labelForBaseTypeChange(symbol, typeSelect.value)" not in main_js
     assert "uniqueTypeLabel" not in main_js
     assert "Merged ${oldSymbol} into label ${label}" in main_js
@@ -801,7 +805,7 @@ def test_frontend_renderer_uses_demand_rendering_and_large_scene_instancing():
     assert "rebuildInstancedAtoms" in renderer_js
     assert "new THREE.InstancedMesh" in renderer_js
     assert "this.atomIndicesByLabel = new Map()" in renderer_js
-    assert "applyAtomVisibility(changedSymbols = null)" in renderer_js
+    assert "applyAtomVisibility(changedSymbols = null" in renderer_js
     assert "updateRenderQuality()" in renderer_js
     assert "if (atomCount >= 15000) cap = 1" in renderer_js
     assert "orientationSignature" in main_js
@@ -1335,7 +1339,7 @@ def test_blender_export_includes_bonds_unit_cell_smooth_atoms_and_camera_project
     assert "ATOM_MESHES" in script
     assert "bpy.data.objects.new" in script
     assert "polygon.use_smooth = True" in script
-    assert "obj.data.type = \"ORTHO\"" in script
+    assert 'camera.type = "ORTHO"' in script
     assert 'name = f"bond_{i}_{j}_{bond_index:04d}"' in script
     assert 'LIGHTING = DATA.get("lighting", {})' in script
     assert "'mode': 'studio-shadow'" in script
@@ -1634,7 +1638,7 @@ def test_studio_sun_and_periodic_bond_controls_are_opt_in_and_exportable():
     assert "enterSunTransformMode" in main_js
     assert "applySunTransformPreview" in main_js
     assert "? -this.snapRotationAngle(this.transform.rotationAngle)" in main_js
-    assert "currentLightingForExport" in main_js
+    assert "exportBlenderScene" in main_js
     assert "startSunHandleDrag" not in renderer_js
     assert "export-render-mode" in main_js
     assert "sunPosition" in main_js

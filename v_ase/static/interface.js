@@ -156,7 +156,9 @@ export function installInterfaceControls() {
     document.body.appendChild(tooltip);
     let target = null, timer = null, oldDescription = null, refreshTooltip = null;
     const titleMessages = new WeakMap();
-    const messageFor = element => titleMessages.get(element) || element.dataset.tooltip;
+    const canShowTooltip = element => element?.dataset.tooltip && (!element.disabled || element.dataset.disabledTooltip);
+    const messageFor = element => (element.disabled && element.dataset.disabledTooltip)
+        || titleMessages.get(element) || element.dataset.tooltip;
     const consumeTitle = element => {
         const nativeTitle = element.getAttribute('title');
         if (nativeTitle === null) return;
@@ -177,7 +179,7 @@ export function installInterfaceControls() {
     dismissTooltip = hide;
     const show = (element, immediate = false) => {
         hide();
-        if (!element?.dataset.tooltip || element.disabled) return;
+        if (!canShowTooltip(element)) return;
         consumeTitle(element);
         target = element; oldDescription = element.getAttribute('aria-describedby');
         const reveal = () => {
@@ -185,9 +187,13 @@ export function installInterfaceControls() {
             tooltip.textContent = messageFor(element);
             tooltip.hidden = false;
             const box = element.getBoundingClientRect(), tip = tooltip.getBoundingClientRect();
-            const left = Math.max(8, Math.min(innerWidth - tip.width - 8, box.left + (box.width - tip.width) / 2));
-            let top = box.bottom + 7;
-            if (top + tip.height > innerHeight - 8) top = box.top - tip.height - 7;
+            const besideTools = element.closest('.viewport-tools') && box.right + 7 + tip.width <= innerWidth - 8;
+            const left = besideTools ? box.right + 7
+                : Math.max(8, Math.min(innerWidth - tip.width - 8, box.left + (box.width - tip.width) / 2));
+            let top = besideTools
+                ? Math.min(innerHeight - tip.height - 8, box.top + (box.height - tip.height) / 2)
+                : box.bottom + 7;
+            if (!besideTools && top + tip.height > innerHeight - 8) top = box.top - tip.height - 7;
             tooltip.style.left = `${left}px`; tooltip.style.top = `${Math.max(8, top)}px`;
             element.setAttribute('aria-describedby', [oldDescription, tooltip.id].filter(Boolean).join(' '));
         };
@@ -211,15 +217,15 @@ export function installInterfaceControls() {
     document.addEventListener('keydown', event => { if (event.key === 'Escape') hide(); }, true);
     window.addEventListener('blur', hide);
 
-    // Selection, playback and keyboard commands can update a control's title
-    // while its hint is already open. Consume it without restarting hover time.
+    // Refresh the current hint when its title or disabled reason changes.
     new MutationObserver(records => {
         if (!target || !records.some(record => record.target === target)) return;
-        if (target.disabled) { hide(); return; }
-        const previous = messageFor(target);
+        if (!canShowTooltip(target)) { hide(); return; }
         consumeTitle(target);
-        if (!tooltip.hidden && previous !== messageFor(target)) refreshTooltip?.();
-    }).observe(document.body, { attributes: true, subtree: true, attributeFilter: ['title', 'disabled'] });
+        if (!tooltip.hidden && tooltip.textContent !== messageFor(target)) refreshTooltip?.();
+    }).observe(document.body, {
+        attributes: true, subtree: true, attributeFilter: ['title', 'disabled', 'data-disabled-tooltip']
+    });
 
     // Existing dialogs trap Tab. Inert siblings also isolate assistive navigation.
     const modal = document.getElementById('modal-container');

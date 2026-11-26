@@ -852,9 +852,12 @@ above-to-below orbit after the final coordinate commit.
 
 ### Rotate Around A Specific Atom
 
-For a human edit, select the moving atoms first, Shift-select the desired pivot
-atom last, and choose **Active atom (last selected)** under
-**Structure > Transform**. The pivot atom remains selected but does not move.
+For a human edit, switch to **Edit structure**. Select the moving atoms first,
+Shift-select the pivot atom last, and choose **Active atom (last selected)** under
+**Build > Transform & cell match**. The selected pivot atom stays in place.
+Use **Rotate selection** or `R`. Hover a disabled transform to see what is needed.
+For a change of viewpoint, use **Orbit camera**. It works in either mode without
+a selection.
 
 For semantic editing, preserve the intended order in `indices` and use
 `pivot: "active"`:
@@ -1245,17 +1248,12 @@ Do not hide that validation error by interpolating one grid onto another.
 
 ### Radial And Finite Pair Distributions
 
-Input: either a fully periodic 3D structure/trajectory frame for bulk RDF, or
-a finite structure with every PBC axis disabled for a Pair-distribution
-function. Partial PBC is rejected.
+The active frame's periodic axes determine whether the result is bulk RDF,
+periodic neighbor density, or finite pair probability.
 
 ```javascript
 const before = await ai.describe({includePositions: false});
 const pbcCount = before.pbc.filter(Boolean).length;
-if (pbcCount !== 0 && pbcCount !== 3) {
-  throw new Error("Pair-distribution analysis rejects partial periodicity.");
-}
-
 await applyCurrent({
   operation: {
     name: "calculate-rdf",
@@ -1274,8 +1272,11 @@ if (!rdf || rdf.bins !== 400 || !rdf.partialCurves.includes("Cu_surface|O_ads"))
 if (Math.abs(rdf.cutoff - 8.0) > 1e-12 || rdf.periodicImageSpan.length !== 3) {
   throw new Error("RDF did not retain the requested cutoff and image span.");
 }
-if (pbcCount === 3 && rdf.analysisKind !== "rdf") {
+if (pbcCount === 3 && rdf.analysisKind !== "radial-distribution") {
   throw new Error("A fully periodic document must report bulk RDF normalization.");
+}
+if ((pbcCount === 1 || pbcCount === 2) && rdf.analysisKind !== "periodic-pair-distribution") {
+  throw new Error("A partially periodic document must report radial neighbor density.");
 }
 if (pbcCount === 0 && rdf.analysisKind !== "pair-distribution") {
   throw new Error("A finite document must report Pair-distribution function normalization.");
@@ -1684,7 +1685,7 @@ if (shared.mimeType !== "text/html" || shared.bytes <= 0) {
 Decode `shared.dataUrl` to the requested destination. Reopen the result with
 network access disabled and require zero network requests. Verify:
 
-1. `window.v_aseStandalone.ready` resolves;
+1. `document.documentElement.dataset.vAseReady` is `"true"`;
 2. the canvas is nonblank and uses the saved camera;
 3. orbit, pan, zoom, and trajectory controls work;
 4. no structure, appearance, settings, or export editor is present;

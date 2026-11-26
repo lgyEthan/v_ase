@@ -14,6 +14,12 @@ Start with the compact scene snapshot. Preserve accepted orientation, framing,
 colors, radii and scientific data unless the user requests their change.
 For flat atoms with hidden bonds use the initially loaded `vase_style_scene`:
 `atom_display_mode="2d", show_bonds=false`.
+
+`vase_style_scene(show_atoms=false)` hides atom glyphs while retaining enabled
+bonds, constraints and cell guides. Set `flat_outline_width` in Å for the
+shared width around flat atoms and along bond ribbons. Bond thickness sets
+the full ribbon width. Atom and bond segment quality remains available in
+flat mode.
 Do not load coordinates, all appearance profiles or every tool schema for this.
 
 ## Exact bonds and appearance
@@ -55,12 +61,17 @@ For new composition discover `vase_compose_view`: define view normal, screen up,
 anchor/target and fit extent from structure geometry. Prefer a deterministic
 composition to repeated orbit/zoom guesses. For an orthographic export, output
 height and `ortho_scale` determine scale; output dimensions determine aspect.
+In the human viewport, select the camera and press **S** then **X/Y/Z** to
+resize along a projected axis. **Fix ratio** in **Render area & scale**
+couples the dimensions when enabled. A depth-axis scale changes magnification.
 The snapshot accounts for display translation and periodic replicas.
-Physical output scale in px/Å belongs to the render profile, not the live
-viewport magnification or manual sphere-size multiplier. Image, video and
-editable project HTML retain their own frame/profile; canceling a one-off
-export must not mutate the saved project profile. Use Copy viewport scale only
-when that is the intended physical output scale.
+Physical px/Å belongs to the output profile. In the human Renderer panel,
+editing **Output scale** magnifies both the canvas and output by the same
+factor, with atom radii and coordinates preserved. Viewport framing keeps
+the camera span when the output height changes. Physical scale keeps the
+specified px/Å. For semantic calls, set the viewport camera and output
+options explicitly. Image, video and editable project HTML retain their
+own profiles. Canceling a one-off export preserves the saved profile.
 
 ## Selection and final rendering
 

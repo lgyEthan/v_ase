@@ -190,8 +190,10 @@ selected-atom overrides, and property visualization separately. The per-label
 editor is a table with one row per label: label, color, visibility, selection,
 element, radius in Å, opacity, material and count. Scroll it horizontally to
 reach additional columns, or widen the floating inspector. Its label column
-stays visible while scrolling. Selected-atom overrides remain a separate scope;
-property mappings multiply manual radii or replace colors at their fixed targets.
+stays visible while scrolling. A per-label rename follows the label across
+every frame. In **Selected atoms**, use **Apply to** to choose all compatible
+frames or the current frame. Property mappings multiply manual radii or
+replace colors at their fixed targets. [Trajectory scope and label editing](trajectories.md#frame-identity-and-selection).
 
 Long label and bond tables scroll within their own borders. Their column headers
 stay flush with the top edge while rows move underneath; the label column stays

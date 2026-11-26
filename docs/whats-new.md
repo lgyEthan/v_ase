@@ -1,5 +1,20 @@
 # What is new
 
+## 0.5.1
+
+- Save interactive HTML with a Finder thumbnail, lossless compression and an
+  optional editable project. Floating Plotly distributions follow playback,
+  and Reset saved view restores the camera, graph limits and legend.
+- Style individual Energy and Distribution series with shared graph controls.
+  Choose minimum-image or Cartesian NEB interpolation and export graphs to PNG
+  or CSV. Calculate distributions for slabs, wires and finite structures.
+- Duplicate, delete or match source frames. Scope selected atom appearance to
+  the current frame or all compatible frames and rename labels across a trajectory.
+- Open actions at the pointer in the viewport. Snap nearby edges when moving or
+  resizing graphs and when moving desktop windows.
+- Adjust a common outline width in flat 2D and hide atom glyphs while keeping
+  bonds and constraint guides visible.
+
 ## 0.4.14
 
 - Synchronized Python, Mac/Windows desktop and agent Skill release.

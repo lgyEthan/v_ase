@@ -187,7 +187,7 @@ html[data-v-ase-ui="visible"] .viewer-toolbar {
     background: var(--v-ase-export-bg, #ffffff);
     opacity: 1;
     pointer-events: none;
-    will-change: opacity;
+    /* Finder's background thumbnail renderer needs the static image in the normal paint pass. */
     transition: opacity 110ms linear;
 }
 
@@ -195,11 +195,42 @@ html[data-v-ase-ui="visible"] .viewer-toolbar {
     opacity: 0;
 }
 
+#viewer-frame[data-energy-in-poster="true"] #standalone-poster,
+#viewer-frame[data-rdf-in-poster="true"] #standalone-poster {
+    z-index: 6;
+}
+
+.standalone-rdf-overlay {
+    position: absolute;
+    z-index: 5;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    box-sizing: border-box;
+    background: var(--rdf-background, var(--ui-surface));
+    color: var(--rdf-ink, var(--ui-ink));
+    border: calc(var(--rdf-scale, 1) * 1px) solid var(--rdf-border, var(--ui-line));
+    border-radius: calc(var(--rdf-scale, 1) * 8px);
+    font: calc(var(--rdf-scale, 1) * 12px) system-ui, sans-serif;
+}
+.standalone-rdf-overlay header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-shrink: 0;
+    padding-inline: calc(var(--rdf-scale, 1) * 9px);
+    border-bottom: 1px solid var(--rdf-border, var(--ui-line));
+    overflow: hidden;
+}
+.standalone-rdf-overlay strong { white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
+.standalone-rdf-overlay header span { color: var(--rdf-secondary, currentColor); white-space: nowrap; }
+.standalone-rdf-plot { flex: 1 1 0; min-height: 0; }
+
 #standalone-poster[hidden] {
     display: none;
 }
 
-#viewer-frame canvas {
+#viewer-frame > canvas {
     position: relative;
     z-index: 2;
     display: block;
@@ -209,7 +240,7 @@ html[data-v-ase-ui="visible"] .viewer-toolbar {
     touch-action: none;
 }
 
-#viewer-frame canvas:active {
+#viewer-frame > canvas:active {
     cursor: grabbing;
 }
 

@@ -1427,17 +1427,12 @@ When `precision` is omitted, the output promotes to FP64 if any input is FP64;
 otherwise it remains FP32. Do not resample or combine mismatched grids
 silently. Use `remove-volumetric` with `datasetId` to discard a dataset.
 
-`calculate-rdf` selects the scientifically valid analysis from boundary state.
-With full 3D PBC and a finite cell it computes a bulk radial distribution
-function. The backend accepts a cutoff beyond the unique-MIC radius and
-enumerates every periodic image inside that sphere instead of truncating to a
-fixed `2 x 2 x 2` replica. With no periodic axes it computes a finite-system
-unordered-pair probability density and labels the result
-`Pair-distribution function`; it does not claim bulk `g(r)` normalization.
-Both searches use the required compiled matscipy backend; this changes runtime,
-not normalization or pair/image semantics.
-Partial PBC remains rejected because neither of those normalizations applies
-without an explicit boundary correction. The result reports `analysisKind`,
+`calculate-rdf` uses the structure's periodic axes by default. Full 3D PBC
+reports `radial-distribution`, a slab or wire reports `periodic-pair-distribution`
+in neighbors per atom per Å, and zero periodic axes report `pair-distribution`
+with finite unordered-pair probability. Set `usePbc:false` to use Cartesian
+distances and finite normalization. Explicit cutoffs may exceed the unique-MIC
+radius and include every periodic image inside the sphere. The result reports `analysisKind`,
 `title`, `normalization`, `requestedCutoff`, `cutoff`, `uniqueMicCutoff`,
 `periodicImageExtent`, and `periodicImageSpan`:
 
@@ -1625,17 +1620,32 @@ lossless `.vase` recovery is required. In the human **Save Project** dialog,
 the default compact output is `.vase`; enabling **Include interactive rendered
 view** changes the output to `.html` and always uses embedded-project mode.
 Decode the data URL, open it from `file://`, wait for
-`window.v_aseStandalone.ready`, verify `document.body.dataset.viewOnly` is
-`"true"`, and reject any HTTP/HTTPS request before reporting success. For
+`document.documentElement.dataset.vAseReady === 'true'`, verify
+`document.documentElement.dataset.vAseMode === 'view-only'`, and reject any
+HTTP/HTTPS request before reporting success. For
 embedded mode, also verify `window.v_aseStandalone.hasEmbeddedProject` and
 reopen the written file with `v_ase gui FILE.html`.
+When `includeGraph` captures a floating Distribution, reopening the editable
+HTML in v_ase restores its curves, legend visibility and displayed bounds for
+the analyzed frame. The offline Plotly chart switches curves with the active
+frame. **Reset saved view** restores the camera, plot bounds and legend while
+keeping that frame. The embedded viewer and per-frame curves are compressed
+by Save and HTML export when gzip makes them smaller. The file contains its
+own fallback decoder for browsers without native gzip support.
 The document also carries the exact rendered frame as a static poster, so
-macOS Finder/Quick Look can preview it without executing JavaScript. The poster
+macOS Finder and Quick Look can display it without executing JavaScript. On macOS,
+verify the background thumbnail with `qlmanage -t -x`. The poster
 contains only the Render Area frame: no v_ase logo, header, page margin, or
 decorative border. Its optimized high-resolution raster and the adaptive
 device-pixel-ratio WebGL canvas share one integer-sized viewport. In a browser
 the first completed live frame automatically cross-fades over the poster
 before camera input begins, without moving or resizing the structure.
+
+Blender export keeps the Render Area camera when it is visible and otherwise
+uses the viewport camera. The scene carries camera roll, effective zoom, Sun
+source and target, materials, repetitions and the current trajectory frame.
+Geometry Nodes instances and individual atom meshes use face smoothing.
+Blender omits Energy and Distribution graph overlays.
 
 Video:
 
@@ -1708,11 +1718,11 @@ completes, so the first project render includes their rasters.
   ranking, not an exhaustive energetic interface search.
 - **RDF:** bins must be integers from 8 to 5000. The final cutoff edge is
   inclusive within floating-point tolerance. All periodic images are counted;
-  partials reconstruct the total by concentration weighting. With the N²/V
+  bulk partials reconstruct the total by concentration weighting. With the N²/V
   convention, an independent finite-N random cell has expected (N-1)/N below
   the unique-image cutoff. A finite no-PBC curve integrates to one only at a
-  full pair cutoff. Partial PBC is rejected; adding vacuum to a fully periodic
-  slab changes bulk normalization and is not a boundary correction.
+  full pair cutoff. Partial PBC divides the directed image counts by the
+  number of atoms and bin width. Its integral gives the mean neighbor count.
 - **Fields:** combinations accumulate bounded FP64 slabs then cast once to
   output precision. Import FP64 before subtracting weak differences. For
   endpoint-inclusive integration, periodic closing planes are excluded once

@@ -1,4 +1,4 @@
-import { installInterfaceControls } from './interface.js?v=0.4.14&ui=20261111.1';
+import { installInterfaceControls } from './interface.js?v=0.5.1&ui=20261111.1';
 // Shared editor chrome. Scientific state and mutations remain in ASEApp.
 const paths = {
     grid: '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18M15 3v18M3 9h18M3 15h18"/>',
@@ -25,6 +25,12 @@ const paths = {
     isosurfaces: '<path d="M5 6c3-4 5 1 8-2s8 3 6 7 2 7-3 9-7-3-10-2-5-8-1-12Z"/><path d="M5 11c4-3 7 4 14 0M10 5c-3 5 5 8 3 14"/>',
     volumetric: '<path d="m2 8 10-5 10 5-10 5zm0 5 10 5 10-5M2 18l10 5 10-5"/>',
     rdf: '<path d="M3 3v18h18M6 17l3-8 4 5 4-9 4 4"/>',
+    'plot-float': '<rect x="3" y="3" width="18" height="17" rx="2"/><path d="M3 14h18m-9-2V6m-2 2 2-2 2 2"/>',
+    'plot-dock': '<rect x="3" y="3" width="18" height="17" rx="2"/><path d="M3 14h18m-9-8v5m-2-2 2 2 2-2"/>',
+    'save-data': '<path d="M12 3v11m-4-4 4 4 4-4M5 20h14"/>',
+    properties: '<path d="M5 7h14M5 12h14M5 17h14"/><circle cx="9" cy="7" r="2"/><circle cx="15" cy="12" r="2"/><circle cx="11" cy="17" r="2"/>',
+    close: '<path d="m6 6 12 12M18 6 6 18"/>',
+    'trajectory-energy': '<path d="M3 3v18h18M6 17l4-7 5 2 4-6"/><circle cx="10" cy="10" r="1.5"/>',
     forces: '<path d="M4 20 20 4m-8 0h8v8M4 13v7h7"/>',
     reset: '<path d="M4 8a8 8 0 1 1 0 8M4 3v5h5"/>',
     search: '<circle cx="10" cy="10" r="7"/><path d="m15 15 6 6"/>',

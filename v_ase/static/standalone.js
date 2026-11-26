@@ -1,5 +1,7 @@
 import * as THREE from 'three';
+import { TrajectoryEnergyOverlay } from './trajectory_energy.js';
 import { ASERenderer } from './renderer.js';
+import { rdfPlotlyTrace, rdfSeriesStyles } from './distribution_plot.js';
 
 function finiteVector(value, fallback) {
     if (
@@ -144,7 +146,128 @@ function renderMetadata(scene, frame) {
     });
 }
 
-export function startStandaloneViewer(scene, projectBase64) {
+function mountStandaloneRdf(host, capture, frames, initialFrame, style) {
+    if (!capture?.chart || !window.Plotly) return null;
+    const panel = document.createElement('section');
+    panel.className = 'standalone-rdf-overlay';
+    panel.setAttribute('aria-label', capture.title);
+    for (const [property, value] of Object.entries({ left: capture.layout.x, top: capture.layout.y,
+        width: capture.layout.width, height: capture.layout.height })) panel.style[property] = `${value * 100}%`;
+    for (const [key, value] of Object.entries(capture.palette || {})) panel.style.setProperty(`--rdf-${key}`, value);
+    const header = document.createElement('header');
+    const title = document.createElement('strong');
+    const frame = document.createElement('span');
+    title.textContent = capture.title;
+    header.append(title, frame);
+    const plot = document.createElement('div');
+    plot.className = 'standalone-rdf-plot';
+    panel.append(header, plot);
+    host.append(panel);
+
+    const savedTraces = new Map(capture.chart.data.map(trace => [trace.uid, trace]));
+    const savedRadius = capture.chart.data[0].x;
+    const savedLayout = capture.chart.layout;
+    const visibility = new Map();
+    let frameIndex = initialFrame;
+    let resetRevision = 0;
+    let drawnRevision = 0;
+    let drawnYLabel;
+    let lastDraw = '';
+    let rendering = null;
+
+    const draw = async (index, revision, scale) => {
+        const useSaved = !frames.length;
+        const result = frames[index];
+        if (drawnRevision === revision) {
+            for (const trace of plot.data || []) visibility.set(trace.uid, trace.visible);
+        }
+        let frameTraces = [];
+        if (useSaved) frameTraces = capture.chart.data;
+        else if (result) {
+            const radius = result.radius || savedRadius;
+            frameTraces = rdfSeriesStyles(result, style, capture.seriesTheme).map(series => {
+                const values = series.key === 'total' ? result.total : result.partial[series.key];
+                const trace = rdfPlotlyTrace(series, radius, values);
+                return { ...trace, ...savedTraces.get(trace.uid), x: radius, y: values };
+            });
+        }
+        title.textContent = result && !useSaved ? result.title : capture.title;
+        frame.textContent = !useSaved && !result ? `Unavailable · Frame ${index + 1}`
+            : frames.length && index !== capture.frame ? `Frame ${index + 1}` : '';
+
+        panel.style.setProperty('--rdf-scale', scale);
+        header.style.height = `${capture.headerHeight * scale}px`;
+        const sized = font => ({ ...font, size: Math.max(1, Number(font?.size || 11) * scale) });
+        const traces = frameTraces.map(trace => ({ ...trace,
+            visible: trace.visible === false ? false : visibility.get(trace.uid) ?? trace.visible,
+            line: { ...trace.line, width: Number(trace.line?.width || 0) * scale },
+            marker: { ...trace.marker, size: Number(trace.marker?.size || 0) * scale },
+        }));
+        const layout = structuredClone(savedLayout);
+        const savedYLabel = savedLayout.yaxis?.title?.text;
+        const yLabel = !useSaved && result?.yLabel || savedYLabel;
+        if (yLabel !== savedYLabel) {
+            // The units can change in a trajectory with different PBC per frame.
+            layout.yaxis = { ...layout.yaxis, title: { text: yLabel }, autorange: true };
+            delete layout.yaxis.range;
+            layout.shapes = [];
+            layout.annotations = [];
+        }
+        if (drawnRevision === revision && plot._fullLayout) {
+            const xRange = plot._fullLayout.xaxis?.range;
+            const yRange = plot._fullLayout.yaxis?.range;
+            if (xRange) layout.xaxis = { ...layout.xaxis, range: [...xRange], autorange: false };
+            if (yRange && drawnYLabel === yLabel) {
+                layout.yaxis = { ...layout.yaxis, range: [...yRange], autorange: false };
+            }
+            layout.dragmode = plot._fullLayout.dragmode;
+        }
+        const viewRevision = `v-ase-rdf:${revision}`;
+        layout.xaxis = { ...layout.xaxis, uirevision: viewRevision };
+        layout.yaxis = { ...layout.yaxis, uirevision: `${revision}:${yLabel}` };
+        await window.Plotly.react(plot, traces, { ...layout, autosize: true, uirevision: viewRevision,
+            font: sized(layout.font),
+            annotations: layout.annotations?.map(note => ({ ...note, font: sized(note.font) })),
+            margin: Object.fromEntries(Object.entries(layout.margin || {}).map(([key, value]) => [key, value * scale])),
+        }, { responsive: true, displaylogo: false, scrollZoom: true, modeBarButtonsToRemove: ['lasso2d', 'select2d'] });
+        drawnRevision = revision;
+        drawnYLabel = yLabel;
+        panel.dataset.frame = String(index);
+    };
+
+    const requestDraw = () => {
+        if (rendering) return rendering;
+        rendering = Promise.resolve().then(async () => {
+            // Coalesce frame and resize requests while Plotly is busy; draw
+            // the most recent frame before leaving the queue.
+            for (;;) {
+                const scale = Math.min(host.clientWidth / capture.referenceWidth, host.clientHeight / capture.referenceHeight);
+                const next = `${frameIndex}:${resetRevision}:${scale}`;
+                if (!scale || next === lastDraw) break;
+                await draw(frameIndex, resetRevision, scale);
+                lastDraw = next;
+            }
+        }).finally(() => { rendering = null; });
+        return rendering;
+    };
+    const update = () => requestDraw().catch(error => console.warn('Could not draw the saved distribution.', error));
+    const ready = update();
+    new ResizeObserver(update).observe(host);
+    return {
+        ready,
+        updateFrame(index) {
+            frameIndex = index;
+            return update();
+        },
+        resetView() {
+            resetRevision += 1;
+            visibility.clear();
+            return update();
+        },
+    };
+}
+
+export function startStandaloneViewer(scene, projectBase64, rdfFrames = []) {
     const frames = Array.isArray(scene?.frames) ? scene.frames : [];
     if (!frames.length) throw new Error('The exported HTML contains no structure frames.');
 
@@ -198,6 +321,22 @@ export function startStandaloneViewer(scene, projectBase64) {
 
     let frameIndex = clampFrame(scene.currentFrame, frames.length);
     let timer = null;
+    const includeGraph = exportOptions.includeGraph ?? (display.energyOverlay?.visible === true);
+    const energy = scene.trajectoryEnergy && includeGraph
+        ? new TrajectoryEnergyOverlay(viewerFrame, { seek: index => {
+            stopPlayback();
+            if (index !== frameIndex) renderFrame(index);
+        }, capture: exportProfile.energyGraph,
+        backdrop: () => exportOptions.backgroundColor || '#ffffff' }) : null;
+    if (energy) {
+        energy.setSettings({ ...display.energyOverlay, visible: true });
+        energy.setData(scene.trajectoryEnergy);
+        if (exportProfile.energyGraph && scene.hasPoster) viewerFrame.dataset.energyInPoster = 'true';
+    }
+    const rdf = includeGraph ? mountStandaloneRdf(
+        viewerFrame, exportProfile.rdfGraph, rdfFrames, frameIndex, display.analysisPlots?.rdf?.style
+    ) : null;
+    if (rdf && scene.hasPoster) viewerFrame.dataset.rdfInPoster = 'true';
     const timeline = document.getElementById('timeline');
     const slider = document.getElementById('frame-slider');
     const frameLabel = document.getElementById('frame-label');
@@ -215,6 +354,8 @@ export function startStandaloneViewer(scene, projectBase64) {
         slider.setAttribute('aria-valuetext', `Frame ${frameIndex + 1} of ${frames.length}`);
         frameLabel.textContent = `${frameIndex + 1} / ${frames.length}`;
         document.documentElement.dataset.vAseFrame = String(frameIndex);
+        energy?.updateFrame(frameIndex);
+        rdf?.updateFrame(frameIndex);
     };
 
     const renderFrame = index => {
@@ -281,7 +422,11 @@ export function startStandaloneViewer(scene, projectBase64) {
         if (savedCamera) applyCamera(renderer, { camera: savedCamera });
         else renderer.fitCameraToStructure();
     };
-    document.getElementById('reset-view').addEventListener('click', resetCamera);
+    const resetView = () => {
+        resetCamera();
+        return rdf?.resetView();
+    };
+    document.getElementById('reset-view').addEventListener('click', resetView);
     const downloadProject = document.getElementById('download-project');
     downloadProject.hidden = !hasEmbeddedProject;
     if (hasEmbeddedProject) {
@@ -321,7 +466,7 @@ export function startStandaloneViewer(scene, projectBase64) {
             renderFrame(frameIndex + 1);
         } else if (event.key === 'Home') {
             event.preventDefault();
-            resetCamera();
+            resetView();
         }
     });
 
@@ -362,13 +507,15 @@ export function startStandaloneViewer(scene, projectBase64) {
             window.setTimeout(finish, 180);
         };
         document.documentElement.dataset.vAsePoster = 'ready';
-        window.requestAnimationFrame(() => {
+        (rdf?.ready || Promise.resolve()).catch(error => {
+            console.warn('Could not draw the saved distribution.', error);
+        }).then(() => window.requestAnimationFrame(() => {
             window.requestAnimationFrame(() => {
                 window.setTimeout(() => {
                     revealInteractiveCanvas({ showControls: false });
                 }, 32);
             });
-        });
+        }));
     }
 
     window.v_aseStandalone = {
@@ -380,6 +527,7 @@ export function startStandaloneViewer(scene, projectBase64) {
         },
         setFrame: renderFrame,
         resetCamera,
+        resetView,
         revealInteractiveCanvas,
         hasEmbeddedProject,
         projectBytes: () => (

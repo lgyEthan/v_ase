@@ -47,13 +47,19 @@ The render area defines the camera and crop used for image, video and HTML
 output. Open **Render → Renderer → Render area & scale**, choose the output
 width and height, and turn on the **Camera** icon to see the frame.
 
+Type in **Output scale** to zoom the structure in the canvas and change the
+output framing at the same time. This works in **Viewport** and **Physical
+scale**, with the frame visible or hidden. Doubling px/Å doubles the projected
+size in both views. In perspective, px/Å is measured at the camera target.
+
 | Control | When to use it |
 | --- | --- |
 | **Camera icon** | Show or hide the camera and frame. Turning it on returns to the saved camera view. The viewport and Renderer icons control the same object. |
 | **Align camera to current view** | Replace the output viewpoint with the view you have just arranged. |
 | **Lock camera to viewport** | Adjust the composition while keeping the frame on screen. Turn it off to inspect or edit the structure from another angle without moving the output camera. |
-| **Physical scale** | Set an exact output scale in pixels per Å. |
-| **Copy viewport scale** | Use the current viewing scale as a starting point for the output. |
+| **Viewport** | Keep the camera's vertical span when the output height changes. The field shows the resulting output px/Å. |
+| **Physical scale** | Keep the specified output px/Å when the output dimensions change. |
+| **Copy viewport scale** in the export dialog | Use the current viewing scale as a starting point for a physical-scale export. |
 
 The camera is fixed in the scene by default. Hiding it also turns off viewport
 lock, while retaining the saved composition. To return from another viewpoint,
@@ -66,18 +72,25 @@ Press **G** to move, **R** to rotate or **S** to scale it; use **X/Y/Z** for an
 axis constraint. **Enter** applies and **Esc** cancels. Camera transforms work in
 View and Edit modes and do not change atom coordinates.
 
-With **Lock camera to viewport** enabled, the frame stays in place while the
-scene moves within it. Scaling the frame changes physical output px/Å when that
-setting is enabled. Opening the right panel does not change the saved camera.
+With **S**, an axis that projects into the frame changes its width or height
+according to the projection. An axis along the camera's line of sight changes
+magnification. **Fix ratio** in **Render area & scale** keeps width and height
+proportional during an axis resize or a dimension edit. The option starts off.
+With **Lock camera to viewport** enabled, moving, rotating, or changing
+magnification keeps the frame in place while the scene moves within it.
 
 ### Choose what appears in the output
 
-Use **Objects** to show or hide atoms, bonds, cell, grid, axes and constraints.
-These choices also apply to rendering. Hiding constraint marks does not remove
-the underlying constraints.
+Use the visibility controls in **Scene** for atoms, bonds, cell, grid, axes and
+constraints. The Atoms eye hides glyphs only and retains bonds and constraints.
+These choices also apply to rendering. Constraint visibility is independent of
+constraint enforcement.
 
 Set **2D flat / 3D spheres** under **Style → Viewport** or the Renderer quality
-controls. Lighting and materials apply to 3D spheres, not flat 2D drawing.
+controls. In flat mode, **Outline width** sets one stroke width in Å for the
+atom rims and the bond edges. **Thickness** in Bonds sets the total ribbon
+width. **Atom & bond segments** controls geometry quality in both modes.
+Lighting and materials apply to 3D spheres.
 
 Image opens with exact dimensions, framing, background and format. Video and
 Interactive HTML expose their own format settings and export action. Expand **Advanced render settings** to change the same Render

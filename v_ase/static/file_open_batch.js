@@ -1,4 +1,4 @@
-import { projectProvenanceFromLoad } from './project_provenance.js?v=0.4.14';
+import { projectProvenanceFromLoad } from './project_provenance.js?v=0.5.1';
 
 const pause = () => new Promise(resolve => setTimeout(resolve, 100));
 const nameOf = entry => entry.name || entry.file?.name || entry.handle?.name || 'Untitled';

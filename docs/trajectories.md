@@ -38,6 +38,7 @@ Use the bottom timeline or keyboard:
 | Control | Action |
 | --- | --- |
 | `Space` | Play or pause the active timeline |
+| `Home` / `End` | Pause and jump to the first or last frame of the active timeline |
 | Option+Left/Right Arrow (macOS); Alt+Left/Right Arrow (Windows/Linux) | Previous or next active-timeline frame |
 | Previous/Next buttons | Step one frame |
 | **FPS** | Playback rate |
@@ -61,17 +62,38 @@ new tab. Appending keeps the active frame, camera, and visual state. Appending
 a `.vase` imports only its structures; replacing or opening it in a new tab
 restores the complete saved project.
 
+In **Edit structure**, right-click the timeline and choose **Delete current
+frame**. The next source frame becomes active. Deleting the last frame moves
+the timeline to the preceding one. When one frame remains it becomes a single
+structure. One Undo restores the removed frame, including its labels,
+properties, energies and forces.
+
 If appended frames introduce new labels, v_ase registers them without
 discarding existing appearance. A variable atom count or changed element order
 is allowed for inspection but limits identity propagation and some analysis.
 
 ## Frame identity and selection
 
-Selection persists by stable atom index when topology permits. For a stable
-atom count and element order, View-mode visual labels and atom-index appearance
-can follow the same particles through the trajectory. If topology is
-incompatible, v_ase exposes the mismatch and limits changes to valid frames
-instead of applying an incorrect identity globally.
+In **Selected atoms**, **Apply to → All frames** follows the selected indices.
+It is the default when each frame has the same atom count and element
+composition, and each selected index has the same element, effective label
+and any available atom ID. Label differences at unselected indices are
+allowed. v_ase shows the first incompatible frame and updates eligibility
+after frame deletion, Undo, Redo and selection changes. A deliberately
+chosen **Current frame only** remains selected.
+
+**Current frame only** asks for confirmation before updating the selected
+atoms. The edit invalidates label-based analysis results and retains stored
+energies and forces. The assigned labels and appearance survive View/Edit
+switches and project save and reopen.
+
+In **Per-label appearance**, editing the name replaces that exact label
+throughout the trajectory, even if frame sizes, compositions and order vary.
+Appearance and label-based rules move with a renamed label. A confirmed merge
+uses the destination label's settings. Expand a row to find **Delete label**.
+An unused label remains available until deleted. If it is used in a different
+frame, the row shows **Used in other frames**. Choose a destination for its
+atoms when deleting a label that is in use.
 
 Do not reuse an atom index merely because the viewport looks similar. Verify
 the active frame, count, labels, chemical elements, and any particle-ID array
