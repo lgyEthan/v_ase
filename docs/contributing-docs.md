@@ -140,11 +140,13 @@ Reference local, versioned assets rather than
 tagged manual display a newer image and can force a documentation build or
 reader to download a large animation remotely.
 
-The GitHub README is a separate, visual workflow tour and deliberately keeps
-its generated GIFs through `docs/assets/github/`. The Read the Docs manual uses the same exact captures plus cropped step stills.
-Run `python scripts/build_docs_walkthrough_assets.py` after regenerating source
-GIFs; inspect every extracted frame and update the manifest/captions if frame
-indices change. Keep scientific fixtures distinct from calculated material data.
+The GitHub README uses `docs/assets/github/` for its illustrated tour. The
+Read the Docs manual uses the same captures and adds cropped step images.
+After recording the GIFs, run
+`python scripts/build_docs_walkthrough_assets.py --steps-only` to refresh the
+step images and their manifest. Inspect each crop and update the selected frame
+and its caption when the demonstration changes. Run the command without
+`--steps-only` to rebuild the downloadable input fixtures as well.
 
 Scientific application examples use the exact PNG or GIF produced by the
 canonical capture run. Do not replace an analysis, isosurface, constraint,

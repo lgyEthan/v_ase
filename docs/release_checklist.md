@@ -46,6 +46,8 @@ and rendered examples in sync.
    `scripts/capture_readme_screenshots.py` and replace every README image and
    animation in both `docs/assets/` and `docs/assets/github/`, plus the logo
    payload at `docs/_interactive/scenes/logo.json`.
+   Run `python scripts/build_docs_walkthrough_assets.py --steps-only` to
+   regenerate the user guide's step images and frame manifest from those GIFs.
    Open the logo, constraint images, animation frames, and interactive logo
    to verify actual geometry, camera, lighting, clipping, and visibility.
 8. Generate and check the typed feature reference with

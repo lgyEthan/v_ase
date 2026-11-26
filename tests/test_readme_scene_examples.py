@@ -1,3 +1,4 @@
+from filecmp import cmp
 from pathlib import Path
 import re
 import runpy
@@ -552,9 +553,11 @@ def test_readme_shows_the_feature_walkthroughs():
     assets = image_pattern.findall(readme)
     assert len(assets) == len(set(assets))
     for asset in assets:
-        with Image.open(ROOT / "docs/assets/github" / asset) as image:
+        github_asset = ROOT / "docs/assets/github" / asset
+        with Image.open(github_asset) as image:
             if asset.endswith(".gif"):
                 assert image.is_animated, asset
+                assert cmp(github_asset, ROOT / "docs/assets" / asset, shallow=False), asset
             else:
                 image.verify()
 

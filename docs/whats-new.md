@@ -1,19 +1,42 @@
 # What is new
 
+(release-0-5-1)=
 ## 0.5.1
 
-- Save interactive HTML with a Finder thumbnail, lossless compression and an
-  optional editable project. Floating Plotly distributions follow playback,
-  and Reset saved view restores the camera, graph limits and legend.
-- Style individual Energy and Distribution series with shared graph controls.
-  Choose minimum-image or Cartesian NEB interpolation and export graphs to PNG
-  or CSV. Calculate distributions for slabs, wires and finite structures.
-- Duplicate, delete or match source frames. Scope selected atom appearance to
-  the current frame or all compatible frames and rename labels across a trajectory.
-- Open actions at the pointer in the viewport. Snap nearby edges when moving or
-  resizing graphs and when moving desktop windows.
-- Adjust a common outline width in flat 2D and hide atom glyphs while keeping
-  bonds and constraint guides visible.
+[Desktop downloads and versions](desktop.md#choose-a-download) ·
+[Python package on PyPI](https://pypi.org/project/v-ase-gui/0.5.1/) ·
+[Illustrated examples](worked-examples.md)
+
+- **Trajectories.** Duplicate a frame just after the current frame or append it
+  to the end. Delete the current source frame and restore it with Undo. Use
+  Home and End to jump to the first and last frames. Match atom order using
+  minimum-image, Cartesian, or SOAP-assisted matching.
+  [Trajectory controls](data-input.md#trajectory-tools)
+- **Atom labels.** Apply selected-atom appearance to the current frame or all
+  compatible frames. Rename a label across a trajectory while keeping its
+  appearance and updating the Distribution legend for a name-only change.
+  [Frame scope and label editing](trajectories.md#frame-identity-and-selection)
+- **Energy and distributions.** Click either graph to open shared settings for
+  series styles, fonts, tick labels, and live axis limits. Float or dock
+  analysis plots and align nearby floating edges as you move or resize them.
+  Choose periodic or Cartesian NEB paths, style force tangents, and export
+  graphs to PNG or CSV. Calculate pair distributions for bulk cells, slabs,
+  wires, and finite structures.
+  [Energy and NEB](data-input.md#neb-fits-and-force-tangents) · [Pair distributions](rdf.md)
+- **HTML and Finder.** Include floating plots in the preview and embedded
+  poster. Distributions in the offline viewer follow the exported frames.
+  **Reset saved view** restores the camera, graph limits, and legend.
+  Editable HTML restores the floating plot on reopening in v_ase.
+  Saving keeps the viewport framing steady and compresses embedded data when
+  it reduces size. Resave an older project to refresh its Finder thumbnail.
+  [Save and share](save-projects.md#html-view)
+- **Scene controls.** Right-click to choose actions at the pointer and right-drag
+  to pan. Hide atom glyphs while keeping bonds and constraint guides visible.
+  Adjust a shared outline width and segment quality in flat 2D.
+  [Viewport and overlays](workspace.md) · [Atom appearance](appearance.md)
+- **Blender.** Carry the saved camera, Sun settings, and materials into the
+  geometry export. Spheres use Shade Smooth in both export modes.
+  [Blender export](export-structures.md#blender)
 
 ## 0.4.14
 

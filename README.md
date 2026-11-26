@@ -17,6 +17,9 @@ or in Jupyter.
 **[Download for macOS or Windows](https://v-ase.readthedocs.io/en/latest/desktop.html#choose-a-download)**
 
 Choose the installer or ZIP for your computer. The desktop app includes Python.
+The workflow GIFs below were recorded in **v_ase 0.5.1**.
+[What's new in 0.5.1](https://v-ase.readthedocs.io/en/latest/whats-new.html#release-0-5-1) ·
+[Worked examples](https://v-ase.readthedocs.io/en/latest/worked-examples.html)
 
 ### Python and Jupyter
 

@@ -51,7 +51,8 @@ input is a seeded hard-core distribution, not an equilibrium glass. Repulsion
 relaxations condition geometry; they do not establish material stability.
 Literature-derived example sources are recorded in [Worked examples](worked-examples.md).
 
-Step images are cropped frames of the existing README GIFs. Their source hashes,
-frame indices, timestamps and crops are recorded in the
-{download}`frame manifest <assets/steps/manifest.json>`. They show sampled animation
-states; captions distinguish them from exact typed endpoint commands.
+Step images come from the same 0.5.1 GIFs used in the GitHub README. The
+{download}`frame manifest <assets/steps/manifest.json>`
+records the source hashes, frame indices, timestamps and crops. The
+[HTML poster example](save-projects.md#example-send-an-interactive-surface-figure)
+comes directly from the HTML exporter.

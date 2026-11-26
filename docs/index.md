@@ -1,10 +1,12 @@
 # v_ase user guide
 
-Build, explore and present atomic structures, trajectories and volumetric data.
-Start with the desktop app or use v_ase from Python and Jupyter.
+Build, explore and present atomic structures, trajectories and volumetric data
+with **v_ase 0.5.1**. The desktop download table lists the installer version
+available for each platform.
 
-[Install v_ase](installation.md) · [First steps](quickstart.md) ·
-[Example files](example-inputs.md) · [Keyboard shortcuts](shortcuts.md)
+[Desktop downloads](desktop.md#choose-a-download) · [Install with Python](installation.md#python-installation) ·
+[First steps](quickstart.md) · [Worked examples](worked-examples.md) ·
+[Example files](example-inputs.md) · {ref}`What's new in 0.5.1 <release-0-5-1>`
 
 ```{vase-demo} logo
 :alt: Interactive v_ase atom logo
@@ -26,7 +28,7 @@ Start with the desktop app or use v_ase from Python and Jupyter.
 | Move, rotate or add atoms | [Move](move.md) · [Rotate](rotate.md) · [Build](build-atoms.md) |
 | Hold atoms fixed and relax a structure | [Constraints](constraints.md) · [Relaxation](relaxation.md) |
 | Work with periodic cells and interfaces | [Cell tools](cell-tools.md) · [Commensurate cells](commensurate.md) · [Registry maps](registry.md) |
-| Inspect simulation results | [Trajectories](trajectories.md) · [RDF](rdf.md) · [Force vectors](vectors.md) |
+| Inspect simulation results | [Trajectories](trajectories.md) · [Energy and NEB](data-input.md#neb-fits-and-force-tangents) · [RDF](rdf.md) · [Force vectors](vectors.md) |
 | Explore volumetric data | [Isosurfaces](isosurfaces.md) · [Cross-sections](field-planes.md) |
 | Save a project or share a figure | [Projects and HTML](save-projects.md) · [Images](render-images.md) · [Movies and GIFs](export-video.md) |
 | Continue a scene in Blender | [3D export](export-structures.md#blender) |
@@ -35,9 +37,7 @@ Start with the desktop app or use v_ase from Python and Jupyter.
 Each guide includes the controls and examples for that task. If something does
 not work, start with [Troubleshooting](troubleshooting.md).
 
-This manual describes **v_ase 0.5.1**. Get the matching Python package from
-[PyPI](https://pypi.org/project/v-ase-gui/0.5.1/). The desktop download page
-lists the platform installers and their versions. [What's new](whats-new.md).
+Find keyboard controls for any workflow in [Keyboard shortcuts](shortcuts.md).
 
 ```{toctree}
 :caption: Get started

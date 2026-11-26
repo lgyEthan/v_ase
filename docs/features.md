@@ -770,7 +770,7 @@ the View/Edit visual translation saved in display settings.
 - Rhino 3DM: block-instanced atoms/bonds with metadata and saved views; optional
   `rhino3dm` dependency.
 - OBJ: static OBJ/MTL plus camera/metadata JSON sidecar; no optional dependency.
-- RDF CSV: radius, total `g(r)`, and requested partial curves.
+- RDF CSV exports the radius, total distribution, and requested label-pair curves.
 
 Blender's optimized mode intentionally avoids one object per atom. Individual
 objects remain available only when atom-by-atom Blender editing is required.

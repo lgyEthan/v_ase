@@ -3,6 +3,7 @@
 Run from a source checkout after capture_readme_screenshots.py. No synthetic
 overlays or new camera poses are introduced into the extracted images.
 """
+import argparse
 from pathlib import Path
 import hashlib
 import json
@@ -16,9 +17,8 @@ sys.path.insert(0, str(ROOT))
 ASSETS = ROOT / "docs" / "assets"
 # Frame indices refer to decoded GIF frames (duplicate holds may be merged).
 STILLS = {
-    "html-preview": ("html_quicklook", 0, None),
-    "move-start": ("fixedline", 0, (160, 160, 1700, 790)),
-    "move-positive": ("fixedline", 8, (160, 160, 1700, 790)),
+    "move-start": ("fixedline", 1, (160, 160, 1700, 790)),
+    "move-positive": ("fixedline", 10, (160, 160, 1700, 790)),
     "move-negative": ("fixedline", 25, (160, 160, 1700, 790)),
     "rotate-start": ("ferrocene_pivot", 0, (390, 95, 1915, 970)),
     "rotate-z": ("ferrocene_pivot", 14, (390, 95, 1915, 970)),
@@ -27,17 +27,24 @@ STILLS = {
     "plane-move": ("fixedplane", 19, (165, 100, 1915, 1000)),
     "twist-select": ("phosphorene_twist", 20, (0, 60, 1915, 1000)),
     "twist-rotate": ("phosphorene_twist", 41, (0, 60, 1915, 1000)),
-    "twist-result": ("phosphorene_twist", 62, (0, 60, 1915, 1000)),
+    "twist-result": ("phosphorene_twist", -1, (0, 60, 1915, 1000)),
 }
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--steps-only", action="store_true",
+                        help="Refresh the frame crops and their manifest.")
+    args = parser.parse_args()
+
     output = ASSETS / "steps"
     output.mkdir(exist_ok=True)
     manifest = []
     for name, (scene, index, crop) in STILLS.items():
         source = ASSETS / f"readme_{scene}.gif"
         with Image.open(source) as gif:
+            if index == -1:
+                index = gif.n_frames - 1
             elapsed = 0
             for frame in range(index + 1):
                 gif.seek(frame)
@@ -48,6 +55,10 @@ def main():
                          "source_sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
                          "frame": index, "time_ms": elapsed, "crop": crop})
     (output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+
+    if args.steps_only:
+        print(f"Wrote {len(manifest)} walkthrough stills and their frame manifest.")
+        return
 
     from ase.io import write
     from examples import readme_scenes as scenes

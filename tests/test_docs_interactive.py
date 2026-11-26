@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from hashlib import sha256
 import json
 import re
 import tomllib
@@ -85,6 +86,23 @@ def test_only_logo_is_live_and_scientific_captures_are_static():
     scene_dir = DOCS / "_interactive" / "scenes"
     scene_files = {path.stem for path in scene_dir.glob("*.json")}
     assert scene_files == {"logo"}
+
+
+def test_walkthrough_stills_match_the_published_gif_sources():
+    from PIL import Image
+
+    assets = DOCS / "assets"
+    steps = assets / "steps"
+    manifest = json.loads((steps / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest
+    for still in manifest:
+        source = assets / still["source"]
+        assert sha256(source.read_bytes()).hexdigest() == still["source_sha256"]
+        with Image.open(source) as gif, Image.open(steps / still["file"]) as png:
+            gif.seek(still["frame"])
+            crop = gif.convert("RGB").crop(still["crop"])
+            assert crop.size == png.size, still["file"]
+            assert crop.tobytes() == png.convert("RGB").tobytes(), still["file"]
 
 
 def test_interactive_scene_payloads_and_distribution_contract():

@@ -25,6 +25,10 @@ Python environment on another system, use [Python installation](installation.md#
 3. Eject the disk image, then open **v_ase** from **Applications**.
 4. Choose **File → Open** (`Command+O`) to open your structure or project.
 
+For a per-user installation, select the ZIP in the download table and move
+the extracted **v_ase.app** to `~/Applications`.
+[ZIP installation](#zip-downloads-and-checksums)
+
 The Mac app is signed and notarized. A first-launch confirmation that the app
 was downloaded from the internet is normal; choose **Open** if you downloaded
 it from the release linked above.

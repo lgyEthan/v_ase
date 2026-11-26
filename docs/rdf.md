@@ -50,10 +50,12 @@ Renaming a label to a new name updates the affected curve names and keeps the
 calculated distances, series styles, and graph placement. A saved style preset
 can be applied to another graph of the same type.
 
-A floating distribution appears in image renders and in the HTML preview,
-poster, and offline viewer when **Include graph** is selected. The offline plot
-contains the distribution from the frame analyzed at export and supports zoom
-and legend toggles.
+A floating distribution appears in image renders. In HTML export, select
+**Include graph** to include it in the preview, poster, and offline viewer.
+The offline plot follows the exported trajectory during playback and seeking.
+Zoom, pan, and legend choices persist as you move between frames. Use **Reset
+saved view** to restore the saved graph limits and legend for the displayed frame.
+[Exporting and reopening HTML](save-projects.md#html-view)
 
 The histogram includes distances on its final edge within floating-point
 tolerance. For periodic data, the search includes every image inside the

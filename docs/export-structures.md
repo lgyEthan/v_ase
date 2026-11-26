@@ -11,7 +11,7 @@ ASE Pickle are also available from the File commands.
 | --- | --- |
 | POSCAR | Current physical ASE structure in VASP format |
 | ASE Pickle | Current `Atoms`, labels, constraints, arrays, and safe stored calculator results |
-| RDF CSV | Radius, total `g(r)`, and requested partial curves |
+| RDF CSV | Radius, total distribution, and requested label-pair curves |
 | Commensurate CSV | Candidate angles/matrices, area ratios, residual strain, search metadata |
 | Registry CSV | Complete translation grid, plane basis, Cartesian vectors, metric values |
 
