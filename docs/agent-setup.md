@@ -11,7 +11,7 @@ runtime to the Skill tag below. For a development snapshot, use its exact commit
 
 | Your runtime | Skill source |
 | --- | --- |
-| PyPI **0.5.1** | `lgyEthan/v_ase@v0.5.1` |
+| Windows desktop app or PyPI **0.5.1** | `lgyEthan/v_ase@v0.5.1` |
 | Desktop app or PyPI **0.4.14** | `lgyEthan/v_ase@v0.4.14` |
 | Older desktop app or PyPI **0.4.13** | `lgyEthan/v_ase@v0.4.13` |
 | Current Python development source | The same commit or `lgyEthan/v_ase` for matching `main` |

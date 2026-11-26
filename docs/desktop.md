@@ -9,7 +9,7 @@ the scientific tools and uses your system's file dialogs and keyboard shortcuts.
 | --- | --- | --- | --- |
 | Apple silicon Mac (M-series), macOS 15+ | 0.4.14 | [DMG](https://github.com/lgyEthan/v_ase/releases/download/v0.4.14/v_ase-0.4.14-mac-arm64.dmg) | [ZIP](https://github.com/lgyEthan/v_ase/releases/download/v0.4.14/v_ase-0.4.14-mac-arm64.zip) |
 | Intel Mac, macOS 15+ | 0.4.14 | [DMG](https://github.com/lgyEthan/v_ase/releases/download/v0.4.14/v_ase-0.4.14-mac-x64.dmg) | [ZIP](https://github.com/lgyEthan/v_ase/releases/download/v0.4.14/v_ase-0.4.14-mac-x64.zip) |
-| Windows 10/11, Intel or AMD 64-bit | 0.4.14 | [EXE](https://github.com/lgyEthan/v_ase/releases/download/v0.4.14/v_ase-0.4.14-win-x64.exe) | [ZIP](https://github.com/lgyEthan/v_ase/releases/download/v0.4.14/v_ase-0.4.14-win-x64.zip) |
+| Windows 10/11, Intel or AMD 64-bit | 0.5.1 | [EXE](https://github.com/lgyEthan/v_ase/releases/download/v0.5.1/v_ase-0.5.1-win-x64.exe) | [ZIP](https://github.com/lgyEthan/v_ase/releases/download/v0.5.1/v_ase-0.5.1-win-x64.zip) |
 
 The [Python installation](installation.md#python-installation) provides **0.5.1**.
 
@@ -125,17 +125,20 @@ to `~/Applications` or another folder you own and open it there. On Windows, run
 **v_ase.exe** from the extracted folder with its adjacent files.
 The Windows ZIP does not create Start-menu entries or file associations.
 
-If a download appears incomplete, download it again. You can check its integrity
-against [desktop-SHA256SUMS.txt](https://github.com/lgyEthan/v_ase/releases/download/v0.4.14/desktop-SHA256SUMS.txt):
+If a download appears incomplete, download it again. To check a Mac download,
+compare its hash with the [macOS 0.4.14 checksums](https://github.com/lgyEthan/v_ase/releases/download/v0.4.14/desktop-SHA256SUMS.txt).
 
 ```bash
 # macOS; use mac-x64 for an Intel download
 shasum -a 256 v_ase-0.4.14-mac-arm64.dmg
 ```
 
+For Windows, compare with the SHA-256 next to the file under **Assets** on the
+[0.5.1 release page](https://github.com/lgyEthan/v_ase/releases/tag/v0.5.1).
+
 ```powershell
 # Windows
-Get-FileHash .\v_ase-0.4.14-win-x64.exe -Algorithm SHA256
+Get-FileHash .\v_ase-0.5.1-win-x64.exe -Algorithm SHA256
 ```
 
 ## Python, Jupyter and agents

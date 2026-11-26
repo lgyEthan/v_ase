@@ -7,10 +7,11 @@ URL. Its private dependencies do not replace pip/Conda/Jupyter environments.
 A cloud agent still needs the documented MCP/tunnel setup; its own localhost
 cannot reach a person's desktop app.
 
-For desktop installation, use the [step-by-step user guide](https://v-ase.readthedocs.io/en/latest/desktop.html).
-The 0.4.14 downloads are Mac DMGs (Apple silicon or Intel, macOS 15+) and a
-Windows x64 EXE installer (Windows 10/11). Mac users copy the app to Applications;
-Windows users complete the installer and launch from Start. ZIPs require full
+For desktop installation and current download versions, use the
+[step-by-step user guide](https://v-ase.readthedocs.io/en/latest/desktop.html).
+Choose a DMG for Apple silicon or Intel (macOS 15+) or the Windows x64 EXE
+installer (Windows 10/11). Mac users copy the app to Applications. Windows users
+complete the installer and launch from Start. ZIPs require full
 extraction; the Windows ZIP does not install file associations. Check the
 guide and release notes for the current platform-specific signing status and
 checksums. Apple Developer ID signing and notarization apply to the Mac app;
